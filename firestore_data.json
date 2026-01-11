@@ -1,0 +1,1867 @@
+{
+  "metadata": {
+    "exportedAt": "2026-01-03T12:10:53.164Z",
+    "firebase": {
+      "projectId": "adtu-bus-xq"
+    },
+    "version": "1.0.0"
+  },
+  "collections": {
+    "users": {
+      "documents": {
+        "6oQXSXaHiYcZ5aq6sVKWPuiJIHk1": {
+          "email": "prsjya@gmail.com",
+          "role": "student",
+          "uid": "6oQXSXaHiYcZ5aq6sVKWPuiJIHk1",
+          "name": "Prachurjya Bhattacharyya",
+          "createdAt": "2025-12-30T13:45:32.730Z"
+        },
+        "7UrEgGW0FAgWiK7IOTL5kpzBhMP2": {
+          "createdAt": "2025-12-30T12:23:25.838Z",
+          "name": "Dj Alok",
+          "email": "dhimansaikia.genai@gmail.com",
+          "uid": "7UrEgGW0FAgWiK7IOTL5kpzBhMP2",
+          "role": "student"
+        },
+        "DFv3hxs24SVQLZT9gFAYuZkGJuj2": {
+          "uid": "DFv3hxs24SVQLZT9gFAYuZkGJuj2",
+          "name": "Caroline",
+          "createdAt": "2025-12-30T17:19:34.368Z",
+          "role": "driver",
+          "email": "renupatowary2@gmail.com"
+        },
+        "KDLgyj1XNfWCTG2eD5vy9PlWRrP2": {
+          "uid": "KDLgyj1XNfWCTG2eD5vy9PlWRrP2",
+          "email": "shivdj519@gmail.com",
+          "name": "DJ Alok",
+          "role": "moderator",
+          "createdAt": "2025-11-02T13:39:13.037Z"
+        },
+        "VbnpJj5je4dTj5DtCXlEjMtIQC02": {
+          "uid": "VbnpJj5je4dTj5DtCXlEjMtIQC02",
+          "createdAt": "2025-12-30T14:08:33.659Z",
+          "name": "Prachurjya",
+          "email": "prachurjyabhattacharyya@gmail.com",
+          "role": "driver"
+        },
+        "dqUm2EChaadt5JztCqly36HiKWr1": {
+          "name": "Hayato",
+          "email": "dhimansaikia.btechibm@adtu.in",
+          "role": "student",
+          "createdAt": "2025-12-30T06:25:10.264Z",
+          "uid": "dqUm2EChaadt5JztCqly36HiKWr1"
+        },
+        "gKvJUi4bZqUGzJN81Vj5YzYsVSV2": {
+          "createdAt": "2025-12-29T13:36:10.770Z",
+          "uid": "gKvJUi4bZqUGzJN81Vj5YzYsVSV2",
+          "email": "s.b.stationery588@gmail.com",
+          "name": "Captain America",
+          "role": "driver"
+        },
+        "ieGHGC2wj7NFCkpa6t0lMlD7PYE2": {
+          "uid": "ieGHGC2wj7NFCkpa6t0lMlD7PYE2",
+          "email": "dhimansaikia2007@gmail.com",
+          "name": "Dhiman Saikia",
+          "createdAt": {
+            "_type": "timestamp",
+            "value": "2025-10-04T16:38:35.285Z"
+          },
+          "role": "admin"
+        },
+        "mP1F0Zu8sXUCu9ZpJXXq7FGJxlS2": {
+          "createdAt": "2025-12-29T13:37:19.998Z",
+          "role": "driver",
+          "email": "binoysaikia588@gmail.com",
+          "name": "Thor",
+          "uid": "mP1F0Zu8sXUCu9ZpJXXq7FGJxlS2"
+        }
+      },
+      "count": 9
+    },
+    "students": {
+      "documents": {
+        "6oQXSXaHiYcZ5aq6sVKWPuiJIHk1": {
+          "status": "active",
+          "email": "prsjya@gmail.com",
+          "bloodGroup": "O+",
+          "stopId": "hatigaon",
+          "faculty": "Faculty of Computer Technology",
+          "sessionStartYear": 2025,
+          "shift": "Morning",
+          "sessionEndYear": 2027,
+          "approvedById": "KDLgyj1XNfWCTG2eD5vy9PlWRrP2",
+          "approvedBy": "Moderator",
+          "busId": "bus_6",
+          "durationYears": 2,
+          "department": "B.Tech. in Computer Science and Engineering on Data Science and Artificial Intelligence",
+          "phoneNumber": "9864692794",
+          "gender": "male",
+          "uid": "6oQXSXaHiYcZ5aq6sVKWPuiJIHk1",
+          "validUntil": "2027-06-30T18:29:59.999Z",
+          "dob": "2003-12-19",
+          "role": "student",
+          "routeId": "route_6",
+          "approvedAt": {
+            "_type": "timestamp",
+            "value": "2025-12-30T13:45:32.729Z"
+          },
+          "createdAt": {
+            "_type": "timestamp",
+            "value": "2025-12-30T13:45:32.729Z"
+          },
+          "paymentAmount": 10000,
+          "paid_on": {
+            "_type": "timestamp",
+            "value": "2025-12-30T13:45:32.729Z"
+          },
+          "profilePhotoUrl": "https://res.cloudinary.com/dg44auhjb/image/upload/v1767110604/ADTU/profile_1767110589630_7758.jpg",
+          "pickupPoint": "Hatigaon",
+          "enrollmentId": "ADTU/0/2024-28/BCSM/29",
+          "address": "Singapore",
+          "busAssigned": "Bus-6 (AS-01-SC-1392)",
+          "alternatePhone": "9764287624",
+          "fullName": "Jota ",
+          "sessionDuration": 1,
+          "parentPhone": "8436021436",
+          "parentName": "Garena",
+          "phone": "9864692794",
+          "name": "Jota ",
+          "semester": "4th Semester",
+          "age": 22,
+          "updatedAt": "2025-12-30T16:03:14.906Z"
+        },
+        "7UrEgGW0FAgWiK7IOTL5kpzBhMP2": {
+          "paymentAmount": 5000,
+          "validUntil": "2026-06-30T18:29:59.999Z",
+          "sessionEndYear": 2026,
+          "parentPhone": "6002717101",
+          "gender": "male",
+          "enrollmentId": "ADTU/0/2024-28/BCSM/045",
+          "semester": "5th Semester",
+          "profilePhotoUrl": "https://res.cloudinary.com/dg44auhjb/image/upload/v1767097348/adtu/cq7intx6ymgncvkm7fd5.jpg",
+          "role": "student",
+          "parentName": "Garena",
+          "email": "dhimansaikia.genai@gmail.com",
+          "bloodGroup": "B-",
+          "approvedAt": {
+            "_type": "timestamp",
+            "value": "2025-12-30T12:23:25.837Z"
+          },
+          "durationYears": 1,
+          "paid_on": {
+            "_type": "timestamp",
+            "value": "2025-12-30T12:23:25.837Z"
+          },
+          "age": "15",
+          "address": "Guwahati",
+          "fullName": "Dj Alok",
+          "approvedBy": "Moderator",
+          "approvedById": "KDLgyj1XNfWCTG2eD5vy9PlWRrP2",
+          "phoneNumber": "9864224624",
+          "faculty": "Faculty of Pharmaceutical Science",
+          "sessionStartYear": 2025,
+          "department": "Master of Pharmacy (Pharmacology)",
+          "shift": "Evening",
+          "alternatePhone": "8436038329",
+          "updatedAt": {
+            "_type": "timestamp",
+            "value": "2025-12-30T12:23:25.837Z"
+          },
+          "status": "active",
+          "dob": "2010-01-13",
+          "stopId": "ganeshguri",
+          "routeId": "route_6",
+          "uid": "7UrEgGW0FAgWiK7IOTL5kpzBhMP2",
+          "busId": "bus_6",
+          "createdAt": {
+            "_type": "timestamp",
+            "value": "2025-12-30T12:23:25.837Z"
+          }
+        },
+        "dqUm2EChaadt5JztCqly36HiKWr1": {
+          "durationYears": 1,
+          "approvedById": "KDLgyj1XNfWCTG2eD5vy9PlWRrP2",
+          "approvedBy": "Moderator",
+          "sessionStartYear": 2025,
+          "enrollmentId": "ADTU/0/2024-28/BCTM/001",
+          "faculty": "Faculty of Commerce and Management",
+          "profilePhotoUrl": "https://res.cloudinary.com/dg44auhjb/image/upload/v1767075894/adtu/sbifxgfbzkadauqdlnx1.jpg",
+          "address": "Singapore ",
+          "createdAt": {
+            "_type": "timestamp",
+            "value": "2025-12-30T06:25:10.264Z"
+          },
+          "validUntil": "2026-06-30T18:29:59.999Z",
+          "parentName": "Garena",
+          "bloodGroup": "O+",
+          "age": "13",
+          "paid_on": {
+            "_type": "timestamp",
+            "value": "2025-12-30T06:25:10.264Z"
+          },
+          "department": "Master of Business Administration on System Application and Production",
+          "stopId": "ganeshguri",
+          "parentPhone": "6002717101",
+          "dob": "2012-09-11",
+          "semester": "5th Semester",
+          "role": "student",
+          "approvedAt": {
+            "_type": "timestamp",
+            "value": "2025-12-30T06:25:10.264Z"
+          },
+          "paymentAmount": 5000,
+          "fullName": "Hayato",
+          "uid": "dqUm2EChaadt5JztCqly36HiKWr1",
+          "sessionEndYear": 2026,
+          "phoneNumber": "6900825830",
+          "gender": "male",
+          "alternatePhone": "6002717101",
+          "status": "active",
+          "shift": "Morning",
+          "email": "dhimansaikia.btechibm@adtu.in",
+          "routeId": "route_5",
+          "updatedAt": {
+            "_type": "timestamp",
+            "value": "2025-12-30T16:10:21.911Z"
+          },
+          "busId": "bus_6",
+          "studentName": "Hayato"
+        }
+      },
+      "count": 3
+    },
+    "drivers": {
+      "documents": {
+        "DFv3hxs24SVQLZT9gFAYuZkGJuj2": {
+          "address": "Singapore",
+          "aadharNumber": "787922465827",
+          "status": "active",
+          "createdAt": "2025-12-30T17:19:34.368Z",
+          "phone": "6002717101",
+          "fullName": "Caroline",
+          "driverId": "DB-04",
+          "joiningDate": "2020-01-22",
+          "shift": "Morning & Evening",
+          "email": "renupatowary2@gmail.com",
+          "dob": "1971-04-23",
+          "uid": "DFv3hxs24SVQLZT9gFAYuZkGJuj2",
+          "altPhone": "9864224624",
+          "profilePhotoUrl": "https://res.cloudinary.com/dg44auhjb/image/upload/v1767115186/adtu/knki8sgsi9dcb6bpaioi.jpg",
+          "licenseNumber": "FG01202E00123R",
+          "approvedBy": "Dhiman Saikia (Admin)",
+          "isReserved": false,
+          "busId": "bus_6",
+          "assignedRouteId": "route_6",
+          "routeId": "route_6",
+          "updatedBy": "KDLgyj1XNfWCTG2eD5vy9PlWRrP2",
+          "assignedBusId": "bus_6",
+          "updatedAt": {
+            "_type": "timestamp",
+            "value": "2025-12-31T13:35:51.759Z"
+          }
+        },
+        "VbnpJj5je4dTj5DtCXlEjMtIQC02": {
+          "uid": "VbnpJj5je4dTj5DtCXlEjMtIQC02",
+          "joiningDate": "2017-03-28",
+          "dob": "1972-05-23",
+          "approvedBy": "DJ Alok (ADMIN)",
+          "altPhone": "6002717101",
+          "aadharNumber": "16838948324",
+          "driverId": "DB-03",
+          "email": "prachurjyabhattacharyya@gmail.com",
+          "licenseNumber": "DL01202X9j9",
+          "createdAt": "2025-12-30T14:08:33.800Z",
+          "shift": "Morning & Evening",
+          "phone": "9864224621",
+          "profilePhotoUrl": "https://res.cloudinary.com/dg44auhjb/image/upload/v1767106183/ADTU/profile_1767106167760_5096.jpg",
+          "address": "California",
+          "alternatePhone": "6002717101",
+          "fullName": "Iron Man",
+          "employeeId": "DB-03",
+          "updatedBy": "ieGHGC2wj7NFCkpa6t0lMlD7PYE2",
+          "isReserved": false,
+          "status": "active",
+          "busId": "bus_1",
+          "assignedRouteId": "route_1",
+          "routeId": "route_1",
+          "assignedBusId": "bus_1",
+          "updatedAt": {
+            "_type": "timestamp",
+            "value": "2025-12-30T17:20:35.347Z"
+          }
+        },
+        "gKvJUi4bZqUGzJN81Vj5YzYsVSV2": {
+          "approvedBy": "Dhiman Saikia (ADMIN)",
+          "dob": "1971-04-23",
+          "profilePhotoUrl": "https://res.cloudinary.com/dg44auhjb/image/upload/v1767015368/adtu/b5uphxepkbdppykgoiny.jpg",
+          "phone": "6002717101",
+          "email": "s.b.stationery588@gmail.com",
+          "fullName": "Captain America",
+          "address": "Japorigog, Guwahati - 781005",
+          "joiningDate": "2020-01-22",
+          "aadharNumber": "787922465827",
+          "driverId": "DB-01",
+          "status": "active",
+          "shift": "Morning & Evening",
+          "createdAt": "2025-12-29T13:36:10.770Z",
+          "altPhone": "9864224624",
+          "uid": "gKvJUi4bZqUGzJN81Vj5YzYsVSV2",
+          "licenseNumber": "FG01202E00123R",
+          "busId": "bus_5",
+          "assignedRouteId": "route_5",
+          "routeId": "route_5",
+          "updatedBy": "KDLgyj1XNfWCTG2eD5vy9PlWRrP2",
+          "assignedBusId": "bus_5",
+          "isReserved": false,
+          "updatedAt": {
+            "_type": "timestamp",
+            "value": "2025-12-31T13:35:51.759Z"
+          }
+        },
+        "mP1F0Zu8sXUCu9ZpJXXq7FGJxlS2": {
+          "fullName": "Thor",
+          "email": "binoysaikia588@gmail.com",
+          "driverId": "DB-02",
+          "profilePhotoUrl": "https://res.cloudinary.com/dg44auhjb/image/upload/v1767015447/adtu/tzwguxmpgsdjlscxlen6.jpg",
+          "shift": "Morning & Evening",
+          "dob": "1972-08-16",
+          "phone": "6002717101",
+          "altPhone": "9764287624",
+          "uid": "mP1F0Zu8sXUCu9ZpJXXq7FGJxlS2",
+          "licenseNumber": "DL0120240000123",
+          "status": "active",
+          "createdAt": "2025-12-29T13:37:20.110Z",
+          "address": "Ragnarok",
+          "joiningDate": "2017-03-14",
+          "approvedBy": "DJ Alok (MB-01)",
+          "aadharNumber": "168381561343",
+          "busId": null,
+          "assignedRouteId": null,
+          "routeId": null,
+          "assignedBusId": null,
+          "updatedAt": {
+            "_type": "timestamp",
+            "value": "2025-12-30T14:31:43.596Z"
+          }
+        }
+      },
+      "count": 4
+    },
+    "buses": {
+      "documents": {
+        "bus_1": {
+          "busId": "bus_1",
+          "color": "White",
+          "routeId": "route_1",
+          "shift": "Both",
+          "status": "Active",
+          "createdAt": {
+            "_type": "timestamp",
+            "value": "2025-10-21T07:56:48.356Z"
+          },
+          "busNumber": "AS-01-PC-9094",
+          "activeTripId": null,
+          "capacity": 55,
+          "routeRef": {
+            "_type": "reference",
+            "path": "routes/route_1"
+          },
+          "load": {
+            "eveningCount": 0,
+            "morningCount": 0
+          },
+          "currentMembers": 0,
+          "updatedBy": "ieGHGC2wj7NFCkpa6t0lMlD7PYE2",
+          "activeDriverId": "VbnpJj5je4dTj5DtCXlEjMtIQC02",
+          "assignedDriverId": "VbnpJj5je4dTj5DtCXlEjMtIQC02",
+          "updatedAt": {
+            "_type": "timestamp",
+            "value": "2025-12-30T17:20:35.347Z"
+          }
+        },
+        "bus_10": {
+          "busId": "bus_10",
+          "busNumber": "AS-01-QC-8040",
+          "color": "White",
+          "shift": "Morning",
+          "status": "Active",
+          "createdAt": {
+            "_type": "timestamp",
+            "value": "2025-10-21T07:56:48.356Z"
+          },
+          "activeTripId": null,
+          "capacity": 55,
+          "load": {
+            "morningCount": 0,
+            "eveningCount": 0
+          },
+          "currentMembers": 0,
+          "routeId": "route_7",
+          "routeRef": {
+            "_type": "reference",
+            "path": "routes/route_7"
+          },
+          "updatedBy": "ieGHGC2wj7NFCkpa6t0lMlD7PYE2",
+          "updatedAt": {
+            "_type": "timestamp",
+            "value": "2025-12-29T12:40:49.204Z"
+          },
+          "activeDriverId": null,
+          "assignedDriverId": null
+        },
+        "bus_11": {
+          "busId": "bus_11",
+          "color": "White",
+          "shift": "Morning",
+          "status": "Active",
+          "createdAt": {
+            "_type": "timestamp",
+            "value": "2025-10-21T07:56:48.356Z"
+          },
+          "busNumber": "AS-01-QC-7872",
+          "activeTripId": null,
+          "capacity": 55,
+          "load": {
+            "morningCount": 0,
+            "eveningCount": 0
+          },
+          "currentMembers": 0,
+          "routeId": "route_7",
+          "routeRef": {
+            "_type": "reference",
+            "path": "routes/route_7"
+          },
+          "updatedBy": "ieGHGC2wj7NFCkpa6t0lMlD7PYE2",
+          "activeDriverId": null,
+          "assignedDriverId": null,
+          "updatedAt": {
+            "_type": "timestamp",
+            "value": "2025-12-29T09:17:23.251Z"
+          }
+        },
+        "bus_2": {
+          "busId": "bus_2",
+          "routeId": "route_2",
+          "shift": "Both",
+          "status": "Active",
+          "createdAt": {
+            "_type": "timestamp",
+            "value": "2025-10-21T07:56:48.356Z"
+          },
+          "busNumber": "AS-01-PC-9095",
+          "color": "White",
+          "activeTripId": null,
+          "capacity": 55,
+          "load": {
+            "morningCount": 0,
+            "eveningCount": 0
+          },
+          "currentMembers": 0,
+          "routeRef": {
+            "_type": "reference",
+            "path": "routes/route_2"
+          },
+          "updatedAt": {
+            "_type": "timestamp",
+            "value": "2025-12-22T05:12:48.655Z"
+          },
+          "assignedDriverId": null,
+          "activeDriverId": null
+        },
+        "bus_3": {
+          "busId": "bus_3",
+          "routeId": "route_3",
+          "shift": "Morning",
+          "status": "Active",
+          "createdAt": {
+            "_type": "timestamp",
+            "value": "2025-10-21T07:56:48.356Z"
+          },
+          "busNumber": "AS-01-LC-5321",
+          "color": "Yellow",
+          "activeTripId": null,
+          "capacity": 55,
+          "load": {
+            "morningCount": 0,
+            "eveningCount": 0
+          },
+          "currentMembers": 0,
+          "routeRef": {
+            "_type": "reference",
+            "path": "routes/route_3"
+          },
+          "updatedAt": {
+            "_type": "timestamp",
+            "value": "2025-12-22T05:12:48.655Z"
+          },
+          "activeDriverId": null,
+          "assignedDriverId": null
+        },
+        "bus_4": {
+          "busId": "bus_4",
+          "color": "White",
+          "routeId": "route_4",
+          "shift": "Both",
+          "status": "Active",
+          "createdAt": {
+            "_type": "timestamp",
+            "value": "2025-10-21T07:56:48.356Z"
+          },
+          "busNumber": "AS-01-SC-1393",
+          "activeTripId": null,
+          "capacity": 55,
+          "load": {
+            "morningCount": 0,
+            "eveningCount": 0
+          },
+          "currentMembers": 0,
+          "routeRef": {
+            "_type": "reference",
+            "path": "routes/route_4"
+          },
+          "updatedAt": {
+            "_type": "timestamp",
+            "value": "2025-12-22T05:12:48.655Z"
+          },
+          "activeDriverId": null,
+          "assignedDriverId": null
+        },
+        "bus_5": {
+          "busId": "bus_5",
+          "color": "White",
+          "routeId": "route_5",
+          "shift": "Morning",
+          "status": "Active",
+          "createdAt": {
+            "_type": "timestamp",
+            "value": "2025-10-21T07:56:48.356Z"
+          },
+          "busNumber": "AS-01-QC-7871",
+          "activeTripId": null,
+          "capacity": 55,
+          "routeRef": {
+            "_type": "reference",
+            "path": "routes/route_5"
+          },
+          "load": {
+            "eveningCount": 0,
+            "morningCount": 0
+          },
+          "currentMembers": 0,
+          "updatedBy": "KDLgyj1XNfWCTG2eD5vy9PlWRrP2",
+          "activeDriverId": "gKvJUi4bZqUGzJN81Vj5YzYsVSV2",
+          "assignedDriverId": "gKvJUi4bZqUGzJN81Vj5YzYsVSV2",
+          "updatedAt": {
+            "_type": "timestamp",
+            "value": "2025-12-31T13:35:51.759Z"
+          }
+        },
+        "bus_6": {
+          "busId": "bus_6",
+          "color": "White",
+          "routeId": "route_6",
+          "shift": "Both",
+          "createdAt": {
+            "_type": "timestamp",
+            "value": "2025-10-21T07:56:48.356Z"
+          },
+          "busNumber": "AS-01-SC-1392",
+          "capacity": 55,
+          "routeRef": {
+            "_type": "reference",
+            "path": "routes/route_6"
+          },
+          "lastStartedAt": {
+            "_type": "timestamp",
+            "value": "2025-12-30T13:53:27.374Z"
+          },
+          "activeTripId": null,
+          "lastEndedAt": {
+            "_type": "timestamp",
+            "value": "2025-12-30T14:05:47.295Z"
+          },
+          "status": "idle",
+          "load": {
+            "eveningCount": 1,
+            "morningCount": 2
+          },
+          "currentMembers": 3,
+          "updatedBy": "KDLgyj1XNfWCTG2eD5vy9PlWRrP2",
+          "activeDriverId": "DFv3hxs24SVQLZT9gFAYuZkGJuj2",
+          "assignedDriverId": "DFv3hxs24SVQLZT9gFAYuZkGJuj2",
+          "updatedAt": {
+            "_type": "timestamp",
+            "value": "2025-12-31T13:35:51.759Z"
+          }
+        },
+        "bus_7": {
+          "busId": "bus_7",
+          "routeId": "route_7",
+          "shift": "Morning",
+          "status": "Active",
+          "createdAt": {
+            "_type": "timestamp",
+            "value": "2025-10-21T07:56:48.356Z"
+          },
+          "busNumber": "AS-01-JC-5827",
+          "color": "Yellow",
+          "activeTripId": null,
+          "capacity": 55,
+          "routeRef": {
+            "_type": "reference",
+            "path": "routes/route_7"
+          },
+          "activeDriverId": null,
+          "assignedDriverId": null,
+          "load": {
+            "eveningCount": 0,
+            "morningCount": 0
+          },
+          "currentMembers": 0,
+          "updatedAt": "2025-12-28T16:42:57.567Z"
+        },
+        "bus_8": {
+          "busId": "bus_8",
+          "routeId": "route_8",
+          "shift": "Morning",
+          "status": "Active",
+          "createdAt": {
+            "_type": "timestamp",
+            "value": "2025-10-21T07:56:48.356Z"
+          },
+          "busNumber": "AS-01-KC-0757",
+          "color": "Yellow",
+          "activeTripId": null,
+          "capacity": 55,
+          "load": {
+            "morningCount": 0,
+            "eveningCount": 0
+          },
+          "currentMembers": 0,
+          "routeRef": {
+            "_type": "reference",
+            "path": "routes/route_8"
+          },
+          "updatedAt": {
+            "_type": "timestamp",
+            "value": "2025-12-22T05:12:48.655Z"
+          },
+          "activeDriverId": null,
+          "assignedDriverId": null
+        },
+        "bus_9": {
+          "busId": "bus_9",
+          "color": "White",
+          "shift": "Morning",
+          "status": "Active",
+          "createdAt": {
+            "_type": "timestamp",
+            "value": "2025-10-21T07:56:48.356Z"
+          },
+          "busNumber": "AS-01-SC-1433",
+          "activeTripId": null,
+          "capacity": 55,
+          "load": {
+            "morningCount": 0,
+            "eveningCount": 0
+          },
+          "currentMembers": 0,
+          "routeId": "route_7",
+          "routeRef": {
+            "_type": "reference",
+            "path": "routes/route_7"
+          },
+          "updatedAt": {
+            "_type": "timestamp",
+            "value": "2025-12-25T16:33:10.557Z"
+          },
+          "activeDriverId": null,
+          "assignedDriverId": null
+        }
+      },
+      "count": 11
+    },
+    "routes": {
+      "documents": {
+        "route_1": {
+          "createdAt": {
+            "_type": "timestamp",
+            "value": "2025-12-21T15:23:24.332Z"
+          },
+          "routeId": "route_1",
+          "totalStops": 13,
+          "active": true,
+          "stops": [
+            {
+              "sequence": 1,
+              "name": "Boragaon",
+              "stopId": "boragaon"
+            },
+            {
+              "sequence": 2,
+              "name": "Garchuk",
+              "stopId": "garchuk"
+            },
+            {
+              "sequence": 3,
+              "stopId": "lokhra",
+              "name": "Lokhra"
+            },
+            {
+              "sequence": 4,
+              "stopId": "lalmati",
+              "name": "Lalmati"
+            },
+            {
+              "sequence": 5,
+              "stopId": "game_village",
+              "name": "Game Village"
+            },
+            {
+              "name": "Beltola",
+              "sequence": 6,
+              "stopId": "beltola"
+            },
+            {
+              "sequence": 7,
+              "name": "Last Gate",
+              "stopId": "last_gate"
+            },
+            {
+              "stopId": "ganeshguri",
+              "sequence": 8,
+              "name": "Ganeshguri"
+            },
+            {
+              "name": "Zoo Road",
+              "stopId": "zoo_road",
+              "sequence": 9
+            },
+            {
+              "name": "Gitanagar",
+              "stopId": "gitanagar",
+              "sequence": 10
+            },
+            {
+              "stopId": "bg_tiniali",
+              "sequence": 11,
+              "name": "BG Tiniali"
+            },
+            {
+              "sequence": 12,
+              "name": "Narengi",
+              "stopId": "narengi"
+            },
+            {
+              "sequence": 13,
+              "name": "ADTU Campus",
+              "stopId": "adtu_campus"
+            }
+          ],
+          "routeName": "Route-1",
+          "status": "Active",
+          "updatedAt": {
+            "_type": "timestamp",
+            "value": "2025-12-21T15:23:24.332Z"
+          }
+        },
+        "route_2": {
+          "createdAt": {
+            "_type": "timestamp",
+            "value": "2025-12-21T15:23:24.332Z"
+          },
+          "routeId": "route_2",
+          "totalStops": 9,
+          "active": true,
+          "stops": [
+            {
+              "stopId": "jalukbari",
+              "sequence": 1,
+              "name": "Jalukbari"
+            },
+            {
+              "sequence": 2,
+              "name": "Maligaon",
+              "stopId": "maligaon"
+            },
+            {
+              "sequence": 3,
+              "name": "Bhutnath",
+              "stopId": "bhutnath"
+            },
+            {
+              "sequence": 4,
+              "stopId": "santipur",
+              "name": "Santipur"
+            },
+            {
+              "name": "Bharalumukh",
+              "sequence": 5,
+              "stopId": "bharalumukh"
+            },
+            {
+              "sequence": 6,
+              "name": "Fancy Bazar",
+              "stopId": "fancy_bazar"
+            },
+            {
+              "name": "Panbazar",
+              "sequence": 7,
+              "stopId": "panbazar"
+            },
+            {
+              "stopId": "chandmari",
+              "sequence": 8,
+              "name": "Chandmari"
+            },
+            {
+              "sequence": 9,
+              "name": "ADTU Campus",
+              "stopId": "adtu_campus"
+            }
+          ],
+          "routeName": "Route-2",
+          "status": "Active",
+          "updatedAt": {
+            "_type": "timestamp",
+            "value": "2025-12-21T15:23:24.332Z"
+          }
+        },
+        "route_3": {
+          "createdAt": {
+            "_type": "timestamp",
+            "value": "2025-12-21T15:23:24.332Z"
+          },
+          "routeId": "route_3",
+          "totalStops": 9,
+          "active": true,
+          "stops": [
+            {
+              "sequence": 1,
+              "name": "Guwahati Club",
+              "stopId": "guwahati_club"
+            },
+            {
+              "name": "Silpukhuri",
+              "sequence": 2,
+              "stopId": "silpukhuri"
+            },
+            {
+              "sequence": 3,
+              "stopId": "anuradha",
+              "name": "Anuradha"
+            },
+            {
+              "name": "Bamunimaidan",
+              "stopId": "bamunimaidan",
+              "sequence": 4
+            },
+            {
+              "sequence": 5,
+              "stopId": "new_guwahati",
+              "name": "New Guwahati"
+            },
+            {
+              "stopId": "nonmati",
+              "sequence": 6,
+              "name": "Nonmati"
+            },
+            {
+              "sequence": 7,
+              "stopId": "narengi",
+              "name": "Narengi"
+            },
+            {
+              "name": "Panikhaiti",
+              "sequence": 8,
+              "stopId": "panikhaiti"
+            },
+            {
+              "stopId": "adtu_campus",
+              "sequence": 9,
+              "name": "ADTU Campus"
+            }
+          ],
+          "routeName": "Route-3",
+          "status": "Active",
+          "updatedAt": {
+            "_type": "timestamp",
+            "value": "2025-12-21T15:23:24.332Z"
+          }
+        },
+        "route_4": {
+          "createdAt": {
+            "_type": "timestamp",
+            "value": "2025-12-21T15:23:24.332Z"
+          },
+          "routeId": "route_4",
+          "totalStops": 14,
+          "active": true,
+          "stops": [
+            {
+              "name": "Paltan Bazar",
+              "sequence": 1,
+              "stopId": "paltan_bazar"
+            },
+            {
+              "sequence": 2,
+              "stopId": "ulubari",
+              "name": "Ulubari"
+            },
+            {
+              "stopId": "bora_service",
+              "sequence": 3,
+              "name": "Bora Service"
+            },
+            {
+              "name": "Bhangaghar",
+              "stopId": "bhangaghar",
+              "sequence": 4
+            },
+            {
+              "name": "Crishtan Basti",
+              "sequence": 5,
+              "stopId": "crishtan_basti"
+            },
+            {
+              "stopId": "ganeshguri",
+              "sequence": 6,
+              "name": "Ganeshguri"
+            },
+            {
+              "sequence": 7,
+              "name": "Down Town",
+              "stopId": "down_town"
+            },
+            {
+              "name": "Sixmile",
+              "stopId": "sixmile",
+              "sequence": 8
+            },
+            {
+              "stopId": "barbari",
+              "sequence": 9,
+              "name": "Barbari"
+            },
+            {
+              "name": "Magzine",
+              "stopId": "magzine",
+              "sequence": 10
+            },
+            {
+              "sequence": 11,
+              "name": "Patharkuwary",
+              "stopId": "patharkuwary"
+            },
+            {
+              "stopId": "narengi",
+              "sequence": 12,
+              "name": "Narengi"
+            },
+            {
+              "stopId": "panikhaiti",
+              "name": "Panikhaiti",
+              "sequence": 13
+            },
+            {
+              "name": "ADTU Campus",
+              "sequence": 14,
+              "stopId": "adtu_campus"
+            }
+          ],
+          "routeName": "Route-4",
+          "status": "Active",
+          "updatedAt": {
+            "_type": "timestamp",
+            "value": "2025-12-21T15:23:24.332Z"
+          }
+        },
+        "route_5": {
+          "createdAt": {
+            "_type": "timestamp",
+            "value": "2025-12-21T15:23:24.332Z"
+          },
+          "routeId": "route_5",
+          "totalStops": 10,
+          "active": true,
+          "stops": [
+            {
+              "name": "Lalganesh",
+              "stopId": "lalganesh",
+              "sequence": 1
+            },
+            {
+              "sequence": 2,
+              "name": "Kahilipara",
+              "stopId": "kahilipara"
+            },
+            {
+              "stopId": "jutiya",
+              "sequence": 3,
+              "name": "Jutiya"
+            },
+            {
+              "sequence": 4,
+              "stopId": "ganesh_mandir",
+              "name": "Ganesh Mandir"
+            },
+            {
+              "name": "Ganeshguri",
+              "stopId": "ganeshguri",
+              "sequence": 5
+            },
+            {
+              "name": "Zoo Road",
+              "sequence": 6,
+              "stopId": "zoo_road"
+            },
+            {
+              "sequence": 7,
+              "name": "Gitanagar",
+              "stopId": "gitanagar"
+            },
+            {
+              "name": "Narengi",
+              "sequence": 8,
+              "stopId": "narengi"
+            },
+            {
+              "name": "Panikhaiti",
+              "stopId": "panikhaiti",
+              "sequence": 9
+            },
+            {
+              "stopId": "adtu_campus",
+              "sequence": 10,
+              "name": "ADTU Campus"
+            }
+          ],
+          "routeName": "Route-5",
+          "status": "Active",
+          "updatedAt": {
+            "_type": "timestamp",
+            "value": "2025-12-21T15:23:24.332Z"
+          }
+        },
+        "route_6": {
+          "createdAt": {
+            "_type": "timestamp",
+            "value": "2025-12-21T15:23:24.332Z"
+          },
+          "routeId": "route_6",
+          "totalStops": 11,
+          "active": true,
+          "stops": [
+            {
+              "name": "Kerakuchi",
+              "sequence": 1,
+              "stopId": "kerakuchi"
+            },
+            {
+              "name": "Bhetapara",
+              "sequence": 2,
+              "stopId": "bhetapara"
+            },
+            {
+              "sequence": 3,
+              "name": "Hatigaon",
+              "stopId": "hatigaon"
+            },
+            {
+              "sequence": 4,
+              "stopId": "rajdhani_mazid",
+              "name": "Rajdhani Mazid"
+            },
+            {
+              "name": "Ganesh Mandir",
+              "stopId": "ganesh_mandir",
+              "sequence": 5
+            },
+            {
+              "sequence": 6,
+              "name": "Ganeshguri",
+              "stopId": "ganeshguri"
+            },
+            {
+              "stopId": "zoo_road",
+              "name": "Zoo Road",
+              "sequence": 7
+            },
+            {
+              "name": "Gitanagar",
+              "stopId": "gitanagar",
+              "sequence": 8
+            },
+            {
+              "sequence": 9,
+              "name": "Narengi",
+              "stopId": "narengi"
+            },
+            {
+              "sequence": 10,
+              "stopId": "panikhaiti",
+              "name": "Panikhaiti"
+            },
+            {
+              "sequence": 11,
+              "stopId": "adtu_campus",
+              "name": "ADTU Campus"
+            }
+          ],
+          "routeName": "Route-6",
+          "status": "Active",
+          "updatedAt": {
+            "_type": "timestamp",
+            "value": "2025-12-21T15:23:24.332Z"
+          }
+        },
+        "route_7": {
+          "createdAt": {
+            "_type": "timestamp",
+            "value": "2025-12-21T15:23:24.332Z"
+          },
+          "routeId": "route_7",
+          "totalStops": 7,
+          "active": true,
+          "stops": [
+            {
+              "name": "Down Town",
+              "sequence": 1,
+              "stopId": "down_town"
+            },
+            {
+              "stopId": "sixmile",
+              "name": "Sixmile",
+              "sequence": 2
+            },
+            {
+              "sequence": 3,
+              "name": "Barbari",
+              "stopId": "barbari"
+            },
+            {
+              "sequence": 4,
+              "stopId": "magzine",
+              "name": "Magzine"
+            },
+            {
+              "sequence": 5,
+              "name": "Patharkuwary",
+              "stopId": "patharkuwary"
+            },
+            {
+              "name": "Narengi",
+              "sequence": 6,
+              "stopId": "narengi"
+            },
+            {
+              "name": "ADTU Campus",
+              "stopId": "adtu_campus",
+              "sequence": 7
+            }
+          ],
+          "routeName": "Route-7",
+          "status": "Active",
+          "updatedAt": {
+            "_type": "timestamp",
+            "value": "2025-12-21T15:23:24.332Z"
+          }
+        },
+        "route_8": {
+          "createdAt": {
+            "_type": "timestamp",
+            "value": "2025-12-21T15:23:24.332Z"
+          },
+          "routeId": "route_8",
+          "totalStops": 4,
+          "active": true,
+          "stops": [
+            {
+              "name": "Lakhmi Mandir",
+              "stopId": "lakhmi_mandir",
+              "sequence": 1
+            },
+            {
+              "sequence": 2,
+              "stopId": "beltola_wireless",
+              "name": "Beltola (Wireless)"
+            },
+            {
+              "stopId": "last_gate",
+              "sequence": 3,
+              "name": "Last Gate"
+            },
+            {
+              "sequence": 4,
+              "name": "ADTU Campus",
+              "stopId": "adtu_campus"
+            }
+          ],
+          "routeName": "Route-8",
+          "status": "Active",
+          "updatedAt": {
+            "_type": "timestamp",
+            "value": "2025-12-21T15:23:24.332Z"
+          }
+        },
+        "route_9": {
+          "assignedBuses": [],
+          "totalStops": 6,
+          "currentBusId": null,
+          "status": "Active",
+          "defaultBusId": null,
+          "stops": [
+            {
+              "sequence": 1,
+              "stopId": "ganeshguri",
+              "name": "Ganeshguri"
+            },
+            {
+              "name": "Zoo Road",
+              "sequence": 2,
+              "stopId": "zoo_road"
+            },
+            {
+              "stopId": "boragaon",
+              "name": "Boragaon",
+              "sequence": 3
+            },
+            {
+              "name": "Narengi",
+              "stopId": "narengi",
+              "sequence": 4
+            },
+            {
+              "name": "Panikhaiti Chariali",
+              "sequence": 5,
+              "stopId": "panikhaiti_chariali"
+            },
+            {
+              "name": "AdtU Campus",
+              "stopId": "adtu_campus",
+              "sequence": 6
+            }
+          ],
+          "routeName": "Dhiman",
+          "routeId": "route_9",
+          "createdAt": {
+            "_type": "timestamp",
+            "value": "2025-12-29T13:49:33.474Z"
+          },
+          "updatedAt": {
+            "_type": "timestamp",
+            "value": "2025-12-29T13:49:33.474Z"
+          }
+        }
+      },
+      "count": 9
+    },
+    "moderators": {
+      "documents": {
+        "KDLgyj1XNfWCTG2eD5vy9PlWRrP2": {
+          "uid": "KDLgyj1XNfWCTG2eD5vy9PlWRrP2",
+          "email": "shivdj519@gmail.com",
+          "dob": "1976-01-01",
+          "joiningDate": "2020-03-19",
+          "aadharNumber": "787922465827",
+          "phone": "9656360533",
+          "altPhone": "8404115862",
+          "approvedBy": "Dhiman Saikia (ADMIN)",
+          "createdAt": "2025-11-02T13:39:13.202Z",
+          "employeeId": "MB-01",
+          "address": "Hengrabari, Guwahati, Assam - 781005",
+          "status": "active",
+          "profilePhotoUrl": "https://res.cloudinary.com/dg44auhjb/image/upload/v1767111111/ADTU/profile_1767111096127_2236.jpg",
+          "updatedAt": {
+            "_type": "timestamp",
+            "value": "2025-12-30T16:11:54.420Z"
+          },
+          "alternatePhone": "8404115862",
+          "name": "Spiderman",
+          "fullName": "Spiderman"
+        }
+      },
+      "count": 1
+    },
+    "applications": {
+      "documents": {},
+      "count": 0
+    },
+    "notifications": {
+      "documents": {
+        "WdiQk6kcpeuZ3nqsXwqk": {
+          "createdAt": {
+            "_type": "timestamp",
+            "value": "2026-01-01T15:26:07.458Z"
+          },
+          "content": "Dear Students,\n\nBelow are the bus assignments for today's dropoff schedule. Please check which bus will be serving your route and board accordingly.\nFor any queries, contact the administration office.",
+          "expiryAt": {
+            "_type": "timestamp",
+            "value": "2026-01-01T18:29:00.000Z"
+          },
+          "autoInjectedRecipientIds": [
+            "ieGHGC2wj7NFCkpa6t0lMlD7PYE2"
+          ],
+          "title": "📋 Dropoff Arrangement",
+          "recipientIds": [
+            "6oQXSXaHiYcZ5aq6sVKWPuiJIHk1",
+            "7UrEgGW0FAgWiK7IOTL5kpzBhMP2",
+            "dqUm2EChaadt5JztCqly36HiKWr1",
+            "DFv3hxs24SVQLZT9gFAYuZkGJuj2",
+            "VbnpJj5je4dTj5DtCXlEjMtIQC02",
+            "gKvJUi4bZqUGzJN81Vj5YzYsVSV2",
+            "mP1F0Zu8sXUCu9ZpJXXq7FGJxlS2"
+          ],
+          "isDeletedGlobally": false,
+          "type": "dropoff",
+          "target": {
+            "shift": "both",
+            "type": "all_role"
+          },
+          "sender": {
+            "userName": "Spiderman",
+            "userId": "KDLgyj1XNfWCTG2eD5vy9PlWRrP2",
+            "employeeId": "MB-01",
+            "userRole": "moderator"
+          },
+          "metadata": {
+            "createdBy": "DJ Alok",
+            "matrix": [
+              {
+                "busId": "bus_1",
+                "busNumber": "Bus-1",
+                "plateNumber": "AS-01-PC-9094",
+                "routeId": "route_1",
+                "routeName": "Route-1",
+                "stops": [
+                  {
+                    "name": "Boragaon",
+                    "stopId": "boragaon"
+                  },
+                  {
+                    "stopId": "garchuk",
+                    "name": "Garchuk"
+                  },
+                  {
+                    "name": "Lokhra",
+                    "stopId": "lokhra"
+                  },
+                  {
+                    "stopId": "lalmati",
+                    "name": "Lalmati"
+                  },
+                  {
+                    "stopId": "game_village",
+                    "name": "Game Village"
+                  },
+                  {
+                    "name": "Beltola",
+                    "stopId": "beltola"
+                  },
+                  {
+                    "stopId": "last_gate",
+                    "name": "Last Gate"
+                  },
+                  {
+                    "stopId": "ganeshguri",
+                    "name": "Ganeshguri"
+                  },
+                  {
+                    "stopId": "zoo_road",
+                    "name": "Zoo Road"
+                  },
+                  {
+                    "name": "Gitanagar",
+                    "stopId": "gitanagar"
+                  },
+                  {
+                    "stopId": "bg_tiniali",
+                    "name": "BG Tiniali"
+                  },
+                  {
+                    "stopId": "narengi",
+                    "name": "Narengi"
+                  },
+                  {
+                    "name": "ADTU Campus",
+                    "stopId": "adtu_campus"
+                  }
+                ]
+              },
+              {
+                "busId": "bus_2",
+                "busNumber": "Bus-2",
+                "plateNumber": "AS-01-PC-9095",
+                "routeId": "route_2",
+                "routeName": "Route-2",
+                "stops": [
+                  {
+                    "stopId": "jalukbari",
+                    "name": "Jalukbari"
+                  },
+                  {
+                    "stopId": "maligaon",
+                    "name": "Maligaon"
+                  },
+                  {
+                    "name": "Bhutnath",
+                    "stopId": "bhutnath"
+                  },
+                  {
+                    "stopId": "santipur",
+                    "name": "Santipur"
+                  },
+                  {
+                    "name": "Bharalumukh",
+                    "stopId": "bharalumukh"
+                  },
+                  {
+                    "stopId": "fancy_bazar",
+                    "name": "Fancy Bazar"
+                  },
+                  {
+                    "name": "Panbazar",
+                    "stopId": "panbazar"
+                  },
+                  {
+                    "stopId": "chandmari",
+                    "name": "Chandmari"
+                  },
+                  {
+                    "stopId": "adtu_campus",
+                    "name": "ADTU Campus"
+                  }
+                ]
+              },
+              {
+                "busId": "bus_3",
+                "busNumber": "Bus-3",
+                "plateNumber": "AS-01-LC-5321",
+                "routeId": "route_3",
+                "routeName": "Route-3",
+                "stops": [
+                  {
+                    "stopId": "guwahati_club",
+                    "name": "Guwahati Club"
+                  },
+                  {
+                    "name": "Silpukhuri",
+                    "stopId": "silpukhuri"
+                  },
+                  {
+                    "name": "Anuradha",
+                    "stopId": "anuradha"
+                  },
+                  {
+                    "stopId": "bamunimaidan",
+                    "name": "Bamunimaidan"
+                  },
+                  {
+                    "name": "New Guwahati",
+                    "stopId": "new_guwahati"
+                  },
+                  {
+                    "stopId": "nonmati",
+                    "name": "Nonmati"
+                  },
+                  {
+                    "name": "Narengi",
+                    "stopId": "narengi"
+                  },
+                  {
+                    "name": "Panikhaiti",
+                    "stopId": "panikhaiti"
+                  },
+                  {
+                    "stopId": "adtu_campus",
+                    "name": "ADTU Campus"
+                  }
+                ]
+              },
+              {
+                "busId": "bus_4",
+                "busNumber": "Bus-4",
+                "plateNumber": "AS-01-SC-1393",
+                "routeId": "route_4",
+                "routeName": "Route-4",
+                "stops": [
+                  {
+                    "stopId": "paltan_bazar",
+                    "name": "Paltan Bazar"
+                  },
+                  {
+                    "name": "Ulubari",
+                    "stopId": "ulubari"
+                  },
+                  {
+                    "stopId": "bora_service",
+                    "name": "Bora Service"
+                  },
+                  {
+                    "stopId": "bhangaghar",
+                    "name": "Bhangaghar"
+                  },
+                  {
+                    "stopId": "crishtan_basti",
+                    "name": "Crishtan Basti"
+                  },
+                  {
+                    "stopId": "ganeshguri",
+                    "name": "Ganeshguri"
+                  },
+                  {
+                    "stopId": "down_town",
+                    "name": "Down Town"
+                  },
+                  {
+                    "stopId": "sixmile",
+                    "name": "Sixmile"
+                  },
+                  {
+                    "stopId": "barbari",
+                    "name": "Barbari"
+                  },
+                  {
+                    "name": "Magzine",
+                    "stopId": "magzine"
+                  },
+                  {
+                    "name": "Patharkuwary",
+                    "stopId": "patharkuwary"
+                  },
+                  {
+                    "stopId": "narengi",
+                    "name": "Narengi"
+                  },
+                  {
+                    "stopId": "panikhaiti",
+                    "name": "Panikhaiti"
+                  },
+                  {
+                    "stopId": "adtu_campus",
+                    "name": "ADTU Campus"
+                  }
+                ]
+              },
+              {
+                "busId": "bus_5",
+                "busNumber": "Bus-5",
+                "plateNumber": "AS-01-QC-7871",
+                "routeId": "route_5",
+                "routeName": "Route-5",
+                "stops": [
+                  {
+                    "name": "Lalganesh",
+                    "stopId": "lalganesh"
+                  },
+                  {
+                    "stopId": "kahilipara",
+                    "name": "Kahilipara"
+                  },
+                  {
+                    "stopId": "jutiya",
+                    "name": "Jutiya"
+                  },
+                  {
+                    "name": "Ganesh Mandir",
+                    "stopId": "ganesh_mandir"
+                  },
+                  {
+                    "stopId": "ganeshguri",
+                    "name": "Ganeshguri"
+                  },
+                  {
+                    "name": "Zoo Road",
+                    "stopId": "zoo_road"
+                  },
+                  {
+                    "name": "Gitanagar",
+                    "stopId": "gitanagar"
+                  },
+                  {
+                    "stopId": "narengi",
+                    "name": "Narengi"
+                  },
+                  {
+                    "name": "Panikhaiti",
+                    "stopId": "panikhaiti"
+                  },
+                  {
+                    "stopId": "adtu_campus",
+                    "name": "ADTU Campus"
+                  }
+                ]
+              },
+              {
+                "busId": "bus_6",
+                "busNumber": "Bus-6",
+                "plateNumber": "AS-01-SC-1392",
+                "routeId": "route_6",
+                "routeName": "Route-6",
+                "stops": [
+                  {
+                    "name": "Kerakuchi",
+                    "stopId": "kerakuchi"
+                  },
+                  {
+                    "stopId": "bhetapara",
+                    "name": "Bhetapara"
+                  },
+                  {
+                    "name": "Hatigaon",
+                    "stopId": "hatigaon"
+                  },
+                  {
+                    "name": "Rajdhani Mazid",
+                    "stopId": "rajdhani_mazid"
+                  },
+                  {
+                    "stopId": "ganesh_mandir",
+                    "name": "Ganesh Mandir"
+                  },
+                  {
+                    "stopId": "ganeshguri",
+                    "name": "Ganeshguri"
+                  },
+                  {
+                    "name": "Zoo Road",
+                    "stopId": "zoo_road"
+                  },
+                  {
+                    "stopId": "gitanagar",
+                    "name": "Gitanagar"
+                  },
+                  {
+                    "stopId": "narengi",
+                    "name": "Narengi"
+                  },
+                  {
+                    "stopId": "panikhaiti",
+                    "name": "Panikhaiti"
+                  },
+                  {
+                    "stopId": "adtu_campus",
+                    "name": "ADTU Campus"
+                  }
+                ]
+              },
+              {
+                "busId": "bus_7",
+                "busNumber": "Bus-7",
+                "plateNumber": "AS-01-JC-5827",
+                "routeId": "route_7",
+                "routeName": "Route-7",
+                "stops": [
+                  {
+                    "name": "Down Town",
+                    "stopId": "down_town"
+                  },
+                  {
+                    "name": "Sixmile",
+                    "stopId": "sixmile"
+                  },
+                  {
+                    "stopId": "barbari",
+                    "name": "Barbari"
+                  },
+                  {
+                    "stopId": "magzine",
+                    "name": "Magzine"
+                  },
+                  {
+                    "stopId": "patharkuwary",
+                    "name": "Patharkuwary"
+                  },
+                  {
+                    "name": "Narengi",
+                    "stopId": "narengi"
+                  },
+                  {
+                    "name": "ADTU Campus",
+                    "stopId": "adtu_campus"
+                  }
+                ]
+              },
+              {
+                "busId": "bus_8",
+                "busNumber": "Bus-8",
+                "plateNumber": "AS-01-KC-0757",
+                "routeId": "route_8",
+                "routeName": "Route-8",
+                "stops": [
+                  {
+                    "name": "Lakhmi Mandir",
+                    "stopId": "lakhmi_mandir"
+                  },
+                  {
+                    "name": "Beltola (Wireless)",
+                    "stopId": "beltola_wireless"
+                  },
+                  {
+                    "name": "Last Gate",
+                    "stopId": "last_gate"
+                  },
+                  {
+                    "stopId": "adtu_campus",
+                    "name": "ADTU Campus"
+                  }
+                ]
+              },
+              {
+                "busId": "bus_9",
+                "busNumber": "Bus-9",
+                "plateNumber": "AS-01-SC-1433",
+                "routeId": "route_7",
+                "routeName": "Route-7",
+                "stops": [
+                  {
+                    "name": "Down Town",
+                    "stopId": "down_town"
+                  },
+                  {
+                    "name": "Sixmile",
+                    "stopId": "sixmile"
+                  },
+                  {
+                    "name": "Barbari",
+                    "stopId": "barbari"
+                  },
+                  {
+                    "name": "Magzine",
+                    "stopId": "magzine"
+                  },
+                  {
+                    "name": "Patharkuwary",
+                    "stopId": "patharkuwary"
+                  },
+                  {
+                    "name": "Narengi",
+                    "stopId": "narengi"
+                  },
+                  {
+                    "name": "ADTU Campus",
+                    "stopId": "adtu_campus"
+                  }
+                ]
+              },
+              {
+                "busId": "bus_10",
+                "busNumber": "Bus-10",
+                "plateNumber": "AS-01-QC-8040",
+                "routeId": "route_7",
+                "routeName": "Route-7",
+                "stops": [
+                  {
+                    "name": "Down Town",
+                    "stopId": "down_town"
+                  },
+                  {
+                    "name": "Sixmile",
+                    "stopId": "sixmile"
+                  },
+                  {
+                    "name": "Barbari",
+                    "stopId": "barbari"
+                  },
+                  {
+                    "name": "Magzine",
+                    "stopId": "magzine"
+                  },
+                  {
+                    "name": "Patharkuwary",
+                    "stopId": "patharkuwary"
+                  },
+                  {
+                    "name": "Narengi",
+                    "stopId": "narengi"
+                  },
+                  {
+                    "name": "ADTU Campus",
+                    "stopId": "adtu_campus"
+                  }
+                ]
+              },
+              {
+                "busId": "bus_11",
+                "busNumber": "Bus-11",
+                "plateNumber": "AS-01-QC-7872",
+                "routeId": "route_7",
+                "routeName": "Route-7",
+                "stops": [
+                  {
+                    "name": "Down Town",
+                    "stopId": "down_town"
+                  },
+                  {
+                    "name": "Sixmile",
+                    "stopId": "sixmile"
+                  },
+                  {
+                    "name": "Barbari",
+                    "stopId": "barbari"
+                  },
+                  {
+                    "name": "Magzine",
+                    "stopId": "magzine"
+                  },
+                  {
+                    "name": "Patharkuwary",
+                    "stopId": "patharkuwary"
+                  },
+                  {
+                    "name": "Narengi",
+                    "stopId": "narengi"
+                  },
+                  {
+                    "name": "ADTU Campus",
+                    "stopId": "adtu_campus"
+                  }
+                ]
+              }
+            ],
+            "type": "dropoff",
+            "createdByRole": "moderator"
+          },
+          "editHistory": [
+            {
+              "editedAt": {
+                "_type": "timestamp",
+                "value": "2026-01-01T15:50:43.145Z"
+              },
+              "previousContent": "Dear Students,\n\nBelow are the bus assignments for today's dropoff schedule. Please check which bus will be serving your route and board accordingly.\nFor any queries, contact the administration office.",
+              "editedBy": "KDLgyj1XNfWCTG2eD5vy9PlWRrP2"
+            }
+          ],
+          "isEdited": true,
+          "updatedAt": {
+            "_type": "timestamp",
+            "value": "2026-01-01T15:50:59.402Z"
+          },
+          "readByUserIds": [
+            "KDLgyj1XNfWCTG2eD5vy9PlWRrP2",
+            "dqUm2EChaadt5JztCqly36HiKWr1",
+            "ieGHGC2wj7NFCkpa6t0lMlD7PYE2",
+            "7UrEgGW0FAgWiK7IOTL5kpzBhMP2"
+          ]
+        }
+      },
+      "count": 1
+    },
+    "payments": {
+      "documents": {},
+      "count": 0
+    },
+    "config": {
+      "documents": {},
+      "count": 0
+    },
+    "systemConfig": {
+      "documents": {},
+      "count": 0
+    },
+    "systemSignals": {
+      "documents": {},
+      "count": 0
+    }
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "title": "Help & FAQ",
+  "items": [
+    { "q": "How do I track my bus?", "a": "Open the Track page and select your assigned route; you will see the live bus marker when the driver starts the trip (mobile drivers only)." },
+    { "q": "How do I raise a waiting flag?", "a": "On the Track page, choose your stop and tap 'Raise Waiting Flag'; allow location permission to provide precise coordinates." },
+    { "q": "How is feedback handled?", "a": "Drivers and students can submit feedback via the footer. Admins and moderators review and may delete feedback; feedback is auto-removed after 30 days." }
+  ]
+}
+
+
+

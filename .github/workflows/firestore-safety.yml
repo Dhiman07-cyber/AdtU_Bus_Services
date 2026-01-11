@@ -1,0 +1,46 @@
+name: Firestore Safety Check
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+jobs:
+  firestore-safety:
+    runs-on: ubuntu-latest
+    name: Check Firestore Patterns
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      
+      - name: Install dependencies
+        run: npm ci
+      
+      - name: Run Firestore safety check
+        run: npm run check-firestore-safety
+        
+      - name: Run Firestore load test
+        run: npm run load-test:firestore
+        
+      - name: Verify Firestore rules contain safety rules
+        run: |
+          echo "Checking for safety rules in firestore.rules..."
+          if grep -q "config/limits" firestore.rules || grep -q "systemSignals" firestore.rules; then
+            echo "✅ Safety rules found in firestore.rules"
+          else
+            echo "⚠️ Warning: Safety rules may be missing from firestore.rules"
+          fi
+          
+          if grep -q "audit_logs" firestore.rules && grep -q "allow read: if false" firestore.rules; then
+            echo "✅ Legacy collection blocking rules found"
+          else
+            echo "⚠️ Warning: Legacy collection blocking rules may be missing"
+          fi

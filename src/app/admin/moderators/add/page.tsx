@@ -1,0 +1,629 @@
+"use client";
+
+import { useAuth } from '@/contexts/auth-context';
+import { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
+import Link from 'next/link';
+import { uploadImage } from '@/lib/upload';
+import { useToast } from '@/contexts/toast-context';
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Info, Camera, Trash2 } from "lucide-react";
+import ProfileImageAddModal from '@/components/ProfileImageAddModal';
+import Image from 'next/image';
+import EnhancedDatePicker from "@/components/enhanced-date-picker";
+import { signalCollectionRefresh } from '@/hooks/useEventDrivenRefresh';
+
+export default function AddModeratorPage() {
+  const { currentUser, userData, loading } = useAuth();
+  const { addToast } = useToast();
+  const router = useRouter();
+
+  // Define the form data type
+  type ModeratorFormData = {
+    name: string;
+    email: string;
+    aadharNumber: string;
+    dob: string;
+    joiningDate: string;
+    profilePhoto: File | null;
+    phone: string;
+    alternatePhone: string;
+    employeeId: string;
+    approvedBy: string;
+    address: string;
+    status: 'active' | 'inactive';
+  };
+
+  // Always initialize with empty form data - no auto-fill
+  const getInitialFormData = (): ModeratorFormData => {
+    // Try to load from localStorage first
+    if (typeof window !== 'undefined') {
+      const savedData = localStorage.getItem('moderatorFormData');
+      if (savedData) {
+        try {
+          const parsedData = JSON.parse(savedData);
+          // Ensure sensitive fields are not auto-filled
+          return {
+            ...parsedData,
+            email: '',
+            profilePhoto: null
+          };
+        } catch (e) {
+          console.error('Error parsing saved form data:', e);
+        }
+      }
+    }
+
+    return {
+      name: '',
+      email: '',
+      aadharNumber: '',
+      dob: '',
+      joiningDate: '',
+      profilePhoto: null,
+      phone: '',
+      alternatePhone: '',
+      employeeId: '',
+      approvedBy: '',
+      address: '',
+      status: 'active',
+    };
+  };
+
+  const [formData, setFormData] = useState<ModeratorFormData>(getInitialFormData());
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [finalImageUrl, setFinalImageUrl] = useState<string | null>(null);
+  const [showImageModal, setShowImageModal] = useState(false);
+  const [loadingSubmit, setLoadingSubmit] = useState(false);
+  const [result, setResult] = useState<{ success?: boolean; error?: string } | null>(null);
+  const [errors, setErrors] = useState<Record<string, string>>({});
+
+  // Auto-fill approvedBy field with current admin's details
+  useEffect(() => {
+    if (userData && userData.name) {
+      const employeeId = (userData as any).employeeId || 'ADMIN';
+      setFormData(prev => ({
+        ...prev,
+        approvedBy: `${userData.name} (${employeeId})`
+      }));
+    }
+  }, [userData]);
+
+  // Save form data to localStorage whenever it changes (except sensitive fields)
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      // Create a copy without sensitive data
+      const { email, profilePhoto, ...dataToSave } = formData;
+      localStorage.setItem('moderatorFormData', JSON.stringify(dataToSave));
+    }
+  }, [formData]);
+
+  useEffect(() => {
+    if (!loading && !currentUser) {
+      router.push('/login');
+    }
+
+    if (userData && userData.role !== 'admin') {
+      router.push(`/${userData.role}`);
+    }
+
+    // Force clear any auto-filled values after component mounts
+    setTimeout(() => {
+      setFormData(prev => ({
+        ...prev,
+        email: ''
+      }));
+    }, 100);
+  }, [currentUser, userData, loading, router]);
+
+  // Completely disable localStorage for email
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      // Force clear any existing localStorage data for sensitive fields
+      const savedData = localStorage.getItem('moderatorFormData');
+      if (savedData) {
+        try {
+          const parsedData = JSON.parse(savedData);
+          if (parsedData.email) {
+            // Remove sensitive fields from saved data
+            const { email, profilePhoto, ...cleanData } = parsedData;
+            localStorage.setItem('moderatorFormData', JSON.stringify(cleanData));
+          }
+        } catch (e) {
+          console.error('Error cleaning saved form data:', e);
+        }
+      }
+    }
+  }, []);
+
+  const validateForm = () => {
+    const newErrors: Record<string, string> = {};
+
+    if (!formData.name.trim()) {
+      newErrors.name = "Full name is required";
+    } else if (/[^a-zA-Z\s]/.test(formData.name)) {
+      newErrors.name = "Name cannot contain special symbols";
+    }
+
+    if (!formData.email.trim()) {
+      newErrors.email = "Email is required";
+    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) {
+      newErrors.email = "Please enter a valid email address";
+    }
+
+    if (!formData.aadharNumber.trim()) {
+      newErrors.aadharNumber = "AADHAR number is required";
+    } else if (!/^\d{8,}$/.test(formData.aadharNumber)) {
+      newErrors.aadharNumber = "AADHAR number must be at least 8 digits";
+    }
+
+    if (!formData.dob) {
+      newErrors.dob = "Date of birth is required";
+    }
+
+    if (!formData.joiningDate) {
+      newErrors.joiningDate = "Joining date is required";
+    }
+
+    // Required phone validation
+    if (!formData.phone.trim()) {
+      newErrors.phone = "Phone number is required";
+    } else if (!/^\d{10,15}$/.test(formData.phone)) {
+      newErrors.phone = "Phone number must be 10-15 digits";
+    }
+
+    if (formData.alternatePhone && !/^\d{10,15}$/.test(formData.alternatePhone)) {
+      newErrors.alternatePhone = "Alternate phone number must be 10-15 digits";
+    }
+
+    setErrors(newErrors);
+    return Object.keys(newErrors).length === 0;
+  };
+
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    let { name, value } = e.target;
+
+    // Numeric-only restriction for phone number fields
+    if (name === 'phone' || name === 'alternatePhone') {
+      value = value.replace(/[^0-9]/g, '');
+    }
+
+    setFormData((prev: ModeratorFormData) => ({ ...prev, [name]: value }));
+  };
+
+  const handleTextareaChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const { name, value } = e.target;
+    setFormData((prev: ModeratorFormData) => ({ ...prev, [name]: value }));
+  };
+
+  const handleDateChange = (name: string, value: string) => {
+    setFormData((prev: ModeratorFormData) => ({ ...prev, [name]: value }));
+  };
+
+  const handleImageConfirm = (file: File) => {
+    // Legacy support
+  };
+
+  const handleProfileImageAdd = (url: string, file?: File) => {
+    setFinalImageUrl(url);
+    if (file) {
+      setFormData((prev: ModeratorFormData) => ({ ...prev, profilePhoto: file }));
+    }
+    setPreviewUrl(url);
+    setShowImageModal(false);
+    addToast('Profile photo selected', 'success');
+  };
+
+  const handleImageRemove = () => {
+    setPreviewUrl(null);
+    setFinalImageUrl(null);
+    setFormData((prev: ModeratorFormData) => ({ ...prev, profilePhoto: null }));
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+
+    if (!validateForm()) {
+      return;
+    }
+
+    setLoadingSubmit(true);
+    setResult(null);
+
+    try {
+      let profilePhotoUrl = finalImageUrl || '';
+
+      // Upload profile photo to Cloudinary first if we have a file and it's not already uploaded
+      if (formData.profilePhoto) {
+        try {
+          const uploadedUrl = await uploadImage(formData.profilePhoto);
+          if (uploadedUrl) {
+            profilePhotoUrl = uploadedUrl;
+          }
+        } catch (uploadError: any) {
+          console.error('Failed to upload profile photo:', uploadError);
+          addToast(`Failed to upload profile photo: ${uploadError.message}`, 'error');
+          setLoadingSubmit(false);
+          return;
+        }
+      }
+
+      // Get Firebase ID token for authentication
+      const idToken = await currentUser?.getIdToken();
+
+      const response = await fetch('/api/admin/create-user', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer ' + idToken
+        },
+        body: JSON.stringify({
+          email: formData.email,
+          name: formData.name,
+          role: 'moderator',
+          phone: formData.phone,
+          alternatePhone: formData.alternatePhone,
+          profilePhotoUrl: profilePhotoUrl,
+          aadharNumber: formData.aadharNumber,
+          dob: formData.dob,
+          joiningDate: formData.joiningDate,
+          employeeId: formData.employeeId,
+          approvedBy: formData.approvedBy,
+          address: formData.address,
+          status: formData.status
+        }),
+      });
+
+      const data = await response.json();
+
+      if (data.success) {
+        // Clear saved form data on successful submission
+        if (typeof window !== 'undefined') {
+          localStorage.removeItem('moderatorFormData');
+        }
+
+        // Signal the moderators list page to refresh when it's rendered
+        signalCollectionRefresh('moderators');
+
+        addToast(data.message || 'Moderator created successfully!', 'success');
+        setTimeout(() => {
+          router.push('/admin/moderators');
+        }, 2000);
+      } else {
+        addToast(data.error || 'Failed to create moderator', 'error');
+      }
+    } catch (error: any) {
+      console.error('Error creating moderator:', error);
+      addToast(`Failed to create moderator: ${error.message || 'Unknown error'}`, 'error');
+    } finally {
+      setLoadingSubmit(false);
+    }
+  };
+
+  const handleReset = () => {
+    const employeeId = (userData as any)?.employeeId || 'ADMIN';
+    const approvedByValue = userData?.name ? `${userData.name} (${employeeId})` : '';
+
+    setFormData({
+      name: '',
+      email: '',
+      aadharNumber: '',
+      dob: '',
+      joiningDate: '',
+      profilePhoto: null,
+      phone: '',
+      alternatePhone: '',
+      employeeId: '',
+      approvedBy: approvedByValue,
+      address: '',
+      status: 'active',
+    });
+    setPreviewUrl(null);
+    setFinalImageUrl(null);
+    setErrors({});
+
+    // Clear saved form data
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem('moderatorFormData');
+    }
+
+    addToast('Form reset successfully', 'info');
+  };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500"></div>
+      </div>
+    );
+  }
+
+  if (!currentUser || !userData || userData.role !== 'admin') {
+    return null;
+  }
+
+  return (
+    <div className="mt-10 py-4">
+      {/* Header */}
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div className="flex justify-between items-center mb-6">
+          <div>
+            <h1 className="text-2xl font-bold text-white mb-1">Add Moderator</h1>
+            <p className="text-gray-400 text-xs text-left">Register a new moderator in the system</p>
+          </div>
+          <Link
+            href="/admin/moderators"
+            className="inline-flex items-center px-3 py-1.5 bg-white/10 hover:bg-white/20 text-white text-sm border border-white/20 hover:border-white/30 rounded-lg transition-all duration-200 hover:shadow-lg backdrop-blur-sm"
+          >
+            <span className="mr-1.5 text-sm">←</span>
+            Back
+          </Link>
+        </div>
+      </div>
+
+      {/* Main Content - Enhanced spacing and premium styling */}
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div className="bg-gradient-to-br from-[#0E0F12] to-[#1A1B23] backdrop-blur-sm rounded-2xl shadow-2xl border border-white/10 p-4 sm:p-10 hover:border-white/20 transition-all duration-300">
+          <form onSubmit={handleSubmit} className="space-y-4">
+            {/* Profile Photo Section - Modal Position Picker */}
+            <div className="flex flex-col items-center mb-8">
+              <div className="relative group cursor-pointer" onClick={() => setShowImageModal(true)}>
+                {finalImageUrl ? (
+                  <div className="relative h-24 w-24 rounded-full overflow-hidden border-4 border-white dark:border-gray-800 shadow-xl ring-2 ring-blue-100 dark:ring-blue-900">
+                    <Image
+                      src={finalImageUrl}
+                      alt="Profile"
+                      fill
+                      className="object-cover"
+                    />
+                  </div>
+                ) : (
+                  <div className="h-24 w-24 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center border-4 border-white dark:border-gray-800 shadow-xl ring-2 ring-slate-100 dark:ring-slate-800 group-hover:bg-slate-200 dark:group-hover:bg-slate-700 transition-colors">
+                    <Camera className="h-8 w-8 text-slate-400 group-hover:scale-110 transition-transform duration-300" />
+                  </div>
+                )}
+
+                <div className="absolute inset-0 rounded-full bg-black/40 opacity-0 group-hover:opacity-100 transition-all duration-300 flex items-center justify-center backdrop-blur-[2px]">
+                  <Camera className="h-6 w-6 text-white drop-shadow-md transform scale-90 group-hover:scale-100 transition-transform" />
+                </div>
+
+                {finalImageUrl && (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleImageRemove();
+                    }}
+                    className="absolute -top-1 -right-1 p-1.5 bg-red-500 text-white rounded-full shadow-lg hover:bg-red-600 transition-colors z-10"
+                    title="Remove photo"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                )}
+              </div>
+
+              <p className="mt-3 text-sm text-gray-500 font-medium">Click to upload photo</p>
+
+              <ProfileImageAddModal
+                isOpen={showImageModal}
+                onClose={() => setShowImageModal(false)}
+                onConfirm={handleProfileImageAdd}
+                immediateUpload={false}
+              />
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {/* Left Column: Name, Email, Phone, Alt Phone, Address */}
+              <div className="space-y-3">
+                <div>
+                  <Label htmlFor="name" className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    Full Name <span className="text-red-500">*</span>
+                  </Label>
+                  <Input
+                    type="text"
+                    id="name"
+                    name="name"
+                    value={formData.name}
+                    onChange={handleInputChange}
+                    required
+                    className="h-9 text-sm"
+                  />
+                  {errors.name && <p className="text-red-500 text-xs mt-0.5">{errors.name}</p>}
+                </div>
+
+                <div>
+                  <Label htmlFor="email" className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    Email Address <span className="text-red-500">*</span>
+                  </Label>
+                  <Input
+                    type="email"
+                    id="email"
+                    name="email"
+                    value={formData.email}
+                    onChange={handleInputChange}
+                    required
+                    autoComplete="off"
+                    autoCorrect="off"
+                    autoCapitalize="off"
+                    spellCheck="false"
+                    className="h-9 text-sm"
+                  />
+                  {errors.email && <p className="text-red-500 text-xs mt-0.5">{errors.email}</p>}
+                </div>
+
+                <div>
+                  <Label htmlFor="phone" className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    Phone Number <span className="text-red-500">*</span>
+                  </Label>
+                  <Input
+                    type="tel"
+                    id="phone"
+                    name="phone"
+                    value={formData.phone}
+                    onChange={handleInputChange}
+                    required
+                    className="h-9 text-sm"
+                  />
+                  {errors.phone && <p className="text-red-500 text-xs mt-0.5">{errors.phone}</p>}
+                </div>
+
+                <div>
+                  <Label htmlFor="alternatePhone" className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    Alternate Phone Number
+                  </Label>
+                  <Input
+                    type="tel"
+                    id="alternatePhone"
+                    name="alternatePhone"
+                    value={formData.alternatePhone}
+                    onChange={handleInputChange}
+                    className="h-9 text-sm"
+                  />
+                  {errors.alternatePhone && <p className="text-red-500 text-xs mt-0.5">{errors.alternatePhone}</p>}
+                </div>
+
+                <div>
+                  <Label htmlFor="address" className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    Address
+                  </Label>
+                  <Textarea
+                    id="address"
+                    name="address"
+                    value={formData.address}
+                    onChange={handleTextareaChange}
+                    placeholder="Enter full address"
+                    className="resize-none h-36 text-sm"
+                    rows={5}
+                  />
+                </div>
+              </div>
+
+              {/* Right Column: Aadhar, Employee ID, DOB, Joining Date, Approved By, Status */}
+              <div className="space-y-3">
+                <div>
+                  <Label htmlFor="aadharNumber" className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    AADHAR Number *
+                  </Label>
+                  <Input
+                    type="text"
+                    id="aadharNumber"
+                    name="aadharNumber"
+                    value={formData.aadharNumber}
+                    onChange={handleInputChange}
+                    required
+                    className="h-9 text-sm"
+                  />
+                  {errors.aadharNumber && <p className="text-red-500 text-xs mt-0.5">{errors.aadharNumber}</p>}
+                </div>
+
+                <div>
+                  <Label htmlFor="employeeId" className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    Employee/Staff ID
+                  </Label>
+                  <Input
+                    type="text"
+                    id="employeeId"
+                    name="employeeId"
+                    value={formData.employeeId}
+                    onChange={handleInputChange}
+                    className="h-9 text-sm"
+                  />
+                  {errors.employeeId && <p className="text-red-500 text-xs mt-0.5">{errors.employeeId}</p>}
+                </div>
+
+                <div>
+                  <EnhancedDatePicker
+                    id="dob"
+                    label="Date of Birth"
+                    value={formData.dob}
+                    onChange={(value) => handleDateChange('dob', value)}
+                    required
+                    validationType="dob-moderator"
+                  />
+                  {errors.dob && <p className="text-red-500 text-xs mt-0.5">{errors.dob}</p>}
+                </div>
+
+                <div>
+                  <EnhancedDatePicker
+                    id="joiningDate"
+                    label="Joining Date"
+                    value={formData.joiningDate}
+                    onChange={(value) => handleDateChange('joiningDate', value)}
+                    required
+                    validationType="joining"
+                  />
+                  {errors.joiningDate && <p className="text-red-500 text-xs mt-0.5">{errors.joiningDate}</p>}
+                </div>
+
+                <div>
+                  <Label htmlFor="approvedBy" className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    Approved By
+                  </Label>
+                  <Input
+                    type="text"
+                    id="approvedBy"
+                    name="approvedBy"
+                    value={formData.approvedBy}
+                    readOnly
+                    className="bg-gray-100 dark:bg-gray-700 cursor-not-allowed h-9 text-sm"
+                    disabled
+                  />
+                  <p className="text-[10px] text-gray-500 dark:text-gray-400 mt-0.5">This field is auto-filled</p>
+                </div>
+
+                <div>
+                  <Label htmlFor="status" className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    Status *
+                  </Label>
+                  <Select value={formData.status} onValueChange={(value: 'active' | 'inactive') => setFormData(prev => ({ ...prev, status: value }))}>
+                    <SelectTrigger className="h-9 text-sm">
+                      <SelectValue placeholder="Select status" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="active">Active</SelectItem>
+                      <SelectItem value="inactive">Inactive</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-3 gap-2 mt-4 w-full">
+              <Button
+                type="button"
+                onClick={handleReset}
+                className="bg-blue-600 hover:bg-blue-700 text-white w-full h-8 px-3 text-xs"
+              >
+                Reset
+              </Button>
+              <Link href="/admin/moderators" className="w-full block">
+                <Button type="button" className="bg-red-600 hover:bg-red-700 text-white w-full h-8 px-3 text-xs">
+                  Cancel
+                </Button>
+              </Link>
+              <Button
+                type="submit"
+                disabled={loadingSubmit}
+                className="bg-green-600 hover:bg-green-700 text-white w-full h-8 px-3 text-xs"
+              >
+                {loadingSubmit ? "Creating..." : "Add Moderator"}
+              </Button>
+            </div>
+          </form>
+        </div>
+
+        {result && (
+          <div className={`mt-4 p-4 rounded-md ${result.success ? "bg-green-100 dark:bg-green-900 text-green-800 dark:text-green-200" : "bg-red-100 dark:bg-red-900 text-red-800 dark:text-red-200"}`}>
+            <p><strong>{result.success ? "Success!" : "Error:"}</strong></p>
+            <p>{result.success ? "Moderator created successfully! Redirecting..." : result.error}</p>
+          </div>
+        )}
+      </div>
+    </div>
+
+  );
+}

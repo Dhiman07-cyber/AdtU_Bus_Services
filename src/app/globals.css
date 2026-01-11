@@ -1,0 +1,1377 @@
+@import "tailwindcss";
+
+html {
+  color-scheme: dark;
+}
+
+/* Fallback font stack */
+:root {
+  --font-inter: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+}
+
+:root {
+  --background: 0 0% 98%;
+  --foreground: 222.2 84% 4.9%;
+  --card: 0 0% 100%;
+  --card-foreground: 222.2 84% 4.9%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 222.2 84% 4.9%;
+  --primary: 221.2 83.2% 53.3%;
+  --primary-foreground: 210 40% 98%;
+  --secondary: 210 40% 94%;
+  --secondary-foreground: 222.2 47.4% 11.2%;
+  --muted: 210 40% 94%;
+  --muted-foreground: 215.4 16.3% 40%;
+  --accent: 210 40% 94%;
+  --accent-foreground: 222.2 47.4% 11.2%;
+  --destructive: 0 84.2% 60.2%;
+  --destructive-foreground: 210 40% 98%;
+  --border: 214.3 31.8% 86%;
+  --input: 214.3 31.8% 90%;
+  --ring: 221.2 83.2% 53.3%;
+  --radius: 0.5rem;
+}
+
+/* Premium Balanced Dark Theme */
+.dark {
+  /* Balanced deep navy instead of pure black */
+  --background: 237, 61%, 5%;
+  /* #0a051c */
+  --foreground: 210 50% 95%;
+  /* #E6EEF8 approximation */
+  --card: 217 45% 6%;
+  /* #0F1620 approximation */
+  --card-foreground: 210 50% 95%;
+  --popover: 217 45% 6%;
+  --popover-foreground: 210 50% 95%;
+  --primary: 217.2 91.2% 59.8%;
+  /* #3B82F6 */
+  --primary-foreground: 222.2 47.4% 11.2%;
+  --secondary: 217.2 32.6% 17.5%;
+  --secondary-foreground: 210 40% 98%;
+  --muted: 217 50% 8%;
+  /* #0B1220 approximation */
+  --muted-foreground: 210 15% 65%;
+  /* #9AA7B2 approximation */
+  --accent: 217.2 32.6% 17.5%;
+  --accent-foreground: 210 40% 98%;
+  --destructive: 0 62.8% 30.6%;
+  --destructive-foreground: 210 40% 98%;
+  --border: 217 30% 15%;
+  --input: 217 30% 15%;
+  --ring: 224.3 76.3% 48%;
+}
+
+* {
+  border-color: hsl(var(--border));
+}
+
+body {
+  background-color: hsl(var(--background));
+  color: hsl(var(--foreground));
+  font-family: var(--font-inter), 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  font-feature-settings: "rlig" 1, "calt" 1;
+}
+
+/* Premium theme enhancements */
+.light {
+  --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+  --shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1);
+  --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+  --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
+  --shadow-xl: 0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1);
+}
+
+.dark {
+  --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.3);
+  --shadow: 0 1px 3px 0 rgb(0 0 0 / 0.4), 0 1px 2px -1px rgb(0 0 0 / 0.4);
+  --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.4), 0 2px 4px -2px rgb(0 0 0 / 0.4);
+  --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.4), 0 4px 6px -4px rgb(0 0 0 / 0.4);
+  --shadow-xl: 0 20px 25px -5px rgb(0 0 0 / 0.4), 0 8px 10px -6px rgb(0 0 0 / 0.4);
+}
+
+/* Enhanced spinner animation */
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.animate-spin {
+  animation: spin 1s linear infinite;
+}
+
+/* Custom thin scrollbar for modals */
+.scrollbar-thin::-webkit-scrollbar {
+  width: 4px;
+}
+
+.scrollbar-thin::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.scrollbar-thin::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 2px;
+}
+
+.scrollbar-thin::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+/* For Firefox */
+.scrollbar-thin {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.2) transparent;
+}
+
+/* Hide scrollbar utility - for horizontal scroll sections */
+.scrollbar-hide::-webkit-scrollbar,
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+.scrollbar-hide,
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* Ensure Leaflet maps don't overlap navbar */
+.leaflet-container {
+  z-index: 1 !important;
+}
+
+.leaflet-map-pane {
+  z-index: 1 !important;
+}
+
+.leaflet-tile-pane {
+  z-index: 1 !important;
+}
+
+.leaflet-overlay-pane {
+  z-index: 1 !important;
+}
+
+.leaflet-marker-pane {
+  z-index: 1 !important;
+}
+
+.leaflet-tooltip-pane {
+  z-index: 1 !important;
+}
+
+.leaflet-popup-pane {
+  z-index: 1 !important;
+}
+
+/* Enhanced animations for bus tracker */
+@keyframes float {
+
+  0%,
+  100% {
+    transform: translateY(0px);
+  }
+
+  50% {
+    transform: translateY(-10px);
+  }
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes slideInUp {
+  from {
+    opacity: 0;
+    transform: translateY(30px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes pulse-glow {
+
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.4);
+  }
+
+  50% {
+    box-shadow: 0 0 0 10px rgba(59, 130, 246, 0);
+  }
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: -200px 0;
+  }
+
+  100% {
+    background-position: calc(200px + 100%) 0;
+  }
+}
+
+.animate-float {
+  animation: float 3s ease-in-out infinite;
+}
+
+.animate-fade-in {
+  animation: fadeIn 0.6s ease-out;
+}
+
+.animate-slide-in-up {
+  animation: slideInUp 0.8s ease-out;
+}
+
+.animate-pulse-glow {
+  animation: pulse-glow 2s ease-in-out infinite;
+}
+
+.animate-shimmer {
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.4), transparent);
+  background-size: 200px 100%;
+  animation: shimmer 1.5s infinite;
+}
+
+/* Mobile-optimized touch targets */
+@media (max-width: 768px) {
+  .touch-target {
+    min-height: 44px;
+    min-width: 44px;
+  }
+}
+
+/* Enhanced card hover effects */
+.card-hover {
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.card-hover:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+}
+
+/* Gradient text animation */
+.gradient-text {
+  background: linear-gradient(45deg, #3B82F6, #8B5CF6, #06B6D4);
+  background-size: 200% 200%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: gradient-shift 3s ease infinite;
+}
+
+@keyframes gradient-shift {
+  0% {
+    background-position: 0% 50%;
+  }
+
+  50% {
+    background-position: 100% 50%;
+  }
+
+  100% {
+    background-position: 0% 50%;
+  }
+}
+
+/* Enhanced button animations */
+.btn-premium {
+  position: relative;
+  overflow: hidden;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.btn-premium::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
+  transition: left 0.5s;
+}
+
+.btn-premium:hover::before {
+  left: 100%;
+}
+
+/* Glass morphism effect */
+.glass {
+  background: rgba(255, 255, 255, 0.1);
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.glass-dark {
+  background: rgba(0, 0, 0, 0.1);
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+/* Premium Track Bus Page Animations */
+@keyframes slideInFromTop {
+  from {
+    opacity: 0;
+    transform: translateY(-30px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes slideInFromRight {
+  from {
+    opacity: 0;
+    transform: translateX(30px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes slideInFromLeft {
+  from {
+    opacity: 0;
+    transform: translateX(-30px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes zoomIn {
+  from {
+    opacity: 0;
+    transform: scale(0.9);
+  }
+
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes gradientFlow {
+  0% {
+    background-position: 0% 50%;
+  }
+
+  50% {
+    background-position: 100% 50%;
+  }
+
+  100% {
+    background-position: 0% 50%;
+  }
+}
+
+@keyframes bounceIn {
+  0% {
+    opacity: 0;
+    transform: scale(0.3) translateY(-20px);
+  }
+
+  50% {
+    opacity: 1;
+    transform: scale(1.05);
+  }
+
+  70% {
+    transform: scale(0.95);
+  }
+
+  100% {
+    transform: scale(1);
+  }
+}
+
+@keyframes rotateGlow {
+  0% {
+    filter: hue-rotate(0deg) brightness(1);
+  }
+
+  50% {
+    filter: hue-rotate(180deg) brightness(1.2);
+  }
+
+  100% {
+    filter: hue-rotate(360deg) brightness(1);
+  }
+}
+
+@keyframes slideUpFade {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Utility animation classes */
+.animate-slide-in-from-top {
+  animation: slideInFromTop 0.5s ease-out;
+}
+
+.animate-slide-in-from-right {
+  animation: slideInFromRight 0.5s ease-out;
+}
+
+.animate-slide-in-from-left {
+  animation: slideInFromLeft 0.5s ease-out;
+}
+
+.animate-zoom-in {
+  animation: zoomIn 0.4s ease-out;
+}
+
+.animate-bounce-in {
+  animation: bounceIn 0.6s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+}
+
+.animate-gradient-flow {
+  background-size: 200% 200%;
+  animation: gradientFlow 4s ease infinite;
+}
+
+/* Enhanced hover transforms with smooth transitions */
+.hover-lift {
+  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+    box-shadow 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.hover-lift:hover {
+  transform: translateY(-4px) scale(1.02);
+}
+
+.hover-glow {
+  transition: filter 0.3s ease, box-shadow 0.3s ease;
+}
+
+.hover-glow:hover {
+  filter: brightness(1.1);
+  box-shadow: 0 0 20px rgba(59, 130, 246, 0.4);
+}
+
+/* Smooth scale animations */
+.scale-on-hover {
+  transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.scale-on-hover:hover {
+  transform: scale(1.05);
+}
+
+/* Gradient border animation */
+@keyframes rotateBorder {
+  0% {
+    transform: rotate(0deg);
+  }
+
+  100% {
+    transform: rotate(360deg);
+  }
+}
+
+.animated-border::before {
+  content: '';
+  position: absolute;
+  inset: -2px;
+  background: linear-gradient(45deg, #3B82F6, #8B5CF6, #EC4899, #3B82F6);
+  background-size: 300% 300%;
+  border-radius: inherit;
+  animation: gradientFlow 3s ease infinite;
+  z-index: -1;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+.animated-border:hover::before {
+  opacity: 1;
+}
+
+/* Shimmer loading effect */
+@keyframes shimmerSlide {
+  0% {
+    transform: translateX(-100%);
+  }
+
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+.shimmer-effect {
+  position: relative;
+  overflow: hidden;
+}
+
+.shimmer-effect::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(90deg,
+      transparent,
+      rgba(255, 255, 255, 0.3),
+      transparent);
+  animation: shimmerSlide 2s infinite;
+}
+
+/* Smooth text reveal */
+@keyframes textReveal {
+  from {
+    opacity: 0;
+    clip-path: inset(0 100% 0 0);
+  }
+
+  to {
+    opacity: 1;
+    clip-path: inset(0 0 0 0);
+  }
+}
+
+.text-reveal {
+  animation: textReveal 0.8s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Pulsing dot indicator */
+@keyframes pulseDot {
+
+  0%,
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+
+  50% {
+    transform: scale(1.3);
+    opacity: 0.7;
+  }
+}
+
+.pulse-dot {
+  animation: pulseDot 2s ease-in-out infinite;
+}
+
+/* ========================================
+   PREMIUM APPLY PAGE ANIMATIONS
+   ======================================== */
+
+/* Animated gradient text effect */
+@keyframes gradientFlow {
+  0% {
+    background-position: 0% 50%;
+  }
+
+  50% {
+    background-position: 100% 50%;
+  }
+
+  100% {
+    background-position: 0% 50%;
+  }
+}
+
+.animate-gradient-flow {
+  background: linear-gradient(90deg, #3B82F6, #8B5CF6, #EC4899, #3B82F6);
+  background-size: 200% 200%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: gradientFlow 3s ease infinite;
+}
+
+/* Floating background orbs */
+@keyframes float {
+
+  0%,
+  100% {
+    transform: translateY(0px);
+  }
+
+  50% {
+    transform: translateY(-20px);
+  }
+}
+
+.animate-float {
+  animation: float 6s ease-in-out infinite;
+}
+
+/* Hover lift effect */
+.hover-lift {
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.hover-lift:hover {
+  transform: translateY(-4px);
+}
+
+/* Premium card shimmer effect */
+@keyframes shimmer {
+  0% {
+    background-position: -1000px 0;
+  }
+
+  100% {
+    background-position: 1000px 0;
+  }
+}
+
+.premium-shimmer {
+  background: linear-gradient(90deg,
+      transparent,
+      rgba(255, 255, 255, 0.1),
+      transparent);
+  background-size: 1000px 100%;
+  animation: shimmer 3s infinite;
+}
+
+/* Animated border glow */
+@keyframes borderGlow {
+
+  0%,
+  100% {
+    border-color: rgba(59, 130, 246, 0.3);
+  }
+
+  50% {
+    border-color: rgba(139, 92, 246, 0.6);
+  }
+}
+
+.animate-border-glow {
+  animation: borderGlow 2s ease-in-out infinite;
+}
+
+/* Scale in animation */
+@keyframes scaleIn {
+  from {
+    opacity: 0;
+    transform: scale(0.9);
+  }
+
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.animate-scale-in {
+  animation: scaleIn 0.5s ease-out;
+}
+
+/* Slide up animation */
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-slide-up {
+  animation: slideUp 0.6s ease-out;
+}
+
+/* Fade in animation */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+.animate-fade-in {
+  animation: fadeIn 0.8s ease-out;
+}
+
+/* Bounce in animation */
+@keyframes bounceIn {
+  0% {
+    opacity: 0;
+    transform: scale(0.3);
+  }
+
+  50% {
+    opacity: 1;
+    transform: scale(1.05);
+  }
+
+  70% {
+    transform: scale(0.9);
+  }
+
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.animate-bounce-in {
+  animation: bounceIn 0.8s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+}
+
+/* Rotate glow effect */
+@keyframes rotateGlow {
+  0% {
+    box-shadow: 0 0 10px rgba(59, 130, 246, 0.5);
+  }
+
+  25% {
+    box-shadow: 0 0 20px rgba(139, 92, 246, 0.8);
+  }
+
+  50% {
+    box-shadow: 0 0 15px rgba(236, 72, 153, 0.6);
+  }
+
+  75% {
+    box-shadow: 0 0 20px rgba(139, 92, 246, 0.8);
+  }
+
+  100% {
+    box-shadow: 0 0 10px rgba(59, 130, 246, 0.5);
+  }
+}
+
+/* Progress bar animation */
+@keyframes progress {
+  from {
+    width: 100%;
+  }
+
+  to {
+    width: 0%;
+  }
+}
+
+.animate-rotate-glow {
+  animation: rotateGlow 3s ease-in-out infinite;
+}
+
+/* Indeterminate Progress Bar for Table Loading */
+@keyframes indeterminate {
+  0% {
+    transform: translateX(-100%);
+  }
+  50% {
+   transform: translateX(0%); 
+  }
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+.animate-progress {
+  animation: indeterminate 1.5s infinite ease-in-out;
+  width: 50%; /* Make it smaller than container to look like a moving bar */
+}
+
+/* ========================================
+   COMPACT ADMIN LAYOUT UTILITIES
+   ======================================== */
+
+/* Compact page container for admin pages */
+.admin-compact-page {
+  margin-top: 3rem;
+  /* mt-12 */
+  padding: 1rem 0.75rem;
+  /* py-4 px-3 */
+}
+
+@media (min-width: 640px) {
+  .admin-compact-page {
+    padding: 1rem 1rem;
+    /* sm:px-4 */
+  }
+}
+
+@media (min-width: 1024px) {
+  .admin-compact-page {
+    padding: 1rem 1.5rem;
+    /* lg:px-6 */
+  }
+}
+
+/* Compact card header */
+.admin-compact-card-header {
+  padding-bottom: 0.5rem;
+  /* pb-2 */
+  padding-top: 0.75rem;
+  /* pt-3 */
+}
+
+/* Compact card content */
+.admin-compact-card-content {
+  padding: 0.5rem 1rem;
+  /* py-2 px-4 */
+}
+
+/* Compact heading sizes */
+.admin-compact-h1 {
+  font-size: 1.25rem;
+  /* text-xl */
+  line-height: 1.75rem;
+}
+
+@media (min-width: 768px) {
+  .admin-compact-h1 {
+    font-size: 1.5rem;
+    /* md:text-2xl */
+    line-height: 2rem;
+  }
+}
+
+.admin-compact-h2 {
+  font-size: 0.875rem;
+  /* text-sm */
+  line-height: 1.25rem;
+}
+
+.admin-compact-h3 {
+  font-size: 0.75rem;
+  /* text-xs */
+  line-height: 1rem;
+}
+
+/* Compact icon sizes */
+.admin-compact-icon {
+  width: 1rem;
+  /* h-4 w-4 */
+  height: 1rem;
+}
+
+.admin-compact-icon-sm {
+  width: 0.875rem;
+  /* h-3.5 w-3.5 */
+  height: 0.875rem;
+}
+
+/* Compact spacing utilities */
+.admin-compact-gap {
+  gap: 1rem;
+  /* gap-4 */
+}
+
+.admin-compact-gap-sm {
+  gap: 0.5rem;
+  /* gap-2 */
+}
+
+.admin-compact-gap-xs {
+  gap: 0.375rem;
+  /* gap-1.5 */
+}
+
+/* Compact button */
+.admin-compact-btn {
+  height: 2rem;
+  /* h-8 */
+  font-size: 0.75rem;
+  /* text-xs */
+  line-height: 1rem;
+  padding: 0.25rem 0.75rem;
+}
+
+/* Compact badge */
+.admin-compact-badge {
+  font-size: 0.625rem;
+  /* text-[10px] */
+  padding: 0.125rem 0.5rem;
+  /* py-0.5 px-2 */
+  line-height: 1rem;
+}
+
+/* Compact input/select */
+.admin-compact-input {
+  height: 2rem;
+  /* h-8 */
+  font-size: 0.75rem;
+  /* text-xs */
+  line-height: 1rem;
+}
+
+/* Compact grid gaps */
+.admin-compact-grid {
+  gap: 0.75rem;
+  /* gap-3 */
+}
+
+@media (min-width: 768px) {
+  .admin-compact-grid {
+    gap: 1rem;
+    /* md:gap-4 */
+  }
+}
+
+/* Compact section spacing */
+.admin-compact-section {
+  margin-bottom: 1rem;
+  /* mb-4 */
+}
+
+/* Compact description text */
+.admin-compact-description {
+  font-size: 0.75rem;
+  /* text-xs */
+  line-height: 1rem;
+  color: hsl(var(--muted-foreground));
+}
+
+/* ============================================================================
+   ANIMATED LOADER WITH COLOR CHANGES
+   ============================================================================ */
+
+@keyframes loaderColorChange {
+
+  0%,
+  100% {
+    color: #3b82f6;
+    /* blue-500 */
+  }
+
+  14.28% {
+    color: #6366f1;
+    /* indigo-500 */
+  }
+
+  28.57% {
+    color: #8b5cf6;
+    /* purple-500 */
+  }
+
+  42.86% {
+    color: #a855f7;
+    /* violet-500 */
+  }
+
+  57.14% {
+    color: #d946ef;
+    /* fuchsia-500 */
+  }
+
+  71.43% {
+    color: #ec4899;
+    /* pink-500 */
+  }
+
+  85.71% {
+    color: #06b6d4;
+    /* cyan-500 */
+  }
+}
+
+.animate-loader-colors {
+  animation: loaderColorChange 4s ease-in-out infinite;
+}
+
+/* Apply to all Loader2 spinners globally */
+.animate-spin {
+  animation: spin 1s linear infinite, loaderColorChange 4s ease-in-out infinite;
+}
+
+/* ============================================================================
+   SCROLLBAR HIDE UTILITY
+   ============================================================================ */
+
+/* Hide scrollbar for Chrome, Safari and Opera */
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+
+/* Hide scrollbar for IE, Edge and Firefox */
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  /* IE and Edge */
+  scrollbar-width: none;
+  /* Firefox */
+}
+
+/* ============================================================================
+   PINK-PURPLE GRADIENT SPINNER
+   ============================================================================ */
+
+@keyframes spin-gradient {
+  0% {
+    transform: rotate(0deg);
+  }
+
+  100% {
+    transform: rotate(360deg);
+  }
+}
+
+.pink-purple-spinner {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  position: relative;
+  background: conic-gradient(from 0deg,
+      #ec4899 0deg,
+      #d946ef 90deg,
+      #a855f7 180deg,
+      #8b5cf6 270deg,
+      #ec4899 360deg);
+  animation: spin-gradient 1s linear infinite;
+}
+
+/* Responsive sizing for larger screens */
+@media (min-width: 640px) {
+  .pink-purple-spinner {
+    width: 48px;
+    height: 48px;
+  }
+}
+
+.pink-purple-spinner::before {
+  content: '';
+  position: absolute;
+  inset: 3px;
+  background: linear-gradient(to bottom right, rgb(2, 6, 23), rgb(15, 23, 42), rgb(2, 6, 23));
+  border-radius: 50%;
+}
+
+/* Variant for slate background (main page) */
+.pink-purple-spinner.bg-slate::before {
+  background: linear-gradient(to bottom right, rgb(2, 6, 23), rgb(15, 23, 42), rgb(2, 6, 23));
+}
+
+/* Variant for dark blue background (smart allocation) */
+.pink-purple-spinner.bg-dark-blue::before {
+  background: #020617;
+}
+
+.pink-purple-spinner::after {
+  content: '';
+  position: absolute;
+  inset: -6px;
+  background: conic-gradient(from 0deg,
+      rgba(236, 72, 153, 0.3) 0deg,
+      rgba(217, 70, 239, 0.3) 90deg,
+      rgba(168, 85, 247, 0.3) 180deg,
+      rgba(139, 92, 246, 0.3) 270deg,
+      rgba(236, 72, 153, 0.3) 360deg);
+  border-radius: 50%;
+  filter: blur(8px);
+  z-index: -1;
+  animation: spin-gradient 1.5s linear infinite;
+}
+
+@media (min-width: 640px) {
+  .pink-purple-spinner::after {
+    inset: -8px;
+    filter: blur(10px);
+  }
+}
+
+/* Lenis Smooth Scrolling */
+html.lenis,
+html.lenis body {
+  height: auto;
+}
+
+.lenis.lenis-smooth {
+  scroll-behavior: auto !important;
+}
+
+.lenis.lenis-smooth [data-lenis-prevent] {
+  overscroll-behavior: contain;
+}
+
+.lenis.lenis-stopped {
+  overflow: hidden;
+}
+
+.lenis.lenis-scrolling iframe {
+  pointer-events: none;
+}
+
+/* ========================================
+   MOBILE-ONLY STUDENT MANAGEMENT UX (≤768px)
+   Fixed Actions + Inner Horizontal Scroll
+   ======================================== */
+
+/* Mobile-only rules (<=768px) */
+@media (max-width: 768px) {
+
+  /* Prevent whole page horizontal scroll - CRITICAL */
+  body {
+    overflow-x: hidden !important;
+    max-width: 100vw !important;
+  }
+
+  html {
+    overflow-x: hidden !important;
+    max-width: 100vw !important;
+  }
+
+  /* Ensure main container doesn't overflow */
+  .mt-12.space-y-6 {
+    width: 94vw !important;
+    max-width: 94vw !important;
+    margin-left: auto !important;
+    margin-right: auto !important;
+    padding-left: 0 !important;
+    padding-right: 0 !important;
+    box-sizing: border-box !important;
+    overflow-x: hidden !important;
+  }
+
+  /* Card components must not overflow */
+  [class*="Card"]:not(.students-scroll-wrapper),
+  .card {
+    width: 100% !important;
+    max-width: 100% !important;
+    overflow: hidden !important;
+    box-sizing: border-box !important;
+    margin-left: 0 !important;
+    margin-right: 0 !important;
+  }
+
+  /* CardContent padding fix */
+  [class*="CardContent"] {
+    padding-left: 0.75rem !important;
+    padding-right: 0.75rem !important;
+    box-sizing: border-box !important;
+  }
+
+  /* Compact page header - vertical layout */
+  .mt-12.space-y-6>div:first-child {
+    flex-direction: column !important;
+    align-items: flex-start !important;
+    gap: 0.75rem !important;
+  }
+
+  .mt-12.space-y-6>div:first-child h1 {
+    font-size: 1.25rem !important;
+    line-height: 1.75rem !important;
+  }
+
+  .mt-12.space-y-6>div:first-child p {
+    font-size: 0.75rem !important;
+    margin-top: 0 !important;
+  }
+
+  /* Compact control buttons - Grid Layout */
+  .mt-12.space-y-6>div:first-child>div:last-child {
+    display: grid !important;
+    grid-template-columns: repeat(2, 1fr) !important;
+    gap: 8px !important;
+    width: 100%;
+    max-width: 100% !important;
+    overflow-x: visible !important;
+    flex-wrap: wrap !important;
+    padding-bottom: 0px !important;
+    box-sizing: border-box !important;
+  }
+
+  /* Handle odd number of buttons: First button automatically takes full width */
+  .mt-12.space-y-6>div:first-child>div:last-child> :first-child:nth-last-child(odd) {
+    grid-column: 1 / -1 !important;
+  }
+
+  /* Ensure buttons fill their grid cells */
+  .mt-12.space-y-6>div:first-child>div:last-child>*,
+  .mt-12.space-y-6>div:first-child>div:last-child a {
+    width: 100% !important;
+  }
+
+  .mt-12.space-y-6>div:first-child>div:last-child button,
+  .mt-12.space-y-6>div:first-child>div:last-child a>button {
+    padding: 6px 10px !important;
+    font-size: 11px !important;
+    border-radius: 6px !important;
+    height: 36px !important;
+    white-space: nowrap !important;
+    width: 100% !important;
+    justify-content: center !important;
+  }
+
+  .mt-12.space-y-6>div:first-child>div:last-child button svg,
+  .mt-12.space-y-6>div:first-child>div:last-child a>button svg {
+    width: 12px !important;
+    height: 12px !important;
+    margin-right: 6px !important;
+  }
+
+  /* Compact search and filter controls - stack vertically */
+  .mb-3 {
+    margin-bottom: 0.75rem !important;
+  }
+
+  .mb-3 .flex.gap-2.items-center {
+    flex-direction: column !important;
+    align-items: stretch !important;
+    gap: 8px !important;
+  }
+
+  /* Search bar full width constraint - overrides inline styles */
+  .mb-3 .flex.gap-2.items-center>div.relative {
+    width: 100% !important;
+    max-width: 100% !important;
+    min-width: 0 !important;
+    flex-basis: auto !important;
+    order: 1;
+  }
+
+  .mb-3 .flex.gap-2.items-center>div.relative input {
+    width: 100% !important;
+    max-width: 100% !important;
+    height: 36px !important;
+    font-size: 13px !important;
+  }
+
+  /* Hide filter icon on mobile */
+  .mb-3 .flex.gap-2.items-center>svg {
+    display: none !important;
+  }
+
+  /* Filter dropdowns */
+  button[role="combobox"] {
+    height: 34px !important;
+    font-size: 12px !important;
+    width: 100% !important;
+  }
+
+  /* Clear button */
+  .mb-3 .flex.gap-2.items-center button:not([role="combobox"]) {
+    height: 34px !important;
+    padding: 6px 12px !important;
+    font-size: 11px !important;
+  }
+
+  /* Students section: prevent overflow */
+  .students-section {
+    max-width: 100% !important;
+    overflow: hidden !important;
+    width: 100% !important;
+  }
+
+  /* The scroll wrapper - ONLY this scrolls horizontally */
+  .students-scroll-wrapper {
+    overflow-x: auto !important;
+    overflow-y: visible !important;
+    -webkit-overflow-scrolling: touch !important;
+    scroll-behavior: smooth !important;
+    width: 100% !important;
+    max-width: 100% !important;
+  }
+
+  /* Make table wide to enable scroll */
+  .students-scroll-wrapper table {
+    min-width: 850px !important;
+    width: auto !important;
+    border-collapse: collapse !important;
+  }
+
+  /* Sticky Actions column - FORCE REMOVAL */
+  .students-scroll-wrapper table thead tr th:last-child,
+  .students-scroll-wrapper table tbody tr td:last-child {
+    position: static !important;
+    right: auto !important;
+    background: transparent !important;
+    z-index: auto !important;
+    min-width: 70px !important;
+    max-width: 70px !important;
+    box-shadow: none !important;
+    border-left: none !important;
+  }
+
+  /* Separator shadow for sticky column - REMOVE */
+  .students-scroll-wrapper table thead tr th:last-child::before,
+  .students-scroll-wrapper table tbody tr td:last-child::before {
+    display: none !important;
+  }
+
+  /* Compact table cells */
+  .students-scroll-wrapper table td,
+  .students-scroll-wrapper table th {
+    padding: 8px 10px !important;
+    font-size: 10px !important;
+    white-space: nowrap;
+  }
+
+  /* Smaller avatars on mobile */
+  .students-scroll-wrapper table td img,
+  .students-scroll-wrapper table td .avatar {
+    width: 28px !important;
+    height: 28px !important;
+  }
+
+  /* Compact badges */
+  .students-scroll-wrapper table td span[class*="inline-flex"],
+  .students-scroll-wrapper table td span[class*="inline-block"] {
+    font-size: 9px !important;
+    padding: 2px 6px !important;
+  }
+
+  /* Compact action buttons */
+  .students-scroll-wrapper table button {
+    width: 28px !important;
+    height: 28px !important;
+    padding: 0 !important;
+  }
+
+  .students-scroll-wrapper table button svg {
+    width: 14px !important;
+    height: 14px !important;
+  }
+
+  /* Focus styles */
+  .students-scroll-wrapper table button:focus,
+  .students-scroll-wrapper table a:focus {
+    outline: 2px solid rgba(59, 130, 246, 0.4) !important;
+    outline-offset: 2px !important;
+  }
+
+  /* Load more button */
+  .students-section~div button {
+    width: 100% !important;
+    margin-top: 12px !important;
+  }
+
+  /* Card component on mobile */
+  [class*="Card"] {
+    border-radius: 12px !important;
+  }
+}

@@ -1,0 +1,66 @@
+{
+    "title": "Privacy Policy",
+    "lastUpdated": "2025-12-28",
+    "sections": [
+        {
+            "id": "1",
+            "title": "1. Introduction",
+            "content": "Assam down town University (“AdtU”, “we”, “our”, “us”) is committed to protecting the privacy and personal data of users accessing the AdtU Bus Services platform (“System”, “Service”).\n\nThis Privacy Policy explains how personal information is collected, used, stored, shared, and protected when users interact with the Service. By using the Service, you consent to the practices described in this Policy."
+        },
+        {
+            "id": "2",
+            "title": "2. Information We Collect",
+            "content": "We may collect and process the following categories of information depending on user role:\n\na. Personal Identification Information\nFull name\nUniversity ID / Employee ID\nDate of birth\nContact details (phone number, email address)\nProfile photograph (if uploaded)\n\nb. Academic and Employment Information\nEnrollment details (for students)\nRole and designation (student, driver, moderator, administrator)\nDepartmental or route assignments\n\nc. Transport and Usage Data\nBus assignments and route information\nTrip participation and usage history\nDigital bus pass status and validity\nCheck-in / validation records\n\nd. Payment Information\nTransaction references and payment status\nRenewal history\n\nNote: Sensitive payment details (card numbers, UPI credentials, etc.) are processed by authorized third-party payment gateways and are not stored by AdtU.\n\ne. Technical Information\nDevice and browser metadata\nIP address (for security and audit purposes)\nSystem logs and activity timestamps"
+        },
+        {
+            "id": "3",
+            "title": "3. Purpose of Data Collection",
+            "content": "Personal data is collected and used solely for legitimate institutional purposes, including:\n\nManaging bus allocations, routes, and driver assignments\nIssuing and validating digital bus passes\nProcessing payments and renewals\nEnforcing access control and eligibility rules\nSending system notifications and alerts\nMonitoring system performance and security\nFulfilling administrative, legal, and audit requirements"
+        },
+        {
+            "id": "4",
+            "title": "4. Legal Basis for Processing",
+            "content": "We process personal data based on one or more of the following grounds:\n\nUser consent\nPerformance of institutional services\nCompliance with legal or regulatory obligations\nLegitimate interests of the university in operating secure transport systems"
+        },
+        {
+            "id": "5",
+            "title": "5. Data Storage and Retention",
+            "content": "All data is stored securely using cloud-based infrastructure with controlled access\n\nPersonal data is retained only for as long as necessary to fulfill its intended purpose\n\nUpon completion of academic tenure or termination of access, relevant data may be archived or anonymized in accordance with institutional policies"
+        },
+        {
+            "id": "6",
+            "title": "6. Data Sharing and Disclosure",
+            "content": "We do not sell or commercially share user data.\n\nData may be shared only:\n\nWith authorized university departments for operational needs\n\nWith service providers (such as payment gateways or cloud services) strictly for service delivery\n\nWhen required by law, regulation, or judicial authority\n\nAll such sharing is governed by confidentiality and data protection obligations."
+        },
+        {
+            "id": "7",
+            "title": "7. Security Measures",
+            "content": "AdtU implements reasonable technical and organizational safeguards to protect personal data, including:\n\nRole-based access control\nAuthentication and authorization mechanisms\nActivity logging and monitoring\nSecure communication protocols\n\nDespite best efforts, no system can guarantee absolute security. Users are advised to safeguard their credentials and report suspicious activity promptly."
+        },
+        {
+            "id": "8",
+            "title": "8. User Rights",
+            "content": "Subject to applicable laws, users have the right to:\n\nAccess their personal data\nRequest correction of inaccurate or outdated information\nRequest restriction or deletion of data where applicable\nWithdraw consent where processing is consent-based\n\nRequests may be subject to verification and institutional approval."
+        },
+        {
+            "id": "9",
+            "title": "9. Cookies and Tracking",
+            "content": "The Service may use essential cookies or local storage mechanisms to:\n\nMaintain session state\nImprove system usability\nEnhance security\n\nNo third-party advertising or behavioral tracking cookies are used."
+        },
+        {
+            "id": "10",
+            "title": "10. Children’s Privacy",
+            "content": "The Service is intended for university-affiliated users only. It is not designed for individuals below the age required for higher education enrollment. No knowingly collected data from minors is retained."
+        },
+        {
+            "id": "11",
+            "title": "11. Policy Updates",
+            "content": "This Privacy Policy may be updated periodically to reflect changes in technology, law, or institutional practices. Continued use of the Service after updates constitutes acceptance of the revised Policy.\n\nUsers are encouraged to review this page regularly."
+        },
+        {
+            "id": "12",
+            "title": "12. Contact Information",
+            "content": "For questions, concerns, or requests related to this Privacy Policy or personal data handling, users may contact the university’s Transport or IT Department through official communication channels.\n\nBy using AdtU Bus Services, you acknowledge that you have read and understood this Privacy Policy and agree to its terms."
+        }
+    ]
+}

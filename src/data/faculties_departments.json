@@ -1,0 +1,173 @@
+[
+  {
+    "id": 1,
+    "faculty": "Faculty of Nursing",
+    "departments": {
+      "Masters": [
+        "M.Sc. Nursing (Child Health Nursing)",
+        "M.Sc. Nursing (Community Health Nursing)",
+        "M.Sc. Nursing (Medical Surgical Nursing)",
+        "M.Sc. Nursing (Obstetrics and Gynaecological Nursing)"
+      ],
+      "Bachelors": [
+        "B.Sc. Nursing",
+        "Post Basic B.Sc. Nursing"
+      ]
+    }
+  },
+  {
+    "id": 2,
+    "faculty": "Faculty of Science",
+    "departments": {
+      "Masters": [
+        "Master of Science in Botany",
+        "Master of Science in Food Nutrition and Dietetics",
+        "Master of Science in Microbiology",
+        "Master of Science in Zoology",
+        "Master of Science in Chemistry",
+        "Master of Science in Forensic Science",
+        "Master of Science in Mathematics",
+        "Master of Science in Physics",
+        "Master of Science in Biotechnology"
+      ],
+      "Bachelors": [
+        "Bachelor of Science in Biotechnology",
+        "Bachelor of Science in Food Nutrition and Dietetics",
+        "Bachelor of Science in Microbiology",
+        "Bachelor of Science in Forensic Science"
+      ]
+    }
+  },
+  {
+    "id": 3,
+    "faculty": "Faculty of Engineering",
+    "departments": {
+      "Bachelors": [
+        "B.Tech in Civil Engineering",
+        "B.Tech in Mechanical Engineering",
+        "B.Tech in Civil Engineering (Construction Management)",
+        "B.Tech in Mechanical Engineering on Mechatronics",
+        "Bachelor of Design"
+      ]
+    }
+  },
+  {
+    "id": 4,
+    "faculty": "Faculty of Computer Technology",
+    "departments": {
+      "Masters": [
+        "Master of Computer Application on Artificial Intelligence and Deep Learning"
+      ],
+      "Bachelors": [
+        "B.Tech in Computer Science and Engineering",
+        "B.Tech. in Computer Science and Engineering and Business Systems",
+        "B.Tech. in Computer Science and Engineering on Data Science and Artificial Intelligence",
+        "B.Tech. in Computer Science and Engineering on Semiconductor Technology",
+        "B.Tech. in Computer Science and Engineering on System Application and Production",
+        "Bachelor of Computer Application",
+        "Bachelor of Computer Application on Artificial Intelligence and Deep Learning"
+      ]
+    }
+  },
+  {
+    "id": 5,
+    "faculty": "Faculty of Paramedical Sciences",
+    "departments": {
+      "Masters": [
+        "Master of Medical Laboratory Technology",
+        "Master of Radiography and Advance Imaging Technology"
+      ],
+      "Bachelors": [
+        "Bachelor of Optometry",
+        "Bachelor of Critical and Intensive Care Unit Technology",
+        "Bachelor of Dialysis Technology",
+        "Bachelor of Medical Laboratory Technology",
+        "Bachelor of Operation Theatre Technology",
+        "Bachelor of Radiography and Advanced Imaging Technology",
+        "Bachelor of Trauma, Emergency and Disaster Management"
+      ]
+    }
+  },
+  {
+    "id": 6,
+    "faculty": "Faculty of Pharmaceutical Science",
+    "departments": {
+      "Masters": [
+        "Master of Pharmacy (Pharmaceutics)",
+        "Master of Pharmacy (Pharmacology)"
+      ],
+      "Bachelors": [
+        "Bachelor of Pharmacy"
+      ]
+    }
+  },
+  {
+    "id": 7,
+    "faculty": "Faculty of Commerce and Management",
+    "departments": {
+      "Masters": [
+        "Master of Business Administration",
+        "Master of Business Administration (Corporate Finance)",
+        "Master of Business Administration (Industry Integrated)",
+        "Master of Business Administration on System Application and Production",
+        "Master of Travel and Tourism Management",
+        "Master of Business Administration in Healthcare Management"
+      ],
+      "Bachelors": [
+        "Bachelor of Hotel Management and Catering Technology",
+        "Bachelor of Business Administration",
+        "Bachelor of Business Administration (Industry Integrated)",
+        "Bachelor of Business Administration on Business Analytics",
+        "Bachelor of Business Administration on Supply Chain Management",
+        "Bachelor of Business Administration on System Application and Production"
+      ]
+    }
+  },
+  {
+    "id": 8,
+    "faculty": "Faculty of Humanities and Social Sciences",
+    "departments": {
+      "Masters": [
+        "Master of Arts in Administrative Service",
+        "Master of Arts in English",
+        "Master of Arts in Psychology",
+        "Master of Arts in Sociology",
+        "Master of Science in Clinical Psychology",
+        "Master of Social Work"
+      ],
+      "Bachelors": [
+        "Bachelor of Arts (Honours)",
+        "Bachelor of Science in Clinical Psychology",
+        "Bachelor of Arts in Administrative Service",
+        "Bachelor of Arts in Performing Arts",
+        "Bachelor of Arts in Psychology"
+      ]
+    }
+  },
+  {
+    "id": 9,
+    "faculty": "Faculty of Physiotherapy and Rehabilitation",
+    "departments": {
+      "Masters": [
+        "Master of Physiotherapy"
+      ],
+      "Bachelors": [
+        "Bachelor of Physiotherapy",
+        "Bachelor of Physical Education and Sports"
+      ]
+    }
+  },
+  {
+    "id": 10,
+    "faculty": "Faculty of Agricultural Sciences and Technology",
+    "departments": {
+      "Masters": [
+        "M.Sc. Agriculture",
+        "M.Sc. Horticulture"
+      ],
+      "Bachelors": [
+        "B.Sc. (Hons.) Agriculture"
+      ]
+    }
+  }
+]

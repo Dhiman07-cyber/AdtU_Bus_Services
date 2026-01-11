@@ -1,0 +1,34 @@
+{
+  "crons": [
+    {
+      "path": "/api/cron/expiry-check?type=main",
+      "schedule": "0 0 23 10 *",
+      "comment": "Main expiry check on October 23 (notification day)"
+    },
+    {
+      "path": "/api/cron/expiry-check?type=mid-june",
+      "schedule": "0 0 15 10 *",
+      "comment": "Mid-month expiry check on October 15"
+    },
+    {
+      "path": "/api/cron/cleanup-notifications",
+      "schedule": "0 0 * * *",
+      "comment": "Daily notification cleanup at midnight"
+    },
+    {
+      "path": "/api/cron/cleanup-expired-students",
+      "schedule": "0 0 31 8 *",
+      "comment": "Delete expired students on August 31 every year (hard delete date from deadline-config.json)"
+    },
+    {
+      "path": "/api/cron/cleanup-swaps",
+      "schedule": "0 0 * * *",
+      "comment": "Daily cleanup: expire old swap requests and delete documents older than 7 days"
+    },
+    {
+      "path": "/api/cron/annual-export?cleanup=true",
+      "schedule": "30 3 31 7 *",
+      "comment": "Annual payment export, archival, and cleanup on July 31 at 9:00 AM IST (3:30 UTC) - soft block date"
+    }
+  ]
+}

@@ -1,0 +1,10 @@
+{
+  "title": "About ADTU Bus XQ",
+  "content": [
+    { "type": "h1", "text": "About ADTU Bus XQ" },
+    { "type": "p", "text": "ADTU Bus XQ is a student transport management and live-tracking platform built to improve student commutes, provide live tracking, notifications, and simplify transport operations for ADTU." },
+    { "type": "p", "text": "Built with a focus on privacy, speed, and ease-of-use." }
+  ]
+}
+
+

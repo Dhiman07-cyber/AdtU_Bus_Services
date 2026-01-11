@@ -1,0 +1,21 @@
+{
+  "title": "Privacy Policy",
+  "last_updated": "2025-10-09",
+  "content": [
+    { "type": "h1", "text": "Privacy Policy" },
+    { "type": "p", "text": "AdtU Bus Services (\"we\", \"us\", \"our\") respects your privacy. This policy explains how we collect, use, disclose, and store personal information." },
+    { "type": "h2", "text": "Information We Collect" },
+    { "type": "p", "text": "We collect the minimum necessary information to deliver bus tracking and notification services: Name, Email, Employee/Enrollment ID, Route, and (with permission) location coordinates for drivers and students when using the tracking or waiting-flag features." },
+    { "type": "h2", "text": "How We Use Information" },
+    { "type": "p", "text": "To provide live tracking, send notifications, improve services, and respond to feedback. We do not sell personal data." },
+    { "type": "h2", "text": "Data Retention" },
+    { "type": "p", "text": "Feedback entries are retained for 30 days and then automatically deleted. Other operational data are retained as per system policy." },
+    { "type": "h2", "text": "Security" },
+    { "type": "p", "text": "We protect your data using standard security measures. Access to feedback management is restricted to Admins and Moderators." },
+    { "type": "h2", "text": "Contact" },
+    { "type": "p", "text": "For privacy concerns, contact: transport-support@adtu.edu.in" }
+  ]
+}
+
+
+

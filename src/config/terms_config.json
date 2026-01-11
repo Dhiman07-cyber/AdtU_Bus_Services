@@ -1,0 +1,66 @@
+{
+  "title": "Terms & Conditions",
+  "lastUpdated": "2025-12-28",
+  "sections": [
+    {
+      "id": "intro",
+      "title": "1. Introduction",
+      "content": "These Terms and Conditions (\"Terms\") govern the access to and use of the AdtU Bus Services platform (\"System\", \"Service\"), operated by Assam down town University (AdtU) for managing institutional transportation services.\n\nBy accessing, registering, or using this system in any manner, you acknowledge that you have read, understood, and agreed to be bound by these Terms. If you do not agree to any part of these Terms, you must discontinue use of the Service immediately."
+    },
+    {
+      "id": "scope",
+      "title": "2. Scope of the Service",
+      "content": "The AdtU Bus Services platform is designed to facilitate:\n\n• Allocation and management of university bus routes and schedules\n• Assignment of drivers and buses\n• Issuance and validation of digital bus passes\n• Renewal, suspension, and expiry handling of transport access\n• Administrative monitoring, analytics, and notifications\n\nThe Service is intended solely for authorized students, drivers, moderators, and administrators of the university."
+    },
+    {
+      "id": "eligibility",
+      "title": "3. User Eligibility and Access",
+      "content": "Access to the system is role-based and granted only to:\n\n• Students officially enrolled at AdtU\n• Drivers authorized by the Transport Department\n• Moderators and Administrators appointed by the university\n\nYou are responsible for maintaining the confidentiality of your login credentials. Any activity performed using your account shall be deemed to be performed by you."
+    },
+    {
+      "id": "responsibilities",
+      "title": "4. User Responsibilities",
+      "content": "All users agree to:\n\n• Provide accurate and truthful information during registration and usage\n• Use the system only for its intended academic and transport-related purposes\n• Refrain from attempting to manipulate routes, assignments, payments, or system data\n• Avoid unauthorized access, reverse engineering, or abuse of system features\n\nAny misuse may result in suspension or permanent revocation of access."
+    },
+    {
+      "id": "payments",
+      "title": "5. Payments, Renewals, and Expiry",
+      "content": "Where applicable:\n\n• Transport fees are payable as per university-approved rates\n• Renewal deadlines, soft blocks, and hard blocks are governed by official academic timelines\n• Failure to renew within prescribed timelines may result in restricted or revoked access\n\nAll payment transactions are processed via authorized third-party gateways. The university does not store sensitive payment credentials."
+    },
+    {
+      "id": "data",
+      "title": "6. Data Accuracy and System Integrity",
+      "content": "The university strives to maintain accurate and real-time data across the system. However:\n\n• Temporary inconsistencies may occur during synchronization or scheduled updates\n• The university reserves the right to correct any data discrepancies\n• Administrative decisions based on official records shall prevail over system displays"
+    },
+    {
+      "id": "security",
+      "title": "7. Security and Monitoring",
+      "content": "The system employs standard security practices including authentication controls, role-based permissions, and activity logging.\n\nAny attempt to compromise system security, including but not limited to automated attacks, load abuse, or unauthorized API access, will be treated as a serious violation and may lead to disciplinary or legal action."
+    },
+    {
+      "id": "liability",
+      "title": "8. Limitation of Liability",
+      "content": "AdtU shall not be held liable for:\n\n• Temporary unavailability of the system due to maintenance or technical issues\n• Loss arising from incorrect data entered by users\n• Delays caused by external services such as payment gateways or network providers\n\nUse of the Service is provided on an “as-is” and “as-available” basis."
+    },
+    {
+      "id": "modification",
+      "title": "9. Modification of Terms",
+      "content": "The university reserves the right to update or modify these Terms at any time without prior notice. Continued use of the Service after changes constitutes acceptance of the revised Terms.\n\nUsers are encouraged to review this page periodically."
+    },
+    {
+      "id": "termination",
+      "title": "10. Termination of Access",
+      "content": "The university may suspend or terminate access to the system:\n\n• For violation of these Terms\n• Upon completion of academic tenure\n• Due to administrative or policy decisions\n\nSuch termination does not entitle the user to any compensation."
+    },
+    {
+      "id": "law",
+      "title": "11. Governing Law and Jurisdiction",
+      "content": "These Terms shall be governed by and construed in accordance with the laws of India. Any disputes shall fall under the jurisdiction of courts located in Assam."
+    },
+    {
+      "id": "contact",
+      "title": "12. Contact and Support",
+      "content": "For queries, clarifications, or grievances related to these Terms or the Service, users may contact the university’s Transport or IT Department through official communication channels.\n\nBy continuing to use AdtU Bus Services, you confirm your acceptance of these Terms and Conditions."
+    }
+  ]
+}
