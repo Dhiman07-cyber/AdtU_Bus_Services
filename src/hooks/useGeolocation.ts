@@ -1,112 +1,80 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from 'react';
-import { 
-  geolocationService, 
-  GeolocationPosition, 
-  GeolocationError 
-} from '@/lib/geolocation-service';
+import { useState, useEffect, useCallback } from 'react';
+import { geolocationService, GeolocationPosition, GeolocationError } from '@/lib/geolocation-service';
 
 interface UseGeolocationOptions {
-  watch?: boolean; // If true, continuously watch position (for drivers)
-  enabled?: boolean; // If false, don't start tracking
-  onPositionUpdate?: (position: GeolocationPosition) => void;
+    watch?: boolean;
+    enabled?: boolean;
 }
 
-export function useGeolocation(options: UseGeolocationOptions = {}) {
-  const { watch = false, enabled = true, onPositionUpdate } = options;
+export const useGeolocation = (options: UseGeolocationOptions = {}) => {
+    const { watch = false, enabled = true } = options;
+    const [position, setPosition] = useState<GeolocationPosition | null>(null);
+    const [error, setError] = useState<GeolocationError | null>(null);
+    const [loading, setLoading] = useState(enabled);
+    const [permissionDenied, setPermissionDenied] = useState(false);
 
-  const [position, setPosition] = useState<GeolocationPosition | null>(null);
-  const [error, setError] = useState<GeolocationError | null>(null);
-  const [loading, setLoading] = useState<boolean>(false);
-  const [permissionDenied, setPermissionDenied] = useState<boolean>(false);
-  const cleanupRef = useRef<(() => void) | null>(null);
+    const fetchPosition = useCallback(() => {
+        if (!geolocationService.isAvailable()) {
+            setError({
+                code: 0,
+                message: 'Geolocation not supported',
+                userFriendlyMessage: 'Your browser does not support location services.'
+            });
+            setLoading(false);
+            return () => { };
+        }
 
-  const handleSuccess = useCallback((pos: GeolocationPosition) => {
-    setPosition(pos);
-    setError(null);
-    setLoading(false);
-    setPermissionDenied(false);
-    
-    if (onPositionUpdate) {
-      onPositionUpdate(pos);
-    }
-  }, [onPositionUpdate]);
+        setLoading(true);
+        setError(null);
 
-  const handleError = useCallback((err: GeolocationError) => {
-    setError(err);
-    setLoading(false);
-    
-    // Check if permission was denied
-    if (err.code === 1) { // PERMISSION_DENIED
-      setPermissionDenied(true);
-    }
-  }, []);
+        const handleSuccess = (pos: GeolocationPosition) => {
+            setPosition(pos);
+            setLoading(false);
+            setPermissionDenied(false);
+        };
 
-  const startTracking = useCallback(() => {
-    if (!enabled || !geolocationService.isAvailable()) {
-      setError({
-        code: 0,
-        message: 'Geolocation not available',
-        userFriendlyMessage: 'Your browser does not support location services.'
-      });
-      return;
-    }
+        const handleError = (err: GeolocationError) => {
+            setError(err);
+            setLoading(false);
+            if (err.code === 1) { // PERMISSION_DENIED
+                setPermissionDenied(true);
+            }
+        };
 
-    setLoading(true);
-    setError(null);
+        if (watch) {
+            return geolocationService.watchPosition(handleSuccess, handleError);
+        } else {
+            geolocationService.getCurrentPosition(handleSuccess, handleError);
+            return () => { };
+        }
+    }, [watch]);
 
-    if (watch) {
-      // Continuous tracking for drivers
-      cleanupRef.current = geolocationService.watchPosition(
-        handleSuccess,
-        handleError
-      );
-    } else {
-      // Single fetch for students
-      geolocationService.getCurrentPosition(
-        handleSuccess,
-        handleError
-      );
-    }
-  }, [enabled, watch, handleSuccess, handleError]);
+    useEffect(() => {
+        if (!enabled) {
+            setLoading(false);
+            return;
+        }
 
-  const stopTracking = useCallback(() => {
-    if (cleanupRef.current) {
-      cleanupRef.current();
-      cleanupRef.current = null;
-    }
-    geolocationService.stopWatching();
-  }, []);
+        const cleanup = fetchPosition();
+        return () => {
+            if (typeof cleanup === 'function') {
+                cleanup();
+            }
+        };
+    }, [enabled, fetchPosition]);
 
-  const retryTracking = useCallback(() => {
-    setPermissionDenied(false);
-    setError(null);
-    startTracking();
-  }, [startTracking]);
+    const retryTracking = useCallback(() => {
+        fetchPosition();
+    }, [fetchPosition]);
 
-  // Start tracking on mount if enabled
-  useEffect(() => {
-    if (enabled) {
-      startTracking();
-    }
-
-    // Cleanup on unmount
-    return () => {
-      stopTracking();
+    return {
+        position,
+        error,
+        loading,
+        permissionDenied,
+        retryTracking,
+        refreshPosition: fetchPosition
     };
-  }, [enabled]); // Only re-run if enabled changes
-
-  return {
-    position,
-    error,
-    loading,
-    permissionDenied,
-    startTracking,
-    stopTracking,
-    retryTracking,
-    isAvailable: geolocationService.isAvailable()
-  };
-}
-
-
+};

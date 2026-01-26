@@ -103,8 +103,8 @@ export default function VerificationDetailPage() {
         </div>
         <Badge variant={
           application.state === 'verified' ? 'default' :
-          application.state === 'awaiting_verification' ? 'secondary' :
-          'outline'
+            application.state === 'awaiting_verification' ? 'secondary' :
+              'outline'
         }>
           {application.state}
         </Badge>
@@ -165,6 +165,12 @@ export default function VerificationDetailPage() {
               </Badge>
             </div>
             <div>
+              <p className="text-sm text-gray-500 dark:text-gray-400">UPI ID / Reference</p>
+              <p className="font-mono font-bold text-lg text-blue-600 dark:text-blue-400">
+                {application.formData.paymentInfo.paymentReference || 'N/A'}
+              </p>
+            </div>
+            <div>
               <p className="text-sm text-gray-500 dark:text-gray-400">Session Duration</p>
               <p className="font-medium">
                 {application.formData.sessionInfo.durationYears} Year(s)
@@ -181,7 +187,7 @@ export default function VerificationDetailPage() {
             <div>
               <p className="text-sm text-gray-500 dark:text-gray-400 mb-2">Payment Receipt</p>
               <div className="border rounded-lg p-4 bg-gray-50 dark:bg-gray-800">
-                <Image 
+                <Image
                   src={application.formData.paymentInfo.paymentEvidenceUrl}
                   alt="Payment receipt"
                   width={600}
@@ -189,7 +195,7 @@ export default function VerificationDetailPage() {
                   className="max-h-96 rounded object-contain mx-auto"
                 />
                 <div className="mt-4 text-center">
-                  <a 
+                  <a
                     href={application.formData.paymentInfo.paymentEvidenceUrl}
                     target="_blank"
                     rel="noopener noreferrer"

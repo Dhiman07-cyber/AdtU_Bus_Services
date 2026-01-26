@@ -62,6 +62,23 @@ const config: Config = {
         "theme-text-secondary": "#9AA7B2",
         "theme-text-muted": "#6B7280",
         "purple-glow": "rgba(167, 139, 250, 0.14)",
+
+        // Landing Page Colors (Mapped to Premium Theme)
+        landing: {
+          bg: {
+            900: "#0a051c",   // Matches theme-bg
+            1000: "#05020e",  // Slightly darker than theme-bg for depth
+          },
+          surface: "#0F1620", // Matches theme-surface
+          glass: "rgba(255, 255, 255, 0.1)",
+          accent: {
+            DEFAULT: "#3B82F6", // Matches theme-accent
+            2: "#FB923C",       // Matches theme-accent-2
+          },
+          text: "#E6EEF8",      // Matches theme-text
+          muted: "#9AA7B2",     // Matches theme-text-secondary
+          success: "#10B981",   // Matches theme-success
+        },
       },
       borderRadius: {
         lg: "var(--radius)",

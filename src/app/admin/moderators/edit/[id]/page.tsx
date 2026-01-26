@@ -16,6 +16,7 @@ import EnhancedDatePicker from "@/components/enhanced-date-picker";
 import { getModeratorById, updateModerator } from '@/lib/dataService';
 import { Camera, User } from "lucide-react";
 import { signalCollectionRefresh } from '@/hooks/useEventDrivenRefresh';
+import { useDebouncedStorage } from '@/hooks/useDebouncedStorage';
 
 
 export default function EditModeratorPage({ params }: { params: Promise<{ id: string }> }) {
@@ -46,16 +47,20 @@ export default function EditModeratorPage({ params }: { params: Promise<{ id: st
     address: '',
     status: 'active' as 'active' | 'inactive',
   });
+  
+  // Debounced storage to prevent input lag
+  const storage = useDebouncedStorage('moderatorEditFormData', {
+    debounceMs: 500,
+    excludeFields: ['profilePhoto', 'email'],
+  });
   const [errors, setErrors] = useState<Record<string, string>>({});
 
   // Save form data to localStorage whenever it changes (except sensitive fields)
   useEffect(() => {
     if (typeof window !== 'undefined') {
-      // Create a copy without sensitive data
-      const { email, profilePhoto, ...dataToSave } = formData;
-      localStorage.setItem('moderatorEditFormData', JSON.stringify(dataToSave));
+      storage.save(formData);
     }
-  }, [formData]);
+  }, [formData, storage]);
 
   const fetchModeratorData = async () => {
     try {
@@ -164,8 +169,6 @@ export default function EditModeratorPage({ params }: { params: Promise<{ id: st
 
     if (!formData.name.trim()) {
       newErrors.name = "Full name is required";
-    } else if (/[^a-zA-Z\s]/.test(formData.name)) {
-      newErrors.name = "Name cannot contain special symbols";
     }
 
     if (!formData.phone.trim()) {

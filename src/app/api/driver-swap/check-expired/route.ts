@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { DriverSwapService } from '@/lib/driver-swap-service';
+import { DriverSwapSupabaseService } from '@/lib/driver-swap-supabase';
 
 /**
  * POST /api/driver-swap/check-expired
@@ -8,40 +8,30 @@ import { DriverSwapService } from '@/lib/driver-swap-service';
  * This can be called from the client or via cron
  * 
  * Actions:
- * 1. Expire pending requests (acceptance window + time period)
- * 2. Expire accepted swaps whose time period has ended
- * 3. Cleanup old documents (7+ days old)
+ * 1. Expire pending requests (acceptance window passed)
+ * 2. End accepted swaps that have passed their end time (skips if trip ongoing)
  */
 export async function POST(request: Request) {
   try {
-    console.log('🔄 Running swap expiry check and cleanup...');
+    console.log('🔄 Running swap expiry check (Supabase)...');
     const startTime = Date.now();
 
-    // 1. Expire pending requests (acceptance window + time period check)
-    const pendingResult = await DriverSwapService.expirePendingRequests();
+    // Step 1: Expire pending requests
+    const pendingResult = await DriverSwapSupabaseService.expirePendingRequests();
 
-    // 2. Check and expire accepted swaps (skips swaps with active trips)
-    const expireResult = await DriverSwapService.checkAndExpireSwaps();
-
-    // 3. Clean up old swap documents (older than 7 days)
-    const cleanupResult = await DriverSwapService.cleanupOldSwapRequests();
+    // Step 2: End accepted swaps that have passed their end time
+    const acceptedResult = await DriverSwapSupabaseService.checkAndExpireAcceptedSwaps();
 
     const duration = Date.now() - startTime;
 
     return NextResponse.json({
       success: true,
       duration_ms: duration,
-      pending: {
-        expired: pendingResult.expired,
-        cancelled: pendingResult.cancelled
-      },
-      accepted: {
-        expired: expireResult.expired,
-        skipped: expireResult.skipped
-      },
-      deleted: cleanupResult.deleted,
-      errors: [...pendingResult.errors, ...expireResult.errors, ...cleanupResult.errors],
-      message: `Pending: ${pendingResult.expired} expired, ${pendingResult.cancelled} cancelled | Accepted: ${expireResult.expired} expired, ${expireResult.skipped} skipped | Deleted: ${cleanupResult.deleted}`
+      pending_expired: pendingResult.expired,
+      accepted_expired: acceptedResult.expired,
+      pending_reverted: acceptedResult.pendingReverted,
+      skipped: acceptedResult.skipped,
+      message: `Pending: ${pendingResult.expired} expired | Accepted: ${acceptedResult.expired} ended, ${acceptedResult.pendingReverted} pending reverted, ${acceptedResult.skipped} skipped`
     });
 
   } catch (error: any) {

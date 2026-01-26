@@ -94,6 +94,11 @@ export async function POST(request: NextRequest) {
       console.log('Total recipients:', allStaffIds.length);
 
       // Create notification for admins/moderators ONLY (not for student)
+      // Calculate expiry (1 day from now)
+      const expiryDate = new Date();
+      expiryDate.setDate(expiryDate.getDate() + 1);
+      expiryDate.setHours(23, 59, 59, 999);
+
       await adminDb.collection('notifications').add({
         title: '🔄 New Renewal Request',
         content: `${studentName} (${enrollmentId}) has submitted an offline renewal request for ${durationYears} year(s).`,
@@ -112,7 +117,8 @@ export async function POST(request: NextRequest) {
         readByUserIds: [],
         isEdited: false,
         isDeletedGlobally: false,
-        createdAt: FieldValue.serverTimestamp()
+        createdAt: FieldValue.serverTimestamp(),
+        expiresAt: expiryDate.toISOString()
       });
 
       console.log('✅ Renewal request notification created for admins/moderators only');

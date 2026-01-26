@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { adminAuth, adminDb } from '@/lib/firebase-admin';
 import { Application, AuditLogEntry } from '@/lib/types/application';
 import { v2 as cloudinary } from 'cloudinary';
+import { sendApplicationRejectedNotification } from '@/lib/services/admin-email.service';
 
 // Configure Cloudinary
 if (process.env.CLOUDINARY_API_KEY && process.env.CLOUDINARY_API_SECRET && process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME) {
@@ -126,6 +127,16 @@ export async function POST(request: NextRequest) {
       console.log('✅ Deleted rejected applications document for:', applicationId);
     } catch (deleteError) {
       console.warn('⚠️ Could not delete applications doc:', deleteError);
+    }
+
+    // ✅ EMAIL NOTIFICATION: Send rejection email to student
+    if (formData.email) {
+      await sendApplicationRejectedNotification({
+        studentName: formData.fullName || 'Student',
+        studentEmail: formData.email,
+        reason: reason,
+        rejectedBy: rejectorName || 'Administrator'
+      });
     }
 
     return NextResponse.json({

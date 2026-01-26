@@ -1,7 +1,8 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { adminAuth, adminDb } from '@/lib/firebase-admin';
-import { shouldBlockAccess, shouldHardDelete } from '@/lib/utils/renewal-utils';
+import { shouldBlockAccessFromStoredDates, shouldHardDeleteFromStoredDates } from '@/lib/utils/renewal-utils';
+import { computeBlockDatesFromValidUntil } from '@/lib/utils/deadline-computation';
 import { v2 as cloudinary } from 'cloudinary';
 import { decrementBusCapacity } from '@/lib/busCapacityService';
 import fs from 'fs';
@@ -20,7 +21,9 @@ if (process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME) {
  * AUTOMATED CRON JOB for Soft Block & Hard Delete
  * 
  * Scheduled to run daily (or as configured).
- * Checks every student against the deadline configuration.
+ * Uses PRE-STORED softBlock and hardBlock dates from student documents.
+ * Migrates legacy students without these fields by computing from validUntil.
+ * 
  * - Soft Blocks students who have passed the soft block date.
  * - Hard Deletes students who have passed the hard delete date.
  */
@@ -36,7 +39,7 @@ export async function GET(request: NextRequest) {
             return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
         }
 
-        // Load deadline config dynamically from file system (Source of Truth)
+        // Load deadline config dynamically from file system for logging
         const configPath = path.join(process.cwd(), 'src', 'config', 'deadline-config.json');
         let config;
         try {
@@ -44,12 +47,13 @@ export async function GET(request: NextRequest) {
             config = JSON.parse(configContent);
         } catch (err) {
             console.error('Failed to read deadline-config.json', err);
-            // Fallback to defaults or error out
-            return NextResponse.json({ error: 'Configuration load failed' }, { status: 500 });
+            // Continue with default config info for logging
+            config = { softBlock: { month: 6, day: 31 }, hardDelete: { month: 7, day: 31 } };
         }
 
         console.log(`🔄 Running Automated Cleanup Cron Job`);
         console.log(`   Config: SoftBlock=${config.softBlock.month + 1}/${config.softBlock.day}, HardDelete=${config.hardDelete.month + 1}/${config.hardDelete.day}`);
+        console.log(`   Using PRE-STORED softBlock/hardBlock dates from student documents`);
 
         // 2. Fetch all students
         const studentsSnapshot = await adminDb.collection('students').get();
@@ -57,6 +61,7 @@ export async function GET(request: NextRequest) {
             totalChecked: studentsSnapshot.size,
             softBlocked: 0,
             hardDeleted: 0,
+            blockDatesAdded: 0,
             errors: [] as string[]
         };
 
@@ -76,14 +81,55 @@ export async function GET(request: NextRequest) {
                     }
                 }
 
-                // Check Status Logic
-                // We pass 'null' for simulationConfig to use REAL TIME, and 'config' to use dynamic file-based config
-                const needsSoftBlock = shouldBlockAccess(validUntilStr, studentData.lastRenewalDate, null, studentData.status, config);
-                const needsHardDelete = shouldHardDelete(validUntilStr, studentData.lastRenewalDate, null, config);
+                // Parse lastRenewalDate
+                let lastRenewalDateStr: string | null = null;
+                if (studentData.lastRenewalDate) {
+                    if (typeof studentData.lastRenewalDate === 'string') {
+                        lastRenewalDateStr = studentData.lastRenewalDate;
+                    } else if (studentData.lastRenewalDate.toDate) {
+                        lastRenewalDateStr = studentData.lastRenewalDate.toDate().toISOString();
+                    }
+                }
+
+                // MIGRATION: If student has no softBlock/hardBlock fields, compute from validUntil
+                let softBlockStr = studentData.softBlock;
+                let hardBlockStr = studentData.hardBlock;
+
+                if ((!softBlockStr || !hardBlockStr) && validUntilStr) {
+                    // Compute from validUntil date (the single source of truth)
+                    const blockDates = computeBlockDatesFromValidUntil(validUntilStr);
+
+                    // Update student document with computed block dates
+                    await adminDb.collection('students').doc(uid).update({
+                        softBlock: blockDates.softBlock,
+                        hardBlock: blockDates.hardBlock,
+                        blockDatesComputedAt: new Date().toISOString()
+                    });
+
+                    softBlockStr = blockDates.softBlock;
+                    hardBlockStr = blockDates.hardBlock;
+                    results.blockDatesAdded++;
+                    console.log(`📅 Added block dates for ${studentData.fullName || uid}: softBlock=${softBlockStr.split('T')[0]}, hardBlock=${hardBlockStr.split('T')[0]}`);
+                }
+
+                // Prepare student data object for optimized checks
+                const studentCheckData = {
+                    softBlock: softBlockStr,
+                    hardBlock: hardBlockStr,
+                    validUntil: validUntilStr,
+                    lastRenewalDate: lastRenewalDateStr,
+                    status: studentData.status,
+                    sessionEndYear: studentData.sessionEndYear
+                };
+
+                // Check using optimized stored-date functions
+                const needsSoftBlock = shouldBlockAccessFromStoredDates(studentCheckData, null);
+                const needsHardDelete = shouldHardDeleteFromStoredDates(studentCheckData, null);
 
                 // --- HARD DELETE EXECUTION ---
                 if (needsHardDelete) {
-                    console.log(`🗑️ HARD DELETE triggered for ${studentData.name || 'Unknown'} (${uid})`);
+                    console.log(`🗑️ HARD DELETE triggered for ${studentData.fullName || 'Unknown'} (${uid})`);
+                    console.log(`   hardBlock date: ${hardBlockStr}`);
 
                     // 1. Delete profile photo from Cloudinary
                     const profilePhotoUrl = studentData.profilePhotoUrl || studentData.profileImage || studentData.photoUrl || studentData.imageUrl;
@@ -192,7 +238,8 @@ export async function GET(request: NextRequest) {
                 // --- SOFT BLOCK EXECUTION ---
                 // Only if not already blocked and not just deleted
                 if (needsSoftBlock && studentData.status === 'active') {
-                    console.log(`🔒 SOFT BLOCK triggered for ${studentData.name || 'Unknown'} (${uid})`);
+                    console.log(`🔒 SOFT BLOCK triggered for ${studentData.fullName || 'Unknown'} (${uid})`);
+                    console.log(`   softBlock date: ${softBlockStr}`);
                     await adminDb.collection('students').doc(uid).update({
                         status: 'soft_blocked',
                         softBlockedAt: new Date().toISOString()

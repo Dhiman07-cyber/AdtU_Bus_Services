@@ -26,13 +26,11 @@ export async function POST() {
   try {
     // 1. Read environment variables
     const ADMIN_EMAIL = process.env.ADMIN_EMAIL;
-    const GMAIL_USER = process.env.GMAIL_USER;
     const GMAIL_PASS = process.env.GMAIL_PASS;
 
     // 2. Validate environment variables
     const missing: string[] = [];
     if (!ADMIN_EMAIL) missing.push("ADMIN_EMAIL");
-    if (!GMAIL_USER) missing.push("GMAIL_USER");
     if (!GMAIL_PASS) missing.push("GMAIL_PASS");
 
     if (missing.length > 0) {
@@ -441,7 +439,7 @@ export async function POST() {
       port: 465,
       secure: true,
       auth: {
-        user: GMAIL_USER,
+        user: ADMIN_EMAIL,
         pass: GMAIL_PASS,
       },
     });
@@ -472,7 +470,7 @@ export async function POST() {
     }
 
     const info = await transporter.sendMail({
-      from: `"noreply@adtu-transport-services.com" <${GMAIL_USER}>`,
+      from: `"noreply@adtu-transport-services.com" <${ADMIN_EMAIL}>`,
       to: ADMIN_EMAIL,                            // <--- This is the recipient email
       replyTo: "noreply@adtu.ac.in",
       subject: `📊 Transaction Report – ${dateStr} | ADTU Bus Services`,
@@ -513,7 +511,6 @@ export async function POST() {
    ============================================================ */
 export async function GET() {
   const adminEmail = process.env.ADMIN_EMAIL;
-  const gmailUser = process.env.GMAIL_USER;
   const gmailPass = process.env.GMAIL_PASS;
 
   const maskEmail = (email: string | undefined) => {
@@ -524,9 +521,8 @@ export async function GET() {
   };
 
   return NextResponse.json({
-    configured: Boolean(adminEmail && gmailUser && gmailPass),
+    configured: Boolean(adminEmail && gmailPass),
     adminEmail: maskEmail(adminEmail),
-    gmailUser: maskEmail(gmailUser),
     hasGmailPass: Boolean(gmailPass && gmailPass.length >= 16),
     passLength: gmailPass?.length || 0,
     supabaseReady: paymentsSupabaseService.isReady(),

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useAuth } from "@/contexts/auth-context";
 import { useRouter } from "next/navigation";
 import { Card, CardContent } from "@/components/ui/card";
@@ -17,8 +17,10 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Bell, Bus, Info, MapPin, Clock } from "lucide-react";
-import { useUserNotifications } from "@/hooks/useUserNotifications";
+import { Button } from "@/components/ui/button";
+import { Bell, Bus, Info, MapPin, Clock, RefreshCw } from "lucide-react";
+import { useNotifications } from "@/contexts/NotificationContext";
+import { useToast } from "@/contexts/toast-context";
 import NotificationCardV2 from "@/components/NotificationCardV2";
 import { Timestamp } from "firebase/firestore";
 
@@ -27,8 +29,10 @@ type TabType = 'all' | 'trip' | 'notice' | 'pickup' | 'dropoff' | 'announcement'
 export default function StudentNotificationsPage() {
   const { currentUser, userData } = useAuth();
   const router = useRouter();
+  const { addToast } = useToast();
 
   const [activeTab, setActiveTab] = useState<TabType>('all');
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
   const {
     notifications: allNotifications,
@@ -36,7 +40,39 @@ export default function StudentNotificationsPage() {
     loading,
     markAsRead,
     refresh
-  } = useUserNotifications();
+  } = useNotifications();
+
+  const handleRefresh = async () => {
+    setIsRefreshing(true);
+    await refresh();
+    addToast('Notifications refreshed', 'success');
+    setIsRefreshing(false);
+  };
+
+  // Automatically mark all received notifications as read when visiting the page
+  useEffect(() => {
+    if (loading || !currentUser) return;
+
+    const markAllVisibleAsRead = async () => {
+      const unreadReceived = allNotifications.filter(n =>
+        !n.isRead &&
+        !n.isDeletedGlobally &&
+        n.sender.userId !== currentUser.uid
+      );
+
+      if (unreadReceived.length > 0) {
+        try {
+          // Mark each as read
+          const promises = unreadReceived.map(n => markAsRead(n.id));
+          await Promise.all(promises);
+        } catch (err) {
+          console.error('Error auto-marking notifications as read:', err);
+        }
+      }
+    };
+
+    markAllVisibleAsRead();
+  }, [loading, allNotifications, currentUser, markAsRead]);
 
   // Filter notifications by type
   const filteredNotifications = useMemo(() => {
@@ -133,11 +169,23 @@ export default function StudentNotificationsPage() {
                   </p>
                 </div>
               </div>
-              {allNotifications.length > 0 && (
-                <Badge className="bg-white/20 text-white border-white/30 text-xs md:text-sm px-2 md:px-3 py-1">
-                  {allNotifications.length}
-                </Badge>
-              )}
+              <div className="flex items-center gap-2">
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={handleRefresh}
+                  disabled={isRefreshing}
+                  className="h-8 px-3 text-white hover:bg-white/20 hover:text-white border border-white/20 rounded-lg transition-all duration-300"
+                >
+                  <RefreshCw className={`mr-2 h-3.5 w-3.5 ${isRefreshing ? 'animate-spin' : ''}`} />
+                  <span className="text-xs font-medium uppercase tracking-wider">Refresh</span>
+                </Button>
+                {allNotifications.length > 0 && (
+                  <Badge className="bg-white/20 text-white border-white/30 text-xs md:text-sm px-2 md:px-3 py-1">
+                    {allNotifications.length}
+                  </Badge>
+                )}
+              </div>
             </div>
           </div>
         </div>

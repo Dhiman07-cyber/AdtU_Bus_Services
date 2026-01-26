@@ -79,6 +79,7 @@ export default function StudentRenewalPage() {
   const [isProceedingToPayment, setIsProceedingToPayment] = useState(false);
   const [baseFee, setBaseFee] = useState<number>(0);
   const [loadingFee, setLoadingFee] = useState(true);
+  const [downloadingReceiptId, setDownloadingReceiptId] = useState<string | null>(null);
 
   // Fetch buses data
   const { data: buses, refresh: refreshBuses } = usePaginatedCollection('buses', {
@@ -258,11 +259,13 @@ export default function StudentRenewalPage() {
       return;
     }
 
+    setDownloadingReceiptId(paymentId);
     const loadingToastId = toast.loading('Preparing your receipt...');
     try {
       if (!currentUser) {
         toast.dismiss(loadingToastId);
         toast.error('Authentication required');
+        setDownloadingReceiptId(null);
         return;
       }
 
@@ -291,10 +294,12 @@ export default function StudentRenewalPage() {
       console.error('Error downloading receipt:', error);
       toast.dismiss(loadingToastId);
       toast.error('Failed to download receipt');
+    } finally {
+      setDownloadingReceiptId(null);
     }
   };
 
-  const handleOfflinePayment = async () => {
+  const handleOfflinePayment = async (data?: { paymentId?: string; receiptUrl?: string }) => {
     if (!sessionInfo) {
       toast.error('Session information not ready. Please try again.');
       return;
@@ -310,13 +315,15 @@ export default function StudentRenewalPage() {
         body: JSON.stringify({
           durationYears: selectedDuration,
           totalFee: sessionInfo.fee,
-          paymentMode: 'offline'
+          paymentMode: 'offline',
+          transactionId: data?.paymentId || '',
+          receiptImageUrl: data?.receiptUrl || '' // Use the Cloudinary URL from the child component
         })
       });
 
       if (response.ok) {
         toast.success('Renewal application submitted. Please complete payment at the bus office.');
-        router.push('/student');
+        // router.push('/student'); // Handled by PaymentModeSelector UI overlay
       } else {
         throw new Error('Failed to submit renewal application');
       }
@@ -596,7 +603,7 @@ export default function StudentRenewalPage() {
                 ) : (
                   <>
                     {!showPaymentSection ? (
-                      <Card className="flex-1 border-0 shadow-2xl bg-[#0d1117] rounded-[2rem] overflow-hidden border border-white/5">
+                      <Card className="flex-1 border-0 shadow-2xl bg-[#0e0e12] rounded-[2rem] overflow-hidden border border-white/5">
                         {/* Premium Header */}
                         <div className="relative p-5 sm:p-8 border-b border-white/5 overflow-hidden">
                           <div className="absolute inset-0 bg-gradient-to-r from-violet-600/10 to-fuchsia-600/10"></div>
@@ -620,7 +627,7 @@ export default function StudentRenewalPage() {
                               </Label>
                               <Badge className="bg-emerald-500/10 text-emerald-500 border-none px-2 sm:px-3 py-1 text-[8px] sm:text-[9px] font-black uppercase tracking-widest cursor-default">
                                 <Sparkles className="h-2.5 w-2.5 sm:h-3 sm:w-3 mr-1" />
-                                Save 10% on 4yrs
+                                Standard Plan
                               </Badge>
                             </div>
 
@@ -630,25 +637,24 @@ export default function StudentRenewalPage() {
                                 setSelectedDuration(parseInt(value));
                                 setShowPaymentSection(false);
                               }}
+                              disabled={true} // Locked to 1 year
                             >
-                              <SelectTrigger className="h-11 sm:h-16 border-2 border-white/10 bg-white/5 text-sm sm:text-lg font-black rounded-xl sm:rounded-2xl focus:ring-4 focus:ring-violet-500/20 focus:border-violet-500 transition-all px-4 sm:px-6 cursor-pointer text-white hover:bg-white/10">
+                              <SelectTrigger className="h-11 sm:h-16 border-2 border-white/10 bg-white/5 text-sm sm:text-lg font-black rounded-xl sm:rounded-2xl focus:ring-4 focus:ring-violet-500/20 focus:border-violet-500 transition-all px-4 sm:px-6 cursor-not-allowed opacity-80 text-white">
                                 <SelectValue />
                               </SelectTrigger>
                               <SelectContent className="bg-[#12141C] border-white/10 shadow-2xl rounded-xl sm:rounded-2xl p-1 sm:p-2">
-                                {[1, 2, 3, 4].map((years) => (
-                                  <SelectItem
-                                    key={years}
-                                    value={years.toString()}
-                                    className="text-xs sm:text-base font-bold py-2.5 sm:py-4 rounded-lg sm:rounded-xl cursor-pointer focus:bg-violet-500/10 focus:text-violet-500 text-white hover:bg-white/10"
-                                  >
-                                    <div className="flex items-center gap-2 sm:gap-3">
-                                      <Calendar className="h-3.5 w-3.5 sm:h-5 sm:w-5 opacity-50" />
-                                      {years} Year{years > 1 ? 's' : ''} {years === 4 ? '(Recommended)' : ''}
-                                    </div>
-                                  </SelectItem>
-                                ))}
+                                <SelectItem
+                                  value="1"
+                                  className="text-xs sm:text-base font-bold py-2.5 sm:py-4 rounded-lg sm:rounded-xl cursor-default focus:bg-violet-500/10 focus:text-violet-500 text-white hover:bg-white/10"
+                                >
+                                  <div className="flex items-center gap-2 sm:gap-3">
+                                    <Calendar className="h-3.5 w-3.5 sm:h-5 sm:w-5 opacity-50" />
+                                    1 Year
+                                  </div>
+                                </SelectItem>
                               </SelectContent>
                             </Select>
+                            <p className="text-[10px] text-gray-500 pl-1">Standard renewal duration is 1 year.</p>
                           </div>
 
                           {/* Summary Grid */}
@@ -786,18 +792,18 @@ export default function StudentRenewalPage() {
             {activeTab === 'history' && (
               <div className="flex-1 space-y-4 sm:space-y-6 flex flex-col min-h-0">
                 {loadingTransactions ? (
-                  <Card className="flex-1 border-0 shadow-2xl bg-[#0d1117] border border-white/5 rounded-2xl sm:rounded-[2rem] p-8 sm:p-12 flex flex-col items-center justify-center">
+                  <Card className="flex-1 border-0 shadow-2xl bg-[#111117] border border-white/5 rounded-2xl sm:rounded-[2rem] p-8 sm:p-12 flex flex-col items-center justify-center">
                     <Loader2 className="h-8 w-8 animate-spin text-blue-500 mb-4" />
                     <p className="text-gray-400 font-bold uppercase tracking-widest text-[10px] sm:text-xs">Fetching records...</p>
                   </Card>
                 ) : transactions.length === 0 ? (
-                  <Card className="flex-1 border-0 shadow-2xl bg-[#0d1117] border border-white/5 rounded-2xl sm:rounded-[2rem] p-8 sm:p-12 flex flex-col items-center justify-center">
+                  <Card className="flex-1 border-0 shadow-2xl bg-[#111117] border border-white/5 rounded-2xl sm:rounded-[2rem] p-8 sm:p-12 flex flex-col items-center justify-center">
                     <Receipt className="h-12 w-12 sm:h-16 sm:w-16 text-gray-800 mx-auto mb-4 sm:mb-6 opacity-20" />
                     <h3 className="text-lg sm:text-xl font-black text-white mb-1.5 sm:mb-2 uppercase tracking-tight">No records found</h3>
                     <p className="text-gray-500 text-xs sm:text-sm font-medium">Your renewal history will appear here once you make a payment.</p>
                   </Card>
                 ) : (
-                  <Card className="flex-1 border-0 shadow-2xl bg-[#0d1117] border border-white/5 rounded-2xl sm:rounded-[2rem] p-3 sm:p-6 overflow-hidden flex flex-col">
+                  <Card className="flex-1 border-0 shadow-2xl bg-[#111117] border border-white/5 rounded-2xl sm:rounded-[2rem] p-3 sm:p-6 overflow-hidden flex flex-col">
                     <div className="flex-1 overflow-y-auto space-y-4 pr-1 sm:pr-2 scrollbar-thin scrollbar-track-white/5 scrollbar-thumb-white/20 px-2 pb-4">
                       {transactions.map((transaction: any) => (
                         <div key={transaction.paymentId} className="group relative overflow-hidden bg-white/[0.04] border border-white/10 rounded-[1.5rem] hover:bg-white/[0.06] transition-all duration-300">
@@ -810,7 +816,7 @@ export default function StudentRenewalPage() {
                                 <div>
                                   <div className="flex items-center gap-2 mb-0.5 sm:mb-1">
                                     <h4 className="font-black text-lg sm:text-2xl text-white tracking-tight">₹{transaction.amount?.toLocaleString()}</h4>
-                                    <Badge className="bg-emerald-500/10 text-emerald-400 border-none px-1.5 py-0 text-[7px] sm:text-[8px] font-black uppercase tracking-widest">
+                                    <Badge className="bg-emerald-500/10 text-emerald-400 border-none px-1 py-0 text-[6px] sm:text-[8px] font-black uppercase tracking-widest">
                                       COMPLETED
                                     </Badge>
                                   </div>
@@ -825,10 +831,20 @@ export default function StudentRenewalPage() {
                                   variant="ghost"
                                   size="sm"
                                   onClick={() => handleDownloadReceipt(transaction.paymentId)}
-                                  className="h-9 gap-1.5 text-[10px] font-black text-blue-400 hover:text-blue-300 bg-blue-500/10 hover:bg-blue-500/20 border border-blue-500/20 px-3 rounded-xl transition-all uppercase tracking-widest"
+                                  disabled={downloadingReceiptId === transaction.paymentId}
+                                  className="h-6 p-3 gap-1 text-[8px] font-black text-blue-400 hover:text-blue-300 bg-blue-500/10 hover:bg-blue-500/20 border border-blue-500/20 px-2 rounded-md transition-all tracking-widest disabled:opacity-70"
                                 >
-                                  <Download className="h-3.5 w-3.5" />
-                                  E-Receipt
+                                  {downloadingReceiptId === transaction.paymentId ? (
+                                    <>
+                                      <Loader2 className="h-2.5 w-2.5 animate-spin" />
+                                      Processing...
+                                    </>
+                                  ) : (
+                                    <>
+                                      <Download className="h-2.5 w-2.5" />
+                                      E-Receipt
+                                    </>
+                                  )}
                                 </Button>
                                 <div className="text-[8px] font-black text-gray-500 uppercase tracking-widest pr-1">
                                   Type: {transaction.paymentMethod === 'online' ? 'Digital' : 'Manual'}

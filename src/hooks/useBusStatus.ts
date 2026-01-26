@@ -23,6 +23,7 @@ import {
   POLLING_INTERVAL_MS,
   UPDATE_DEBOUNCE_MS
 } from '@/config/runtime';
+import { getSigningOutState } from '@/lib/firestore-error-handler';
 
 // ============================================================================
 // TYPES
@@ -194,6 +195,9 @@ export function useBusStatus(busId: string | null | undefined): UseBusStatusResu
           setLoading(false);
         },
         (err) => {
+          // Suppress errors during sign-out
+          if (getSigningOutState()) return;
+
           console.error('[useBusStatus] Listener error:', err);
           if (isMountedRef.current) {
             setError(err.message);
@@ -257,15 +261,73 @@ export function useBusStatus(busId: string | null | undefined): UseBusStatusResu
  */
 export function useDriverStatus(busId: string | null | undefined) {
   const [driverStatus, setDriverStatus] = useState<any>(null);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    // DISABLED: Supabase driver status check
-    // Students only need basic bus status from Firestore (handled by useBusStatus)
-    setDriverStatus(null);
-    setLoading(false);
-    return;
+    if (!busId) {
+      setDriverStatus(null);
+      setLoading(false);
+      return;
+    }
+
+    let isMounted = true;
+    setLoading(true);
+
+    // Initial fetch
+    const fetchDriverStatus = async () => {
+      try {
+        const { data, error: fetchError } = await supabase
+          .from('driver_status')
+          .select('*')
+          .eq('bus_id', busId)
+          .maybeSingle();
+
+        if (fetchError) {
+          console.error('[useDriverStatus] Fetch error:', fetchError);
+          if (isMounted) setError(fetchError.message);
+        } else if (isMounted) {
+          setDriverStatus(data);
+          setError(null);
+        }
+      } catch (err: any) {
+        console.error('[useDriverStatus] Error:', err);
+        if (isMounted) setError(err.message);
+      } finally {
+        if (isMounted) setLoading(false);
+      }
+    };
+
+    fetchDriverStatus();
+
+    // Set up real-time subscription
+    const channel = supabase
+      .channel(`driver_status_${busId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'driver_status',
+          filter: `bus_id=eq.${busId}`
+        },
+        (payload) => {
+          console.log('[useDriverStatus] Real-time update:', payload);
+          if (isMounted) {
+            if (payload.eventType === 'DELETE') {
+              setDriverStatus(null);
+            } else {
+              setDriverStatus(payload.new);
+            }
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      isMounted = false;
+      supabase.removeChannel(channel);
+    };
   }, [busId]);
 
   return { driverStatus, loading, error };
@@ -273,14 +335,15 @@ export function useDriverStatus(busId: string | null | undefined) {
 
 /**
  * Determine if a bus is currently on an active trip
- * @param busStatus - Bus status from Firestore
- * @param driverStatus - Driver status from Supabase
+ * NOTE: Only checks Supabase driver_status. The Firestore buses collection's
+ * status field is for bus condition (maintenance, active, etc.) - NOT trip status.
+ * @param busStatus - Bus status from Firestore (kept for backward compatibility but not used for trip detection)
+ * @param driverStatus - Driver status from Supabase (authoritative source for trip status)
  * @returns boolean indicating if trip is active
  */
 export function isTripActive(busStatus: BusStatus | null, driverStatus: any): boolean {
-  if (busStatus?.status === 'enroute') {
-    return true;
-  }
+  // Trip status is ONLY tracked in Supabase driver_status table
+  // The Firestore buses.status field is for bus condition (maintenance, active, etc.)
   if (driverStatus?.status === 'on_trip' || driverStatus?.status === 'enroute') {
     return true;
   }

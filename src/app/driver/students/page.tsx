@@ -32,7 +32,7 @@ import {
   X
 } from "lucide-react";
 import { getDriverById as getDriverByUid, getStudentsByBusId } from "@/lib/dataService";
-import { useWaitingFlagsSupabase } from "@/hooks/useWaitingFlagsSupabase";
+import { useWaitingFlags } from "@/hooks/useWaitingFlags";
 
 // Custom Image component with fallback
 const StudentImage = ({
@@ -139,8 +139,8 @@ export default function DriverStudentsPage() {
   const [searchTerm, setSearchTerm] = useState("");
   const [shiftFilter, setShiftFilter] = useState<string>("all");
 
-  // Use Supabase hook for waiting flags
-  const { waitingFlags, loading: waitingFlagsLoading, error: waitingFlagsError } = useWaitingFlagsSupabase(driverData?.assignedBusId);
+  // Use Supabase hook for waiting flags - hook expects routeId
+  const { flags: waitingFlags, loading: waitingFlagsLoading, error: waitingFlagsError } = useWaitingFlags(driverData?.assignedRouteId || driverData?.routeId || '');
 
   // Fetch driver data and students on assigned bus
   useEffect(() => {
@@ -335,8 +335,8 @@ export default function DriverStudentsPage() {
             </CardHeader>
             <CardContent className="p-4">
               <div className="space-y-3 sm:space-y-4">
-                {waitingFlags.map((flag) => {
-                  const student = students.find(s => s.uid === flag.student_uid);
+                {waitingFlags.map((flag: any) => {
+                  const student = students.find(s => s.uid === flag.studentUid);
                   return (
                     <div
                       key={flag.id}
@@ -356,11 +356,11 @@ export default function DriverStudentsPage() {
                           <div className="flex flex-col sm:flex-row sm:flex-wrap gap-1 sm:gap-3 mt-1">
                             <div className="flex items-center text-xs sm:text-sm text-gray-600 dark:text-gray-400">
                               <MapPin className="h-3 w-3 sm:h-4 sm:w-4 mr-1 text-orange-500 flex-shrink-0" />
-                              <span className="truncate">{flag.stop_name || "Waiting"}</span>
+                              <span className="truncate">{flag.stopName || "Waiting"}</span>
                             </div>
                             <div className="flex items-center text-xs sm:text-sm text-gray-600 dark:text-gray-400">
                               <Clock className="h-3 w-3 sm:h-4 sm:w-4 mr-1 text-blue-500 flex-shrink-0" />
-                              <span className="truncate">{new Date(flag.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                              <span className="truncate">{new Date(flag.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
                             </div>
                           </div>
                         </div>

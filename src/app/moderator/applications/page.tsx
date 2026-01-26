@@ -8,6 +8,8 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 // SPARK PLAN SAFETY: Manual refresh only for applications page
 import { usePaginatedCollection, invalidateCollectionCache } from '@/hooks/usePaginatedCollection';
 import {
@@ -15,7 +17,6 @@ import {
   SlidersHorizontal, User, Phone, Calendar, Clock, Bus as BusIcon,
   ChevronDown, RefreshCw, AlertTriangle, ArrowRightLeft
 } from "lucide-react";
-import { PageHeader } from "@/components/application/page-header";
 import { StatusBadge } from "@/components/application/status-badge";
 import {
   DropdownMenu,
@@ -26,6 +27,7 @@ import {
   DropdownMenuTrigger,
   DropdownMenuCheckboxItem,
 } from "@/components/ui/dropdown-menu";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 import { PremiumPageLoader } from '@/components/LoadingSpinner';
 
@@ -60,8 +62,12 @@ export default function ModeratorApplicationsPage() {
   const [currentTime, setCurrentTime] = useState(new Date());
   const [approving, setApproving] = useState<string | null>(null);
   const [rejecting, setRejecting] = useState<string | null>(null);
+  const [showRejectDialog, setShowRejectDialog] = useState(false);
+  const [rejectionReason, setRejectionReason] = useState("");
+  const [selectedApplication, setSelectedApplication] = useState<string | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [expandedCards, setExpandedCards] = useState<Set<string>>(new Set());
+  const [processedIds, setProcessedIds] = useState<Set<string>>(new Set());
 
   // Manual refresh handler - refreshes both applications and verifications sections
   const handleRefresh = async () => {
@@ -339,8 +345,12 @@ export default function ModeratorApplicationsPage() {
       });
     }
 
+    if (activeSection === 'applications' && processedIds.size > 0) {
+      data = data.filter((item: any) => !processedIds.has(item.applicationId || item.uid));
+    }
+
     return data;
-  }, [activeSection, applicationApplications, verificationCodesForModerator, searchQuery, shiftFilter]);
+  }, [activeSection, applicationApplications, verificationCodesForModerator, searchQuery, shiftFilter, processedIds]);
 
   const handleApprove = async (applicationId: string) => {
     if (!currentUser) return;
@@ -361,6 +371,12 @@ export default function ModeratorApplicationsPage() {
         setError(errorData.error || "Failed to approve application");
       } else {
         setError("");
+        // Optimistically hide the card
+        setProcessedIds(prev => {
+          const newSet = new Set(prev);
+          newSet.add(applicationId);
+          return newSet;
+        });
         await handleRefresh();
       }
     } catch (error) {
@@ -370,12 +386,16 @@ export default function ModeratorApplicationsPage() {
     }
   };
 
-  const handleReject = async (applicationId: string) => {
-    if (!currentUser) return;
-    const reason = prompt("Please provide a reason for rejection:");
-    if (!reason) return;
+  const handleRejectClick = (applicationId: string) => {
+    setSelectedApplication(applicationId);
+    setRejectionReason("");
+    setShowRejectDialog(true);
+  };
 
-    setRejecting(applicationId);
+  const confirmReject = async () => {
+    if (!currentUser || !selectedApplication || !rejectionReason.trim()) return;
+
+    setRejecting(selectedApplication);
     try {
       const token = await currentUser.getIdToken();
       const response = await fetch('/api/applications/reject-unauth', {
@@ -384,7 +404,7 @@ export default function ModeratorApplicationsPage() {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
         },
-        body: JSON.stringify({ studentUid: applicationId, reason })
+        body: JSON.stringify({ studentUid: selectedApplication, reason: rejectionReason })
       });
 
       if (!response.ok) {
@@ -392,7 +412,18 @@ export default function ModeratorApplicationsPage() {
         setError(errorData.error || "Failed to reject application");
       } else {
         setError("");
+        setShowRejectDialog(false);
+        setRejectionReason("");
+        // Optimistically hide the card
+        if (selectedApplication) {
+          setProcessedIds(prev => {
+            const newSet = new Set(prev);
+            newSet.add(selectedApplication);
+            return newSet;
+          });
+        }
         await handleRefresh();
+        setSelectedApplication(null);
       }
     } catch (error) {
       setError("Failed to reject application");
@@ -431,14 +462,13 @@ export default function ModeratorApplicationsPage() {
             </div>
           </div>
           <Button
-            variant="outline"
             size="sm"
-            className="gap-2 h-8 text-xs bg-white hover:bg-gray-100 text-gray-900 border border-gray-300 transition-all duration-200 shadow-sm cursor-pointer shrink-0"
+            className="group h-8 px-4 bg-white hover:bg-gray-50 text-gray-600 hover:text-purple-600 border border-gray-200 hover:border-purple-200 shadow-sm hover:shadow-lg hover:shadow-purple-500/10 font-bold text-[10px] uppercase tracking-widest rounded-lg transition-all duration-300 active:scale-95"
             onClick={handleRefresh}
             disabled={isRefreshing}
           >
-            <RefreshCw className={cn("h-3.5 w-3.5", isRefreshing && "animate-spin")} />
-            {isRefreshing ? 'Refreshing...' : 'Refresh'}
+            <RefreshCw className={cn(`mr-2 h-3.5 w-3.5 transition-transform duration-500`, isRefreshing ? "animate-spin" : "group-hover:rotate-180")} />
+            Refresh
           </Button>
         </div>
         <p className="text-zinc-400 text-sm max-w-2xl">
@@ -788,10 +818,11 @@ export default function ModeratorApplicationsPage() {
                           <Button
                             variant="outline"
                             className="w-full h-10 gap-2 border-red-500/20 text-red-400 bg-red-500/5 hover:bg-red-500/10 hover:text-red-300 hover:border-red-500/30 transition-all hover:scale-[1.02] active:scale-[0.98]"
-                            onClick={() => handleReject(item.applicationId)}
+                            onClick={() => handleRejectClick(item.applicationId)}
                             disabled={rejecting === item.applicationId}
                           >
                             {rejecting === item.applicationId ? <Loader2 className="h-4 w-4 animate-spin" /> : <X className="h-4 w-4" />}
+
                             Reject
                           </Button>
                         </div>
@@ -831,7 +862,9 @@ export default function ModeratorApplicationsPage() {
                         </div>
                         <div className="p-3 rounded-lg bg-white/5 border border-white/[0.05]">
                           <p className="text-zinc-500 text-xs mb-1">Amount</p>
-                          <p className="font-bold text-white">₹{(item.amount || item.tempFormData?.paymentInfo?.amountPaid || 0).toLocaleString('en-IN')}</p>
+                          <p className="font-bold text-white">
+                            ₹{(item.amount || 0).toLocaleString('en-IN')}
+                          </p>
                         </div>
                       </div>
                     </div>
@@ -841,8 +874,46 @@ export default function ModeratorApplicationsPage() {
             );
           })}
         </div>
-      )
-      }
-    </div >
+      )}
+
+      {/* Rejection Dialog */}
+      <Dialog open={showRejectDialog} onOpenChange={setShowRejectDialog}>
+        <DialogContent className="sm:max-w-[425px] bg-[#12131A] text-white border-white/10">
+          <DialogHeader>
+            <DialogTitle>Reject Application</DialogTitle>
+            <DialogDescription className="text-zinc-400">
+              Please provide a reason for rejecting this student application.
+              The student will be notified via email.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
+            <div className="grid gap-2">
+              <Label htmlFor="reason" className="text-zinc-300">Rejection Reason</Label>
+              <Textarea
+                id="reason"
+                className="bg-zinc-900/50 border-white/10 focus:border-red-500/50 min-h-[100px] text-zinc-200 resize-none"
+                placeholder="e.g., Incorrect profile photo, Payment proof unclear, Invalid enrollment ID..."
+                value={rejectionReason}
+                onChange={(e) => setRejectionReason(e.target.value)}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowRejectDialog(false)} className="border-white/10 text-zinc-300 hover:bg-white/5 hover:text-white">
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={confirmReject}
+              disabled={!rejectionReason.trim() || rejecting !== null}
+              className="bg-red-600 hover:bg-red-700"
+            >
+              {rejecting ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+              Confirm Rejection
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
   );
 }

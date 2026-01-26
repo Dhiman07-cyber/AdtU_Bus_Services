@@ -35,46 +35,11 @@ const Circle = dynamic(
   { ssr: false }
 );
 
-// Map controller to auto-center on bus (only on significant position changes)
+// Map controller - DISABLED auto-centering to allow user to scroll freely
+// Only the "recenter" button should center on bus location
 function MapController({ busLocation, mapRef }: any) {
-  const lastFlyToRef = useRef<{ lat: number; lng: number } | null>(null);
-
-  useEffect(() => {
-    if (busLocation && mapRef.current) {
-      const map = mapRef.current;
-      try {
-        if (busLocation.lat && busLocation.lng) {
-          // Calculate distance from last flyTo position
-          let shouldFly = true;
-          if (lastFlyToRef.current) {
-            const R = 6371000; // Earth radius in meters
-            const dLat = (busLocation.lat - lastFlyToRef.current.lat) * Math.PI / 180;
-            const dLon = (busLocation.lng - lastFlyToRef.current.lng) * Math.PI / 180;
-            const a = Math.sin(dLat / 2) ** 2 +
-              Math.cos(lastFlyToRef.current.lat * Math.PI / 180) *
-              Math.cos(busLocation.lat * Math.PI / 180) *
-              Math.sin(dLon / 2) ** 2;
-            const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-            const distance = R * c; // Distance in meters
-
-            // Only fly to new position if moved more than 50 meters
-            shouldFly = distance > 50;
-          }
-
-          if (shouldFly) {
-            map.flyTo([busLocation.lat, busLocation.lng], 15, {
-              duration: 1.5,
-              easeLinearity: 0.25
-            });
-            lastFlyToRef.current = { lat: busLocation.lat, lng: busLocation.lng };
-          }
-        }
-      } catch (e) {
-        console.debug('Map pan skipped');
-      }
-    }
-  }, [busLocation, mapRef]);
-
+  // Auto-centering disabled per user request
+  // User can click the navigation button to recenter manually
   return null;
 }
 
@@ -87,7 +52,8 @@ interface UberLikeBusMapProps {
   showStatsOnMobile?: boolean; // If false, stats hidden on mobile
   primaryActionLabel?: string;
   onPrimaryAction?: () => void;
-  primaryActionColor?: 'red' | 'blue' | 'green' | 'orange';
+  primaryActionColor?: 'red' | 'blue' | 'green' | 'orange' | 'yellow';
+  primaryActionDisabled?: boolean; // Disable the primary action button
   studentLocation?: { lat: number; lng: number; accuracy?: number } | null; // Student's own location
   onShowQrCode?: () => void; // Callback to show student's QR code (replaces speed indicator)
 }
@@ -102,6 +68,7 @@ export default function UberLikeBusMap({
   primaryActionLabel,
   onPrimaryAction,
   primaryActionColor = 'orange',
+  primaryActionDisabled = false,
   studentLocation = null,
   onShowQrCode
 }: UberLikeBusMapProps) {
@@ -122,7 +89,8 @@ export default function UberLikeBusMap({
   // Stable key for MapContainer - only change if busId changes
   const mapKey = `map-${busId}`;
 
-  // Handle Fullscreen Transitions & Map State
+  // Handle Fullscreen Transitions - Only invalidate size, NOT auto-center
+  // User can freely scroll the map without it snapping back
   useEffect(() => {
     // Safety check: Don't run if map isn't ready or journey is inactive
     if (!mapRef.current || !journeyActive) return;
@@ -134,11 +102,9 @@ export default function UberLikeBusMap({
 
       try {
         if (map) {
+          // Only invalidate size to handle container resize
+          // DO NOT pan to location - let user scroll freely
           map.invalidateSize();
-          // If we have a location, pan to it to prevent "lost marker" issue
-          if (busLocation && busLocation.lat && busLocation.lng) {
-            map.panTo([busLocation.lat, busLocation.lng], { animate: true, duration: 0.5 });
-          }
         }
       } catch (error) {
         console.debug('Map operation skipped:', error);
@@ -147,7 +113,7 @@ export default function UberLikeBusMap({
 
     // Cleanup: Clear timeout to prevent execution after unmount/state change
     return () => clearTimeout(timer);
-  }, [isFullScreen, busLocation, journeyActive]);
+  }, [isFullScreen, journeyActive]); // REMOVED busLocation from dependencies to prevent auto-centering
 
   // Initialize custom icons
   useEffect(() => {
@@ -158,41 +124,47 @@ export default function UberLikeBusMap({
         const leafletModule = await import('leaflet');
         const L = leafletModule.default || leafletModule;
 
-        // Premium 3D Bus icon (Consistent with Driver UI)
+        // Premium 3D Bus icon with better visuals
         const busIconElement = L.divIcon({
-          className: 'custom-bus-marker',
+          className: 'custom-bus-marker-3d',
           html: `
-            <div style="position: relative; filter: drop-shadow(0px 10px 6px rgba(0,0,0,0.3));">
+            <div style="position: relative; filter: drop-shadow(0 8px 16px rgba(37, 99, 235, 0.4));">
+              <!-- Main bus circle with 3D gradient -->
               <div style="
-                background: linear-gradient(135deg, #2563EB 0%, #1E40AF 100%);
-                width: 52px;
-                height: 52px;
+                background: linear-gradient(145deg, #3B82F6 0%, #1D4ED8 50%, #1E40AF 100%);
+                width: 56px;
+                height: 56px;
                 border-radius: 50%;
                 display: flex;
                 align-items: center;
                 justify-content: center;
-                border: 3px solid white;
+                border: 4px solid white;
+                box-shadow: inset 0 -4px 8px rgba(0,0,0,0.2), 0 4px 12px rgba(30, 64, 175, 0.5);
                 position: relative;
                 z-index: 2;
               ">
-                <span style="font-size: 26px;">🚌</span>
+                <!-- Bus SVG icon -->
+                <svg width="28" height="28" viewBox="0 0 24 24" fill="white" stroke="none">
+                  <path d="M4 16c0 .88.39 1.67 1 2.22V20c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-1h8v1c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-1.78c.61-.55 1-1.34 1-2.22V6c0-3.5-3.58-4-8-4s-8 .5-8 4v10zm3.5 1c-.83 0-1.5-.67-1.5-1.5S6.67 14 7.5 14s1.5.67 1.5 1.5S8.33 17 7.5 17zm9 0c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5zm1.5-6H6V6h12v5z"/>
+                </svg>
               </div>
               
-              <!-- 3D Depth Effect / Pointer -->
+              <!-- 3D Pointer/Pin effect -->
               <div style="
                 position: absolute;
-                bottom: -8px;
+                bottom: -10px;
                 left: 50%;
                 transform: translateX(-50%);
                 width: 0;
                 height: 0;
-                border-left: 12px solid transparent;
-                border-right: 12px solid transparent;
-                border-top: 14px solid #1E40AF;
+                border-left: 14px solid transparent;
+                border-right: 14px solid transparent;
+                border-top: 16px solid #1E40AF;
+                filter: drop-shadow(0 2px 4px rgba(0,0,0,0.3));
                 z-index: 1;
               "></div>
               
-              <!-- Pulsing Ring -->
+              <!-- Animated pulsing ring -->
               <div style="
                  position: absolute;
                  top: 50%;
@@ -201,44 +173,87 @@ export default function UberLikeBusMap({
                  width: 100%;
                  height: 100%;
                  border-radius: 50%;
-                 border: 2px solid #3B82F6;
-                 animation: pulse-ring 2s infinite;
+                 border: 3px solid #60A5FA;
+                 animation: bus-pulse 2s ease-out infinite;
                  z-index: 0;
               "></div>
             </div>
             <style>
-              @keyframes pulse-ring {
-                0% { transform: translate(-50%, -50%) scale(1); opacity: 0.8; }
+              @keyframes bus-pulse {
+                0% { transform: translate(-50%, -50%) scale(1); opacity: 0.9; }
+                100% { transform: translate(-50%, -50%) scale(1.8); opacity: 0; }
+              }
+            </style>
+          `,
+          iconSize: [56, 70],
+          iconAnchor: [28, 70],
+          popupAnchor: [0, -70],
+        });
+
+        // Premium 3D Student location icon
+        const studentIconElement = L.divIcon({
+          className: 'custom-student-marker-3d',
+          html: `
+            <div style="position: relative; filter: drop-shadow(0 6px 12px rgba(16, 185, 129, 0.4));">
+              <!-- Main student circle with 3D gradient -->
+              <div style="
+                background: linear-gradient(145deg, #34D399 0%, #10B981 50%, #059669 100%);
+                width: 46px;
+                height: 46px;
+                border-radius: 50%;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                border: 3px solid white;
+                box-shadow: inset 0 -3px 6px rgba(0,0,0,0.15), 0 4px 10px rgba(5, 150, 105, 0.4);
+                position: relative;
+                z-index: 2;
+              ">
+                <!-- Person SVG icon -->
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="white" stroke="none">
+                  <path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/>
+                </svg>
+              </div>
+              
+              <!-- 3D Pointer/Pin effect -->
+              <div style="
+                position: absolute;
+                bottom: -8px;
+                left: 50%;
+                transform: translateX(-50%);
+                width: 0;
+                height: 0;
+                border-left: 10px solid transparent;
+                border-right: 10px solid transparent;
+                border-top: 12px solid #059669;
+                filter: drop-shadow(0 2px 3px rgba(0,0,0,0.2));
+                z-index: 1;
+              "></div>
+              
+              <!-- Subtle pulsing ring -->
+              <div style="
+                 position: absolute;
+                 top: 50%;
+                 left: 50%;
+                 transform: translate(-50%, -50%);
+                 width: 100%;
+                 height: 100%;
+                 border-radius: 50%;
+                 border: 2px solid #6EE7B7;
+                 animation: student-pulse 2.5s ease-out infinite;
+                 z-index: 0;
+              "></div>
+            </div>
+            <style>
+              @keyframes student-pulse {
+                0% { transform: translate(-50%, -50%) scale(1); opacity: 0.7; }
                 100% { transform: translate(-50%, -50%) scale(1.6); opacity: 0; }
               }
             </style>
           `,
-          iconSize: [52, 60],
-          iconAnchor: [26, 60],
-          popupAnchor: [0, -60],
-        });
-
-        // Student location icon
-        const studentIconElement = L.divIcon({
-          className: 'custom-student-marker',
-          html: `
-            <div style="
-              background: linear-gradient(135deg, #10B981 0%, #059669 100%);
-              width: 40px;
-              height: 40px;
-              border-radius: 50%;
-              display: flex;
-              align-items: center;
-              justify-content: center;
-              box-shadow: 0 4px 12px rgba(16, 185, 129, 0.4);
-              border: 3px solid white;
-            ">
-              <span style="font-size: 20px;">📍</span>
-            </div>
-          `,
-          iconSize: [40, 40],
-          iconAnchor: [20, 20],
-          popupAnchor: [0, -20],
+          iconSize: [46, 58],
+          iconAnchor: [23, 58],
+          popupAnchor: [0, -58],
         });
 
         setBusIcon(busIconElement);
@@ -483,7 +498,7 @@ export default function UberLikeBusMap({
 
       {/* Floating Map Controls (Right Side) */}
       <div className={`absolute z-[1000] flex flex-col gap-2 ${isFullScreen ? 'bottom-32 right-4' : 'bottom-4 right-4'}`}>
-        {/* Re-center button (Top) - Always visible, disabled when no location */}
+        {/* Re-center button (Top) - Premium Design */}
         <button
           onClick={() => {
             if (mapRef.current && busLocation && busLocation.lat && busLocation.lng) {
@@ -494,13 +509,17 @@ export default function UberLikeBusMap({
             }
           }}
           disabled={!busLocation}
-          className={`w-10 h-10 rounded-full shadow-lg flex items-center justify-center transition-all duration-200 ${busLocation
-            ? 'bg-gradient-to-br from-blue-600 to-purple-600 text-white hover:scale-105 cursor-pointer'
-            : 'bg-gray-400 cursor-not-allowed opacity-60'
+          className={`relative w-12 h-12 rounded-full shadow-xl flex items-center justify-center transition-all duration-300 group overflow-hidden ${busLocation
+            ? 'bg-gradient-to-br from-blue-500 via-blue-600 to-indigo-700 text-white hover:scale-110 hover:shadow-blue-500/40 cursor-pointer'
+            : 'bg-gray-300 dark:bg-gray-700 cursor-not-allowed opacity-60'
             }`}
           title={busLocation ? "Center on bus" : "Waiting for bus location..."}
         >
-          <Navigation className="w-5 h-5" />
+          {/* Animated ring effect on hover */}
+          {busLocation && (
+            <span className="absolute inset-0 rounded-full border-2 border-white/30 group-hover:scale-125 group-hover:opacity-0 transition-all duration-500"></span>
+          )}
+          <Navigation className={`w-5 h-5 relative z-10 ${busLocation ? 'drop-shadow-sm' : ''}`} />
         </button>
 
         {/* Zoom Controls (Grouped) */}
@@ -568,15 +587,17 @@ export default function UberLikeBusMap({
         ) : null
       )}
 
-      {/* Sticky Bottom Action Bar (Full Screen Only) - Transparent */}
-      {isFullScreen && primaryActionLabel && onPrimaryAction && (
+      {/* Sticky Bottom Action Bar (Full Screen Only) */}
+      {isFullScreen && primaryActionLabel && (
         <div className="absolute bottom-8 left-4 right-4 z-[1000]">
           <Button
-            onClick={onPrimaryAction}
-            className={`w-full h-14 text-lg font-bold rounded-xl shadow-lg ${primaryActionColor === 'red' ? 'bg-red-600 hover:bg-red-700 text-white' :
+            onClick={primaryActionDisabled ? undefined : onPrimaryAction}
+            disabled={primaryActionDisabled}
+            className={`w-full h-14 text-lg font-bold rounded-xl shadow-lg transition-all duration-200 ${primaryActionColor === 'red' ? 'bg-red-600 hover:bg-red-700 text-white' :
               primaryActionColor === 'blue' ? 'bg-blue-600 hover:bg-blue-700 text-white' :
                 primaryActionColor === 'green' ? 'bg-green-600 hover:bg-green-700 text-white' :
-                  'bg-orange-500 hover:bg-orange-600 text-white'
+                  primaryActionColor === 'yellow' ? 'bg-amber-400 text-gray-900 font-semibold cursor-not-allowed' :
+                    'bg-orange-500 hover:bg-orange-600 text-white'
               }`}
           >
             {primaryActionLabel}

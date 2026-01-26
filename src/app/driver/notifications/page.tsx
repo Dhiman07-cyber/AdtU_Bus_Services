@@ -12,12 +12,12 @@ import {
   DialogHeader,
   DialogTitle
 } from "@/components/ui/dialog";
-import { Bell, Plus, Megaphone, MapPin, MapPinOff, Sparkles, Zap } from "lucide-react";
+import { Bell, Plus, Megaphone, MapPin, MapPinOff, Sparkles, Zap, RefreshCw } from "lucide-react";
 import { useToast } from "@/contexts/toast-context";
 import { useAuth } from "@/contexts/auth-context";
 import NotificationFormV2 from "@/components/NotificationFormV2";
 import NotificationCardV2 from "@/components/NotificationCardV2";
-import { useUserNotifications } from "@/hooks/useUserNotifications";
+import { useNotifications } from "@/contexts/NotificationContext";
 
 export default function DriverNotificationsPage() {
   const router = useRouter();
@@ -30,10 +30,44 @@ export default function DriverNotificationsPage() {
     loading,
     markAsRead,
     refresh
-  } = useUserNotifications();
+  } = useNotifications();
+
+
+  // Automatically mark all received notifications as read when visiting the page
+  useEffect(() => {
+    if (loading || !currentUser) return;
+
+    const markAllVisibleAsRead = async () => {
+      const unreadReceived = allNotifications.filter(n =>
+        !n.isRead &&
+        !n.isDeletedGlobally &&
+        n.sender.userId !== currentUser.uid
+      );
+
+      if (unreadReceived.length > 0) {
+        try {
+          // Mark each as read
+          const promises = unreadReceived.map(n => markAsRead(n.id));
+          await Promise.all(promises);
+        } catch (err) {
+          console.error('Error auto-marking notifications as read:', err);
+        }
+      }
+    };
+
+    markAllVisibleAsRead();
+  }, [loading, allNotifications, currentUser, markAsRead]);
 
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [activeSection, setActiveSection] = useState<'notifications' | 'notice' | 'pickup' | 'dropoff'>('notifications');
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
+  const handleRefresh = async () => {
+    setIsRefreshing(true);
+    await refresh();
+    addToast('Notifications refreshed', 'success');
+    setIsRefreshing(false);
+  };
 
   // Filter notifications by type for tabs
   const filteredNotifications = useMemo(() => {
@@ -94,7 +128,7 @@ export default function DriverNotificationsPage() {
             <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 sm:gap-6">
               <div className="space-y-3 sm:space-y-4 min-w-0 flex-1">
                 <div className="flex items-center gap-2 sm:gap-3">
-                  <div className="p-2 sm:p-3 rounded-2xl bg-gradient-to-br from-blue-500 to-purple-600 shadow-lg animate-float flex-shrink-0">
+                  <div className="hidden">
                     <Sparkles className="h-5 w-5 sm:h-6 sm:w-6 text-white" />
                   </div>
                   <div className="min-w-0 flex-1">
@@ -121,13 +155,24 @@ export default function DriverNotificationsPage() {
                 </div>
               </div>
 
-              <Button
-                onClick={() => setCreateDialogOpen(true)}
-                className="h-12 sm:h-14 px-6 sm:px-8 bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 text-white font-black uppercase tracking-[0.2em] shadow-lg hover:shadow-xl transform hover:-translate-y-0.5 transition-all text-xs sm:text-sm rounded-2xl w-full md:w-auto"
-              >
-                <Plus className="h-4 w-4 sm:h-5 sm:w-5 mr-2" />
-                New Broadcast
-              </Button>
+              <div className="flex items-center gap-2 w-full md:w-auto">
+                <Button
+                  size="sm"
+                  onClick={handleRefresh}
+                  disabled={isRefreshing}
+                  className="h-12 sm:h-14 px-4 bg-white/20 hover:bg-white/30 text-white border border-white/20 backdrop-blur-sm shadow-sm hover:shadow-lg font-bold text-[10px] uppercase tracking-widest rounded-2xl transition-all duration-300 active:scale-95"
+                >
+                  <RefreshCw className={`mr-2 h-3.5 w-3.5 transition-transform duration-500 ${isRefreshing ? 'animate-spin' : 'group-hover:rotate-180'}`} />
+                  Refresh
+                </Button>
+                <Button
+                  onClick={() => setCreateDialogOpen(true)}
+                  className="h-12 sm:h-14 px-6 sm:px-8 bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 text-white font-black uppercase tracking-[0.2em] shadow-lg hover:shadow-xl transform hover:-translate-y-0.5 transition-all text-xs sm:text-sm rounded-2xl flex-1 md:flex-none"
+                >
+                  <Plus className="h-4 w-4 sm:h-5 sm:w-5 mr-2" />
+                  New Broadcast
+                </Button>
+              </div>
             </div>
           </div>
         </div>

@@ -80,7 +80,7 @@ export default function StudentRoster({
         key={student.id}
         onClick={() => onToggleSelection(student.id)}
         className={cn(
-          "px-3 py-2 flex items-center gap-3 border-b",
+          "px-3 pr-5 py-2 flex items-center gap-2 sm:gap-3 border-b",
           "hover:bg-muted/50 transition-colors cursor-pointer",
           isSelected && "bg-purple-50 dark:bg-purple-950/30"
         )}
@@ -110,16 +110,16 @@ export default function StudentRoster({
         {/* Student Info */}
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
-            <h4 className="font-medium text-sm truncate">
+            <h4 className="font-medium text-xs sm:text-sm truncate max-w-[140px] sm:max-w-none">
               {student.fullName}
             </h4>
             {student.shift && (
-              <Badge variant="outline" className="text-xs px-1.5 py-0">
+              <Badge variant="outline" className="text-[10px] sm:text-xs px-1.5 py-0">
                 {student.shift.charAt(0).toUpperCase() + student.shift.slice(1)}
               </Badge>
             )}
           </div>
-          <div className="flex items-center gap-3 text-xs text-muted-foreground">
+          <div className="flex items-center gap-3 text-[10px] sm:text-xs text-muted-foreground">
             <span className="font-mono">{student.enrollmentId}</span>
             {student.semester && (
               <span>Sem {student.semester}</span>
@@ -128,7 +128,7 @@ export default function StudentRoster({
         </div>
 
         {/* Stop Info */}
-        <div className="flex items-center gap-1.5 text-xs min-w-[100px]">
+        <div className="flex items-center gap-1.5 text-[10px] sm:text-xs min-w-[80px] sm:min-w-[100px]">
           <MapPin className="w-3 h-3 text-muted-foreground" />
           <span className="text-muted-foreground truncate">{student.stopName}</span>
         </div>

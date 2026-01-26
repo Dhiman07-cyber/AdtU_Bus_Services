@@ -578,7 +578,7 @@ export default function SmartRouteAllocationPage() {
 
     return (
         <TooltipProvider>
-            <div className="mt-8 space-y-6 px-2 sm:px-4">
+            <div className="mt-20 sm:mt-8 space-y-6 px-2 sm:px-4">
                 {/* Header */}
                 <div className="flex flex-col md:flex-row md:justify-between md:items-center gap-4 flex-shrink-0">
                     <div className="flex items-center gap-2.5">

@@ -9,8 +9,8 @@
  * @since 2026-01-02
  */
 
-import { doc, getDoc } from 'firebase/firestore';
-import { db } from '@/lib/firebase';
+// NOTE: Firebase imports are done lazily in fetchRuntimeRealtimeConfig() to prevent
+// blocking compilation when this module is imported for constants only.
 
 // ============================================================================
 // CORE CONFIGURATION FLAGS
@@ -102,6 +102,10 @@ export async function fetchRuntimeRealtimeConfig(): Promise<boolean> {
     }
 
     try {
+        // Lazy import firebase to avoid blocking module load
+        const { doc, getDoc } = await import('firebase/firestore');
+        const { db } = await import('@/lib/firebase');
+
         const configRef = doc(db, 'config', 'runtime');
         const configSnap = await getDoc(configRef);
 

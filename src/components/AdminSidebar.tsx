@@ -18,7 +18,12 @@ import {
   ChevronsLeft,
   ChevronsRight,
   Settings,
-  Command
+  Command,
+  QrCode,
+  UserPlus,
+  RotateCcw,
+  ArrowRightLeft,
+  Users
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
@@ -39,32 +44,48 @@ interface NavGroup {
 
 const adminNavGroups: NavGroup[] = [
   {
-    name: 'Core',
+    name: 'CORE',
     items: [
       { href: '/admin', label: 'Dashboard', icon: LayoutDashboard, color: 'text-blue-400' },
     ]
   },
   {
-    name: 'Management',
+    name: 'STUDENT',
     items: [
-      { href: '/admin/students', label: 'Students', icon: GraduationCap, color: 'text-indigo-400' },
-      { href: '/admin/drivers', label: 'Drivers', icon: UserCog, color: 'text-purple-400' },
+      { href: '/admin/students', label: 'Student Management', icon: Users, color: 'text-blue-400' },
+      { href: '/admin/students/add', label: 'Add Student', icon: UserPlus, color: 'text-emerald-400' },
+      { href: '/admin/smart-allocation', label: 'Reassignment', icon: ArrowRightLeft, color: 'text-indigo-400' },
+      { href: '/admin/renewal-service', label: 'Renewal', icon: RotateCcw, color: 'text-amber-400' },
+      { href: '/admin/applications', label: 'Applications', icon: ClipboardCheck, color: 'text-orange-400' },
+      { href: '/admin/verification', label: 'Verification', icon: QrCode, color: 'text-cyan-400' },
+    ]
+  },
+  {
+    name: 'DRIVER',
+    items: [
+      { href: '/admin/drivers', label: 'Driver Management', icon: Users, color: 'text-indigo-400' },
+      { href: '/admin/drivers/add', label: 'Add Driver', icon: UserPlus, color: 'text-emerald-400' },
+      { href: '/admin/driver-assignment', label: 'Reassignment', icon: ArrowRightLeft, color: 'text-purple-400' },
+    ]
+  },
+  {
+    name: 'TEAM',
+    items: [
       { href: '/admin/moderators', label: 'Moderators', icon: ShieldCheck, color: 'text-pink-400' },
     ]
   },
   {
-    name: 'Logistics',
+    name: 'LOGISTICS',
     items: [
       { href: '/admin/buses', label: 'Buses', icon: Bus, color: 'text-amber-400' },
       { href: '/admin/routes', label: 'Routes', icon: MapPin, color: 'text-emerald-400' },
-      { href: '/admin/applications', label: 'Applications', icon: ClipboardCheck, color: 'text-orange-400' },
     ]
   },
   {
-    name: 'Support',
+    name: 'SUPPORT',
     items: [
       { href: '/admin/notifications', label: 'Notifications', icon: Bell, color: 'text-red-400' },
-      { href: '/admin/feedback', label: 'Feedback', icon: MessageCircle, color: 'text-cyan-400' },
+      { href: '/admin/feedback', label: 'Feedbacks', icon: MessageCircle, color: 'text-cyan-400' },
     ]
   }
 ];
@@ -88,56 +109,50 @@ export default function AdminSidebar() {
   }, [setCollapsed]);
 
   return (
-    <motion.aside
-      initial={false}
-      animate={{ width: collapsed ? 64 : 220 }}
-      transition={{ duration: 0.3, ease: [0.2, 0.8, 0.2, 1] }}
+    <aside
+      style={{
+        width: collapsed ? 64 : 220,
+        willChange: 'width',
+        contain: 'layout style paint',
+        transform: 'translate3d(0, 0, 0)',
+        backfaceVisibility: 'hidden'
+      }}
       className={cn(
         "fixed top-12 left-0 bottom-0 z-40",
-        "border-r border-white/5 backdrop-blur-3xl",
-        collapsed ? "bg-[#0B1224]/98" : "bg-[#020817]/99",
-        "flex flex-col shadow-[20px_0_80px_rgba(0,0,0,0.4)] overflow-hidden",
-        "hidden md:flex translate-x-0"
+        "border-r border-white/10",
+        "bg-[#0B1224]",
+        "flex flex-col overflow-hidden",
+        "hidden md:flex",
+        "transition-[width] duration-100 ease-linear"
       )}
     >
-      {/* Decorative Premium Backgrounds */}
-      <div className="absolute inset-0 bg-gradient-to-b from-blue-600/5 via-transparent to-indigo-600/5 pointer-events-none" />
-      <div className="absolute inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-[0.03] pointer-events-none mix-blend-overlay" />
 
       {/* Header/Toggle Section */}
-      <div className="flex items-center justify-between px-3 py-2 h-14 shrink-0">
-        <AnimatePresence mode="wait">
-          {!collapsed && (
-            <motion.div
-              key="header-expanded"
-              initial={{ opacity: 0, x: -10 }}
-              animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: -10 }}
-              className="flex items-center gap-2.5"
-            >
-              <div className="relative group">
-                <div className="absolute inset-0 bg-blue-500/20 rounded-lg blur opacity-0 group-hover:opacity-100 transition-opacity" />
-                <div className="relative p-1.5 rounded-lg bg-gradient-to-br from-blue-500/10 to-indigo-500/10 border border-blue-500/20">
-                  <Command className="h-3.5 w-3.5 text-blue-400" />
-                </div>
+      <div className={cn(
+        "flex items-center px-3 py-2 h-14 shrink-0",
+        collapsed ? "justify-center" : "justify-between"
+      )}>
+        {!collapsed && (
+          <div className="flex items-center gap-2.5">
+            <div className="relative group">
+              <div className="absolute inset-0 bg-blue-500/20 rounded-lg blur opacity-0 group-hover:opacity-100 transition-opacity" />
+              <div className="relative p-1.5 rounded-lg bg-gradient-to-br from-blue-500/10 to-indigo-500/10 border border-blue-500/20">
+                <Command className="h-3.5 w-3.5 text-blue-400" />
               </div>
-              <div className="flex flex-col">
-                <span className="text-[12px] font-bold text-zinc-100 leading-none tracking-tight">
-                  Control Hub
-                </span>
-                <span className="text-[10px] text-zinc-500 font-medium">Administrator</span>
-              </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
+            </div>
+            <div className="flex flex-col">
+              <span className="text-[12px] font-bold text-zinc-100 leading-none tracking-tight">
+                Control Hub
+              </span>
+              <span className="text-[10px] text-zinc-500 font-medium">Administrator</span>
+            </div>
+          </div>
+        )}
         <Button
           variant="ghost"
           size="icon"
           onClick={() => setCollapsed(!collapsed)}
-          className={cn(
-            "h-6 w-6 rounded-md hover:bg-white/5 transition-all text-zinc-500 hover:text-zinc-200",
-            collapsed && "mx-auto"
-          )}
+          className="h-6 w-6 rounded-md hover:bg-white/5 transition-all text-zinc-500 hover:text-zinc-200"
           title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
         >
           {collapsed ? (
@@ -150,31 +165,24 @@ export default function AdminSidebar() {
 
       {/* Navigation Groups */}
       <nav className={cn(
-        "flex-1 px-2 overflow-y-auto no-scrollbar py-0 transition-all duration-300",
+        "flex-1 px-2 overflow-y-auto no-scrollbar pb-10",
         collapsed ? "space-y-2" : "space-y-4"
       )}
         style={{
-          maskImage: 'linear-gradient(to bottom, transparent, black 10px, black 90%, transparent)',
-          WebkitMaskImage: 'linear-gradient(to bottom, transparent, black 10px, black 90%, transparent)'
+          maskImage: 'linear-gradient(to bottom, transparent, black 16px, black 96%, transparent)',
+          WebkitMaskImage: 'linear-gradient(to bottom, transparent, black 16px, black 96%, transparent)'
         }}
       >
         {adminNavGroups.map((group, groupIdx) => (
           <div key={group.name} className={cn(
-            "transition-all duration-300",
             collapsed ? "mt-2 space-y-0" : "mt-2 space-y-0.5"
           )}>
             {!collapsed && (
-              <motion.h3
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                transition={{ delay: 0.1 * groupIdx }}
-                className="px-2 text-[9px] uppercase tracking-widest font-semibold text-zinc-600 mb-1 font-mono"
-              >
+              <h3 className="px-2 text-[9px] uppercase tracking-widest font-semibold text-zinc-600 mb-1 font-mono">
                 {group.name}
-              </motion.h3>
+              </h3>
             )}
             <div className={cn(
-              "transition-all duration-300",
               collapsed ? "space-y-4" : "space-y-0.5"
             )}>
               {group.items.map((item) => {
@@ -187,7 +195,7 @@ export default function AdminSidebar() {
                       <Link
                         href={item.href}
                         className={cn(
-                          "group relative flex items-center gap-2.5 px-2.5 rounded-md transition-all duration-300",
+                          "group relative flex items-center gap-2.5 px-2.5 rounded-md transition-colors duration-150",
                           collapsed ? "py-2" : "py-1.5",
                           "text-[12.5px] font-medium outline-none",
                           isActive
@@ -204,7 +212,7 @@ export default function AdminSidebar() {
                         )}
 
                         <div className={cn(
-                          "relative flex items-center justify-center transition-transform duration-300 group-hover:scale-105",
+                          "relative flex items-center justify-center",
                           collapsed ? "mx-auto" : ""
                         )}>
                           <Icon className={cn("h-4 w-4", isActive ? "text-blue-400" : item.color)} />
@@ -214,13 +222,9 @@ export default function AdminSidebar() {
                         </div>
 
                         {!collapsed && (
-                          <motion.span
-                            initial={{ opacity: 0, x: -5 }}
-                            animate={{ opacity: 1, x: 0 }}
-                            className="truncate relative"
-                          >
+                          <span className="truncate relative">
                             {item.label}
-                          </motion.span>
+                          </span>
                         )}
                       </Link>
                     </TooltipTrigger>
@@ -295,17 +299,13 @@ export default function AdminSidebar() {
 
         {/* Active Status Footer */}
         {!collapsed ? (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            className="mt-1 px-2 flex items-center justify-between"
-          >
+          <div className="mt-1 px-2 flex items-center justify-between">
             <div className="flex items-center gap-1.5 opacity-60 hover:opacity-100 transition-opacity">
               <div className="h-1.5 w-1.5 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)] animate-pulse" />
               <span className="text-[9px] text-zinc-500 uppercase tracking-wider font-semibold">Active</span>
             </div>
             <span className="text-[9px] text-zinc-700 font-mono">{config?.version || 'v2.4.0'}</span>
-          </motion.div>
+          </div>
         ) : (
           <div className="flex justify-center mt-1 opacity-60">
             <span className="text-[8px] text-zinc-600 font-mono tracking-tighter">
@@ -315,6 +315,6 @@ export default function AdminSidebar() {
         )}
       </div>
 
-    </motion.aside>
+    </aside>
   );
 }

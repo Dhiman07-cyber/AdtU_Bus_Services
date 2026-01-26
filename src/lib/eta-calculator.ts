@@ -20,7 +20,7 @@ export async function calculateETAtoStop(
   try {
     // Get the segment of the route from current bus location to target stop
     const routeSegment: Coordinate[] = [currentBusLocation];
-    
+
     // Add all stops from current position to target stop
     for (let i = 0; i <= targetStopIndex; i++) {
       routeSegment.push(routeStops[i]);
@@ -28,7 +28,7 @@ export async function calculateETAtoStop(
 
     // Fetch route geometry for this segment
     const routeGeometry = await fetchRouteGeometryViaProxy(routeSegment);
-    
+
     if (routeGeometry) {
       return routeGeometry.duration;
     }
@@ -52,13 +52,13 @@ export async function calculateETAtoAllStops(
 ): Promise<(number | null)[]> {
   try {
     const etas: (number | null)[] = [];
-    
+
     // Calculate ETA for each stop
     for (let i = 0; i < routeStops.length; i++) {
       const eta = await calculateETAtoStop(routeStops, currentBusLocation, i);
       etas.push(eta);
     }
-    
+
     return etas;
   } catch (error) {
     console.error('Error calculating ETAs to all stops:', error);
@@ -71,24 +71,28 @@ export async function calculateETAtoAllStops(
  * @param seconds Duration in seconds
  * @returns Formatted time string (e.g., "5 mins", "1 hour 15 mins")
  */
-export function formatDuration(seconds: number): string {
+export function formatDuration(seconds: number | null | undefined): string {
+  if (seconds === null || seconds === undefined) {
+    return "Unable to calculate";
+  }
+
   if (seconds < 60) {
     return `${Math.round(seconds)} seconds`;
   }
-  
+
   const minutes = Math.round(seconds / 60);
-  
+
   if (minutes < 60) {
     return `${minutes} min${minutes !== 1 ? 's' : ''}`;
   }
-  
+
   const hours = Math.floor(minutes / 60);
   const remainingMinutes = minutes % 60;
-  
+
   if (remainingMinutes === 0) {
     return `${hours} hour${hours !== 1 ? 's' : ''}`;
   }
-  
+
   return `${hours} hour${hours !== 1 ? 's' : ''} ${remainingMinutes} min${remainingMinutes !== 1 ? 's' : ''}`;
 }
 
@@ -105,15 +109,15 @@ export function getNextStopIndex(
   if (routeStops.length === 0) {
     return null;
   }
-  
+
   if (routeStops.length === 1) {
     return 0;
   }
-  
+
   // Find the closest stop to the current bus location
   let minDistance = Infinity;
   let closestStopIndex = 0;
-  
+
   for (let i = 0; i < routeStops.length; i++) {
     const stop = routeStops[i];
     const distance = haversineDistance(
@@ -122,13 +126,13 @@ export function getNextStopIndex(
       stop.lat,
       stop.lng
     );
-    
+
     if (distance < minDistance) {
       minDistance = distance;
       closestStopIndex = i;
     }
   }
-  
+
   // Return the next stop (or the last stop if we're at the end)
   return Math.min(closestStopIndex + 1, routeStops.length - 1);
 }
@@ -138,10 +142,10 @@ function haversineDistance(lat1: number, lon1: number, lat2: number, lon2: numbe
   const R = 6371000; // Earth radius in meters
   const dLat = (lat2 - lat1) * Math.PI / 180;
   const dLon = (lon2 - lon1) * Math.PI / 180;
-  const a = 
-    Math.sin(dLat/2) * Math.sin(dLat/2) +
-    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * 
-    Math.sin(dLon/2) * Math.sin(dLon/2);
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+    Math.sin(dLon / 2) * Math.sin(dLon / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
   return R * c;
 }

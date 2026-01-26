@@ -23,13 +23,15 @@ import {
   RotateCcw,
   Layout,
   LayoutGrid,
+  User,
   Check
 } from 'lucide-react';
 import jsQR from 'jsqr';
 import { motion, AnimatePresence } from 'framer-motion';
 import { toast } from 'sonner';
 import { useSystemConfig } from '@/contexts/SystemConfigContext';
-import { auth } from '@/lib/firebase';
+import { auth, db } from '@/lib/firebase';
+import { doc, getDoc } from 'firebase/firestore';
 import Image from 'next/image';
 
 // Verified student data interface
@@ -52,8 +54,10 @@ interface VerifiedStudentData {
   routeName?: string;
 }
 
+
 interface ScanResult {
   scanId: string;
+  scanType: 'student';
   status: 'success' | 'invalid' | 'session_expired' | 'rate_limited';
   message: string;
   studentData: VerifiedStudentData | null;
@@ -83,6 +87,8 @@ export default function DriverScanPassPage() {
   const [copied, setCopied] = useState(false);
   const [isVertical, setIsVertical] = useState(false);
   const [scannerModalOpen, setScannerModalOpen] = useState(false);
+
+
   const lastBusIdRef = useRef<string | null>(null);
 
   // Sync bus ID to ref for stable access during frequent scans
@@ -219,12 +225,13 @@ export default function DriverScanPassPage() {
     }
   };
 
-  // QR code scanning loop
+  // QR code scanning loop - throttled for performance
   const scanQRCode = async () => {
     if (!isScanningRef.current) return;
 
     if (!videoRef.current || !canvasRef.current) {
-      animationRef.current = requestAnimationFrame(scanQRCode);
+      // Throttle: wait 100ms before retrying
+      setTimeout(scanQRCode, 100);
       return;
     }
 
@@ -232,12 +239,13 @@ export default function DriverScanPassPage() {
     const canvas = canvasRef.current;
     const context = canvas.getContext('2d', { willReadFrequently: true });
 
-    if (!context || video.readyState !== video.HAVE_ENOUGH_DATA) {
-      animationRef.current = requestAnimationFrame(scanQRCode);
+    // Ensure video has valid dimensions and is ready
+    if (!context || video.readyState !== video.HAVE_ENOUGH_DATA || video.videoWidth === 0 || video.videoHeight === 0) {
+      setTimeout(scanQRCode, 100);
       return;
     }
 
-    // 1. Try Native BarcodeDetector (Fastest)
+    // 1. Try Native BarcodeDetector (Fastest) - preferred method
     if ('BarcodeDetector' in window) {
       try {
         // @ts-ignore
@@ -253,11 +261,17 @@ export default function DriverScanPassPage() {
       }
     }
 
-    // 2. Fallback: Optimized jsQR
-    const scanWidth = 480;
-    const scale = scanWidth / video.videoWidth;
-    const scanHeight = video.videoHeight * scale;
+    // 2. Fallback: Optimized jsQR with proper dimension handling
+    const scanWidth = Math.min(480, video.videoWidth);
+    const scanHeight = Math.floor(video.videoHeight * (scanWidth / video.videoWidth));
 
+    // Validate dimensions
+    if (scanWidth <= 0 || scanHeight <= 0 || !Number.isFinite(scanWidth) || !Number.isFinite(scanHeight)) {
+      setTimeout(scanQRCode, 100);
+      return;
+    }
+
+    // Only update canvas dimensions if changed
     if (canvas.width !== scanWidth || canvas.height !== scanHeight) {
       canvas.width = scanWidth;
       canvas.height = scanHeight;
@@ -265,18 +279,22 @@ export default function DriverScanPassPage() {
 
     context.drawImage(video, 0, 0, scanWidth, scanHeight);
 
-    const imageData = context.getImageData(0, 0, scanWidth, scanHeight);
-    const code = jsQR(imageData.data, imageData.width, imageData.height, {
-      inversionAttempts: 'attemptBoth'
-    });
+    try {
+      const imageData = context.getImageData(0, 0, scanWidth, scanHeight);
+      const code = jsQR(imageData.data, imageData.width, imageData.height, {
+        inversionAttempts: 'dontInvert' // Faster: only try non-inverted first
+      });
 
-    if (code && code.data) {
-      handleScanSuccess(code.data);
-      return;
+      if (code && code.data) {
+        handleScanSuccess(code.data);
+        return;
+      }
+    } catch (err) {
+      // Canvas error - skip this frame
     }
 
-    // Continue scanning
-    animationRef.current = requestAnimationFrame(scanQRCode);
+    // Continue scanning with throttled interval (10 FPS instead of 60 FPS)
+    setTimeout(scanQRCode, 100);
   };
 
   // Handle successful QR code scan
@@ -286,8 +304,11 @@ export default function DriverScanPassPage() {
       navigator.vibrate([100, 50, 100]);
     }
     stopScanning();
+
+    // Verify student identity
     verifyStudent(data);
   };
+
 
   // Verify student with the new API
   const verifyStudent = async (studentUid: string) => {
@@ -322,6 +343,7 @@ export default function DriverScanPassPage() {
 
         setLatestScanResult({
           scanId: crypto.randomUUID(),
+          scanType: 'student',
           status: 'invalid',
           message: errorMsg,
           studentData: null,
@@ -347,20 +369,47 @@ export default function DriverScanPassPage() {
       });
 
       const result = await response.json();
+      let sData = result.studentData;
+
+      // Fetch profile photo from Firestore if missing from API
+      if (sData?.uid && (!sData.profilePhotoUrl || sData.profilePhotoUrl === '')) {
+        try {
+          // Check students collection first
+          let snap = await getDoc(doc(db, 'students', sData.uid));
+          if (!snap.exists()) {
+            snap = await getDoc(doc(db, 'users', sData.uid));
+          }
+
+          if (snap.exists()) {
+            const uData = snap.data();
+            sData = {
+              ...sData,
+              profilePhotoUrl: uData.profilePhotoUrl || uData.profileImage || uData.photoURL
+            };
+          }
+        } catch (e) {
+          console.error('Firestore image fetch error:', e);
+        }
+      }
+
+      const resultWithId = {
+        ...result,
+        studentData: sData,
+        scanId: crypto.randomUUID(),
+        scanType: 'student' as const
+      };
 
       if (!response.ok) {
         // Handle server-side errors gracefully
         const errorMsg = result.message || (response.status >= 500 ? 'Server connectivity issue' : 'Verification failed');
-        // Add unique ID
-        const resultWithId = { ...result, scanId: crypto.randomUUID() };
         setLatestScanResult(resultWithId);
         setError(errorMsg);
         toast.error(errorMsg);
         return;
       }
 
-      // Add unique ID to successful result
-      const resultWithId = { ...result, scanId: crypto.randomUUID() };
+      // Use existing resultWithId for success case
+
       setLatestScanResult(resultWithId);
 
       // Add to scanned students list
@@ -442,14 +491,14 @@ export default function DriverScanPassPage() {
   };
 
   return (
-    <div className="min-h-screen bg-[#020617] relative flex flex-col items-center justify-start sm:justify-center p-4 md:pt-10 sm:pt-0 overflow-hidden">
+    <div className="min-h-screen bg-[#020617] relative flex flex-col items-center justify-start sm:justify-center p-4 pt-0 sm:pt-0 overflow-hidden">
       {/* Background Decorations */}
       <div className="absolute inset-0 pointer-events-none">
         <div className="absolute top-0 right-0 w-[500px] h-[500px] bg-blue-500/10 rounded-full blur-[120px]" />
         <div className="absolute bottom-0 left-0 w-[500px] h-[500px] bg-indigo-500/10 rounded-full blur-[120px]" />
       </div>
 
-      <div className="w-full max-w-[500px] relative z-10 flex flex-col items-center">
+      <div className="w-full max-w-[500px] relative z-10 flex flex-col items-center mt-8 sm:mt-0 md:mt-2">
         {/* Header Section */}
         {scannedStudents.length === 0 && (
           <div className="w-full flex items-center justify-between mb-6 px-1">
@@ -680,136 +729,129 @@ export default function DriverScanPassPage() {
                   <div key={scanResult.scanId || index} className={`relative w-full ${isVertical ? 'max-w-[380px]' : 'max-w-[600px]'} mx-auto bg-[#0f1019] rounded-[28px] overflow-hidden shadow-2xl border border-white/10`}>
 
                     {/* Header with Logo */}
-                    <div className="w-full px-3 sm:px-4 py-2 sm:py-3 flex items-center justify-center border-b border-white/5 bg-gradient-to-r from-[#1a1b2e] to-[#0f1019] relative">
-                      <div className="flex items-center gap-2">
-                        <img src="/adtu-new-logo.svg" alt="AdtU" className="h-5 sm:h-7 w-auto flex-shrink-0" />
-                        <span className="text-[9px] sm:text-xs font-bold text-white/70 tracking-wider">Assam down town University</span>
+                    <div className="w-full px-4 py-3 flex items-center justify-between border-b border-white/5 bg-gradient-to-r from-[#1a1b2e] to-[#0f1019] relative">
+                      <div className="flex items-center gap-2.5">
+                        <img src="/adtu-new-logo.svg" alt="AdtU" className="h-6 w-auto flex-shrink-0" />
+                        <span className="text-[10px] font-black text-white/90 uppercase tracking-wider">Assam down town University</span>
                       </div>
-                      <div className={`absolute right-3 sm:right-4 w-2.5 h-2.5 rounded-full flex-shrink-0 ${scanResult.sessionActive ? 'bg-green-500 shadow-[0_0_10px_rgba(34,197,94,0.6)]' : 'bg-red-500 shadow-[0_0_10px_rgba(239,68,68,0.6)]'}`} />
+                      <div className="w-2.5 h-2.5 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]" />
                     </div>
 
                     {/* Result Content */}
-                    <div className="p-2.5 sm:p-5">
-                      {scanResult.studentData ? (
-                        <>
-                          {!isVertical ? (
-                            /* ========== HORIZONTAL LAYOUT ========== */
-                            <div className="flex flex-col gap-3">
-                              {/* Bus & Route Info Bar */}
-                              <div className="flex items-center justify-between bg-[#1a1b2e] rounded-lg sm:rounded-xl px-2.5 sm:px-5 py-1.5 sm:py-2 border border-white/5">
-                                <div className="flex items-center gap-2 sm:gap-3">
-                                  <Bus className="w-4 h-4 sm:w-5 sm:h-5 text-blue-400" />
-                                  <span className="text-sm sm:text-base font-black text-white">Bus-{(scanResult.studentData.assignedBus || 'N/A').replace('bus_', '')}</span>
-                                  <span className="text-white/30 text-xs sm:text-sm font-medium hidden sm:inline">(AS-01-SC-1392)</span>
-                                </div>
-                                <div className="flex items-center gap-1 sm:gap-2">
-                                  <span className="text-[8px] sm:text-[10px] font-bold text-white/40 uppercase tracking-widest">Route</span>
-                                  <span className="text-sm sm:text-base font-black text-blue-400">{scanResult.studentData.routeName || (scanResult.studentData.assignedBus || 'N/A').replace('bus_', '')}</span>
+                    <div className="p-3 sm:p-5">
+                      {scanResult.studentData ? (<>
+                        {!isVertical ? (
+                          /* ========== HORIZONTAL LAYOUT (RESIZED & COMPACT) ========== */
+                          <div className="flex flex-col gap-2.5">
+                            {/* Bus & Route Info Bar - Slimmer */}
+                            <div className="flex items-center justify-between bg-[#1a1b2e] rounded-lg px-3 py-1.5 border border-white/5">
+                              <div className="flex items-center gap-2">
+                                <Bus className="w-3.5 h-3.5 text-blue-400" />
+                                <div className="flex items-baseline gap-1.5">
+                                  <span className="text-[11px] sm:text-xs font-black text-white">Bus-{(scanResult.studentData.assignedBus || 'N/A').replace('bus_', '')}</span>
+                                  <span className="text-white/30 text-[8px] font-medium tracking-tight uppercase">(AS-01-SC-1392)</span>
                                 </div>
                               </div>
-
-                              {/* Main Content: Profile + Details */}
-                              <div className="flex gap-3 sm:gap-4 items-start">
-                                {/* Profile Section */}
-                                <div className="flex flex-col items-center flex-shrink-0">
-                                  <div className="w-16 h-16 sm:w-28 sm:h-28 rounded-full bg-gradient-to-br from-blue-500/20 to-indigo-500/20 border-2 border-blue-500/30 overflow-hidden shadow-xl">
-                                    {scanResult.studentData.profilePhotoUrl ? (
-                                      <img src={scanResult.studentData.profilePhotoUrl} className="w-full h-full object-cover" alt="Profile" />
-                                    ) : (
-                                      <div className="w-full h-full flex items-center justify-center">
-                                        <ShieldCheck className="h-12 w-12 text-blue-400" />
-                                      </div>
-                                    )}
-                                  </div>
-                                  {/* Name */}
-                                  <h4 className="mt-2 text-xs sm:text-sm font-bold text-white text-center max-w-[100px] sm:max-w-[130px] truncate">{scanResult.studentData.fullName || 'N/A'}</h4>
-                                  <button onClick={() => handleCopyId(scanResult.studentData?.enrollmentId)} className="mt-1 flex items-center gap-1.5 bg-[#1a1b2e] px-2 py-1 rounded-lg border border-white/10 hover:bg-white/5 transition-all">
-                                    <span className="text-[8px] sm:text-[10px] font-bold text-white/70 font-mono tracking-wide">{scanResult.studentData.enrollmentId || 'N/A'}</span>
-                                    {copied ? <Check className="w-3 h-3 text-green-400" /> : <Copy className="w-3 h-3 text-white/30" />}
-                                  </button>
-                                </div>
-
-                                {/* Details Grid */}
-                                <div className="flex-1 grid grid-cols-2 gap-1.5 sm:gap-2">
-                                  <div className="bg-[#1a1b2e] rounded-md sm:rounded-lg p-2 sm:p-3 border border-white/5">
-                                    <span className="text-[7px] sm:text-[10px] font-bold text-white/40 uppercase tracking-widest block mb-0.5">Gender</span>
-                                    <span className="text-xs sm:text-base font-bold text-white">{formatGender(scanResult.studentData.gender)}</span>
-                                  </div>
-                                  <div className="bg-[#1a1b2e] rounded-md sm:rounded-lg p-2 sm:p-3 border border-white/5">
-                                    <span className="text-[7px] sm:text-[10px] font-bold text-white/40 uppercase tracking-widest block mb-0.5">Shift</span>
-                                    <span className="text-xs sm:text-base font-bold text-white capitalize">{scanResult.studentData.shift || scanResult.studentData.assignedShift || 'Morning'}</span>
-                                  </div>
-                                  <div className="bg-[#1a1b2e] rounded-md sm:rounded-lg p-2 sm:p-3 border border-white/5">
-                                    <span className="text-[7px] sm:text-[10px] font-bold text-white/40 uppercase tracking-tight sm:tracking-widest block mb-0.5 whitespace-nowrap">Valid Until</span>
-                                    <span className="text-[9px] sm:text-sm font-bold text-white whitespace-nowrap tracking-tighter sm:tracking-normal">{getValidUntilDisplay(scanResult)}</span>
-                                  </div>
-                                  <div className="bg-[#1a1b2e] rounded-md sm:rounded-lg p-2 sm:p-3 border border-white/5">
-                                    <span className="text-[7px] sm:text-[10px] font-bold text-white/40 uppercase tracking-widest block mb-0.5">Status</span>
-                                    <span className={`text-xs sm:text-base font-black ${scanResult.sessionActive ? 'text-green-400' : 'text-red-400'}`}>
-                                      {scanResult.sessionActive ? 'ACTIVE' : 'EXPIRED'}
-                                    </span>
-                                  </div>
-                                </div>
+                              <div className="flex items-center gap-1.5">
+                                <span className="text-[7px] font-bold text-white/40 uppercase tracking-widest">Route</span>
+                                <span className="text-[11px] sm:text-xs font-black text-blue-400">{scanResult.studentData.routeName || (scanResult.studentData.assignedBus || 'N/A').replace('bus_', '')}</span>
                               </div>
                             </div>
-                          ) : (
-                            /* ========== VERTICAL LAYOUT ========== */
-                            <div className="flex flex-col items-center pb-4">
-                              {/* Profile Photo */}
-                              <div className="w-32 h-32 rounded-full bg-gradient-to-br from-blue-500/20 to-indigo-500/20 border-4 border-blue-500/30 overflow-hidden shadow-2xl mb-5">
-                                {scanResult.studentData.profilePhotoUrl ? (
-                                  <img src={scanResult.studentData.profilePhotoUrl} className="w-full h-full object-cover" alt="Profile" />
-                                ) : (
-                                  <div className="w-full h-full flex items-center justify-center">
-                                    <ShieldCheck className="h-14 w-14 text-blue-400" />
-                                  </div>
-                                )}
-                              </div>
 
-                              {/* Name */}
-                              <h3 className="text-xl sm:text-2xl font-black text-white tracking-tight text-center mb-2 max-w-[280px] truncate">{scanResult.studentData.fullName}</h3>
-
-                              {/* Enrollment ID */}
-                              <div className="bg-[#1a1b2e] px-5 py-2 rounded-xl border border-white/5 text-sm font-bold text-white/50 tracking-widest font-mono mb-6">
-                                {scanResult.studentData.enrollmentId || 'N/A'}
-                              </div>
-
-                              {/* Info Grid */}
-                              <div className="w-full space-y-3">
-                                <div className="grid grid-cols-2 gap-3">
-                                  <div className="bg-[#1a1b2e] rounded-xl p-4 border border-white/5">
-                                    <span className="text-[9px] font-bold text-white/40 uppercase tracking-widest block mb-1">Gender</span>
-                                    <span className="text-lg font-bold text-white">{formatGender(scanResult.studentData.gender)}</span>
-                                  </div>
-                                  <div className="bg-[#1a1b2e] rounded-xl p-4 border border-white/5">
-                                    <span className="text-[9px] font-bold text-white/40 uppercase tracking-widest block mb-1">Shift</span>
-                                    <span className="text-lg font-bold text-white capitalize">{scanResult.studentData.shift || scanResult.studentData.assignedShift || 'Morning'}</span>
-                                  </div>
-                                </div>
-                                <div className="grid grid-cols-2 gap-3">
-                                  <div className="bg-[#1a1b2e] rounded-xl p-4 border border-white/5">
-                                    <span className="text-[9px] font-bold text-white/40 uppercase tracking-widest block mb-1 whitespace-nowrap">Valid Until</span>
-                                    <span className="text-sm sm:text-lg font-bold text-white whitespace-nowrap tracking-tight sm:tracking-normal">{getValidUntilDisplay(scanResult)}</span>
-                                  </div>
-                                  <div className="bg-[#1a1b2e] rounded-xl p-4 border border-white/5 flex flex-col items-center">
-                                    <span className="text-[9px] font-bold text-white/40 uppercase tracking-widest block mb-1">Status</span>
-                                    <div className={`px-4 py-1 rounded-full text-sm font-black ${scanResult.sessionActive ? 'bg-green-500/20 text-green-400 border border-green-500/30' : 'bg-red-500/20 text-red-400 border border-red-500/30'}`}>
-                                      {scanResult.sessionActive ? 'ACTIVE' : 'EXPIRED'}
+                            <div className="flex gap-3 items-center">
+                              {/* Left: Profile & Basic Info */}
+                              <div className="flex flex-col items-center flex-shrink-0 w-[110px] sm:w-[130px]">
+                                <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-full bg-gradient-to-br from-blue-500/20 to-indigo-500/20 border-2 border-blue-500/30 overflow-hidden shadow-lg mb-1.5">
+                                  {scanResult.studentData.profilePhotoUrl ? (
+                                    <img src={scanResult.studentData.profilePhotoUrl} className="w-full h-full object-cover" alt="Profile" />
+                                  ) : (
+                                    <div className="w-full h-full flex items-center justify-center">
+                                      <User className="h-7 w-7 text-blue-400/40" />
                                     </div>
-                                  </div>
+                                  )}
+                                </div>
+                                <h4 className="text-[10px] sm:text-xs font-black text-white text-center truncate w-full mb-0.5">{scanResult.studentData.fullName || 'N/A'}</h4>
+                                <div onClick={() => handleCopyId(scanResult.studentData?.enrollmentId)} className="flex items-center gap-1 bg-[#1a1b2e] px-1.5 py-0.5 rounded-md border border-white/5 cursor-pointer hover:bg-white/5 transition-all">
+                                  <span className="text-[8px] font-bold text-white/30 font-mono tracking-tighter">{scanResult.studentData.enrollmentId || 'N/A'}</span>
+                                  {copied ? <Check className="w-2 h-2 text-green-400" /> : <Copy className="w-2 h-2 text-white/10" />}
+                                </div>
+                              </div>
+
+                              {/* Right: Details Grid */}
+                              <div className="flex-1 grid grid-cols-2 gap-2">
+                                <div className="bg-[#161726] rounded-xl p-2 border border-white/5">
+                                  <span className="text-[7px] font-bold text-white/40 uppercase tracking-widest block mb-0.5">Gender</span>
+                                  <span className="text-[10px] sm:text-xs font-bold text-white">{formatGender(scanResult.studentData.gender)}</span>
+                                </div>
+                                <div className="bg-[#161726] rounded-xl p-2 border border-white/5">
+                                  <span className="text-[7px] font-bold text-white/40 uppercase tracking-widest block mb-0.5">Shift</span>
+                                  <span className="text-[10px] sm:text-xs font-bold text-white capitalize">{scanResult.studentData.shift || scanResult.studentData.assignedShift || 'Morning'}</span>
+                                </div>
+                                <div className="bg-[#161726] rounded-xl p-2 border border-white/5">
+                                  <span className="text-[7px] font-bold text-white/40 uppercase tracking-widest block mb-0.5 whitespace-nowrap">Valid Until</span>
+                                  <span className="text-[10px] sm:text-xs font-bold text-white truncate block">{getValidUntilDisplay(scanResult)}</span>
+                                </div>
+                                <div className="bg-[#161726] rounded-xl p-2 border border-white/5">
+                                  <span className="text-[7px] font-bold text-white/40 uppercase tracking-widest block mb-0.5">Status</span>
+                                  <span className={`text-[10px] sm:text-xs font-black ${scanResult.sessionActive ? 'text-green-400' : 'text-red-400'}`}>
+                                    {scanResult.sessionActive ? 'ACTIVE' : 'EXPIRED'}
+                                  </span>
                                 </div>
                               </div>
                             </div>
-                          )}
-                        </>
+                          </div>
+                        ) : (
+                          /* ========== VERTICAL LAYOUT (RESIZED & COMPACT) ========== */
+                          <div className="flex flex-col items-center">
+                            {/* Profile Photo */}
+                            <div className="w-20 h-20 rounded-full bg-gradient-to-br from-blue-500/20 to-indigo-500/20 border-4 border-blue-500/30 overflow-hidden shadow-2xl mb-4">
+                              {scanResult.studentData.profilePhotoUrl ? (
+                                <img src={scanResult.studentData.profilePhotoUrl} className="w-full h-full object-cover" alt="Profile" />
+                              ) : (
+                                <div className="w-full h-full flex items-center justify-center">
+                                  <User className="h-10 w-10 text-blue-400/40" />
+                                </div>
+                              )}
+                            </div>
+
+                            {/* Name & ID */}
+                            <h3 className="text-lg font-black text-white tracking-tight text-center mb-1">{scanResult.studentData.fullName}</h3>
+                            <div className="bg-[#1a1b2e] px-4 py-1.5 rounded-xl border border-white/5 text-[9px] font-bold text-white/40 tracking-widest font-mono mb-5">
+                              {scanResult.studentData.enrollmentId || 'N/A'}
+                            </div>
+
+                            {/* Info Grid */}
+                            <div className="w-full grid grid-cols-2 gap-2">
+                              <div className="bg-[#161726] rounded-2xl p-3 border border-white/5">
+                                <span className="text-[8px] font-bold text-white/40 uppercase tracking-widest block mb-1">Gender</span>
+                                <span className="text-sm font-black text-white">{formatGender(scanResult.studentData.gender)}</span>
+                              </div>
+                              <div className="bg-[#161726] rounded-2xl p-3 border border-white/5">
+                                <span className="text-[8px] font-bold text-white/40 uppercase tracking-widest block mb-1">Shift</span>
+                                <span className="text-sm font-black text-white capitalize">{scanResult.studentData.shift || scanResult.studentData.assignedShift || 'Morning'}</span>
+                              </div>
+                              <div className="bg-[#161726] rounded-2xl p-3 border border-white/5">
+                                <span className="text-[8px] font-bold text-white/40 uppercase tracking-widest block mb-1">Valid Until</span>
+                                <span className="text-xs font-black text-white">{getValidUntilDisplay(scanResult)}</span>
+                              </div>
+                              <div className="bg-[#161726] rounded-2xl p-3 border border-white/5 flex flex-col items-start">
+                                <span className="text-[8px] font-bold text-white/40 uppercase tracking-widest block mb-1 text-left w-full">Status</span>
+                                <div className={`px-2 py-0.5 rounded-full text-[9px] font-black ${scanResult.sessionActive ? 'bg-green-500/10 text-green-400 border border-green-500/20' : 'bg-red-500/10 text-red-400 border border-red-500/20'}`}>
+                                  {scanResult.sessionActive ? 'ACTIVE' : 'EXPIRED'}
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                      </>
                       ) : (
                         /* ========== ACCESS DENIED STATE ========== */
-                        <div className="flex flex-col items-center justify-center text-center py-10">
-                          <div className="w-20 h-20 bg-red-500/10 rounded-2xl flex items-center justify-center border border-red-500/20 mb-6">
-                            <XCircle className="h-10 w-10 text-red-500" />
+                        <div className="flex flex-col items-center justify-center text-center py-8">
+                          <div className="w-16 h-16 bg-red-500/10 rounded-2xl flex items-center justify-center border border-red-500/20 mb-5">
+                            <XCircle className="h-8 w-8 text-red-500" />
                           </div>
-                          <h3 className="text-xl font-black text-white mb-2 uppercase tracking-tight">Access Denied</h3>
-                          <p className="text-white/40 text-sm font-medium leading-relaxed px-6">
+                          <h3 className="text-lg font-black text-white mb-2 uppercase tracking-tight">Access Denied</h3>
+                          <p className="text-white/40 text-xs font-medium leading-relaxed px-6">
                             {scanResult.message || 'Unable to verify this passenger ID.'}
                           </p>
                         </div>
@@ -932,6 +974,7 @@ export default function DriverScanPassPage() {
           )}
         </AnimatePresence>
       </div>
+
     </div>
   );
 }

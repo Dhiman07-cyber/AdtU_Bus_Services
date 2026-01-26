@@ -15,6 +15,8 @@ export interface FeedbackEntry {
   read_by?: string;
   auto_delete_at: string;
   profile_url?: string;
+  bus_id?: string;
+  bus_plate?: string;
   forwarded?: boolean;
 }
 

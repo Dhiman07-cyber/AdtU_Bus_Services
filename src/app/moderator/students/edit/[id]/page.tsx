@@ -172,13 +172,14 @@ export default function EditStudentPage({ params }: { params: Promise<{ id: stri
           profilePhotoUrl: studentData.profilePhotoUrl || '',
           address: studentData.address || studentData.location || '',
           bloodGroup: studentData.bloodGroup || '',
-          shift: studentData.shift || 'Morning',
+          shift: studentData.shift ? (studentData.shift.toLowerCase().includes('even') ? 'Evening' : 'Morning') : 'Morning',
           approvedBy: studentData.approvedBy || '',
           sessionDuration: studentData.sessionDuration?.toString() || '1',
           sessionStartYear: studentData.sessionStartYear || new Date().getFullYear(),
           sessionEndYear: studentData.sessionEndYear || (new Date().getFullYear() + 1),
           validUntil: studentData.validUntil || new Date(new Date().getFullYear() + 1, 6, 31).toISOString(),
-          pickupPoint: studentData.pickupPoint || '',
+          // PRIORITIZE stopName here too
+          pickupPoint: studentData.stopName || studentData.pickupPoint || studentData.stopId || '',
         };
 
         setFormData(initialFormData);
@@ -461,7 +462,7 @@ export default function EditStudentPage({ params }: { params: Promise<{ id: stri
     addToast('Form reset successfully', 'info');
   };
 
-  if (loading) {
+  if (loading || loadingRoutes || loadingBuses) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-[#010717]">
         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500"></div>
@@ -625,6 +626,7 @@ export default function EditStudentPage({ params }: { params: Promise<{ id: stri
                     type="tel"
                     id="alternatePhone"
                     name="alternatePhone"
+                    value={formData.alternatePhone}
                     onChange={handleInputChange}
                     className="h-9 w-full bg-white/5 border-white/10 text-white placeholder:text-white/20 focus:border-blue-500/50"
                   />
@@ -635,6 +637,7 @@ export default function EditStudentPage({ params }: { params: Promise<{ id: stri
                   <Textarea
                     id="address"
                     name="address"
+                    value={formData.address}
                     onChange={handleInputChange}
                     className="resize-none w-full text-xs min-h-[100px] bg-white/5 border-white/10 text-white placeholder:text-white/20 focus:border-blue-500/50"
                   />
@@ -658,6 +661,7 @@ export default function EditStudentPage({ params }: { params: Promise<{ id: stri
                     type="text"
                     id="parentName"
                     name="parentName"
+                    value={formData.parentName}
                     onChange={handleInputChange}
                     required
                     className="h-9 w-full bg-white/5 border-white/10 text-white placeholder:text-white/20 focus:border-blue-500/50"
@@ -670,6 +674,7 @@ export default function EditStudentPage({ params }: { params: Promise<{ id: stri
                     type="tel"
                     id="parentPhone"
                     name="parentPhone"
+                    value={formData.parentPhone}
                     onChange={handleInputChange}
                     required
                     className="h-9 w-full bg-white/5 border-white/10 text-white placeholder:text-white/20 focus:border-blue-500/50"
@@ -701,6 +706,7 @@ export default function EditStudentPage({ params }: { params: Promise<{ id: stri
                     type="text"
                     id="enrollmentId"
                     name="enrollmentId"
+                    value={formData.enrollmentId}
                     onChange={handleInputChange}
                     required
                     className="h-9 w-full bg-white/5 border-white/10 text-white placeholder:text-white/20 focus:border-blue-500/50"
@@ -731,6 +737,7 @@ export default function EditStudentPage({ params }: { params: Promise<{ id: stri
                     type="text"
                     id="approvedBy"
                     name="approvedBy"
+                    value={formatApprovedBy(formData.approvedBy)}
                     readOnly
                     className="bg-white/5 w-full border-white/10 text-white/50 cursor-not-allowed h-9"
                   />
@@ -776,12 +783,7 @@ export default function EditStudentPage({ params }: { params: Promise<{ id: stri
                       </span>
                     </div>
                   </div>
-                  <p className="text-[10px] text-amber-500/80 mt-1.5 flex items-start gap-1.5 font-medium leading-relaxed">
-                    <Info className="h-3 w-3 mt-0.5 shrink-0" />
-                    <span className="break-words">
-                      Visit <Link href="/moderator/student-renewal" className="underline hover:text-amber-400 transition-colors">Student Renewal</Link> to extend services or change session details
-                    </span>
-                  </p>
+
                 </div>
 
                 {/* Assigned Route and Assigned Bus */}
@@ -800,7 +802,7 @@ export default function EditStudentPage({ params }: { params: Promise<{ id: stri
                   <div className="text-[10px] text-amber-500/80 mt-1.5 flex items-start gap-1.5 font-medium leading-relaxed">
                     <Info className="h-3 w-3 mt-0.5 shrink-0" />
                     <span className="break-words">
-                      Visit <Link href="/moderator/students" className="underline hover:text-amber-400 transition-colors">Student Reassignment</Link> to change assignments
+                      Visit <Link href="/moderator/smart-allocation" className="underline hover:text-amber-400 transition-colors">Student Reassignment</Link> to change assignments
                     </span>
                   </div>
                 </div>
@@ -818,7 +820,7 @@ export default function EditStudentPage({ params }: { params: Promise<{ id: stri
                   <div className="text-[10px] text-amber-500/80 mt-1.5 flex items-start gap-1.5 font-medium leading-relaxed">
                     <Info className="h-3 w-3 mt-0.5 shrink-0" />
                     <span className="break-words">
-                      Visit <Link href="/moderator/students" className="underline hover:text-amber-400 transition-colors">Student Reassignment</Link> to change assignments
+                      Visit <Link href="/moderator/smart-allocation" className="underline hover:text-amber-400 transition-colors">Student Reassignment</Link> to change assignments
                     </span>
                   </div>
                 </div>
@@ -830,15 +832,39 @@ export default function EditStudentPage({ params }: { params: Promise<{ id: stri
                     value={formData.pickupPoint}
                     onValueChange={(value) => handleSelectChange('pickupPoint', value)}
                   >
-                    <SelectTrigger className="h-9 w-full bg-blue-600/10 border-blue-500/20 text-white">
-                      <SelectValue placeholder="Select Pickup Point" />
+                    <SelectTrigger className="h-9 w-full bg-blue-600/10 border-blue-500/20 text-white capitalize">
+                      <SelectValue placeholder={formData.pickupPoint || "Select Pickup Point"} />
                     </SelectTrigger>
                     <SelectContent className="bg-[#0E0F12] border-white/10 text-white">
-                      {routes.find(r => (r.routeId || r.id) === formData.routeId)?.stops?.map((stop: any, idx: number) => (
-                        <SelectItem key={idx} value={typeof stop === 'string' ? stop : stop.name}>
-                          {typeof stop === 'string' ? stop : stop.name}
-                        </SelectItem>
-                      ))}
+                      {(() => {
+                        const route = routes.find(r =>
+                          (r.routeId === formData.routeId) ||
+                          (r.id === formData.routeId) ||
+                          (r.routeId && formData.routeId && r.routeId.toString() === formData.routeId.toString())
+                        );
+
+                        const stops = route?.stops?.map((stop: any) => typeof stop === 'string' ? stop : stop.name) || [];
+                        const currentPoint = formData.pickupPoint;
+
+                        // Ensure current value is in the list
+                        if (currentPoint && !stops.includes(currentPoint)) {
+                          stops.unshift(currentPoint);
+                        }
+
+                        if (stops.length === 0 && currentPoint) {
+                          return (
+                            <SelectItem value={currentPoint} className="capitalize">
+                              {currentPoint}
+                            </SelectItem>
+                          )
+                        }
+
+                        return stops.slice(0, -1).map((stopName: string, idx: number) => (
+                          <SelectItem key={`${stopName}-${idx}`} value={stopName} className="capitalize">
+                            {stopName}
+                          </SelectItem>
+                        ));
+                      })()}
                     </SelectContent>
                   </Select>
                 </div>
@@ -846,19 +872,14 @@ export default function EditStudentPage({ params }: { params: Promise<{ id: stri
                 <div>
                   <Label className="block text-xs font-medium text-gray-400 mb-1">Session Start Year</Label>
                   <div
-                    onClick={() => addToast('Session years can only be modified through the Student Renewal page.', 'info')}
+                    onClick={() => addToast('Session years can be modified only through the Student Online-Offline Payment request approval in the Renewal Management Page.', 'info')}
                     className="cursor-pointer group"
                   >
                     <div className="h-9 px-3 flex items-center bg-white/5 border border-dashed border-white/20 rounded-md text-sm text-white/50 group-hover:bg-white/[0.08] transition-all duration-200 overflow-hidden">
                       <span className="truncate">{formData.sessionStartYear}</span>
                     </div>
                   </div>
-                  <p className="text-[10px] text-amber-500/80 mt-1.5 flex items-start gap-1.5 font-medium leading-relaxed">
-                    <Info className="h-3 w-3 mt-0.5 shrink-0" />
-                    <span className="break-words">
-                      Visit <Link href="/moderator/student-renewal" className="underline hover:text-amber-400 transition-colors">Student Renewal</Link> to extend services or change session details
-                    </span>
-                  </p>
+
                 </div>
 
                 <div>
@@ -866,12 +887,7 @@ export default function EditStudentPage({ params }: { params: Promise<{ id: stri
                   <div className="h-9 px-3 flex items-center bg-white/5 border border-white/10 rounded-md text-sm text-white/50 cursor-not-allowed">
                     {formData.sessionEndYear}
                   </div>
-                  <p className="text-[10px] text-amber-500/80 mt-1.5 flex items-start gap-1.5 font-medium leading-relaxed">
-                    <Info className="h-3 w-3 mt-0.5 shrink-0" />
-                    <span className="break-words">
-                      Visit <Link href="/moderator/student-renewal" className="underline hover:text-amber-400 transition-colors">Student Renewal</Link> to extend services or change session details
-                    </span>
-                  </p>
+
                 </div>
 
                 <div>

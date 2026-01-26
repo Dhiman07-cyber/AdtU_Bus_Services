@@ -100,6 +100,18 @@ export async function POST(request: NextRequest) {
       submittedAt: now,
       createdAt: now,
       updatedAt: now,
+
+      // Top-level promoted fields (Essential Identity & requested Bus/Route/Stop)
+      fullName: formData.fullName || '',
+      enrollmentId: formData.enrollmentId || '',
+
+      // Service details (Requested)
+      routeId: formData.routeId || '',
+      busId: formData.busId || '',
+      busAssigned: formData.busAssigned || '',
+      stopId: formData.stopId || '',
+      shift: formData.shift || '',
+
       verificationCodeId: verificationCodeId || '',
       verifiedBy: isOnlinePayment ? 'system_online_payment' : (codeData?.moderatorUid || ''),
       verifiedAt: now,
@@ -117,19 +129,68 @@ export async function POST(request: NextRequest) {
       console.log('🗑️ Verification code deleted');
     }
 
-    // Also delete related notification
-    const notificationsQuery = await adminDb.collection('notifications')
-      .where('links.verificationCodeId', '==', verificationCodeId)
-      .get();
+    // Also delete related notification if verification code exists
+    if (verificationCodeId) {
+      const notificationsQuery = await adminDb.collection('notifications')
+        .where('links.verificationCodeId', '==', verificationCodeId)
+        .get();
 
-    const batch = adminDb.batch();
-    notificationsQuery.docs.forEach((doc: any) => {
-      batch.delete(doc.ref);
-    });
+      if (!notificationsQuery.empty) {
+        const batch = adminDb.batch();
+        notificationsQuery.docs.forEach((doc: any) => {
+          batch.delete(doc.ref);
+        });
+        await batch.commit();
+        console.log(`🗑️ Deleted ${notificationsQuery.size} notification(s) after successful verification`);
+      }
+    }
 
-    if (!notificationsQuery.empty) {
-      await batch.commit();
-      console.log(`🗑️ Deleted ${notificationsQuery.size} notification(s) after successful verification`);
+    // ✅ SERVER-SIDE NOTIFICATION: Notify admins if bus is full or near capacity
+    // This replaces the broken client-side calls that were causing "Failed to fetch"
+    if (needsCapacityReview === true) {
+      try {
+        console.log('🚨 Application needs capacity review. Notifying admins...');
+
+        // Fetch all admin and moderator IDs for notification
+        const adminsSnapshot = await adminDb.collection('admins').get();
+        const modsSnapshot = await adminDb.collection('moderators').get();
+
+        const recipientIds = [
+          ...adminsSnapshot.docs.map((doc: any) => doc.id),
+          ...modsSnapshot.docs.map((doc: any) => doc.id)
+        ];
+
+        if (recipientIds.length > 0) {
+          const nowTimestamp = new Date().toISOString();
+          const batch = adminDb.batch();
+
+          recipientIds.forEach(recipientId => {
+            const notifRef = adminDb.collection('notifications').doc();
+            batch.set(notifRef, {
+              toUid: recipientId,
+              title: '🚨 Bus Capacity Alert - Overloaded Bus Request',
+              content: `A new application from **${formData.fullName}** (${formData.enrollmentId}) needs review because the selected bus (**${formData.busAssigned || formData.busId}**) is at full capacity.`,
+              type: 'capacity_alert',
+              createdAt: nowTimestamp,
+              isRead: false,
+              links: {
+                applicationId: uid,
+                routeId: formData.routeId
+              },
+              sender: {
+                name: 'System',
+                role: 'system'
+              }
+            });
+          });
+
+          await batch.commit();
+          console.log(`✅ Capacity notifications sent to ${recipientIds.length} staff members`);
+        }
+      } catch (notifError) {
+        console.error('⚠️ Failed to send capacity notifications:', notifError);
+        // Don't fail the whole submission just because a notification failed
+      }
     }
 
     console.log('🎉 Application submission completed successfully for UID:', uid);

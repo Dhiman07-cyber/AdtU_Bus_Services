@@ -378,6 +378,132 @@ export function getDeadlineConfig() {
 }
 
 /**
+ * Check if student should be soft-blocked using PRE-STORED softBlock date from student document.
+ * This is the OPTIMIZED version for CRON jobs and real-time checks.
+ * 
+ * @param studentData - Student document data containing softBlock field
+ * @param simulationConfig - Optional simulation config for testing
+ * @returns true if access should be blocked
+ */
+export function shouldBlockAccessFromStoredDates(
+  studentData: {
+    softBlock?: string | null;
+    validUntil?: string | null;
+    lastRenewalDate?: string | null;
+    status?: string;
+    sessionEndYear?: number;
+  },
+  simulationConfig?: SimulationConfig | null
+): boolean {
+  // Explicit status check: if already blocked, return true
+  if (studentData.status === 'soft_blocked' || studentData.status === 'hard_blocked' || studentData.status === 'pending_deletion') {
+    return true;
+  }
+
+  if (!studentData.validUntil) return true; // No validity = blocked
+
+  // REFERENCE DATE: Use simulated date if enabled, otherwise real today
+  let currentDate = new Date();
+  if (simulationConfig?.enabled) {
+    currentDate = new Date(
+      simulationConfig.customYear,
+      simulationConfig.customMonth,
+      simulationConfig.customDay
+    );
+  }
+
+  const validDate = new Date(studentData.validUntil);
+
+  // If still valid, don't block
+  if (validDate > currentDate && !simulationConfig?.enabled) {
+    return false;
+  }
+
+  // Use stored softBlock date if available
+  if (studentData.softBlock) {
+    const softBlockDate = new Date(studentData.softBlock);
+
+    if (currentDate >= softBlockDate) {
+      // Past soft block date - check if renewed after expiry
+      if (studentData.lastRenewalDate) {
+        const renewalDate = new Date(studentData.lastRenewalDate);
+        if (renewalDate > validDate) {
+          return false;
+        }
+      }
+      return true; // Block access
+    }
+    return false; // Before soft block date
+  }
+
+  // Fallback to computed logic if no stored softBlock
+  return shouldBlockAccess(
+    studentData.validUntil,
+    studentData.lastRenewalDate,
+    simulationConfig,
+    studentData.status
+  );
+}
+
+/**
+ * Check if student should be hard-deleted using PRE-STORED hardBlock date from student document.
+ * This is the OPTIMIZED version for CRON jobs and real-time checks.
+ * 
+ * @param studentData - Student document data containing hardBlock field
+ * @param simulationConfig - Optional simulation config for testing
+ * @returns true if student should be hard deleted
+ */
+export function shouldHardDeleteFromStoredDates(
+  studentData: {
+    hardBlock?: string | null;
+    validUntil?: string | null;
+    lastRenewalDate?: string | null;
+    sessionEndYear?: number;
+  },
+  simulationConfig?: SimulationConfig | null
+): boolean {
+  if (!studentData.validUntil) {
+    return true; // No validity = should be deleted
+  }
+
+  // REFERENCE DATE: Use simulated date if enabled, otherwise real today
+  let currentDate = new Date();
+  if (simulationConfig?.enabled) {
+    currentDate = new Date(
+      simulationConfig.customYear,
+      simulationConfig.customMonth,
+      simulationConfig.customDay
+    );
+  }
+
+  const validDate = new Date(studentData.validUntil);
+
+  // Use stored hardBlock date if available
+  if (studentData.hardBlock) {
+    const hardBlockDate = new Date(studentData.hardBlock);
+
+    if (currentDate >= hardBlockDate) {
+      // Past hard delete date - check if renewed after expiry
+      if (studentData.lastRenewalDate) {
+        const renewalDate = new Date(studentData.lastRenewalDate);
+        if (renewalDate > validDate) {
+          return false;
+        }
+      }
+      return true; // Should be deleted
+    }
+    return false; // Before hard delete date
+  }
+
+  // Fallback to computed logic if no stored hardBlock
+  return shouldHardDelete(
+    studentData.validUntil,
+    studentData.lastRenewalDate,
+    simulationConfig
+  );
+}
+
+/**
  * Calculate days until hard delete
  */
 /**

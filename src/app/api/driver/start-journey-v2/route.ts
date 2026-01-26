@@ -6,11 +6,6 @@ import { snapStops, type SnapResult } from '@/lib/coordinate-snapping';
 import { getRobustRoute } from '@/lib/ors-robust-client';
 import { resolveStopCoordinate } from '@/lib/geocoding-service';
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL || '',
-  process.env.SUPABASE_SERVICE_ROLE_KEY || ''
-);
-
 const ORS_API_KEY = process.env.ORS_API_KEY || '';
 
 /**
@@ -191,23 +186,26 @@ export async function POST(request: Request) {
     const now = new Date();
     const tripId = `trip_${busId}_${now.getTime()}`;
 
-    // Update bus status
-    try {
-      await adminDb.collection('buses').doc(busId).update({
-        status: 'enroute',
-        activeDriverId: driverUid,
-        activeTripId: tripId,
-        lastStartedAt: FieldValue.serverTimestamp()
-      });
-    } catch (busUpdateError: any) {
-      console.error('❌ Failed to update bus status:', busUpdateError);
+    // STEP 1: SKIPPED UPDATE BUS STATUS IN FIRESTORE PER USER REQUEST
+    // We are no longer updating the 'buses' collection in Firestore to avoid writes.
+    console.log(`\n⚡ STEP 1: Skipped updating bus status in Firestore per user request.`);
+
+    // Initialize Supabase client
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+    if (!supabaseUrl || !supabaseKey) {
+      console.error("❌ Missing Supabase credentials in start-journey-v2");
       return NextResponse.json(
-        { error: `Failed to update bus status: ${busUpdateError.message}` },
+        { error: 'Server configuration error: Missing Supabase credentials' },
         { status: 500 }
       );
     }
 
-    // Initialize Supabase realtime state IMMEDIATELLY
+    // Create new client for this request context
+    const supabase = createClient(supabaseUrl, supabaseKey);
+
+    // Initialize Supabase realtime state IMMEDIATELY
     const { error: driverStatusError } = await supabase
       .from('driver_status')
       .upsert({
@@ -217,10 +215,17 @@ export async function POST(request: Request) {
         status: 'on_trip',
         started_at: now.toISOString(),
         last_updated_at: now.toISOString()
+      }, {
+        onConflict: 'driver_uid',
+        ignoreDuplicates: false
       });
 
     if (driverStatusError) {
       console.error('❌ Error inserting driver_status:', driverStatusError);
+      return NextResponse.json(
+        { error: 'Failed to update driver status: ' + driverStatusError.message },
+        { status: 500 }
+      );
     }
 
     // STEP 2: Resolve coordinates (Efficiently)

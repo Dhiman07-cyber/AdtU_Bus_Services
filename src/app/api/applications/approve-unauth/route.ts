@@ -5,6 +5,8 @@ import { v2 as cloudinary } from 'cloudinary';
 import { calculateRenewalDate } from '@/lib/utils/renewal-utils';
 import { incrementBusCapacity } from '@/lib/busCapacityService';
 import { generateOfflinePaymentId, OfflinePaymentDocument } from '@/lib/types/payment';
+import { computeBlockDatesFromValidUntil } from '@/lib/utils/deadline-computation';
+import { sendApplicationApprovedNotification } from '@/lib/services/admin-email.service';
 
 // Configure Cloudinary
 if (process.env.CLOUDINARY_API_KEY && process.env.CLOUDINARY_API_SECRET && process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME) {
@@ -85,6 +87,9 @@ export async function POST(request: NextRequest) {
     const validUntilDate = new Date(validUntil);
     const sessionEndYear = validUntilDate.getFullYear();
 
+    // Compute block dates from validUntil date
+    const blockDates = computeBlockDatesFromValidUntil(validUntil);
+
     // Create STUDENTS collection document with EXACT field structure as specified
     const studentDoc = {
       // Required fields only - as per specification
@@ -119,6 +124,9 @@ export async function POST(request: NextRequest) {
       uid: studentUid,
       updatedAt: now,
       validUntil: validUntil,
+      // Block dates computed from validUntil
+      softBlock: blockDates.softBlock,
+      hardBlock: blockDates.hardBlock,
       // Payment information from application form
       paymentAmount: formData.paymentInfo?.amountPaid || 0,
       paid_on: now // Set paid_on to approval date
@@ -126,6 +134,24 @@ export async function POST(request: NextRequest) {
 
     await adminDb.collection('students').doc(studentUid).set(studentDoc);
     console.log('✅ Student document created successfully');
+
+    // ✅ EMAIL NOTIFICATION: Send approval email to student
+    if (studentDoc.email) {
+      console.log(`📧 Notification: Queuing approval email for ${studentDoc.fullName} (${studentDoc.email})`);
+      const emailResult = await sendApplicationApprovedNotification({
+        studentName: studentDoc.fullName,
+        studentEmail: studentDoc.email,
+        busNumber: studentDoc.busId ? studentDoc.busId.replace('bus_', 'Bus-') : 'Assigned Soon',
+        routeName: formData.routeName || `Route ${studentDoc.routeId.replace('route_', '')}`,
+        shift: studentDoc.shift,
+        validUntil: new Date(studentDoc.validUntil).toLocaleDateString('en-IN', {
+          day: '2-digit',
+          month: 'short',
+          year: 'numeric'
+        })
+      });
+      console.log('📧 Notification result:', emailResult);
+    }
 
     // ✅ CREATE PAYMENT RECORD
     // Store the application payment in the payments collection

@@ -10,26 +10,17 @@
  * - No data is copied to or read from Firestore for payments
  * - Supports pagination for long-term historical queries
  * 
+ * 🔒 SECURITY:
+ * - Uses paymentsSupabaseService which handles decryption of sensitive fields
+ * - Encrypted fields: student_name, offline_transaction_id
+ * - Decryption happens transparently before returning to client
+ * 
  * GET /api/student/payment-history?uid=xxx&limit=50&offset=0
  */
 
 import { NextRequest, NextResponse } from 'next/server';
 import { adminAuth, adminDb } from '@/lib/firebase-admin';
-import { createClient } from '@supabase/supabase-js';
-
-// Initialize Supabase client
-function getSupabaseClient() {
-    const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-    const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-    if (!url || !serviceKey) {
-        throw new Error('Missing Supabase credentials');
-    }
-
-    return createClient(url, serviceKey, {
-        auth: { persistSession: false }
-    });
-}
+import { paymentsSupabaseService, PaymentRecord } from '@/lib/services/payments-supabase';
 
 export async function GET(request: NextRequest) {
     try {
@@ -61,54 +52,15 @@ export async function GET(request: NextRequest) {
             studentUid = decodedToken.uid;
         }
 
-        // 4. Fetch payment history from Supabase (SINGLE SOURCE OF TRUTH)
-        const supabase = getSupabaseClient();
+        // 4. Fetch payment history using paymentsSupabaseService
+        // ✅ This properly decrypts sensitive fields (student_name, offline_transaction_id)
+        const payments = await paymentsSupabaseService.getPaymentsByStudentUid(
+            studentUid!,
+            { limit, offset }
+        );
 
-        // Get total count for pagination
-        const { count: totalCount, error: countError } = await supabase
-            .from('payments')
-            .select('*', { count: 'exact', head: true })
-            .eq('student_uid', studentUid);
-
-        if (countError) {
-            console.error('Error counting payments:', countError);
-        }
-
-        // Get paginated payment data
-        const { data: payments, error: fetchError } = await supabase
-            .from('payments')
-            .select(`
-                payment_id,
-                amount,
-                currency,
-                method,
-                status,
-                session_start_year,
-                session_end_year,
-                duration_years,
-                valid_until,
-                transaction_date,
-                razorpay_payment_id,
-                razorpay_order_id,
-                offline_transaction_id,
-                approved_by,
-                approved_at,
-                created_at
-            `)
-            .eq('student_uid', studentUid)
-            .order('transaction_date', { ascending: false })
-            .range(offset, offset + limit - 1);
-
-        if (fetchError) {
-            console.error('Error fetching payments:', fetchError);
-            return NextResponse.json({
-                success: false,
-                error: 'Failed to fetch payment history',
-            }, { status: 500 });
-        }
-
-        // 5. Transform payments for response
-        const paymentHistory = (payments || []).map(p => ({
+        // 5. Transform payments for response (already decrypted by paymentsSupabaseService)
+        const paymentHistory = payments.map((p: PaymentRecord) => ({
             paymentId: p.payment_id,
             amount: p.amount || 0,
             currency: p.currency || 'INR',
@@ -121,38 +73,43 @@ export async function GET(request: NextRequest) {
             transactionDate: p.transaction_date,
             razorpayPaymentId: p.razorpay_payment_id,
             razorpayOrderId: p.razorpay_order_id,
+            // ✅ Decrypted by paymentsSupabaseService.decryptRecord()
             offlineTransactionId: p.offline_transaction_id,
             approvedBy: p.approved_by,
             approvedAt: p.approved_at,
             createdAt: p.created_at,
         }));
 
-        // 6. Calculate current validity from most recent completed payment
+        // 6. Calculate total count for pagination
+        // Note: This is approximate since we don't have direct count support
+        const totalCount = paymentHistory.length === limit ? limit + offset + 1 : paymentHistory.length + offset;
+
+        // 7. Calculate current validity from most recent completed payment
         let currentValidity: string | null = null;
-        const completedPayments = (payments || []).filter(p => p.status === 'Completed');
+        const completedPayments = payments.filter((p: PaymentRecord) => p.status === 'Completed');
         if (completedPayments.length > 0) {
             // Sort by transaction_date descending and get the latest
-            const sorted = [...completedPayments].sort((a, b) =>
-                new Date(b.transaction_date).getTime() - new Date(a.transaction_date).getTime()
+            const sorted = [...completedPayments].sort((a: PaymentRecord, b: PaymentRecord) =>
+                new Date(b.transaction_date || 0).getTime() - new Date(a.transaction_date || 0).getTime()
             );
             currentValidity = sorted[0].valid_until || null;
         }
 
-        // 7. Get student basic info from Firestore (only for display, not payment data)
+        // 8. Get student basic info from Firestore (only for display, not payment data)
         let studentName = 'Unknown';
         let studentId = null;
         try {
-            const studentDoc = await adminDb.collection('students').doc(studentUid).get();
+            const studentDoc = await adminDb.collection('students').doc(studentUid!).get();
             if (studentDoc.exists) {
                 const studentData = studentDoc.data();
-                studentName = studentData?.name || 'Unknown';
+                studentName = studentData?.name || studentData?.fullName || 'Unknown';
                 studentId = studentData?.enrollmentId || studentData?.id || null;
             }
         } catch (err) {
             console.warn('Could not fetch student info:', err);
         }
 
-        // 8. Return response with pagination info
+        // 9. Return response with pagination info
         return NextResponse.json({
             success: true,
             studentUid,
@@ -160,10 +117,10 @@ export async function GET(request: NextRequest) {
             studentId,
             paymentHistory,
             pagination: {
-                total: totalCount || 0,
+                total: totalCount,
                 limit,
                 offset,
-                hasMore: offset + paymentHistory.length < (totalCount || 0),
+                hasMore: paymentHistory.length === limit,
             },
             currentValidity,
             source: 'supabase', // Indicates data comes from Supabase (single source of truth)

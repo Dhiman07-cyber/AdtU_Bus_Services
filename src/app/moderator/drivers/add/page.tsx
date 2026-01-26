@@ -18,6 +18,14 @@ import { getAllRoutes, getAllBuses, getAllDrivers, getModeratorById } from '@/li
 import { Route, Driver } from '@/lib/types';
 import { signalCollectionRefresh } from "@/hooks/useEventDrivenRefresh";
 import RouteSelect from '@/components/RouteSelect';
+import { useDebouncedStorage } from '@/hooks/useDebouncedStorage';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 // Define the form data type
 type DriverFormData = {
@@ -32,6 +40,7 @@ type DriverFormData = {
   profilePhoto: File | null;
   routeId: string;
   busAssigned: string;
+  busId?: string;
   driverId: string;
   address: string;
   approvedBy: string;
@@ -45,6 +54,7 @@ export default function AddDriver() {
   // State for routes and buses
   const [routes, setRoutes] = useState<Route[]>([]);
   const [buses, setBuses] = useState<any[]>([]);
+  const [busOptions, setBusOptions] = useState<any[]>([]);
   const [loadingRoutes, setLoadingRoutes] = useState(true);
   const [hoveredRoute, setHoveredRoute] = useState<string | null>(null);
   const hoverTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -62,6 +72,7 @@ export default function AddDriver() {
     profilePhoto: null,
     routeId: '',
     busAssigned: '',
+    busId: '',
     driverId: '',
     address: '',
     approvedBy: '',
@@ -92,6 +103,12 @@ export default function AddDriver() {
   };
 
   const [formData, setFormData] = useState<DriverFormData>(getInitialFormData);
+
+  // Debounced storage to prevent input lag
+  const storage = useDebouncedStorage<DriverFormData>('driverFormData', {
+    debounceMs: 500,
+    excludeFields: ['profilePhoto', 'email'],
+  });
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [loadingSubmit, setLoadingSubmit] = useState(false);
   const [result, setResult] = useState<{ success?: boolean; error?: string } | null>(null);
@@ -103,35 +120,39 @@ export default function AddDriver() {
   // Auto-fill approvedBy field with current admin's details
   useEffect(() => {
     const fetchApproverDetails = async () => {
-      if (userData && userData.name) {
-        let idSuffix = 'ADMIN';
+      if (userData && (userData.name || userData.fullName)) {
+        const approverName = userData.fullName || userData.name;
+        let idSuffix = '';
 
-        if (userData.role === 'moderator') {
-          idSuffix = 'MOD'; // Default
-
+        if (userData.role === 'admin') {
+          idSuffix = 'Admin';
+        } else if (userData.role === 'moderator') {
           // Try to get from current userData first
-          const localId = (userData as any).employeeId || (userData as any).empId || (userData as any).staffId || (userData as any).driverId;
+          idSuffix = (userData as any).employeeId || (userData as any).empId || (userData as any).staffId || (userData as any).id || (userData as any).uid || 'MODERATOR';
 
-          if (localId && localId !== 'undefined') {
-            idSuffix = localId;
-          } else if (currentUser?.uid) {
+          // If it's a default/generic suffix, try fetching full data
+          if (['MODERATOR', 'MOD'].includes(idSuffix) && currentUser?.uid) {
             try {
               const modData = await getModeratorById(currentUser.uid);
               if (modData) {
-                idSuffix = (modData as any).employeeId || (modData as any).empId || (modData as any).staffId || (modData as any).driverId || 'MOD';
+                idSuffix = (modData as any).employeeId || (modData as any).empId || (modData as any).staffId || idSuffix;
               }
             } catch (err) {
               console.error('Error fetching moderator ID:', err);
             }
           }
-        } else if (userData.role === 'admin') {
-          idSuffix = 'ADMIN';
+        } else {
+          idSuffix = userData.role?.charAt(0).toUpperCase() + userData.role?.slice(1) || 'Unknown';
         }
 
-        setFormData(prev => ({
-          ...prev,
-          approvedBy: `${userData.name} (${idSuffix})`
-        }));
+        const approvedByValue = `${approverName} (${idSuffix})`;
+
+        setFormData(prev => {
+          if (!prev.approvedBy || prev.approvedBy === '' || prev.approvedBy.includes('undefined')) {
+            return { ...prev, approvedBy: approvedByValue };
+          }
+          return prev;
+        });
       }
     };
     fetchApproverDetails();
@@ -140,11 +161,10 @@ export default function AddDriver() {
   // Save form data to localStorage whenever it changes (except sensitive fields)
   useEffect(() => {
     if (typeof window !== 'undefined') {
-      // Create a copy without sensitive data
-      const { email, profilePhoto, ...dataToSave } = formData;
-      localStorage.setItem('driverFormData', JSON.stringify(dataToSave));
+      // Trigger debounced save (non-blocking)
+      storage.save(formData);
     }
-  }, [formData]);
+  }, [formData, storage]);
 
   // Fetch routes and buses when component mounts
   useEffect(() => {
@@ -205,9 +225,9 @@ export default function AddDriver() {
         try {
           const parsedData = JSON.parse(savedData);
           if (parsedData.email) {
-            // Remove sensitive fields from saved data
-            const { email, profilePhoto, ...cleanData } = parsedData;
-            localStorage.setItem('driverFormData', JSON.stringify(cleanData));
+            // Remove sensitive fields from saved data - handled by storage hook now
+            storage.clear();
+            storage.save(parsedData);
           }
         } catch (e) {
           console.error('Error cleaning saved form data:', e);
@@ -298,42 +318,55 @@ export default function AddDriver() {
   // Handle route selection
   const handleRouteSelect = (routeId: string) => {
     console.log('Route selected:', routeId);
-    console.log('Available buses:', buses);
+
+    if (routeId === 'reserved') {
+      console.log('Driver set as Reserved - no bus assignment');
+      setBusOptions([]);
+      setFormData(prev => ({
+        ...prev,
+        routeId: routeId,
+        busAssigned: 'Reserved (No Bus Assigned)',
+        busId: ''
+      }));
+      return;
+    }
+
+    // Find all buses associated with this route
+    const associatedBuses = buses.filter(bus =>
+      bus.routeId === routeId ||
+      // Fallback for potential legacy structure or mismatched IDs
+      (routes.find(r => r.routeId === routeId) as any)?.busId === bus.id
+    );
+
+    setBusOptions(associatedBuses);
+    console.log('Available buses for route:', associatedBuses);
 
     setFormData(prev => {
-      // Handle "Reserved" drivers
-      if (routeId === 'reserved') {
-        console.log('Driver set as Reserved - no bus assignment');
-        return {
-          ...prev,
-          routeId: routeId,
-          busAssigned: 'Reserved (No Bus Assigned)'
-        };
-      }
+      let newBusAssigned = '';
+      let newBusId = '';
 
-      // Find the bus assigned to this route
-      const assignedBus = buses.find(bus => bus.routeId === routeId);
-      console.log('Assigned bus found:', assignedBus);
+      if (associatedBuses.length === 1) {
+        // EXACTLY ONE BUS: Auto-select
+        const bus = associatedBuses[0];
 
-      // Robust bus display logic
-      let busDisplay = '';
-      if (assignedBus) {
-        const selectedRoute = routes.find(r => r.routeId === routeId);
-        const routeNum = selectedRoute ? selectedRoute.routeName.split('-')[1] : '';
-        const busIdParts = (assignedBus.id || assignedBus.busId || '').split('_');
+        // Fix: prioritize bus's own number over route number (which caused duplicates)
+        const isDistinctBusNum = bus.busNumber && bus.busNumber.length < 5 && !isNaN(Number(bus.busNumber));
+        const busIdParts = (bus.id || bus.busId || '').split('_');
         const busIdNum = busIdParts.length > 1 ? busIdParts[1] : '';
 
-        const busNumberShort = assignedBus.displayIndex || assignedBus.sequenceNumber || routeNum || busIdNum || (isNaN(Number(assignedBus.busNumber)) ? '' : assignedBus.busNumber) || '?';
-        const licensePlate = assignedBus.licensePlate || assignedBus.plateNumber || assignedBus.busNumber || 'N/A';
-        busDisplay = `Bus-${busNumberShort} (${licensePlate})`;
-      }
+        const busNumberValue = bus.displayIndex || bus.sequenceNumber || (isDistinctBusNum ? bus.busNumber : null) || busIdNum || bus.busNumber || '?';
+        const licensePlate = bus.licensePlate || bus.plateNumber || (bus.busNumber !== busNumberValue ? bus.busNumber : 'N/A');
 
-      console.log('Bus display format:', busDisplay);
+        newBusAssigned = `Bus-${busNumberValue} (${licensePlate})`;
+        newBusId = bus.id || bus.busId;
+      }
+      // If > 1, we clear and show select. If 0, we clear.
 
       return {
         ...prev,
         routeId: routeId,
-        busAssigned: busDisplay
+        busAssigned: newBusAssigned,
+        busId: newBusId
       };
     });
   };
@@ -395,10 +428,9 @@ export default function AddDriver() {
         // Reserved driver - no bus or route assignment
         console.log('Creating Reserved driver - no bus/route assignment');
       } else if (formData.routeId) {
-        // Auto-derive busId from routeId (pattern: route_X → bus_X)
-        assignedBusId = formData.routeId.replace('route_', 'bus_');
+        // Use selected bus ID
+        assignedBusId = formData.busId || null;
         assignedRouteId = formData.routeId;
-        console.log('Auto-derived driver assignments:', { routeId: formData.routeId, assignedBusId, assignedRouteId });
       }
 
       const response = await fetch('/api/moderator/create-user', {
@@ -420,10 +452,8 @@ export default function AddDriver() {
           joiningDate: formData.joiningDate,
           driverId: formData.driverId,
           address: formData.address,
-          routeId: assignedRouteId,
-          busId: assignedBusId, // Auto-derived from routeId
-          assignedBusId: assignedBusId, // Correct field name for drivers
-          assignedRouteId: assignedRouteId, // Correct field name for drivers
+          assignedBusId: assignedBusId,
+          assignedRouteId: assignedRouteId,
           approvedBy: formData.approvedBy
         }),
       });
@@ -433,7 +463,7 @@ export default function AddDriver() {
       if (data.success) {
         // Clear saved form data on successful submission
         if (typeof window !== 'undefined') {
-          localStorage.removeItem('driverFormData');
+          storage.clear();
         }
 
         addToast('Driver created successfully!', 'success');
@@ -477,7 +507,7 @@ export default function AddDriver() {
 
     // Clear saved form data
     if (typeof window !== 'undefined') {
-      localStorage.removeItem('driverFormData');
+      storage.clear();
     }
 
     addToast('Form reset successfully', 'info');
@@ -775,23 +805,74 @@ export default function AddDriver() {
                     value={formData.routeId}
                     onChange={handleRouteSelect}
                     isLoading={loadingRoutes}
+                    allowReserved={true}
                   />
                   {errors.routeId && <p className="text-red-500 text-sm mt-1">{errors.routeId}</p>}
                 </div>
 
-                {/* Bus Field - Read-only */}
                 <div>
-                  <Label htmlFor="busAssigned" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                    Bus
+                  <Label htmlFor="busId" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    Bus (Auto-assigned)
                   </Label>
-                  <Input
-                    type="text"
-                    id="busAssigned"
-                    name="busAssigned"
-                    value={formData.busAssigned}
-                    readOnly
-                    className="bg-gray-100 dark:bg-gray-700 cursor-not-allowed h-9 text-sm"
-                  />
+                  {busOptions.length > 1 ? (
+                    <Select
+                      value={formData.busId || ''}
+                      onValueChange={(value) => {
+                        const selectedBus = busOptions.find(b => (b.id === value || b.busId === value));
+                        if (selectedBus) {
+                          const isDistinctBusNum = selectedBus.busNumber && selectedBus.busNumber.length < 5 && !isNaN(Number(selectedBus.busNumber));
+                          const busIdParts = (selectedBus.id || selectedBus.busId || '').split('_');
+                          const busIdNum = busIdParts.length > 1 ? busIdParts[1] : '';
+
+                          const busNumberValue = selectedBus.displayIndex || selectedBus.sequenceNumber || (isDistinctBusNum ? selectedBus.busNumber : null) || busIdNum || selectedBus.busNumber || '?';
+                          const licensePlate = selectedBus.licensePlate || selectedBus.plateNumber || (selectedBus.busNumber !== busNumberValue ? selectedBus.busNumber : 'N/A');
+
+                          const displayStr = `Bus-${busNumberValue} (${licensePlate})`;
+
+                          setFormData(prev => ({
+                            ...prev,
+                            busId: value,
+                            busAssigned: displayStr
+                          }));
+                        } else {
+                          setFormData(prev => ({ ...prev, busId: value }));
+                        }
+                      }}
+                    >
+                      <SelectTrigger className="w-full h-9">
+                        <SelectValue placeholder="Select Bus" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {busOptions.map(bus => {
+                          const isDistinctBusNum = bus.busNumber && bus.busNumber.length < 5 && !isNaN(Number(bus.busNumber));
+                          const busIdParts = (bus.id || bus.busId || '').split('_');
+                          const busIdNum = busIdParts.length > 1 ? busIdParts[1] : '';
+
+                          const busNumberValue = bus.displayIndex || bus.sequenceNumber || (isDistinctBusNum ? bus.busNumber : null) || busIdNum || bus.busNumber || '?';
+                          const licensePlate = bus.licensePlate || bus.plateNumber || (bus.busNumber !== busNumberValue ? bus.busNumber : 'N/A');
+
+                          const display = `Bus-${busNumberValue} (${licensePlate})`;
+                          return (
+                            <SelectItem key={bus.id || bus.busId} value={bus.id || bus.busId}>
+                              {display}
+                            </SelectItem>
+                          );
+                        })}
+                      </SelectContent>
+                    </Select>
+                  ) : (
+                    <Input
+                      type="text"
+                      id="busAssigned"
+                      name="busAssigned"
+                      value={formData.busAssigned || (formData.routeId === 'reserved' ? 'Reserved (No Bus)' : 'No bus assigned')}
+                      readOnly
+                      className="bg-gray-100 dark:bg-gray-700 cursor-not-allowed border-dashed"
+                    />
+                  )}
+                  {busOptions.length === 0 && formData.routeId && formData.routeId !== 'reserved' && (
+                    <p className="text-[10px] text-amber-500 mt-1">No buses found for this route</p>
+                  )}
                 </div>
 
                 <div>

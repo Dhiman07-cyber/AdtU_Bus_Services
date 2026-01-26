@@ -87,6 +87,7 @@ export default function EnhancedAdminDashboard() {
   const [lastUpdated, setLastUpdated] = useState(new Date());
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [paymentTrend, setPaymentTrend] = useState<any[]>([]);
+  const [trendMode, setTrendMode] = useState<'days' | 'months'>('days');
 
   // Accurate Counts State
   const [realCounts, setRealCounts] = useState({
@@ -175,7 +176,7 @@ export default function EnhancedAdminDashboard() {
       try {
         if (currentUser) {
           const token = await currentUser.getIdToken();
-          const response = await fetch('/api/payment/analytics', {
+          const response = await fetch(`/api/payment/analytics?mode=${trendMode}`, {
             headers: {
               'Authorization': `Bearer ${token}`
             }
@@ -221,7 +222,7 @@ export default function EnhancedAdminDashboard() {
 
   useEffect(() => {
     fetchRealTotalCounts();
-  }, []);
+  }, [trendMode]);
 
   // Extract routes from buses data (since routes are nested in buses) - memoized
   const routes = useMemo(() => {
@@ -634,10 +635,10 @@ export default function EnhancedAdminDashboard() {
           <Button
             onClick={handleRefreshAll}
             disabled={isRefreshing}
-            className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800 text-gray-600 dark:text-gray-300 transition-all h-8 px-3 text-xs gap-2 shadow-sm"
+            className="group h-8 px-4 bg-white hover:bg-gray-50 text-gray-600 hover:text-purple-600 border border-gray-200 hover:border-purple-200 shadow-sm hover:shadow-lg hover:shadow-purple-500/10 font-bold text-[10px] uppercase tracking-widest rounded-lg transition-all duration-300 active:scale-95"
             size="sm"
           >
-            <RefreshCw className={`h-3.5 w-3.5 ${isRefreshing ? 'animate-spin' : ''}`} />
+            <RefreshCw className={`mr-2 h-3.5 w-3.5 transition-transform duration-500 ${isRefreshing ? 'animate-spin' : 'group-hover:rotate-180'}`} />
             Refresh Data
           </Button>
         </div>
@@ -879,10 +880,33 @@ export default function EnhancedAdminDashboard() {
           {/* Transactional Analytics - Replaces Quick Actions */}
           < Card className="bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl border border-slate-200 dark:border-slate-800 shadow-sm hover:shadow-md hover:border-indigo-500/30 transition-all duration-300 group cursor-pointer" >
             <CardHeader className="px-2.5">
-              <CardTitle className="text-xs text-gray-900 dark:text-white flex items-center gap-1 group-hover:text-indigo-400 transition-colors">
-                <Wallet className="h-3 w-3 group-hover:scale-110 transition-transform" />
-                Transactional Analytics
-              </CardTitle>
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-xs text-gray-900 dark:text-white flex items-center gap-1 group-hover:text-indigo-400 transition-colors">
+                  <Wallet className="h-3 w-3 group-hover:scale-110 transition-transform" />
+                  Transactional Analytics
+                </CardTitle>
+                {/* Toggle Button: Days / Months */}
+                <div className="flex items-center gap-1 bg-slate-800/50 rounded-lg p-0.5 border border-slate-700/50">
+                  <button
+                    onClick={(e) => { e.stopPropagation(); setTrendMode('days'); }}
+                    className={`px-2 py-0.5 rounded-md text-[9px] font-semibold transition-all duration-200 ${trendMode === 'days'
+                        ? 'bg-indigo-600 text-white shadow-md'
+                        : 'text-gray-400 hover:text-white hover:bg-slate-700/50'
+                      }`}
+                  >
+                    DAYS
+                  </button>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); setTrendMode('months'); }}
+                    className={`px-2 py-0.5 rounded-md text-[9px] font-semibold transition-all duration-200 ${trendMode === 'months'
+                        ? 'bg-indigo-600 text-white shadow-md'
+                        : 'text-gray-400 hover:text-white hover:bg-slate-700/50'
+                      }`}
+                  >
+                    MONTHS
+                  </button>
+                </div>
+              </div>
               <CardDescription className="text-[10px] opacity-0">Hidden</CardDescription>
             </CardHeader>
             <CardContent className="px-2.5 h-[160px] flex flex-col justify-center" style={{ minWidth: 0 }}>

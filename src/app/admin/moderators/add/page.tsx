@@ -11,11 +11,14 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Info, Camera, Trash2 } from "lucide-react";
+import { Info, Camera, Trash2, RotateCcw } from "lucide-react";
 import ProfileImageAddModal from '@/components/ProfileImageAddModal';
 import Image from 'next/image';
 import EnhancedDatePicker from "@/components/enhanced-date-picker";
 import { signalCollectionRefresh } from '@/hooks/useEventDrivenRefresh';
+import { getAllModerators } from "@/lib/dataService";
+import { useDebouncedStorage } from '@/hooks/useDebouncedStorage';
+import { OptimizedInput, OptimizedSelect, OptimizedTextarea } from '@/components/forms';
 
 export default function AddModeratorPage() {
   const { currentUser, userData, loading } = useAuth();
@@ -75,32 +78,69 @@ export default function AddModeratorPage() {
   };
 
   const [formData, setFormData] = useState<ModeratorFormData>(getInitialFormData());
+  
+  // Debounced storage to prevent input lag
+  const storage = useDebouncedStorage<ModeratorFormData>('moderatorFormData', {
+    debounceMs: 500,
+    excludeFields: ['profilePhoto', 'email'],
+  });
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [finalImageUrl, setFinalImageUrl] = useState<string | null>(null);
   const [showImageModal, setShowImageModal] = useState(false);
   const [loadingSubmit, setLoadingSubmit] = useState(false);
   const [result, setResult] = useState<{ success?: boolean; error?: string } | null>(null);
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [defaultEmployeeId, setDefaultEmployeeId] = useState("");
+
+  useEffect(() => {
+    const initData = async () => {
+      try {
+        const moderators = await getAllModerators();
+        const nextNum = moderators.length + 1;
+        const newId = `MB-${nextNum}`;
+        setFormData(prev => ({ ...prev, employeeId: newId }));
+        setDefaultEmployeeId(newId);
+      } catch (error) {
+        console.error("Failed to fetch moderators count", error);
+      }
+    };
+    initData();
+  }, []);
 
   // Auto-fill approvedBy field with current admin's details
   useEffect(() => {
-    if (userData && userData.name) {
-      const employeeId = (userData as any).employeeId || 'ADMIN';
-      setFormData(prev => ({
-        ...prev,
-        approvedBy: `${userData.name} (${employeeId})`
-      }));
-    }
+    const fetchApproverDetails = async () => {
+      if (userData && (userData.name || userData.fullName)) {
+        const approverName = userData.fullName || userData.name;
+        let idSuffix = '';
+
+        if (userData.role === 'admin') {
+          idSuffix = 'Admin';
+        } else if (userData.role === 'moderator') {
+          idSuffix = (userData as any).employeeId || (userData as any).empId || (userData as any).staffId || (userData as any).id || (userData as any).uid || 'MODERATOR';
+        } else {
+          idSuffix = userData.role?.charAt(0).toUpperCase() + userData.role?.slice(1) || 'Unknown';
+        }
+
+        const approvedByValue = `${approverName} (${idSuffix})`;
+
+        setFormData(prev => {
+          if (!prev.approvedBy || prev.approvedBy === '' || prev.approvedBy.includes('undefined')) {
+            return { ...prev, approvedBy: approvedByValue };
+          }
+          return prev;
+        });
+      }
+    };
+    fetchApproverDetails();
   }, [userData]);
 
   // Save form data to localStorage whenever it changes (except sensitive fields)
   useEffect(() => {
     if (typeof window !== 'undefined') {
-      // Create a copy without sensitive data
-      const { email, profilePhoto, ...dataToSave } = formData;
-      localStorage.setItem('moderatorFormData', JSON.stringify(dataToSave));
+      storage.save(formData);
     }
-  }, [formData]);
+  }, [formData]); // Removed storage from deps - it's stable
 
   useEffect(() => {
     if (!loading && !currentUser) {
@@ -129,9 +169,9 @@ export default function AddModeratorPage() {
         try {
           const parsedData = JSON.parse(savedData);
           if (parsedData.email) {
-            // Remove sensitive fields from saved data
-            const { email, profilePhoto, ...cleanData } = parsedData;
-            localStorage.setItem('moderatorFormData', JSON.stringify(cleanData));
+            // Remove sensitive fields - handled by storage hook
+            storage.clear();
+            storage.save(parsedData);
           }
         } catch (e) {
           console.error('Error cleaning saved form data:', e);
@@ -145,8 +185,6 @@ export default function AddModeratorPage() {
 
     if (!formData.name.trim()) {
       newErrors.name = "Full name is required";
-    } else if (/[^a-zA-Z\s]/.test(formData.name)) {
-      newErrors.name = "Name cannot contain special symbols";
     }
 
     if (!formData.email.trim()) {
@@ -283,7 +321,7 @@ export default function AddModeratorPage() {
       if (data.success) {
         // Clear saved form data on successful submission
         if (typeof window !== 'undefined') {
-          localStorage.removeItem('moderatorFormData');
+          storage.clear();
         }
 
         // Signal the moderators list page to refresh when it's rendered
@@ -328,10 +366,14 @@ export default function AddModeratorPage() {
 
     // Clear saved form data
     if (typeof window !== 'undefined') {
-      localStorage.removeItem('moderatorFormData');
+      storage.clear();
     }
 
     addToast('Form reset successfully', 'info');
+  };
+
+  const handleRestoreEmployeeId = () => {
+    setFormData(prev => ({ ...prev, employeeId: defaultEmployeeId }));
   };
 
   if (loading) {
@@ -420,84 +462,65 @@ export default function AddModeratorPage() {
               {/* Left Column: Name, Email, Phone, Alt Phone, Address */}
               <div className="space-y-3">
                 <div>
-                  <Label htmlFor="name" className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
-                    Full Name <span className="text-red-500">*</span>
-                  </Label>
-                  <Input
-                    type="text"
+                  <OptimizedInput
                     id="name"
-                    name="name"
+                    label="Full Name"
                     value={formData.name}
-                    onChange={handleInputChange}
+                    onChange={(value) => setFormData(prev => ({ ...prev, name: value }))}
                     required
-                    className="h-9 text-sm"
+                    placeholder="Enter full name"
                   />
                   {errors.name && <p className="text-red-500 text-xs mt-0.5">{errors.name}</p>}
                 </div>
 
                 <div>
-                  <Label htmlFor="email" className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
-                    Email Address <span className="text-red-500">*</span>
-                  </Label>
-                  <Input
-                    type="email"
+                  <OptimizedInput
                     id="email"
-                    name="email"
+                    label="Email Address"
+                    type="email"
                     value={formData.email}
-                    onChange={handleInputChange}
+                    onChange={(value) => setFormData(prev => ({ ...prev, email: value }))}
                     required
-                    autoComplete="off"
-                    autoCorrect="off"
-                    autoCapitalize="off"
-                    spellCheck="false"
-                    className="h-9 text-sm"
+                    placeholder="Enter email address"
                   />
                   {errors.email && <p className="text-red-500 text-xs mt-0.5">{errors.email}</p>}
                 </div>
 
                 <div>
-                  <Label htmlFor="phone" className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
-                    Phone Number <span className="text-red-500">*</span>
-                  </Label>
-                  <Input
-                    type="tel"
+                  <OptimizedInput
                     id="phone"
-                    name="phone"
+                    label="Phone Number"
+                    type="tel"
                     value={formData.phone}
-                    onChange={handleInputChange}
+                    onChange={(value) => setFormData(prev => ({ ...prev, phone: value }))}
                     required
-                    className="h-9 text-sm"
+                    placeholder="Enter phone number"
+                    transform={(val) => val.replace(/[^0-9]/g, '')}
                   />
                   {errors.phone && <p className="text-red-500 text-xs mt-0.5">{errors.phone}</p>}
                 </div>
 
                 <div>
-                  <Label htmlFor="alternatePhone" className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
-                    Alternate Phone Number
-                  </Label>
-                  <Input
-                    type="tel"
+                  <OptimizedInput
                     id="alternatePhone"
-                    name="alternatePhone"
+                    label="Alternate Phone Number"
+                    type="tel"
                     value={formData.alternatePhone}
-                    onChange={handleInputChange}
-                    className="h-9 text-sm"
+                    onChange={(value) => setFormData(prev => ({ ...prev, alternatePhone: value }))}
+                    placeholder="Enter alternate phone number"
+                    transform={(val) => val.replace(/[^0-9]/g, '')}
                   />
                   {errors.alternatePhone && <p className="text-red-500 text-xs mt-0.5">{errors.alternatePhone}</p>}
                 </div>
 
                 <div>
-                  <Label htmlFor="address" className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
-                    Address
-                  </Label>
-                  <Textarea
+                  <OptimizedTextarea
                     id="address"
-                    name="address"
+                    label="Address"
                     value={formData.address}
-                    onChange={handleTextareaChange}
+                    onChange={(value) => setFormData(prev => ({ ...prev, address: value }))}
                     placeholder="Enter full address"
-                    className="resize-none h-36 text-sm"
-                    rows={5}
+                    rows={4}
                   />
                 </div>
               </div>
@@ -505,33 +528,40 @@ export default function AddModeratorPage() {
               {/* Right Column: Aadhar, Employee ID, DOB, Joining Date, Approved By, Status */}
               <div className="space-y-3">
                 <div>
-                  <Label htmlFor="aadharNumber" className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
-                    AADHAR Number *
-                  </Label>
-                  <Input
-                    type="text"
+                  <OptimizedInput
                     id="aadharNumber"
-                    name="aadharNumber"
+                    label="AADHAR Number"
                     value={formData.aadharNumber}
-                    onChange={handleInputChange}
+                    onChange={(value) => setFormData(prev => ({ ...prev, aadharNumber: value }))}
                     required
-                    className="h-9 text-sm"
+                    placeholder="Enter AADHAR number"
                   />
                   {errors.aadharNumber && <p className="text-red-500 text-xs mt-0.5">{errors.aadharNumber}</p>}
                 </div>
 
                 <div>
                   <Label htmlFor="employeeId" className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
-                    Employee/Staff ID
+                    Employee ID
                   </Label>
-                  <Input
-                    type="text"
-                    id="employeeId"
-                    name="employeeId"
-                    value={formData.employeeId}
-                    onChange={handleInputChange}
-                    className="h-9 text-sm"
-                  />
+                  <div className="relative">
+                    <OptimizedInput
+                      id="employeeId"
+                      value={formData.employeeId}
+                      onChange={(value) => setFormData(prev => ({ ...prev, employeeId: value }))}
+                      placeholder="Enter Employee ID"
+                      className="pr-8"
+                    />
+                    {formData.employeeId !== defaultEmployeeId && defaultEmployeeId && (
+                      <button
+                        type="button"
+                        onClick={handleRestoreEmployeeId}
+                        className="absolute right-2 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-black dark:hover:text-white transition-colors"
+                        title="Restore Default ID"
+                      >
+                        <RotateCcw className="h-3.5 w-3.5" />
+                      </button>
+                    )}
+                  </div>
                   {errors.employeeId && <p className="text-red-500 text-xs mt-0.5">{errors.employeeId}</p>}
                 </div>
 
@@ -569,6 +599,7 @@ export default function AddModeratorPage() {
                     name="approvedBy"
                     value={formData.approvedBy}
                     readOnly
+                    placeholder="System Generated"
                     className="bg-gray-100 dark:bg-gray-700 cursor-not-allowed h-9 text-sm"
                     disabled
                   />
@@ -576,18 +607,17 @@ export default function AddModeratorPage() {
                 </div>
 
                 <div>
-                  <Label htmlFor="status" className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
-                    Status *
-                  </Label>
-                  <Select value={formData.status} onValueChange={(value: 'active' | 'inactive') => setFormData(prev => ({ ...prev, status: value }))}>
-                    <SelectTrigger className="h-9 text-sm">
-                      <SelectValue placeholder="Select status" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="active">Active</SelectItem>
-                      <SelectItem value="inactive">Inactive</SelectItem>
-                    </SelectContent>
-                  </Select>
+                  <OptimizedSelect
+                    id="status"
+                    label="Status"
+                    value={formData.status}
+                    onChange={(value: 'active' | 'inactive') => setFormData(prev => ({ ...prev, status: value as 'active' | 'inactive' }))}
+                    placeholder="Select status"
+                    required
+                  >
+                    <SelectItem value="active">Active</SelectItem>
+                    <SelectItem value="inactive">Inactive</SelectItem>
+                  </OptimizedSelect>
                 </div>
               </div>
             </div>

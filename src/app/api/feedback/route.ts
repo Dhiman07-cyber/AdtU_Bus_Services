@@ -118,6 +118,21 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Get bus info if available
+    let bus_id = userData.assignedBusId || userData.busId || null;
+    let bus_plate = null;
+
+    if (bus_id) {
+      try {
+        const busDoc = await db.collection('buses').doc(bus_id).get();
+        if (busDoc.exists) {
+          bus_plate = busDoc.data()?.plateNumber || null;
+        }
+      } catch (e) {
+        console.error('Error fetching bus info for feedback:', e);
+      }
+    }
+
     // Create new feedback entry
     const newEntry: FeedbackEntry = {
       id: generateFeedbackId(),
@@ -129,7 +144,9 @@ export async function POST(request: NextRequest) {
       created_at: new Date().toISOString(),
       read: false,
       auto_delete_at: generateAutoDeleteTimestamp(),
-      profile_url: userData.profilePhotoUrl || userData.profile_url || null
+      profile_url: userData.profilePhotoUrl || userData.profile_url || null,
+      bus_id: bus_id,
+      bus_plate: bus_plate
     };
 
     // Add to Firestore

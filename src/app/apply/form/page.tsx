@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef, useCallback } from 'react';
 import { useAuth } from '@/contexts/auth-context';
 import { useRouter, usePathname } from 'next/navigation';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Select, SelectContent, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Badge } from '@/components/ui/badge';
@@ -44,7 +44,9 @@ import {
   calculateSessionDates,
   hasCompletedPayment,
   getCurrentPaymentSession,
-  clearPaymentSession
+  clearPaymentSession,
+  updatePaymentSessionStatus,
+  savePaymentSession
 } from '@/lib/payment/application-payment.service';
 import {
   safeGetJSON,
@@ -53,16 +55,18 @@ import {
   getStorageInfo
 } from '@/lib/utils/safe-storage';
 import {
-  checkCapacityForApplication,
-  checkBusCapacity,
-  createOverloadNotification,
-  createNearCapacityNotification,
   type CapacityCheckResult
 } from '@/lib/bus-capacity-checker';
 import { useToast } from '@/contexts/toast-context';
 import { uploadImage } from '@/lib/upload';
 import { PremiumPageLoader } from '@/components/LoadingSpinner';
 import { cn } from '@/lib/utils';
+import { isMobileDevice, compressImageForMobile } from '@/lib/mobile-utils';
+import { useDebouncedStorage } from '@/hooks/useDebouncedStorage';
+import { OptimizedInput } from '@/components/forms/OptimizedInput';
+import { OptimizedSelect } from '@/components/forms/OptimizedSelect';
+import { OptimizedOTPInput } from '@/components/forms/OptimizedOTPInput';
+import { SelectItem } from '@/components/ui/select';
 
 function ApplicationFormContent() {
   const { currentUser, userData, loading } = useAuth();
@@ -70,48 +74,109 @@ function ApplicationFormContent() {
   const pathname = usePathname();
   const { showToast } = useToast();
   const verificationInputRef = useRef<HTMLInputElement>(null);
+  const verificationCodeRef = useRef<string>(''); // Use ref for immediate updates without re-renders
 
-  // Form state
-  const [formData, setFormData] = useState<ApplicationFormData>({
-    fullName: '',
-    email: currentUser?.email || '',
-    phoneNumber: '',
-    alternatePhone: '',
-    enrollmentId: '',
-    gender: '',
-    dob: '',
-    age: '',
-    profilePhotoUrl: '',
-    faculty: '',
-    department: '',
-    semester: '',
-    address: '',
-    parentName: '',
-    parentPhone: '',
-    bloodGroup: '',
-    routeId: '',
-    stopId: '',
-    busId: '',
-    busAssigned: '',
-    shift: '',
-    sessionInfo: {
-      sessionStartYear: new Date().getFullYear(),
-      durationYears: 0,
-      sessionEndYear: new Date().getFullYear(),
-      feeEstimate: 0
-    },
-    paymentInfo: {
-      paymentMode: 'offline',
-      amountPaid: 0,
-      paymentEvidenceProvided: false,
-      // Offline fields
-      paymentReference: '', // UPI Transaction ID
-      paymentEvidenceUrl: '' // Receipt URL
-      // Online payment fields will be added dynamically when payment is completed
-    },
-    declarationAccepted: false,
-    understandsVerification: false
-  });
+  // Helper function to get initial form data from localStorage
+  const getInitialFormData = (): ApplicationFormData => {
+    const defaultData: ApplicationFormData = {
+      fullName: '',
+      email: currentUser?.email || '',
+      phoneNumber: '',
+      alternatePhone: '',
+      enrollmentId: '',
+      gender: '',
+      dob: '',
+      age: '',
+      profilePhotoUrl: '',
+      faculty: '',
+      department: '',
+      semester: '',
+      address: '',
+      parentName: '',
+      parentPhone: '',
+      bloodGroup: '',
+      routeId: '',
+      stopId: '',
+      busId: '',
+      busAssigned: '',
+      shift: '',
+      sessionInfo: {
+        sessionStartYear: new Date().getFullYear(),
+        durationYears: 1,
+        sessionEndYear: new Date().getFullYear() + 1,
+        feeEstimate: 0
+      },
+      paymentInfo: {
+        paymentMode: 'offline',
+        amountPaid: 0,
+        paymentEvidenceProvided: false,
+        paymentReference: '',
+        paymentEvidenceUrl: ''
+      },
+      declarationAccepted: false,
+      understandsVerification: false
+    };
+
+    // Try to load from localStorage synchronously
+    if (typeof window !== 'undefined') {
+      try {
+        const stored = localStorage.getItem('applicationDraft');
+        if (stored) {
+          const parsed = JSON.parse(stored);
+          console.log('📬 [Apply Form] Loaded draft from localStorage on init', Object.keys(parsed).length, 'fields');
+          return {
+            ...defaultData,
+            ...parsed,
+            // Always reset sensitive/transient fields
+            declarationAccepted: false,
+            understandsVerification: false,
+            // Preserve email from currentUser
+            email: currentUser?.email || parsed.email || '',
+            // Reset session info to current year
+            sessionInfo: {
+              ...defaultData.sessionInfo,
+              ...(parsed.sessionInfo || {}),
+              durationYears: 1,
+              sessionStartYear: new Date().getFullYear(),
+              sessionEndYear: new Date().getFullYear() + 1
+            }
+          };
+        }
+      } catch (error) {
+        console.error('❌ [Apply Form] Error loading draft from localStorage:', error);
+      }
+    }
+
+    return defaultData;
+  };
+
+  // Helper function to get initial verification state from localStorage
+  const getInitialVerificationState = () => {
+    if (typeof window !== 'undefined') {
+      try {
+        const storedState = localStorage.getItem('applicationState');
+        const storedCodeId = localStorage.getItem('verificationCodeId');
+        const storedExpiry = localStorage.getItem('verificationExpiry');
+        
+        return {
+          applicationState: (storedState as ApplicationState) || 'noDoc',
+          verificationCodeId: storedCodeId || '',
+          verificationExpiry: storedExpiry || ''
+        };
+      } catch (error) {
+        console.error('❌ [Apply Form] Error loading verification state:', error);
+      }
+    }
+    
+    return {
+      applicationState: 'noDoc' as ApplicationState,
+      verificationCodeId: '',
+      verificationExpiry: ''
+    };
+  };
+
+  // Form state - Initialize with data from localStorage
+  const [formData, setFormData] = useState<ApplicationFormData>(getInitialFormData);
 
   // Profile photo state
   const [previewUrl, setPreviewUrl] = useState<string>('');
@@ -121,7 +186,13 @@ function ApplicationFormContent() {
   const [profilePhotoUrl, setProfilePhotoUrl] = useState<string>('');
 
   const [applicationId, setApplicationId] = useState<string>('');
-  const [applicationState, setApplicationState] = useState<ApplicationState>('noDoc');
+  
+  // Initialize verification state from localStorage
+  const initialVerificationState = getInitialVerificationState();
+  const [applicationState, setApplicationState] = useState<ApplicationState>(initialVerificationState.applicationState);
+  const [verificationCodeId, setVerificationCodeId] = useState<string>(initialVerificationState.verificationCodeId);
+  const [verificationExpiry, setVerificationExpiry] = useState<string>(initialVerificationState.verificationExpiry);
+  
   const [routes, setRoutes] = useState<Route[]>([]);
   const [buses, setBuses] = useState<any[]>([]);
   const [moderators, setModerators] = useState<ModeratorProfile[]>([]);
@@ -148,15 +219,57 @@ function ApplicationFormContent() {
   const [useOnlinePayment, setUseOnlinePayment] = useState(false);
   const [uploadingProfilePhoto, setUploadingProfilePhoto] = useState(false);
   const [showProfileUpdateModal, setShowProfileUpdateModal] = useState(false);
+  const [isMobile, setIsMobile] = useState(false);
 
   const toastShownRef = useRef(false);
 
-  // Verification state
+  // Debounced auto-save to prevent excessive localStorage writes
+  const debouncedAutoSave = useRef<NodeJS.Timeout | null>(null);
+
+  // Import debounced storage hook
+  const storage = useDebouncedStorage<ApplicationFormData>('applicationDraft', {
+    debounceMs: 500,
+    excludeFields: ['profilePhotoUrl', 'paymentInfo.paymentEvidenceUrl'],
+  });
+
+  // Auto-save formData changes (debounced) - ONLY save, don't read
+  const lastSavedData = useRef<string>('');
+
+  useEffect(() => {
+    if (debouncedAutoSave.current) {
+      clearTimeout(debouncedAutoSave.current);
+    }
+
+    debouncedAutoSave.current = setTimeout(() => {
+      const dataString = JSON.stringify(formData);
+      // Only save if data actually changed
+      if (dataString !== lastSavedData.current) {
+        console.log('💾 [Apply Form] Auto-saving to localStorage...', {
+          fullName: formData.fullName,
+          phoneNumber: formData.phoneNumber,
+          gender: formData.gender
+        });
+        storage.save(formData);
+        lastSavedData.current = dataString;
+      }
+    }, 500);
+
+    return () => {
+      if (debouncedAutoSave.current) {
+        clearTimeout(debouncedAutoSave.current);
+      }
+    };
+  }, [formData]); // Removed storage from deps - it's stable
+
+  // Mobile detection
+  useEffect(() => {
+    setIsMobile(isMobileDevice());
+  }, []);
+
+  // Verification state (verificationCodeId and verificationExpiry already initialized above from localStorage)
   const [requestingVerification, setRequestingVerification] = useState(false);
   const [verificationCode, setVerificationCode] = useState('');
   const [verifyingCode, setVerifyingCode] = useState(false);
-  const [verificationCodeId, setVerificationCodeId] = useState<string>('');
-  const [verificationExpiry, setVerificationExpiry] = useState<string>('');
   const [sendingCode, setSendingCode] = useState(false);
   const [codeSent, setCodeSent] = useState(false);
   const [countdownTime, setCountdownTime] = useState(0);
@@ -166,12 +279,29 @@ function ApplicationFormContent() {
   const [isSubmitted, setIsSubmitted] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
 
-  // Persistence for application state
+  // Persistence for application state and verification state
   useEffect(() => {
     if (applicationState !== 'noDoc' && applicationState !== 'submitted') {
       localStorage.setItem('applicationState', applicationState);
     }
   }, [applicationState]);
+
+  // Persist verification code ID and expiry
+  useEffect(() => {
+    if (verificationCodeId) {
+      localStorage.setItem('verificationCodeId', verificationCodeId);
+    } else {
+      localStorage.removeItem('verificationCodeId');
+    }
+  }, [verificationCodeId]);
+
+  useEffect(() => {
+    if (verificationExpiry) {
+      localStorage.setItem('verificationExpiry', verificationExpiry);
+    } else {
+      localStorage.removeItem('verificationExpiry');
+    }
+  }, [verificationExpiry]);
 
   // Bus capacity check state
   const [capacityCheckResult, setCapacityCheckResult] = useState<CapacityCheckResult | null>(null);
@@ -181,6 +311,16 @@ function ApplicationFormContent() {
 
 
 
+
+  // Cleanup function - CRITICAL for mobile
+  useEffect(() => {
+    return () => {
+      if (debouncedAutoSave.current) {
+        clearTimeout(debouncedAutoSave.current);
+        debouncedAutoSave.current = null;
+      }
+    };
+  }, []);
 
   // Countdown timer for resend button - based on actual expiry time
   useEffect(() => {
@@ -280,7 +420,6 @@ function ApplicationFormContent() {
         console.error('Error checking existing application:', error);
       }
 
-      // Proceed to load resources if not submitted
       if (currentUser) {
         console.log('✅ Loading application form resources');
         loadResources();
@@ -291,7 +430,7 @@ function ApplicationFormContent() {
     if (currentUser && !userData?.role) {
       checkExistingApplication();
     }
-  }, [loading, currentUser, userData, router, applicationId]); // Added applicationId dependency just in case
+  }, [loading, currentUser, userData, router, applicationId]); // Added applicationId back to keep dependency array size constant
 
 
 
@@ -333,115 +472,12 @@ function ApplicationFormContent() {
 
   const loadDraftOrExisting = async () => {
     try {
-      // First, always check localStorage for any draft data
-      const draftResult = safeGetJSON<ApplicationFormData>('applicationDraft');
-      if (draftResult.success && draftResult.data) {
-        console.log('📋 Loading draft from safe storage');
-        const draft = draftResult.data;
+      // Note: Draft data is now loaded synchronously during initialization
+      // This function only handles loading existing applications from database
+      
+      console.log('📋 Checking for existing application in database...');
 
-        // Always reset declaration state on refresh and clear blob URLs
-        // Create a default state to merge with check for nested objects
-        const defaultState: ApplicationFormData = {
-          fullName: '',
-          email: currentUser?.email || '',
-          phoneNumber: '',
-          alternatePhone: '',
-          enrollmentId: '',
-          gender: '',
-          dob: '',
-          age: '',
-          profilePhotoUrl: '',
-          faculty: '',
-          department: '',
-          semester: '',
-          address: '',
-          parentName: '',
-          parentPhone: '',
-          bloodGroup: '',
-          routeId: '',
-          stopId: '',
-          busId: '',
-          busAssigned: '',
-          shift: 'morning',
-          sessionInfo: {
-            sessionStartYear: new Date().getFullYear(),
-            durationYears: 0,
-            sessionEndYear: new Date().getFullYear(),
-            feeEstimate: 0
-          },
-          paymentInfo: {
-            paymentMode: 'offline',
-            amountPaid: 0,
-            paymentEvidenceProvided: false,
-            paymentReference: '',
-            paymentEvidenceUrl: ''
-          },
-          declarationAccepted: false,
-          understandsVerification: false
-        };
-
-        const draftWithoutDeclaration = {
-          ...defaultState,
-          ...draft,
-          sessionInfo: {
-            ...defaultState.sessionInfo,
-            ...(draft.sessionInfo || {}),
-            sessionStartYear: new Date().getFullYear(),
-            sessionEndYear: new Date().getFullYear() + (draft.sessionInfo?.durationYears || 0)
-          },
-          paymentInfo: {
-            ...defaultState.paymentInfo,
-            ...(draft.paymentInfo || {}),
-            paymentEvidenceUrl: (draft.paymentInfo?.paymentEvidenceUrl?.startsWith('blob:')) ? '' : (draft.paymentInfo?.paymentEvidenceUrl || '')
-          },
-          // Always reset sensitive/transient fields
-          declarationAccepted: false,
-          profilePhotoUrl: '',
-        };
-
-        setFormData(draftWithoutDeclaration);
-        setReceiptPreview(draft.paymentInfo?.paymentEvidenceUrl || '');
-        setReceiptFile(null); // No file stored in local storage
-        setProfilePhotoUrl(''); // Clear profile photo on refresh
-
-        // Set application state
-        const isOnlinePaid = draft.paymentInfo?.paymentMode === 'online' &&
-          (draft.paymentInfo?.razorpayPaymentId || draft.paymentInfo?.paymentStatus === 'success');
-
-        const savedState = localStorage.getItem('applicationState') as ApplicationState;
-
-        if (isOnlinePaid) {
-          // If payment is complete, we check if the form was previously in 'verified' state (stored) 
-          // OR if it looks submitted. But if loading a draft for editing, stay in 'draft'.
-          // Only set to verified if it was explicitly saved as such.
-          // However, if we just rely on stored state, we might miss the "Payment Complete -> Auto Verify" logic.
-          // Let's rely on localStorage 'applicationState' primarily.
-
-          if (savedState === 'verified' || savedState === 'submitted') {
-            console.log('💳 Online payment detected in draft (resource load) AND saved state is verified/submitted');
-            setApplicationState(savedState);
-          } else {
-            // Default to draft so user can edit details even if paid
-            console.log('💳 Online payment detected but staying in draft mode for editing');
-            setApplicationState('draft');
-          }
-        } else if (savedState && savedState !== 'noDoc') {
-          console.log('📋 Restoring saved application state (resource load):', savedState);
-          setApplicationState(savedState);
-        } else {
-          setApplicationState('draft');
-        }
-
-        // Set facultySelected to true if faculty is already selected
-        if (draft.faculty) {
-          setFacultySelected(true);
-        }
-
-        // Restore stops for selected route if routeId exists (handled by component now)
-
-      }
-
-      // Then check for existing application in database
+      // Check for existing application in database
       const token = await currentUser?.getIdToken();
       const response = await fetch('/api/applications/my-application', {
         headers: { 'Authorization': `Bearer ${token}` }
@@ -453,21 +489,23 @@ function ApplicationFormContent() {
           console.log('📋 Loading existing application from database');
           setApplicationId(data.application.applicationId);
           setApplicationState(data.application.state);
-          setFormData(data.application.formData);
-          setReceiptPreview(data.application.formData.paymentInfo.paymentEvidenceUrl || '');
-          setReceiptFile(null); // No file stored for existing applications
-          setProfilePhotoUrl(data.application.formData.profilePhotoUrl || '');
 
-          if (data.application.pendingVerifier) {
-            // Extract moderatorUid from pendingVerifier if needed
-            setVerificationCodeId(data.application.verificationCodeId || '');
-            setVerificationExpiry(data.application.verificationExpiry || '');
-          }
+          // Only update formData if there's an actual application (not just draft)
+          if (data.application.state !== 'noDoc' && data.application.state !== 'draft') {
+            setFormData(data.application.formData);
+            setReceiptPreview(data.application.formData.paymentInfo.paymentEvidenceUrl || '');
+            setReceiptFile(null);
+            setProfilePhotoUrl(data.application.formData.profilePhotoUrl || '');
 
-          if (data.application.state === 'verified' || data.application.state === 'submitted') {
-            // Application already submitted, show message
-            showToast('Application already submitted. Waiting for approval.', 'info');
-            return;
+            if (data.application.pendingVerifier) {
+              setVerificationCodeId(data.application.verificationCodeId || '');
+              setVerificationExpiry(data.application.verificationExpiry || '');
+            }
+
+            if (data.application.state === 'verified' || data.application.state === 'submitted') {
+              showToast('Application already submitted. Waiting for approval.', 'info');
+              return;
+            }
           }
         }
       }
@@ -476,7 +514,8 @@ function ApplicationFormContent() {
     }
   };
 
-  const handleInputChange = (field: string, value: any) => {
+  // Optimized input change handler - immediate update, no batching
+  const handleInputChange = useCallback((field: string, value: any) => {
     setFormData(prev => {
       const updated = { ...prev };
       const keys = field.split('.');
@@ -487,34 +526,18 @@ function ApplicationFormContent() {
       }
       current[keys[keys.length - 1]] = value;
 
-      // Auto-save to local storage (excluding blob URLs) - SAFE for mobile
-      const dataToSave = {
-        ...updated,
-        profilePhotoUrl: updated.profilePhotoUrl?.startsWith('blob:') ? '' : updated.profilePhotoUrl,
-        paymentInfo: {
-          ...updated.paymentInfo,
-          paymentEvidenceUrl: updated.paymentInfo?.paymentEvidenceUrl?.startsWith('blob:') ? '' : updated.paymentInfo?.paymentEvidenceUrl
-        }
-      };
-
-      const saveResult = safeSetJSON('applicationDraft', dataToSave);
-      if (!saveResult.success) {
-        console.warn('⚠️ Failed to auto-save draft:', saveResult.error);
-        // Don't crash the app, just log the error
-      }
-
       return updated;
     });
-  };
+  }, []);
 
-  const handleFacultySelect = (faculty: string) => {
-    handleInputChange('faculty', faculty);
+  const handleFacultySelect = useCallback((faculty: string) => {
+    setFormData(prev => ({ ...prev, faculty }));
     setFacultySelected(true);
-  };
+  }, []);
 
-  const handleDepartmentSelect = (department: string) => {
-    handleInputChange('department', department);
-  };
+  const handleDepartmentSelect = useCallback((department: string) => {
+    setFormData(prev => ({ ...prev, department }));
+  }, []);
 
   const handleProfileImageUpdate = async (newImageUrl: string, file?: File) => {
     // Update local preview and form data
@@ -528,7 +551,7 @@ function ApplicationFormContent() {
     }
 
     // We update the form data with the blob URL for now, but will replace it on submit if file exists
-    handleInputChange('profilePhotoUrl', newImageUrl);
+    setFormData(prev => ({ ...prev, profilePhotoUrl: newImageUrl }));
   };
 
   const handleImageRemove = () => {
@@ -540,14 +563,25 @@ function ApplicationFormContent() {
     setFinalImageUrl(null);
     setProfilePhotoFile(null);
     setImagePosition({ x: 0, y: 0, scale: 1 });
-    handleInputChange('profilePhotoUrl', '');
+    setFormData(prev => ({ ...prev, profilePhotoUrl: '' }));
   };
 
-  const handleRefChange = (field: string, value: any) => {
-    handleInputChange(field, value);
-  };
+  const handleRefChange = useCallback((field: string, value: any) => {
+    setFormData(prev => {
+      const updated = { ...prev };
+      const keys = field.split('.');
+      let current: any = updated;
 
-  const handleReceiptUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+      for (let i = 0; i < keys.length - 1; i++) {
+        current = current[keys[i]];
+      }
+      current[keys[keys.length - 1]] = value;
+
+      return updated;
+    });
+  }, []);
+
+  const handleReceiptUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
@@ -567,19 +601,36 @@ function ApplicationFormContent() {
       URL.revokeObjectURL(receiptPreview);
     }
 
-    // Create local preview URL
-    const previewUrl = URL.createObjectURL(file);
+    try {
+      // Mobile optimization: Compress image if on mobile device
+      let processedFile = file;
+      if (isMobileDevice() && file.size > 1 * 1024 * 1024) { // 1MB threshold for mobile
+        console.log('📱 Mobile device detected, compressing image...');
+        showToast('Optimizing image for mobile...', 'info');
+        processedFile = await compressImageForMobile(file, 2);
+        console.log(`📱 Image compressed: ${(file.size / 1024 / 1024).toFixed(2)}MB → ${(processedFile.size / 1024 / 1024).toFixed(2)}MB`);
+      }
 
-    // Store file and preview
-    setReceiptFile(file);
-    setReceiptPreview(previewUrl);
-    handleInputChange('paymentInfo.paymentEvidenceProvided', true);
+      // Create local preview URL
+      const previewUrl = URL.createObjectURL(processedFile);
 
-    showToast('Receipt selected successfully', 'success');
+      // Store file and preview
+      setReceiptFile(processedFile);
+      setReceiptPreview(previewUrl);
+      setFormData(prev => ({
+        ...prev,
+        paymentInfo: { ...prev.paymentInfo, paymentEvidenceProvided: true }
+      }));
+
+      showToast('Receipt selected successfully', 'success');
+    } catch (error) {
+      console.error('Error processing receipt:', error);
+      showToast('Error processing image. Please try again.', 'error');
+    }
   };
 
   const handleSessionDurationChange = (duration: string) => {
-    const durationNum = parseInt(duration) || 1;
+    const durationNum = 1;
     const startYear = formData.sessionInfo.sessionStartYear;
     const endYear = startYear + durationNum;
 
@@ -595,7 +646,10 @@ function ApplicationFormContent() {
 
     // Also update the amount to be paid
     const newFee = calculateTotalFee(durationNum, formData.shift);
-    handleInputChange('paymentInfo.amountPaid', newFee);
+    setFormData(prev => ({
+      ...prev,
+      paymentInfo: { ...prev.paymentInfo, amountPaid: newFee }
+    }));
   };
 
   // Load bus fees from Firestore
@@ -625,14 +679,20 @@ function ApplicationFormContent() {
     return busFees * dur * shiftMultiplier;
   };
 
-  // Sync effect: Update estimates whenever busFees or duration changes
+  // Optimized fee sync effect with memoization to prevent excessive re-renders
+  const previousFeeRef = useRef({ estimate: 0, paid: 0 });
+
   useEffect(() => {
-    if (formData.sessionInfo.durationYears > 0) {
+    // Always calculate fee when busFees is available and durationYears is set (including 1)
+    if (busFees > 0 && formData.sessionInfo.durationYears > 0) {
       const newFee = calculateTotalFee(formData.sessionInfo.durationYears, formData.shift);
 
-      // Only update if changed to avoid loops (or if current is 0/stale)
-      if (newFee !== formData.sessionInfo.feeEstimate || newFee !== formData.paymentInfo.amountPaid) {
-        console.log(`💰 Syncing fee: ${newFee} (was Est: ${formData.sessionInfo.feeEstimate}, Paid: ${formData.paymentInfo.amountPaid})`);
+      // Only update if changed to avoid loops and excessive re-renders
+      if (newFee !== previousFeeRef.current.estimate || newFee !== previousFeeRef.current.paid) {
+        console.log(`💰 Syncing fee: ${newFee} (was Est: ${previousFeeRef.current.estimate}, Paid: ${previousFeeRef.current.paid})`);
+
+        previousFeeRef.current = { estimate: newFee, paid: newFee };
+
         setFormData(prev => ({
           ...prev,
           sessionInfo: {
@@ -649,9 +709,7 @@ function ApplicationFormContent() {
   }, [busFees, formData.sessionInfo.durationYears, formData.shift]);
 
 
-  const validateForm = () => {
-    console.log('🔍 Running form validation with data:', formData);
-
+  const validateForm = useCallback(() => {
     // Personal Information validation
     if (!formData.fullName || !formData.phoneNumber || !formData.enrollmentId) {
       showToast('Please fill all required personal details', 'error');
@@ -689,8 +747,14 @@ function ApplicationFormContent() {
       showToast('Please select a route', 'error');
       return false;
     }
-
-    // Stop is now optional/auto-handled, strict check removed per requirement
+    if (!formData.busId || !formData.busAssigned) {
+      showToast('Please select a bus', 'error');
+      return false;
+    }
+    if (!formData.stopId) {
+      showToast('Please select a pickup point / stop', 'error');
+      return false;
+    }
 
     // Session Duration validation
     if (!formData.sessionInfo.durationYears || formData.sessionInfo.durationYears === 0) {
@@ -699,15 +763,17 @@ function ApplicationFormContent() {
     }
 
     // Profile Photo validation
-    if (!formData.profilePhotoUrl) {
+    // Robust check: Check nested formData, standalone state, AND the raw file object
+    const hasPhoto = formData.profilePhotoUrl || profilePhotoUrl || profilePhotoFile;
+    if (!hasPhoto) {
       showToast('Please upload a profile photo', 'error');
       return false;
     }
 
     return true;
-  };
+  }, [formData, profilePhotoUrl, profilePhotoFile, showToast]);
 
-  const checkFormCompletion = () => {
+  const checkFormCompletion = useCallback(() => {
     // Personal Information
     if (!formData.fullName || !formData.phoneNumber || !formData.enrollmentId) return false;
     if (!formData.gender || !formData.dob || !formData.age) return false;
@@ -732,7 +798,7 @@ function ApplicationFormContent() {
     if (!formData.profilePhotoUrl) return false;
 
     return true;
-  };
+  }, [formData]);
 
   const handleSaveDraft = async () => {
     setSaving(true);
@@ -815,6 +881,16 @@ function ApplicationFormContent() {
       return;
     }
 
+    // Ensure amount is set before sending
+    if (!formData.paymentInfo?.amountPaid || formData.paymentInfo.amountPaid === 0) {
+      const calculatedAmount = calculateTotalFee(formData.sessionInfo.durationYears, formData.shift);
+      handleInputChange('paymentInfo.amountPaid', calculatedAmount);
+      // Update formData directly for this request
+      formData.paymentInfo.amountPaid = calculatedAmount;
+    }
+
+    console.log('📤 Sending verification code with amount:', formData.paymentInfo?.amountPaid);
+
     setSendingCode(true);
     try {
       const token = await currentUser?.getIdToken();
@@ -867,12 +943,101 @@ function ApplicationFormContent() {
       const result = await response.json();
 
       if (response.ok && result.verified) {
+        console.log('🎉 VERIFICATION SUCCESS - Starting enhanced state persistence...');
+
+        // Set application state
         setApplicationState('verified');
+
+        // Enhanced verification state persistence with mobile-friendly approach
+        try {
+          const timestamp = new Date().toISOString();
+          const userId = currentUser?.uid;
+          const paymentMode = formData.paymentInfo?.paymentMode;
+
+          // Primary storage flags
+          localStorage.setItem('verificationCompleted', 'true');
+          localStorage.setItem('verificationCompletedAt', timestamp);
+          localStorage.setItem('applicationState', 'verified');
+
+          // Enhanced backup storage with more context (mobile-friendly)
+          const backupState = {
+            verified: true,
+            timestamp,
+            userId,
+            paymentMode,
+            verificationCodeId: verificationCodeId,
+            sessionInfo: {
+              startYear: formData.sessionInfo?.sessionStartYear,
+              endYear: formData.sessionInfo?.sessionEndYear,
+              duration: formData.sessionInfo?.durationYears
+            }
+          };
+          localStorage.setItem('backup_verification_state', JSON.stringify(backupState));
+
+          // Additional mobile-specific persistence (using multiple keys for redundancy)
+          localStorage.setItem(`verification_${userId}`, 'true');
+          localStorage.setItem(`verification_timestamp_${userId}`, timestamp);
+
+          // Verify all saves worked
+          const verification1 = localStorage.getItem('verificationCompleted');
+          const verification2 = localStorage.getItem('applicationState');
+          const verification3 = localStorage.getItem('backup_verification_state');
+          const verification4 = localStorage.getItem(`verification_${userId}`);
+
+          console.log('✅ Enhanced verification flags saved to localStorage:', {
+            primary: { verificationCompleted: verification1, applicationState: verification2 },
+            backup: verification3 ? 'saved' : 'failed',
+            userSpecific: verification4 ? 'saved' : 'failed',
+            timestamp,
+            userId,
+            paymentMode
+          });
+
+          // Mobile-specific: Force a small delay to ensure localStorage writes complete
+          if (isMobileDevice()) {
+            await new Promise(resolve => setTimeout(resolve, 100));
+            console.log('📱 Mobile localStorage write delay completed');
+          }
+
+        } catch (storageError) {
+          console.error('❌ Failed to save verification to localStorage:', storageError);
+          // On mobile, try alternative storage approach
+          if (isMobileDevice()) {
+            try {
+              console.log('📱 Attempting mobile fallback storage...');
+              sessionStorage.setItem('mobile_verification_fallback', JSON.stringify({
+                verified: true,
+                timestamp: new Date().toISOString(),
+                userId: currentUser?.uid
+              }));
+              console.log('✅ Mobile fallback storage successful');
+            } catch (fallbackError) {
+              console.error('❌ Mobile fallback storage also failed:', fallbackError);
+            }
+          }
+        }
+
         showToast('Verification successful! You can now submit your application.', 'success');
         setVerificationCode('');
         setCodeSent(false);
         setCountdownTime(0);
         setVerificationExpiry('');
+
+        // Mark offline payment as completed in localStorage (similar to online payment)
+        if (currentUser?.uid && formData.paymentInfo?.paymentMode === 'offline') {
+          updatePaymentSessionStatus(
+            currentUser.uid,
+            'new_registration',
+            'completed',
+            {
+              offlinePaymentId: formData.paymentInfo.paymentReference,
+              verifiedAt: new Date().toISOString()
+            }
+          );
+          console.log('✅ Offline payment marked as completed in localStorage');
+        }
+
+        console.log('🎉 VERIFICATION SUCCESS - All state persistence completed');
       } else {
         const errorMessage = result.message || 'Invalid or expired code';
         showToast(errorMessage, 'error');
@@ -911,8 +1076,8 @@ function ApplicationFormContent() {
       shift: 'morning',
       sessionInfo: {
         sessionStartYear: new Date().getFullYear(),
-        durationYears: 0,
-        sessionEndYear: new Date().getFullYear(),
+        durationYears: 1,
+        sessionEndYear: new Date().getFullYear() + 1,
         feeEstimate: 0
       },
       paymentInfo: {
@@ -1038,6 +1203,19 @@ function ApplicationFormContent() {
   };
 
   const handleSubmitApplication = async () => {
+    console.log('🚀 Starting application submission...');
+    console.log('📋 Current state:', {
+      applicationState,
+      hasReceiptFile: !!receiptFile,
+      receiptFileName: receiptFile?.name,
+      hasReceiptUrl: !!formData.paymentInfo?.paymentEvidenceUrl,
+      receiptUrl: formData.paymentInfo?.paymentEvidenceUrl,
+      hasProfilePhotoFile: !!profilePhotoFile,
+      profilePhotoFileName: profilePhotoFile?.name,
+      hasProfilePhotoUrl: !!formData.profilePhotoUrl,
+      paymentMode: formData.paymentInfo?.paymentMode
+    });
+
     if (applicationState !== 'verified') {
       showToast('Please complete verification first', 'error');
       return;
@@ -1048,10 +1226,17 @@ function ApplicationFormContent() {
       return;
     }
 
+    // CRITICAL: Re-validate form data before final submission
+    // Even if verified (via online payment), we must ensure all fields are filled
+    if (!validateForm()) {
+      return;
+    }
+
     setSubmitting(true);
     try {
       // First, handle profile photo upload if we have a file waiting
-      let finalProfilePhotoUrl = formData.profilePhotoUrl;
+      // Uses priority: 1. Raw file (new upload), 2. Nested state, 3. Standalone state
+      let finalProfilePhotoUrl = formData.profilePhotoUrl || profilePhotoUrl;
 
       if (profilePhotoFile) {
         // Show uploading toast - REMOVED per user request
@@ -1116,23 +1301,67 @@ function ApplicationFormContent() {
 
       if (receiptFile) {
         console.log('📤 Uploading receipt during form submission...');
+
+        // Mobile optimization: Check file size and compress if needed
+        if (receiptFile.size > 2 * 1024 * 1024) { // 2MB threshold for mobile
+          console.log('⚠️ Large file detected on mobile, this might cause issues');
+          showToast('Large file detected. Upload may take longer on mobile.', 'info');
+        }
+
         const formDataUpload = new FormData();
         formDataUpload.append('file', receiptFile);
 
-        const uploadResponse = await fetch('/api/upload', {
-          method: 'POST',
-          body: formDataUpload
-        });
+        // Mobile-specific retry logic
+        let uploadSuccess = false;
+        let lastError: Error | null = null;
+        const maxRetries = isMobileDevice() ? 2 : 1; // More retries on mobile
 
-        if (uploadResponse.ok) {
-          const uploadData = await uploadResponse.json();
-          receiptUrl = uploadData.url;
-          receiptProvided = true; // Mark as provided when receipt is uploaded
-          console.log('✅ Receipt uploaded successfully:', receiptUrl);
-        } else {
-          const errorText = await uploadResponse.text();
-          console.error('❌ Receipt upload failed:', errorText);
-          throw new Error('Failed to upload payment receipt. Please check your connection and try again.');
+        for (let attempt = 1; attempt <= maxRetries && !uploadSuccess; attempt++) {
+          try {
+            console.log(`📤 Upload attempt ${attempt}/${maxRetries}`);
+
+            if (attempt > 1) {
+              showToast(`Retrying upload (${attempt}/${maxRetries})...`, 'info');
+              // Wait before retry
+              await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
+            }
+
+            // Mobile-specific timeout and retry logic
+            const uploadResponse = await Promise.race([
+              fetch('/api/upload', {
+                method: 'POST',
+                body: formDataUpload
+              }),
+              new Promise((_, reject) =>
+                setTimeout(() => reject(new Error('Upload timeout')), 30000) // 30 second timeout
+              )
+            ]) as Response;
+
+            if (uploadResponse.ok) {
+              const uploadData = await uploadResponse.json();
+              receiptUrl = uploadData.url;
+              receiptProvided = true; // Mark as provided when receipt is uploaded
+              console.log('✅ Receipt uploaded successfully:', receiptUrl);
+              uploadSuccess = true;
+            } else {
+              const errorText = await uploadResponse.text();
+              console.error(`❌ Receipt upload failed (attempt ${attempt}):`, errorText);
+              lastError = new Error(`Upload failed with status ${uploadResponse.status}: ${errorText}`);
+            }
+          } catch (uploadError: any) {
+            console.error(`❌ Receipt upload error (attempt ${attempt}):`, uploadError);
+            lastError = uploadError;
+
+            if (uploadError.message === 'Upload timeout') {
+              lastError = new Error('Upload timed out. Please try with a smaller image or better network connection.');
+            } else if (uploadError.name === 'TypeError' && uploadError.message.includes('fetch')) {
+              lastError = new Error('Network error during upload. Please check your internet connection and try again.');
+            }
+          }
+        }
+
+        if (!uploadSuccess && lastError) {
+          throw lastError;
         }
       }
 
@@ -1169,57 +1398,6 @@ function ApplicationFormContent() {
         const data = await response.json();
         console.log('✅ Application submission confirmed by server');
 
-        // Create admin notification if bus is overloaded and no alternatives exist
-        if (capacityCheckResult?.requiresAdminNotification &&
-          capacityCheckResult.selectedBus &&
-          !capacityCheckResult.hasAlternatives) {
-          console.log('🚨 Creating overload notification for admins/moderators');
-
-          let stopName = formData.stopId || '';
-          const route = routes.find(r => r.routeId === formData.routeId);
-          if (route?.stops) {
-            const stop = route.stops.find((s: any) => (s.stopId || s.id || s.name) === formData.stopId);
-            if (stop) stopName = (stop as any).name || (stop as any).stopName || stopName;
-          }
-
-          await createOverloadNotification(
-            formData.fullName,
-            formData.enrollmentId,
-            capacityCheckResult.selectedBus,
-            stopName
-          );
-          console.log('✅ Overload notification sent to admins/moderators');
-        }
-
-        // Create admin notification if bus is near capacity (>95%)
-        if (capacityCheckResult?.isNearCapacity &&
-          capacityCheckResult.selectedBus &&
-          !capacityCheckResult.isFull) {
-          console.log('⚠️ Creating near-capacity notification for admins/moderators');
-
-          let stopName = formData.stopId || '';
-          const route = routes.find(r => r.routeId === formData.routeId);
-          if (route?.stops) {
-            const stop = route.stops.find((s: any) => (s.stopId || s.id || s.name) === formData.stopId);
-            if (stop) stopName = (stop as any).name || (stop as any).stopName || stopName;
-          }
-
-          // Calculate current percentage (before enrollment)
-          const currentPercentage = capacityCheckResult.selectedBus.capacity > 0
-            ? (capacityCheckResult.selectedBus.currentMembers / capacityCheckResult.selectedBus.capacity) * 100
-            : 0;
-
-          await createNearCapacityNotification(
-            formData.fullName,
-            formData.enrollmentId,
-            capacityCheckResult.selectedBus,
-            stopName,
-            currentPercentage,
-            capacityCheckResult.capacityPercentage
-          );
-          console.log('✅ Near-capacity notification sent to admins/moderators');
-        }
-
         showToast('Application submitted successfully! Waiting for approval from the Managing Team.', 'success');
 
         // Clean up all localStorage data related to the application
@@ -1227,7 +1405,7 @@ function ApplicationFormContent() {
           'applicationDraft', 'applicationState', 'verificationCodeId',
           'verificationExpiry', 'selectedModerator', 'codesSentToday',
           'maxCodesReached', 'receiptPreview', 'profilePhotoPreview',
-          'lastFormStep', 'form_start_time'
+          'lastFormStep', 'form_start_time', 'verificationCompleted', 'verificationCompletedAt'
         ];
 
         cleanupKeys.forEach(key => localStorage.removeItem(key));
@@ -1323,29 +1501,91 @@ function ApplicationFormContent() {
   };
 
   useEffect(() => {
-    const savedDraft = localStorage.getItem('applicationDraft');
-    const savedApplicationId = localStorage.getItem('applicationId');
-    const savedSelectedModerator = localStorage.getItem('selectedModerator');
-    const savedVerificationCodeId = localStorage.getItem('verificationCodeId');
-    const savedVerificationExpiry = localStorage.getItem('verificationExpiry');
-    const savedCodesSentToday = localStorage.getItem('codesSentToday');
-    const savedMaxCodesReached = localStorage.getItem('maxCodesReached');
+    console.log('🔍 CHECKING VERIFICATION STATE ON LOAD...');
 
-    // Check for completed payment
+    // Check for completed payment (both online and offline) and verification state
     if (currentUser) {
+      console.log('👤 Current user found, checking verification state...');
+
+      // Log all relevant localStorage keys
+      const verificationCompleted = localStorage.getItem('verificationCompleted');
+      const savedApplicationState = localStorage.getItem('applicationState');
+      const backupVerificationState = localStorage.getItem('backup_verification_state');
+      const verificationCompletedAt = localStorage.getItem('verificationCompletedAt');
+
+      console.log('📋 localStorage verification data:', {
+        verificationCompleted,
+        savedApplicationState,
+        backupVerificationState,
+        verificationCompletedAt,
+        allKeys: Object.keys(localStorage).filter(key =>
+          key.includes('verification') || key.includes('application')
+        )
+      });
+
+      // First check if verification was completed (most reliable)
+      if (verificationCompleted === 'true' && savedApplicationState === 'verified') {
+        console.log('✅ RESTORING VERIFICATION STATE from localStorage flags');
+        setApplicationState('verified');
+        setPaymentCompleted(true);
+        return;
+      }
+
+      // Check backup verification state
+      if (backupVerificationState) {
+        try {
+          const backupData = JSON.parse(backupVerificationState);
+          if (backupData.verified && backupData.userId === currentUser.uid) {
+            console.log('✅ RESTORING VERIFICATION STATE from backup data');
+            setApplicationState('verified');
+            setPaymentCompleted(true);
+            // Restore primary flags if missing
+            localStorage.setItem('verificationCompleted', 'true');
+            localStorage.setItem('applicationState', 'verified');
+            return;
+          }
+        } catch (e) {
+          console.warn('⚠️ Failed to parse backup verification state:', e);
+        }
+      }
+
+      // Fallback to payment session check
+      console.log('🔄 Checking payment session as fallback...');
       const completedPayment = hasCompletedPayment(currentUser.uid, 'new_registration');
       if (completedPayment) {
+        console.log('💳 Found completed payment, checking session...');
         setPaymentCompleted(true);
         const session = getCurrentPaymentSession();
         if (session) {
-          setPaymentDetails({
-            paymentId: session.razorpayPaymentId,
-            orderId: session.razorpayOrderId,
-            amount: session.amount
-          });
+          console.log('📦 Payment session found:', session);
+          // Handle online payment
+          if (session.paymentMode === 'online' && session.razorpayPaymentId) {
+            setPaymentDetails({
+              paymentId: session.razorpayPaymentId,
+              orderId: session.razorpayOrderId,
+              amount: session.amount
+            });
+            setUseOnlinePayment(true);
+            setApplicationState('verified');
+            console.log('✅ Restored online payment verification from localStorage');
+          }
+          // Handle offline payment
+          else if (session.paymentMode === 'offline' && session.offlinePaymentId) {
+            setUseOnlinePayment(false);
+            setApplicationState('verified');
+            console.log('✅ Restored offline payment verification from localStorage');
+          }
+        } else {
+          console.log('⚠️ No payment session found despite completed payment flag');
         }
+      } else {
+        console.log('ℹ️ No completed payment found');
       }
+    } else {
+      console.log('⚠️ No current user found');
     }
+
+    console.log('🔍 VERIFICATION STATE CHECK COMPLETED');
   }, [currentUser]);
 
   if (isSubmitted) {
@@ -1353,14 +1593,14 @@ function ApplicationFormContent() {
       <div className="min-h-screen bg-gradient-to-br from-indigo-950 via-slate-900 to-black text-white font-sans selection:bg-indigo-500/30 relative overflow-hidden flex flex-col">
         <ApplyFormNavbar />
 
-        {/* Ambient Background Effects */}
+        {/* Simplified Background - No heavy animations */}
         <div className="fixed inset-0 z-0 pointer-events-none">
-          <div className="absolute top-[-20%] left-[-10%] w-[600px] h-[600px] bg-indigo-600/20 rounded-full blur-[120px] animate-pulse-slow"></div>
-          <div className="absolute bottom-[-20%] right-[-10%] w-[500px] h-[500px] bg-purple-600/20 rounded-full blur-[120px] animate-pulse-slow delay-700"></div>
+          <div className="absolute top-[-20%] left-[-10%] w-[600px] h-[600px] bg-indigo-600/10 rounded-full blur-[120px]"></div>
+          <div className="absolute bottom-[-20%] right-[-10%] w-[500px] h-[500px] bg-purple-600/10 rounded-full blur-[120px]"></div>
         </div>
 
         <div className="relative z-10 flex-1 flex items-center justify-center p-4 sm:p-6 lg:p-8">
-          <div className="w-full max-w-2xl animate-in fade-in zoom-in duration-700 slide-in-from-bottom-4">
+          <div className="w-full max-w-2xl">{/* Removed heavy animations */}
 
             {/* Main Glass Card */}
             <div className="relative bg-slate-900 border border-indigo-500/30 rounded-3xl shadow-2xl overflow-hidden ring-1 ring-white/10">
@@ -1372,9 +1612,9 @@ function ApplicationFormContent() {
                 {/* Hero Icon Section */}
                 <div className="flex flex-col items-center justify-center mb-10">
                   <div className="relative mb-8 group cursor-default">
-                    {/* Pulsing rings */}
-                    <div className="absolute inset-0 bg-indigo-500/10 rounded-full blur-2xl group-hover:bg-indigo-500/20 transition-all duration-1000"></div>
-                    <div className="absolute inset-0 border-2 border-indigo-500/10 rounded-full animate-[ping_3s_linear_infinite]"></div>
+                    {/* Simplified rings - no heavy animations */}
+                    <div className="absolute inset-0 bg-indigo-500/5 rounded-full blur-2xl"></div>
+                    <div className="absolute inset-0 border-2 border-indigo-500/10 rounded-full"></div>
                     <div className="absolute inset-2 border border-indigo-500/30 rounded-full"></div>
 
                     {/* Core Icon */}
@@ -1382,9 +1622,9 @@ function ApplicationFormContent() {
                       <CheckCircle className="w-10 h-10 text-indigo-400 drop-shadow-[0_0_10px_rgba(99,102,241,0.5)]" strokeWidth={2.5} />
                     </div>
 
-                    {/* Floating Status Pill */}
+                    {/* Simplified Status Pill */}
                     <div className="absolute -bottom-3 left-1/2 -translate-x-1/2 bg-slate-900 border border-indigo-500/30 py-1 px-3 rounded-full shadow-lg flex items-center gap-1.5 whitespace-nowrap">
-                      <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></div>
+                      <div className="w-1.5 h-1.5 rounded-full bg-emerald-500"></div>
                       <span className="text-[10px] font-bold tracking-wider uppercase text-slate-300">Success</span>
                     </div>
                   </div>
@@ -1406,27 +1646,27 @@ function ApplicationFormContent() {
                     <div className="absolute top-1/3 left-4 right-1/2 h-0.5 bg-gradient-to-r from-indigo-500 to-blue-500 -translate-y-1/2 z-0"></div>
 
                     {/* Step 1 */}
-                    <div className="relative z-10 flex flex-col items-start gap-3">
+                    <div className="relative z-10 flex flex-col items-start gap-2 sm:gap-3">
                       <div className="w-8 h-8 rounded-full bg-indigo-900/80 border-2 border-indigo-500 flex items-center justify-center shadow-[0_0_15px_-3px_rgba(99,102,241,0.4)]">
                         <CheckCircle className="w-4 h-4 text-indigo-200" />
                       </div>
-                      <span className="text-xs font-semibold text-indigo-200 tracking-wide uppercase">Submitted</span>
+                      <span className="text-[9px] sm:text-xs font-semibold text-indigo-200 tracking-wide uppercase">Submitted</span>
                     </div>
 
                     {/* Step 2 */}
-                    <div className="relative z-10 flex flex-col items-center gap-3">
+                    <div className="relative z-10 flex flex-col items-center gap-2 sm:gap-3">
                       <div className="w-8 h-8 rounded-full bg-slate-800 border-2 border-blue-500/50 flex items-center justify-center shadow-[0_0_15px_-3px_rgba(59,130,246,0.3)]">
                         <FileText className="w-4 h-4 text-blue-400" />
                       </div>
-                      <span className="text-xs font-semibold text-blue-200 tracking-wide uppercase">Under Review</span>
+                      <span className="text-[9px] sm:text-xs font-semibold text-blue-200 tracking-wide uppercase text-center">Under Review</span>
                     </div>
 
                     {/* Step 3 */}
-                    <div className="relative z-10 flex flex-col items-end gap-3">
+                    <div className="relative z-10 flex flex-col items-end gap-2 sm:gap-3">
                       <div className="w-8 h-8 rounded-full bg-slate-800 border-2 border-slate-600 flex items-center justify-center">
                         <div className="w-2 h-2 rounded-full bg-slate-600"></div>
                       </div>
-                      <span className="text-xs font-semibold text-slate-500 tracking-wide uppercase">Approved</span>
+                      <span className="text-[9px] sm:text-xs font-semibold text-slate-500 tracking-wide uppercase">Approved</span>
                     </div>
                   </div>
                 </div>
@@ -1448,7 +1688,6 @@ function ApplicationFormContent() {
                 <div className="flex flex-col items-center justify-center border-t border-slate-700/50 pt-8">
                   <div className="flex items-center gap-3 text-sm text-slate-500 font-medium bg-slate-800/50 px-4 py-2 rounded-full border border-slate-700/30">
                     <span className="flex h-2 w-2 relative">
-                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
                       <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
                     </span>
                     <span>Refreshed just now</span>
@@ -1461,7 +1700,7 @@ function ApplicationFormContent() {
 
             {/* Help Text */}
             <p className="text-center text-slate-500 text-xs mt-6">
-              Need help? <a href="/contact" className="underline hover:text-indigo-400 transition-colors">Contact support</a> or visit the bus office.
+              Need help? <a href="/contact" className="underline hover:text-indigo-400">Contact support</a> or visit the bus office.
             </p>
           </div>
         </div>
@@ -1506,7 +1745,7 @@ function ApplicationFormContent() {
               )}
               {applicationState === 'draft' && (
                 <div className="flex items-center gap-1.5 px-2 py-1 bg-green-50 dark:bg-green-950/20 rounded-full border border-green-100 dark:border-green-900/30 text-green-600 dark:text-green-400">
-                  <div className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse"></div>
+                  <div className="w-1.5 h-1.5 bg-green-500 rounded-full"></div>
                   <span className="text-[10px] font-bold uppercase tracking-wider whitespace-nowrap">Auto-save active</span>
                 </div>
               )}
@@ -1526,7 +1765,7 @@ function ApplicationFormContent() {
                 <Button
                   variant="outline"
                   onClick={handleResetForm}
-                  className="shrink-0 bg-red-50 hover:bg-red-100 text-red-700 border-red-200 hover:border-red-300 dark:bg-red-950/20 dark:hover:bg-red-950/30 dark:text-red-400 dark:border-red-800 dark:hover:border-red-700 transition-all duration-200 h-8 px-3 text-xs sm:h-10 sm:px-5 sm:text-sm font-semibold shadow-sm hover:shadow flex items-center justify-center gap-2"
+                  className="shrink-0 bg-red-50 hover:bg-red-100 text-red-700 border-red-200 hover:border-red-300 dark:bg-red-950/20 dark:hover:bg-red-950/30 dark:text-red-400 dark:border-red-800 dark:hover:border-red-700 h-8 px-3 text-xs sm:h-10 sm:px-5 sm:text-sm font-semibold shadow-sm hover:shadow flex items-center justify-center gap-2"
                 >
                   <RotateCcw className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
                   <span className="hidden xs:inline">Reset Form</span>
@@ -1550,13 +1789,13 @@ function ApplicationFormContent() {
                         />
                       </div>
                     ) : (
-                      <div className="h-24 w-24 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center border-4 border-white dark:border-gray-800 shadow-xl ring-2 ring-slate-100 dark:ring-slate-800 group-hover:bg-slate-200 dark:group-hover:bg-slate-700 transition-colors">
-                        <Camera className="h-8 w-8 text-slate-400 group-hover:scale-110 transition-transform duration-300" />
+                      <div className="h-24 w-24 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center border-4 border-white dark:border-gray-800 shadow-xl ring-2 ring-slate-100 dark:ring-slate-800 group-hover:bg-slate-200 dark:group-hover:bg-slate-700">
+                        <Camera className="h-8 w-8 text-slate-400" />
                       </div>
                     )}
 
-                    <div className="absolute inset-0 rounded-full bg-black/40 opacity-0 group-hover:opacity-100 transition-all duration-300 flex items-center justify-center backdrop-blur-[2px]">
-                      <Camera className="h-6 w-6 text-white drop-shadow-md transform scale-90 group-hover:scale-100 transition-transform" />
+                    <div className="absolute inset-0 rounded-full bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center backdrop-blur-[2px]">
+                      <Camera className="h-6 w-6 text-white drop-shadow-md" />
                     </div>
 
                     {finalImageUrl && (
@@ -1565,7 +1804,7 @@ function ApplicationFormContent() {
                           e.stopPropagation();
                           handleImageRemove();
                         }}
-                        className="absolute -top-1 -right-1 p-1.5 bg-red-500 text-white rounded-full shadow-lg hover:bg-red-600 transition-colors z-10"
+                        className="absolute -top-1 -right-1 p-1.5 bg-red-500 text-white rounded-full shadow-lg hover:bg-red-600 z-10"
                         title="Remove photo"
                       >
                         <X className="h-4 w-4" />
@@ -1612,38 +1851,28 @@ function ApplicationFormContent() {
                   {/* Left Column */}
                   <div className="space-y-2">
                     <div>
-                      <Label htmlFor="fullName" className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-0.5">
-                        Full Name *
-                      </Label>
-                      <Input
-                        type="text"
+                      <OptimizedInput
                         id="fullName"
+                        label="Full Name"
                         value={formData.fullName}
-                        onChange={(e) => handleInputChange('fullName', e.target.value)}
+                        onChange={(value) => handleInputChange('fullName', value)}
                         placeholder="Enter your full name"
-                        className="text-xs h-9"
                         required
                       />
                     </div>
 
-                    <div>
-                      <Label htmlFor="gender" className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-0.5">
-                        Gender *
-                      </Label>
-                      <Select
-                        value={formData.gender}
-                        onValueChange={(value) => handleInputChange('gender', value)}
-                      >
-                        <SelectTrigger className="text-xs h-9">
-                          <SelectValue placeholder="Select Gender" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="male">Male</SelectItem>
-                          <SelectItem value="female">Female</SelectItem>
-                          <SelectItem value="other">Other</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
+                    <OptimizedSelect
+                      id="gender"
+                      label="Gender"
+                      value={formData.gender}
+                      onChange={(value) => setFormData(prev => ({ ...prev, gender: value }))}
+                      placeholder="Select Gender"
+                      required
+                    >
+                      <SelectItem value="male">Male</SelectItem>
+                      <SelectItem value="female">Female</SelectItem>
+                      <SelectItem value="other">Other</SelectItem>
+                    </OptimizedSelect>
 
                     <div className="grid grid-cols-2 gap-2">
                       <div>
@@ -1692,20 +1921,16 @@ function ApplicationFormContent() {
                       </div>
                     </div>
 
-                    <div>
-                      <Label htmlFor="phoneNumber" className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-0.5">
-                        Phone Number *
-                      </Label>
-                      <Input
-                        type="tel"
-                        id="phoneNumber"
-                        value={formData.phoneNumber}
-                        onChange={(e) => handleInputChange('phoneNumber', e.target.value.replace(/[^0-9]/g, ''))}
-                        placeholder="10 digit phone number"
-                        className="text-xs h-9"
-                        required
-                      />
-                    </div>
+                    <OptimizedInput
+                      id="phoneNumber"
+                      label="Phone Number"
+                      type="tel"
+                      value={formData.phoneNumber}
+                      onChange={(value) => handleInputChange('phoneNumber', value)}
+                      placeholder="10 digit phone number"
+                      transform={(val) => val.replace(/[^0-9]/g, '')}
+                      required
+                    />
 
                     <div>
                       <Label htmlFor="email" className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-0.5">
@@ -1723,61 +1948,45 @@ function ApplicationFormContent() {
                       </p>
                     </div>
 
-                    <div>
-                      <Label htmlFor="alternatePhone" className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-0.5">
-                        Alternate Phone Number
-                      </Label>
-                      <Input
-                        type="tel"
-                        id="alternatePhone"
-                        value={formData.alternatePhone}
-                        onChange={(e) => handleInputChange('alternatePhone', e.target.value.replace(/[^0-9]/g, ''))}
-                        placeholder="Alternate phone number"
-                        className="text-xs h-9"
-                      />
-                    </div>
+                    <OptimizedInput
+                      id="alternatePhone"
+                      label="Alternate Phone Number"
+                      type="tel"
+                      value={formData.alternatePhone || ''}
+                      onChange={(value) => handleInputChange('alternatePhone', value)}
+                      placeholder="Alternate phone number"
+                      transform={(val) => val.replace(/[^0-9]/g, '')}
+                    />
 
-                    <div>
-                      <Label htmlFor="parentName" className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-0.5">
-                        Parent Name *
-                      </Label>
-                      <Input
-                        type="text"
-                        id="parentName"
-                        value={formData.parentName}
-                        onChange={(e) => handleInputChange('parentName', e.target.value)}
-                        placeholder="Enter parent/guardian name"
-                        className="text-xs h-9"
-                        required
-                      />
-                    </div>
+                    <OptimizedInput
+                      id="parentName"
+                      label="Parent Name"
+                      value={formData.parentName}
+                      onChange={(value) => handleInputChange('parentName', value)}
+                      placeholder="Enter parent/guardian name"
+                      required
+                    />
 
-                    <div>
-                      <Label htmlFor="parentPhone" className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-0.5">
-                        Parent Phone Number *
-                      </Label>
-                      <Input
-                        type="tel"
-                        id="parentPhone"
-                        value={formData.parentPhone}
-                        onChange={(e) => handleInputChange('parentPhone', e.target.value.replace(/[^0-9]/g, ''))}
-                        placeholder="Parent phone number"
-                        className="text-xs h-9"
-                        required
-                      />
-                    </div>
+                    <OptimizedInput
+                      id="parentPhone"
+                      label="Parent Phone Number"
+                      type="tel"
+                      value={formData.parentPhone}
+                      onChange={(value) => handleInputChange('parentPhone', value)}
+                      placeholder="Parent phone number"
+                      transform={(val) => val.replace(/[^0-9]/g, '')}
+                      required
+                    />
                   </div>
 
                   {/* Right Column - No separate header, continuation of left */}
                   <div className="space-y-2">
-                    <div className="space-y-2">
-                      <FacultyDepartmentSelector
-                        onFacultySelect={handleFacultySelect}
-                        onDepartmentSelect={handleDepartmentSelect}
-                        initialFaculty={formData.faculty}
-                        initialDepartment={formData.department}
-                      />
-                    </div>
+                    <FacultyDepartmentSelector
+                      onFacultySelect={handleFacultySelect}
+                      onDepartmentSelect={handleDepartmentSelect}
+                      initialFaculty={formData.faculty}
+                      initialDepartment={formData.department}
+                    />
 
                     <div>
                       <Label htmlFor="semester" className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-0.5">
@@ -1803,20 +2012,14 @@ function ApplicationFormContent() {
                       </Select>
                     </div>
 
-                    <div>
-                      <Label htmlFor="enrollmentId" className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-0.5">
-                        Enrollment ID *
-                      </Label>
-                      <Input
-                        type="text"
-                        id="enrollmentId"
-                        value={formData.enrollmentId}
-                        onChange={(e) => handleInputChange('enrollmentId', e.target.value)}
-                        placeholder="Enter enrollment ID"
-                        className="text-xs h-9"
-                        required
-                      />
-                    </div>
+                    <OptimizedInput
+                      id="enrollmentId"
+                      label="Enrollment ID"
+                      value={formData.enrollmentId}
+                      onChange={(value) => handleInputChange('enrollmentId', value)}
+                      placeholder="Enter enrollment ID"
+                      required
+                    />
 
                     <div>
                       <Label htmlFor="bloodGroup" className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-0.5">
@@ -1902,21 +2105,19 @@ function ApplicationFormContent() {
                         Session Duration *
                       </Label>
                       <Select
-                        value={formData.sessionInfo.durationYears > 0 ? formData.sessionInfo.durationYears.toString() : ""}
+                        value={formData.sessionInfo.durationYears > 0 ? formData.sessionInfo.durationYears.toString() : "1"}
                         onValueChange={handleSessionDurationChange}
+                        disabled={true} // Fixed to 1 year
                       >
-                        <SelectTrigger className="text-xs h-9">
-                          <SelectValue placeholder="Select Duration" />
+                        <SelectTrigger className="text-xs h-9 bg-gray-50 dark:bg-slate-900/50 cursor-not-allowed opacity-80">
+                          <SelectValue placeholder="1 Year" />
                         </SelectTrigger>
                         <SelectContent>
                           <SelectItem value="1">1 Year</SelectItem>
-                          <SelectItem value="2">2 Years</SelectItem>
-                          <SelectItem value="3">3 Years</SelectItem>
-                          <SelectItem value="4">4 Years</SelectItem>
                         </SelectContent>
                       </Select>
                       <p className="text-[10px] text-gray-500 dark:text-gray-400 mt-0.5">
-                        Most students choose 1 year
+                        Duration is fixed to 1 year
                       </p>
                     </div>
 
@@ -1931,7 +2132,7 @@ function ApplicationFormContent() {
                         selectedShift={formData.shift}
                         onReferenceChange={handleRefChange}
                         onCapacityCheckResult={setCapacityCheckResult}
-                        isReadOnly={applicationState === 'submitted' || applicationState === 'verified'}
+                        isReadOnly={applicationState === 'submitted'}
                       />
                     </div>
 
@@ -1939,13 +2140,35 @@ function ApplicationFormContent() {
                       <Label htmlFor="sessionStartYear" className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-0.5">
                         Session Start Year *
                       </Label>
-                      <Input
-                        type="number"
-                        id="sessionStartYear"
-                        value={formData.sessionInfo.sessionStartYear}
-                        readOnly
-                        className="bg-gray-100 dark:bg-gray-700 cursor-not-allowed text-xs h-9"
-                      />
+                      <Select
+                        value={formData.sessionInfo.sessionStartYear.toString()}
+                        onValueChange={(value) => {
+                          const startYear = parseInt(value);
+                          const duration = formData.sessionInfo.durationYears || 1;
+                          const endYear = startYear + duration;
+
+                          setFormData(prev => ({
+                            ...prev,
+                            sessionInfo: {
+                              ...prev.sessionInfo,
+                              sessionStartYear: startYear,
+                              sessionEndYear: endYear
+                            }
+                          }));
+                        }}
+                      >
+                        <SelectTrigger className="text-xs h-9">
+                          <SelectValue placeholder="Select Year" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value={new Date().getFullYear().toString()}>
+                            {new Date().getFullYear()}
+                          </SelectItem>
+                          <SelectItem value={(new Date().getFullYear() + 1).toString()}>
+                            {new Date().getFullYear() + 1}
+                          </SelectItem>
+                        </SelectContent>
+                      </Select>
                       <p className="text-[10px] text-gray-500 dark:text-gray-400 mt-0.5">
                         Year when service begins
                       </p>
@@ -1970,19 +2193,7 @@ function ApplicationFormContent() {
                       </p>
                     </div>
 
-                    <div>
-                      <Label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-0.5">
-                        Estimated Fee
-                      </Label>
-                      <div className="p-2 bg-gradient-to-br from-amber-50 to-orange-50 dark:from-amber-950/30 dark:to-orange-950/30 rounded-lg border border-amber-200 dark:border-amber-800 shadow-sm">
-                        <p className="text-lg font-bold bg-gradient-to-r from-amber-600 to-orange-600 bg-clip-text text-transparent">
-                          ₹{formData.sessionInfo.feeEstimate.toLocaleString('en-IN')}
-                        </p>
-                        <p className="text-[10px] text-amber-700 dark:text-amber-300 mt-1 font-medium">
-                          Session: July {formData.sessionInfo.sessionStartYear} - July {formData.sessionInfo.sessionEndYear}
-                        </p>
-                      </div>
-                    </div>
+
                   </div>
                 </div>
 
@@ -2018,6 +2229,8 @@ function ApplicationFormContent() {
                     purpose="new_registration"
                     initialPaymentId={formData.paymentInfo.paymentReference}
                     initialReceiptPreview={formData.paymentInfo.paymentEvidenceUrl}
+                    isReadOnly={applicationState === 'submitted'}
+                    isVerified={applicationState === 'verified'}
                     onPaymentComplete={(details) => {
                       setPaymentCompleted(true);
                       setPaymentDetails(details);
@@ -2042,10 +2255,21 @@ function ApplicationFormContent() {
                     }}
                     onOfflineSelected={(data) => {
                       setUseOnlinePayment(false);
-                      // Reset verification state if switching back to offline
-                      if (applicationState === 'verified') {
+                      
+                      // DON'T reset verification state when just uploading/updating receipt
+                      // Only reset if explicitly switching FROM online TO offline payment mode
+                      // If user is already in offline mode and just uploading receipt, preserve verification
+                      const wasOnlinePayment = formData.paymentInfo.paymentMode === 'online';
+                      if (wasOnlinePayment && applicationState === 'verified') {
+                        // User is switching from online to offline, reset verification
                         setApplicationState('noDoc');
+                        // Clear verification data from localStorage
+                        localStorage.removeItem('verificationCodeId');
+                        localStorage.removeItem('verificationExpiry');
+                        setVerificationCodeId('');
+                        setVerificationExpiry('');
                       }
+                      // If already offline mode, preserve verification state (user is just re-uploading receipt)
 
                       handleInputChange('paymentInfo.paymentMode', 'offline');
                       handleInputChange('paymentInfo.amountPaid', calculateTotalFee(formData.sessionInfo.durationYears, formData.shift));
@@ -2139,7 +2363,7 @@ function ApplicationFormContent() {
                   >
                     {saving ? (
                       <>
-                        <Loader2 className="h-3 w-3 mr-1.5 animate-spin" />
+                        <Loader2 className="h-3 w-3 mr-1.5" />
                         Checking...
                       </>
                     ) : (
@@ -2162,13 +2386,14 @@ function ApplicationFormContent() {
                   )}
 
                   <Button
+                    type="button"
                     onClick={handleSubmitApplication}
                     disabled={applicationState !== 'verified' || submitting}
                     className="flex-1 bg-green-600 hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed h-9 text-xs"
                   >
                     {submitting ? (
                       <>
-                        <Loader2 className="h-3 w-3 mr-1.5 animate-spin" />
+                        <Loader2 className="h-3 w-3 mr-1.5" />
                         Submitting...
                       </>
                     ) : (
@@ -2235,7 +2460,7 @@ function ApplicationFormContent() {
                   handleInputChange('declarationAccepted', true);
                   setDeclarationAgreed(true);
                 }}
-                className="w-full bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white font-medium py-2.5 rounded-lg shadow-lg hover:shadow-xl transition-all duration-200 transform hover:scale-[1.02]"
+                className="w-full bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white font-medium py-2.5 rounded-lg shadow-lg hover:shadow-xl"
               >
                 <CheckCircle className="h-4 w-4 mr-2" />
                 Okay, I Understand
@@ -2275,7 +2500,7 @@ function ApplicationFormContent() {
                   <Select value={selectedModerator} onValueChange={setSelectedModerator}>
                     <SelectTrigger
                       id="moderatorSelect"
-                      className="h-14 border-gray-800 bg-[#12141c] hover:bg-[#161924] focus:ring-1 focus:ring-green-500/30 focus:border-green-500/40 transition-all text-sm rounded-xl px-4"
+                      className="h-14 border-gray-800 bg-[#12141c] hover:bg-[#161924] focus:ring-1 focus:ring-green-500/30 focus:border-green-500/40 text-sm rounded-xl px-4"
                     >
                       <SelectValue placeholder="Select Coordinator" />
                     </SelectTrigger>
@@ -2287,7 +2512,6 @@ function ApplicationFormContent() {
                               <div className="w-1.5 h-1.5 bg-green-500 rounded-full shadow-[0_0_8px_rgba(34,197,94,0.6)]"></div>
                               <div className="flex flex-col">
                                 <span className="font-semibold text-sm">{mod.name}</span>
-                                <span className="text-[10px] text-gray-500">ID: {mod.empId}</span>
                               </div>
                             </div>
                           </SelectItem>
@@ -2309,10 +2533,10 @@ function ApplicationFormContent() {
                       }
                       handleSendVerificationCode();
                     }}
-                    className="w-full h-12 bg-white hover:bg-gray-100 text-black font-bold text-xs uppercase tracking-widest rounded-xl transition-all shadow-[0_4px_20px_rgba(255,255,255,0.05)] active:scale-[0.98]"
+                    className="w-full h-12 bg-white hover:bg-gray-100 text-black font-bold text-xs uppercase tracking-widest rounded-xl shadow-[0_4px_20px_rgba(255,255,255,0.05)]"
                   >
                     {sendingCode ? (
-                      <Loader2 className="h-4 w-4 animate-spin" />
+                      <Loader2 className="h-4 w-4" />
                     ) : (
                       <div className="flex items-center gap-2">
                         <Send className="h-3.5 w-3.5" />
@@ -2331,64 +2555,18 @@ function ApplicationFormContent() {
                   </Label>
                   {verificationCodeId && (
                     <div className="flex items-center gap-1.5 text-[9px] font-bold text-green-400 bg-green-500/10 px-2 py-0.5 rounded-full border border-green-500/20 uppercase tracking-wider">
-                      <div className="w-1 h-1 bg-green-500 rounded-full animate-pulse" />
+                      <div className="w-1 h-1 bg-green-500 rounded-full" />
                       Transmission Live
                     </div>
                   )}
                 </div>
 
-                <div
-                  className="relative w-full cursor-text"
-                  onClick={() => {
-                    if (!selectedModerator) {
-                      showToast('Please select a coordinator first', 'info');
-                      return;
-                    }
-                    if (!verificationCodeId && !codeSent) {
-                      showToast('Please generate a secure code first', 'info');
-                      return;
-                    }
-                    verificationInputRef.current?.focus();
-                  }}
-                >
-                  <input
-                    ref={verificationInputRef}
-                    type="text"
-                    value={verificationCode}
-                    onChange={(e) => {
-                      if (!verificationCodeId && !codeSent) {
-                        showToast('Please generate a secure code first', 'info');
-                        return;
-                      }
-                      const value = e.target.value.replace(/[^0-9]/g, '').slice(0, 6);
-                      setVerificationCode(value);
-                    }}
-                    className="absolute inset-0 w-full h-full opacity-0 z-10 font-mono text-transparent bg-transparent border-0 appearance-none focus:outline-none"
-                    maxLength={6}
-                    inputMode="numeric"
-                    autoComplete="one-time-code"
-                  />
-                  <div className="flex gap-2.5 w-full justify-between">
-                    {[0, 1, 2, 3, 4, 5].map((index) => (
-                      <div
-                        key={index}
-                        className={cn(
-                          "flex-1 aspect-[1/1.2] rounded-xl border flex items-center justify-center text-2xl font-mono transition-all duration-300",
-                          verificationCode[index]
-                            ? "border-green-500/40 bg-green-500/5 text-green-400 shadow-[0_0_20px_-5px_rgba(34,197,94,0.3)]"
-                            : "border-gray-800 bg-[#0f1118]",
-                          !verificationCode[index] && index === verificationCode.length && selectedModerator && (verificationCodeId || codeSent)
-                            ? "border-yellow-500/50 ring-1 ring-yellow-500/20 scale-105 z-10"
-                            : ""
-                        )}
-                      >
-                        {verificationCode[index] || (
-                          <div className="w-1.5 h-1.5 rounded-full bg-gray-700 md:w-2 md:h-2" />
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                </div>
+                <OptimizedOTPInput
+                  length={6}
+                  value={verificationCode}
+                  onChange={setVerificationCode}
+                  disabled={!verificationCodeId && !codeSent}
+                />
 
                 <div className="flex justify-between items-center px-1">
                   <p className="text-[9px] font-bold text-gray-600 uppercase tracking-widest">
@@ -2398,7 +2576,7 @@ function ApplicationFormContent() {
                     <button
                       onClick={handleSendVerificationCode}
                       disabled={sendingCode || (verificationExpiry ? new Date(verificationExpiry) > new Date() : false) || maxCodesReached || codesSentToday >= 3 || !selectedModerator}
-                      className="text-[10px] font-bold text-blue-400 hover:text-blue-300 disabled:opacity-50 transition-colors uppercase tracking-wider"
+                      className="text-[10px] font-bold text-blue-400 hover:text-blue-300 disabled:opacity-50 uppercase tracking-wider"
                     >
                       {sendingCode ? "..." : verificationExpiry && new Date(verificationExpiry) > new Date() ?
                         `Retry ${formatCountdown(countdownTime)}` : "Resend"
@@ -2423,7 +2601,7 @@ function ApplicationFormContent() {
                   setCodesSentToday(0);
                   setMaxCodesReached(false);
                 }}
-                className="flex-1 h-12 text-xs text-gray-400 hover:text-white hover:bg-gray-800/50 font-bold uppercase tracking-widest transition-all rounded-xl"
+                className="flex-1 h-12 text-xs text-gray-400 hover:text-white hover:bg-gray-800/50 font-bold uppercase tracking-widest rounded-xl"
               >
                 Cancel
               </Button>
@@ -2446,12 +2624,7 @@ function ApplicationFormContent() {
                       setShowVerificationDialog(false);
                       showToast('Verification successful!', 'success');
                       setVerificationCode(''); setCodeSent(false); setCountdownTime(0); setVerificationExpiry(''); setCodesSentToday(0); setMaxCodesReached(false);
-                      const localDraft = localStorage.getItem('applicationDraft');
-                      if (localDraft) {
-                        const draft = JSON.parse(localDraft);
-                        setFormData(draft);
-                        if (draft.faculty) setFacultySelected(true);
-                      }
+                      // REMOVED manual draft reload that was wiping out profile photo blob URLs
                     } else {
                       const errorType = result.errorType;
                       const errorMessage = result.message || 'Invalid code';
@@ -2472,7 +2645,7 @@ function ApplicationFormContent() {
                 className="flex-[1.5] h-12 bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-400 hover:to-emerald-500 text-white font-bold text-xs uppercase tracking-widest shadow-[0_10px_30px_-10px_rgba(34,197,94,0.3)] disabled:opacity-50 disabled:shadow-none transition-all rounded-xl border-0 active:scale-[0.98]"
               >
                 {verifyingCode ? (
-                  <Loader2 className="h-5 w-5 animate-spin" />
+                  <Loader2 className="h-5 w-5" />
                 ) : (
                   <div className="flex items-center gap-2">
                     Submit Code
@@ -2560,7 +2733,7 @@ function ApplicationFormContent() {
           </DialogContent>
         </Dialog>
       </div>
-    </div>
+    </div >
   );
 }
 

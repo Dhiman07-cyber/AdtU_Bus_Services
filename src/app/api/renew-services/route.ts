@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { adminDb, adminAuth } from '@/lib/firebase-admin';
 import { calculateRenewalDate, toFirestoreTimestamp, formatRenewalDate } from '@/lib/utils/renewal-utils';
+import { computeBlockDatesFromValidUntil } from '@/lib/utils/deadline-computation';
 
 /**
  * POST /api/renew-services
@@ -29,7 +30,7 @@ export async function POST(request: NextRequest) {
     }
 
     const token = authHeader.substring(7);
-    
+
     // Verify token
     let decodedToken;
     try {
@@ -142,14 +143,20 @@ export async function POST(request: NextRequest) {
         const newValidUntilDate = new Date(newValidUntil);
         const newSessionEndYear = newValidUntilDate.getFullYear();
 
-        // Update student document ONLY - no separate collections
-        // NOTE: We don't update status here - it's derived from validUntil
-        // The nightly batch job will sync status field for admin filtering
+        // Compute block dates from the new validUntil
+        const blockDates = computeBlockDatesFromValidUntil(newValidUntil);
+
+        // Update student document with validUntil AND block dates
         batch.update(studentRef, {
           validUntil: toFirestoreTimestamp(newValidUntil),
           durationYears: durationYears, // Store the renewed duration
           sessionEndYear: newSessionEndYear, // Update session end year based on new validUntil
+          // CRITICAL: Always update block dates when validUntil changes
+          softBlock: blockDates.softBlock,
+          hardBlock: blockDates.hardBlock,
+          status: 'active', // Reactivate if was blocked
           updatedAt: toFirestoreTimestamp(timestamp),
+          lastRenewalDate: timestamp,
           // Update payment information for renewal
           paymentAmount: amount, // Update with the renewal amount
           paid_on: timestamp // Update with current renewal date
@@ -190,7 +197,7 @@ export async function POST(request: NextRequest) {
     // Summary
     const successCount = results.filter(r => r.success).length;
     const failCount = results.filter(r => !r.success).length;
-    
+
     console.log(`🎉 Renewal process completed: ${successCount} success, ${failCount} failed`);
 
     return NextResponse.json({

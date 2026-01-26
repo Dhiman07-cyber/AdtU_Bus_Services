@@ -1,7 +1,7 @@
 {
   "description": "Critical deadline configuration for bus service renewal system. Controls when notifications, access blocks, and account deletions occur.",
-  "version": "2.0.5",
-  "lastUpdated": "2026-01-07",
+  "version": "2.1.0",
+  "lastUpdated": "2026-01-13",
   "academicYear": {
     "description": "Academic year configuration - all services align to this end date",
     "anchorMonth": 5,
@@ -50,10 +50,10 @@
     "dayOrdinal": "31st",
     "hour": 0,
     "minute": 0,
-    "daysAfterDeadline": 60,
-    "daysAfterSoftBlock": 31,
+    "daysAfterDeadline": 792,
+    "daysAfterSoftBlock": 762,
     "displayText": "Account permanently deleted",
-    "criticalWarningText": "Account and all data of that student will be permanently deleted if hard delete occurs. It will occur 2 year after current year, i.e. if service taken in 2025, will get deleted in August 31st, 2027"
+    "criticalWarningText": "Account and all data of that student will be permanently deleted if hard delete occurs. It will occur 2 years after validity ends. Example: Service valid until June 30, 2027 → Hard delete on August 31, 2029"
   },
   "urgentWarningThreshold": {
     "description": "Show urgent warnings when this many days remain before hard delete",

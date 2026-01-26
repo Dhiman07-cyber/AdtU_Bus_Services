@@ -209,8 +209,8 @@ export default function BusesPage() {
         let routeInfo = bus.route;
         if (!routeInfo) {
           routeInfo = routes.find(r =>
-            r.id === bus.routeId ||
-            r.routeId === bus.routeId
+            r.id === (bus.routeId || bus.assignedRouteId) ||
+            r.routeId === (bus.routeId || bus.assignedRouteId)
           );
         }
 
@@ -300,12 +300,13 @@ export default function BusesPage() {
   // Function to get route name for a specific bus
   const getRouteNameForBus = (bus: any) => {
     // 1. Try finding in routes collection first (Canonical source)
-    if (routes && routes.length > 0 && bus.routeId) {
+    const routeIdToCheck = bus.routeId || bus.assignedRouteId;
+    if (routes && routes.length > 0 && routeIdToCheck) {
       const foundRoute = routes.find(r =>
-        r.id === bus.routeId ||
-        r.routeId === bus.routeId
+        r.id === routeIdToCheck ||
+        r.routeId === routeIdToCheck
       );
-      if (foundRoute) return foundRoute.routeName || foundRoute.route || `Route ${bus.routeId}`;
+      if (foundRoute) return foundRoute.routeName || foundRoute.route || `Route ${routeIdToCheck}`;
     }
 
     // 2. Fallback to embedded data (Legacy)
@@ -380,13 +381,12 @@ export default function BusesPage() {
             className="bg-white hover:bg-gray-100 !text-black border border-gray-300 transition-all duration-200 hover:scale-105 hover:shadow-lg rounded-md px-2.5 py-1.5 text-xs h-8"
           />
           <Button
-            variant="outline"
             size="sm"
             onClick={handleRefresh}
             disabled={isRefreshing}
-            className="h-8 px-2.5 text-xs"
+            className="group h-8 px-4 bg-white hover:bg-gray-50 text-gray-600 hover:text-purple-600 border border-gray-200 hover:border-purple-200 shadow-sm hover:shadow-lg hover:shadow-purple-500/10 font-bold text-[10px] uppercase tracking-widest rounded-lg transition-all duration-300 active:scale-95"
           >
-            <RefreshCw className={`h-3.5 w-3.5 mr-1.5 ${isRefreshing ? 'animate-spin' : ''}`} />
+            <RefreshCw className={`mr-2 h-3.5 w-3.5 transition-transform duration-500 ${isRefreshing ? 'animate-spin' : 'group-hover:rotate-180'}`} />
             Refresh
           </Button>
         </div>

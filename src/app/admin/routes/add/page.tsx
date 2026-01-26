@@ -9,7 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import Link from "next/link";
 import { useToast } from "@/contexts/toast-context";
-import { Plus, X, MapPin, GripVertical } from "lucide-react";
+import { Plus, X, MapPin, GripVertical, RotateCcw } from "lucide-react";
 import AllStopsData from "@/data/All_stops.json";
 import { getAllRoutes } from "@/lib/dataService";
 import { signalCollectionRefresh } from '@/hooks/useEventDrivenRefresh';
@@ -45,6 +45,7 @@ export default function AddRoutePage() {
   const [dataLoading, setDataLoading] = useState(true);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const suggestionRef = useRef<HTMLDivElement>(null);
+  const [defaultRouteId, setDefaultRouteId] = useState("");
 
   // Drag State
   const [draggedStopIndex, setDraggedStopIndex] = useState<number | null>(null);
@@ -61,7 +62,8 @@ export default function AddRoutePage() {
         const nextNum = routes.length + 1;
         // Display only number
         const displayId = nextNum.toString();
-        setRouteData(prev => ({ ...prev, routeId: displayId }));
+        setRouteData(prev => ({ ...prev, routeId: displayId, routeName: `Route-${displayId}` }));
+        setDefaultRouteId(displayId);
       } catch (e) {
         console.error(e);
       } finally {
@@ -141,6 +143,10 @@ export default function AddRoutePage() {
 
   const handleDragEnd = () => {
     setDraggedStopIndex(null);
+  };
+
+  const handleRestoreRouteId = () => {
+    setRouteData(prev => ({ ...prev, routeId: defaultRouteId, routeName: `Route-${defaultRouteId}` }));
   };
 
 
@@ -260,14 +266,26 @@ export default function AddRoutePage() {
           <form onSubmit={handleSubmit} className="space-y-8">
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              <div>
-                <Label className="mb-1 block text-sm font-semibold text-gray-200">Route ID (Number) *</Label>
-                <Input
-                  value={routeData.routeId}
-                  onChange={(e) => handleInputChange('routeId', e.target.value)}
-                  className="bg-gray-800 border-gray-700 focus:border-purple-500 text-white py-6"
-                  placeholder="e.g. 15"
-                />
+              <div className="relative">
+                <Label className="mb-1 block text-sm font-semibold text-gray-200">Route ID *</Label>
+                <div className="relative">
+                  <Input
+                    value={routeData.routeId}
+                    onChange={(e) => handleInputChange('routeId', e.target.value)}
+                    className="bg-gray-800 border-gray-700 focus:border-purple-500 text-white py-6 pr-10"
+                    placeholder="e.g. 15"
+                  />
+                  {routeData.routeId !== defaultRouteId && (
+                    <button
+                      type="button"
+                      onClick={handleRestoreRouteId}
+                      className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-white transition-colors"
+                      title="Restore Default ID"
+                    >
+                      <RotateCcw className="h-4 w-4" />
+                    </button>
+                  )}
+                </div>
                 {errors.routeId && <p className="text-red-400 text-xs mt-1">{errors.routeId}</p>}
               </div>
 
@@ -285,7 +303,7 @@ export default function AddRoutePage() {
               <div>
                 <Label className="mb-1 block text-sm font-semibold text-gray-200">Status *</Label>
                 <Select value={routeData.status} onValueChange={(val) => handleInputChange('status', val)}>
-                  <SelectTrigger className="bg-gray-800 border-gray-700 focus:border-purple-500 text-white py-6">
+                  <SelectTrigger className="bg-gray-800 border-gray-700 focus:border-purple-500 text-white py-6 cursor-pointer">
                     <SelectValue placeholder="Select Status" />
                   </SelectTrigger>
                   <SelectContent>

@@ -1,6 +1,12 @@
 import { NextResponse } from 'next/server';
-import { DriverSwapService } from '@/lib/driver-swap-service';
-import { db as adminDb } from '@/lib/firebase-admin';
+import { DriverSwapSupabaseService } from '@/lib/driver-swap-supabase';
+import { createClient } from '@supabase/supabase-js';
+
+// Supabase client for quick counts
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
+);
 
 /**
  * Scheduled Cron Job: Cleanup old swap requests
@@ -9,23 +15,22 @@ import { db as adminDb } from '@/lib/firebase-admin';
  * Schedule: Every 15 minutes (recommended) or every hour (minimum)
  * 
  * Actions:
- * 1. Expire pending requests that have passed their acceptance window or time period
- * 2. Check and expire accepted swaps that have passed their end time
- * 3. Delete swap request documents older than 7 days
+ * 1. Expire pending requests that have passed their acceptance window
+ * 2. End accepted swaps that have passed their end time (but skips if trip is ongoing)
  */
 export async function GET(request: Request) {
   try {
-    console.log('🕐 [CRON] Starting scheduled swap cleanup...');
+    console.log('🕐 [CRON] Starting scheduled swap cleanup (Supabase)...');
     const startTime = Date.now();
 
     // Quick check: Are there any pending or accepted swaps to process?
-    const [pendingCount, acceptedCount] = await Promise.all([
-      adminDb.collection('driver_swap_requests').where('status', '==', 'pending').count().get(),
-      adminDb.collection('driver_swap_requests').where('status', '==', 'accepted').count().get()
+    const [pendingRes, acceptedRes] = await Promise.all([
+      supabase.from('driver_swap_requests').select('id', { count: 'exact', head: true }).eq('status', 'pending'),
+      supabase.from('driver_swap_requests').select('id', { count: 'exact', head: true }).eq('status', 'accepted')
     ]);
 
-    const pendingNum = pendingCount.data().count;
-    const acceptedNum = acceptedCount.data().count;
+    const pendingNum = pendingRes.count || 0;
+    const acceptedNum = acceptedRes.count || 0;
 
     console.log(`📊 Quick check: ${pendingNum} pending, ${acceptedNum} accepted swaps`);
 
@@ -38,38 +43,25 @@ export async function GET(request: Request) {
         duration_ms: Date.now() - startTime,
         results: {
           pending_expired: 0,
-          pending_cancelled: 0,
           accepted_expired: 0,
-          skipped: 0,
-          deleted: 0,
-          errors: []
+          skipped: 0
         },
         message: 'No active swap requests to process'
       });
     }
 
-    // 1. Expire old pending requests (acceptance window + time period check)
+    // Step 1: Expire old pending requests (acceptance window passed)
     console.log('📅 Step 1: Checking for expired pending requests...');
-    const pendingResult = await DriverSwapService.expirePendingRequests();
-    console.log(`✅ Expired ${pendingResult.expired} (window), cancelled ${pendingResult.cancelled} (time period)`);
+    const pendingResult = await DriverSwapSupabaseService.expirePendingRequests();
+    console.log(`✅ Expired ${pendingResult.expired} pending request(s)`);
 
-    // 2. Check and expire accepted swaps (skips swaps with active trips)
-    console.log('📅 Step 2: Checking for expired accepted swaps...');
-    const expireResult = await DriverSwapService.checkAndExpireSwaps();
-    console.log(`✅ Expired ${expireResult.expired} swap(s), skipped ${expireResult.skipped} (trips in progress)`);
-
-    // 3. Clean up old swap documents (older than 7 days) - only run if we had activity
-    let cleanupResult = { deleted: 0, errors: [] as string[] };
-    if (pendingResult.expired > 0 || pendingResult.cancelled > 0 || expireResult.expired > 0) {
-      console.log('🧹 Step 3: Cleaning up old swap documents...');
-      cleanupResult = await DriverSwapService.cleanupOldSwapRequests();
-      console.log(`✅ Deleted ${cleanupResult.deleted} old document(s)`);
-    } else {
-      console.log('⏭️ Step 3: Skipping cleanup (no recent activity)');
-    }
+    // Step 2: End accepted swaps that have passed their end time
+    // Also checks for pending_revert swaps and completes them if trips ended
+    console.log('📅 Step 2: Checking for ended/pending_revert swaps...');
+    const acceptedResult = await DriverSwapSupabaseService.checkAndExpireAcceptedSwaps();
+    console.log(`✅ Ended ${acceptedResult.expired} accepted, ${acceptedResult.pendingReverted} pending_revert completed, ${acceptedResult.skipped} skipped`);
 
     const duration = Date.now() - startTime;
-    const allErrors = [...pendingResult.errors, ...expireResult.errors, ...cleanupResult.errors];
 
     console.log(`🎉 [CRON] Cleanup completed in ${duration}ms`);
 
@@ -79,13 +71,11 @@ export async function GET(request: Request) {
       duration_ms: duration,
       results: {
         pending_expired: pendingResult.expired,
-        pending_cancelled: pendingResult.cancelled,
-        accepted_expired: expireResult.expired,
-        skipped: expireResult.skipped,
-        deleted: cleanupResult.deleted,
-        errors: allErrors
+        accepted_expired: acceptedResult.expired,
+        pending_reverted: acceptedResult.pendingReverted,
+        skipped: acceptedResult.skipped
       },
-      message: `Pending: ${pendingResult.expired} expired, ${pendingResult.cancelled} cancelled | Accepted: ${expireResult.expired} expired, ${expireResult.skipped} skipped | Deleted: ${cleanupResult.deleted} old docs`
+      message: `Pending: ${pendingResult.expired} expired | Accepted: ${acceptedResult.expired} ended, ${acceptedResult.pendingReverted} pending reverted, ${acceptedResult.skipped} skipped`
     });
 
   } catch (error: any) {
@@ -105,4 +95,3 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   return GET(request);
 }
-

@@ -12,8 +12,8 @@
     },
     {
       "path": "/api/cron/cleanup-notifications",
-      "schedule": "0 0 * * *",
-      "comment": "Daily notification cleanup at midnight"
+      "schedule": "30 22 * * 6",
+      "comment": "Weekly notification cleanup on Sundays at 4:00 AM IST (22:30 UTC Saturday)"
     },
     {
       "path": "/api/cron/cleanup-expired-students",
@@ -26,9 +26,9 @@
       "comment": "Daily cleanup: expire old swap requests and delete documents older than 7 days"
     },
     {
-      "path": "/api/cron/annual-export?cleanup=true",
-      "schedule": "30 3 31 7 *",
-      "comment": "Annual payment export, archival, and cleanup on July 31 at 9:00 AM IST (3:30 UTC) - soft block date"
+      "path": "/api/cron/annual-export",
+      "schedule": "30 3 30 6 *",
+      "comment": "Annual payment export on June 30 at 9:00 AM IST (3:30 UTC) - academic year end date from deadline-config.json"
     }
   ]
 }

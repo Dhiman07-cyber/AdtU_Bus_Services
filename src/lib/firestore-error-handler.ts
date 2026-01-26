@@ -13,13 +13,50 @@ export interface FirestoreErrorInfo {
 
 // Global flag to track sign-out state - prevents spurious permission errors
 let isSigningOut = false;
+let signOutTimestamp = 0;
+const SIGNOUT_SUPPRESSION_WINDOW = 3000; // 3 seconds
 
 export function setSigningOut(value: boolean) {
   isSigningOut = value;
+  if (value) {
+    signOutTimestamp = Date.now();
+  }
 }
 
 export function getSigningOutState() {
-  return isSigningOut;
+  // If explicitly set to signing out, return true
+  if (isSigningOut) return true;
+
+  // Also return true if we're within the suppression window after last signout
+  if (signOutTimestamp > 0 && Date.now() - signOutTimestamp < SIGNOUT_SUPPRESSION_WINDOW) {
+    return true;
+  }
+
+  return false;
+}
+
+/**
+ * Check if an error should be suppressed (not logged or shown to user)
+ */
+export function shouldSuppressFirestoreError(error: any): boolean {
+  if (getSigningOutState()) return true;
+
+  const errorCode = error?.code || '';
+  const errorMessage = error?.message || '';
+
+  // Suppress permission errors during signout scenarios
+  const suppressedCodes = ['permission-denied', 'unauthenticated'];
+  const suppressedMessages = [
+    'Missing or insufficient permissions',
+    'Failed to get document because the client is offline',
+    'The client is offline',
+    'Network request failed',
+  ];
+
+  if (suppressedCodes.includes(errorCode)) return true;
+  if (suppressedMessages.some(msg => errorMessage.includes(msg))) return true;
+
+  return false;
 }
 
 export const FIRESTORE_ERROR_CODES = {

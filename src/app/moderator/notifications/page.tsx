@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useRouter } from 'next/navigation';
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -17,15 +17,17 @@ import {
   Inbox,
   Send,
   Archive,
-  Loader2
+  Loader2,
+  ShieldCheck,
+  Truck
 } from "lucide-react";
 import { useToast } from "@/contexts/toast-context";
 import { useAuth } from "@/contexts/auth-context";
-import { useUserNotifications } from '@/hooks/useUserNotifications';
+import { useNotifications } from '@/contexts/NotificationContext';
 import NotificationFormV2 from "@/components/NotificationFormV2";
 import NotificationCardV2 from "@/components/NotificationCardV2";
 
-type TabType = 'all' | 'unread' | 'sent' | 'archived';
+type TabType = 'all' | 'admin' | 'driver' | 'sent';
 
 export default function ModeratorNotificationsPage() {
   const router = useRouter();
@@ -41,8 +43,11 @@ export default function ModeratorNotificationsPage() {
     markAsRead,
     deleteGlobally,
     editNotification,
-    refresh
-  } = useUserNotifications();
+    refresh,
+    markAllAsRead
+  } = useNotifications();
+
+  const markedRef = useRef<string[]>([]);
 
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<TabType>('all');
@@ -52,44 +57,37 @@ export default function ModeratorNotificationsPage() {
     if (loading || !currentUser) return;
 
     const markAllVisibleAsRead = async () => {
-      const unreadReceived = notifications.filter(n =>
-        !n.isRead &&
-        !n.isDeletedGlobally &&
-        n.sender.userId !== currentUser.uid
-      );
+      const unreadIds = notifications
+        .filter(n => !n.isRead && !n.isDeletedGlobally && n.sender.userId !== currentUser.uid)
+        .map(n => n.id)
+        .filter(id => !markedRef.current.includes(id));
 
-      if (unreadReceived.length > 0) {
-        // Mark each as read
-        const promises = unreadReceived.map(n => markAsRead(n.id));
+      if (unreadIds.length > 0) {
         try {
-          await Promise.all(promises);
-          // Don't show toast for automatic marking to avoid spam
+          markedRef.current = [...markedRef.current, ...unreadIds];
+          await markAllAsRead(unreadIds);
         } catch (err) {
           console.error('Error auto-marking notifications as read:', err);
         }
       }
     };
 
-    // Only auto-mark if we are in 'all' or 'unread' tabs
-    if (activeTab === 'all' || activeTab === 'unread') {
+    if (activeTab === 'all' || activeTab === 'admin' || activeTab === 'driver') {
       markAllVisibleAsRead();
     }
-  }, [activeTab, loading, notifications, currentUser, markAsRead]);
+  }, [activeTab, loading, notifications, currentUser, markAllAsRead]);
 
   // Filter notifications based on active tab
   const getFilteredNotifications = () => {
     switch (activeTab) {
       case 'all':
-        // Exclude sent notifications from ALL tab (show only received)
         return notifications.filter(n => n.sender.userId !== currentUser?.uid);
-      case 'unread':
-        // Exclude sent notifications from UNREAD tab (show only received unread)
-        return notifications.filter(n => !n.isRead && !n.isDeletedGlobally && n.sender.userId !== currentUser?.uid);
+      case 'admin':
+        return notifications.filter(n => n.sender.userId !== currentUser?.uid && n.sender.userRole === 'admin');
+      case 'driver':
+        return notifications.filter(n => n.sender.userId !== currentUser?.uid && n.sender.userRole === 'driver');
       case 'sent':
-        // Show only sent notifications
         return notifications.filter(n => n.sender.userId === currentUser?.uid);
-      case 'archived':
-        return notifications.filter(n => n.isDeletedGlobally);
       default:
         return notifications;
     }
@@ -99,9 +97,9 @@ export default function ModeratorNotificationsPage() {
 
   // Count notifications by type
   const receivedNotifications = notifications.filter(n => n.sender.userId !== currentUser?.uid);
-  const unreadNotifications = notifications.filter(n => !n.isRead && !n.isDeletedGlobally && n.sender.userId !== currentUser?.uid);
+  const adminNotificationsCount = notifications.filter(n => n.sender.userId !== currentUser?.uid && n.sender.userRole === 'admin');
+  const driverNotificationsCount = notifications.filter(n => n.sender.userId !== currentUser?.uid && n.sender.userRole === 'driver');
   const sentNotifications = notifications.filter(n => n.sender.userId === currentUser?.uid);
-  const archivedNotifications = notifications.filter(n => n.isDeletedGlobally);
 
   // Handlers
   const handleMarkAsRead = async (notificationId: string) => {
@@ -113,9 +111,9 @@ export default function ModeratorNotificationsPage() {
     }
   };
 
-  const handleEdit = async (notificationId: string, newContent: string) => {
+  const handleEdit = async (notificationId: string, updates: { content: string }) => {
     try {
-      await editNotification(notificationId, newContent);
+      await editNotification(notificationId, updates);
       addToast('Notification updated successfully', 'success');
     } catch (error) {
       addToast('Failed to update notification', 'error');
@@ -188,12 +186,20 @@ export default function ModeratorNotificationsPage() {
                 </Badge>
               )}
             </TabsTrigger>
-            <TabsTrigger value="unread" className="flex items-center gap-1.5 text-xs">
-              <Bell className="h-3.5 w-3.5" />
-              Unread
-              {unreadNotifications.length > 0 && (
-                <Badge variant="destructive" className="ml-1 text-[10px] py-0">
-                  {unreadNotifications.length}
+            <TabsTrigger value="admin" className="flex items-center gap-1.5 text-xs">
+              <ShieldCheck className="h-3.5 w-3.5" />
+              Admins
+              {adminNotificationsCount.length > 0 && (
+                <Badge variant="secondary" className="ml-1 text-[10px] py-0">
+                  {adminNotificationsCount.length}
+                </Badge>
+              )}
+            </TabsTrigger>
+            <TabsTrigger value="driver" className="flex items-center gap-1.5 text-xs">
+              Drivers
+              {driverNotificationsCount.length > 0 && (
+                <Badge variant="secondary" className="ml-1 text-[10px] py-0">
+                  {driverNotificationsCount.length}
                 </Badge>
               )}
             </TabsTrigger>
@@ -206,15 +212,6 @@ export default function ModeratorNotificationsPage() {
                 </Badge>
               )}
             </TabsTrigger>
-            <TabsTrigger value="archived" className="flex items-center gap-1.5 text-xs">
-              <Archive className="h-3.5 w-3.5" />
-              Archived
-              {archivedNotifications.length > 0 && (
-                <Badge variant="secondary" className="ml-1 text-[10px] py-0">
-                  {archivedNotifications.length}
-                </Badge>
-              )}
-            </TabsTrigger>
           </TabsList>
 
           {/* Tab Content */}
@@ -224,23 +221,23 @@ export default function ModeratorNotificationsPage() {
                 <CardContent className="py-8">
                   <div className="text-center">
                     <div className="mx-auto w-10 h-10 rounded-full bg-gray-100 dark:bg-gray-800 flex items-center justify-center mb-3">
-                      {activeTab === 'unread' ? (
-                        <Bell className="h-5 w-5 text-gray-400" />
+                      {activeTab === 'admin' ? (
+                        <ShieldCheck className="h-5 w-5 text-gray-400" />
+                      ) : activeTab === 'driver' ? (
+                        <Truck className="h-5 w-5 text-gray-400" />
                       ) : activeTab === 'sent' ? (
                         <Send className="h-5 w-5 text-gray-400" />
-                      ) : activeTab === 'archived' ? (
-                        <Archive className="h-5 w-5 text-gray-400" />
                       ) : (
                         <Inbox className="h-5 w-5 text-gray-400" />
                       )}
                     </div>
                     <p className="text-sm text-gray-500 dark:text-gray-400 mb-3">
-                      {activeTab === 'unread'
-                        ? 'No unread notifications'
-                        : activeTab === 'sent'
-                          ? 'No sent notifications'
-                          : activeTab === 'archived'
-                            ? 'No archived notifications'
+                      {activeTab === 'admin'
+                        ? 'No notifications from admins'
+                        : activeTab === 'driver'
+                          ? 'No notifications from drivers'
+                          : activeTab === 'sent'
+                            ? 'No sent notifications'
                             : 'No notifications yet'}
                     </p>
                     {activeTab === 'all' && (

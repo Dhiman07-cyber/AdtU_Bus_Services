@@ -316,7 +316,7 @@ export default function EnhancedDatePicker({
                               <button
                                 key={month}
                                 type="button"
-                                className={`block w-full text-left px-3 py-2 text-sm font-medium ${index === currentMonth.getMonth() ? 'bg-indigo-100 dark:bg-indigo-900 text-indigo-700' : 'text-gray-700 dark:text-gray-300 hover:bg-indigo-50 dark:hover:bg-indigo-950'}`}
+                                className={`block w-full text-left px-3 py-2 text-sm font-medium ${index === currentMonth.getMonth() ? 'bg-indigo-600 text-white font-bold' : 'text-gray-700 dark:text-gray-300 hover:bg-indigo-50 dark:hover:bg-indigo-900'}`}
                                 onClick={() => handleMonthChange(index)}
                               >
                                 {month}
@@ -333,7 +333,7 @@ export default function EnhancedDatePicker({
                               <button
                                 key={year}
                                 type="button"
-                                className={`block w-full text-left px-3 py-2 text-sm font-medium ${year === getYear(currentMonth) ? 'bg-indigo-100 dark:bg-indigo-900 text-indigo-700' : 'text-gray-700 dark:text-gray-300 hover:bg-indigo-50 dark:hover:bg-indigo-950'}`}
+                                className={`block w-full text-left px-3 py-2 text-sm font-medium ${year === getYear(currentMonth) ? 'bg-indigo-600 text-white font-bold' : 'text-gray-700 dark:text-gray-300 hover:bg-indigo-50 dark:hover:bg-indigo-900'}`}
                                 onClick={() => handleYearChange(year)}
                               >
                                 {year}

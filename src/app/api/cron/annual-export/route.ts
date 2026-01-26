@@ -27,7 +27,6 @@
  *   - NEXT_PUBLIC_SUPABASE_URL
  *   - SUPABASE_SERVICE_ROLE_KEY
  *   - ADMIN_EMAIL
- *   - GMAIL_USER
  *   - GMAIL_PASS
  */
 
@@ -40,6 +39,18 @@ import { createClient } from "@supabase/supabase-js";
 import puppeteer from "puppeteer";
 import fs from "fs";
 import path from "path";
+import { getAdminEmailRecipients } from "@/lib/services/admin-email.service";
+
+// Load deadline config for academic year settings
+const deadlineConfigPath = path.join(process.cwd(), 'src', 'config', 'deadline-config.json');
+let deadlineConfig: any = null;
+try {
+  if (fs.existsSync(deadlineConfigPath)) {
+    deadlineConfig = JSON.parse(fs.readFileSync(deadlineConfigPath, 'utf-8'));
+  }
+} catch (e) {
+  console.warn('⚠️ Could not load deadline-config.json, using defaults');
+}
 
 /* ============================================================
    GET: Trigger Annual Export (SAFE - READ ONLY)
@@ -50,7 +61,6 @@ export async function GET(request: NextRequest) {
   try {
     // 1. Read environment variables
     const ADMIN_EMAIL = process.env.ADMIN_EMAIL;
-    const GMAIL_USER = process.env.GMAIL_USER;
     const GMAIL_PASS = process.env.GMAIL_PASS;
     const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
     const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -58,7 +68,6 @@ export async function GET(request: NextRequest) {
     // 2. Validate environment variables
     const missing: string[] = [];
     if (!ADMIN_EMAIL) missing.push("ADMIN_EMAIL");
-    if (!GMAIL_USER) missing.push("GMAIL_USER");
     if (!GMAIL_PASS) missing.push("GMAIL_PASS");
     if (!SUPABASE_URL) missing.push("NEXT_PUBLIC_SUPABASE_URL");
     if (!SUPABASE_KEY) missing.push("SUPABASE_SERVICE_ROLE_KEY");
@@ -77,10 +86,14 @@ export async function GET(request: NextRequest) {
     const startYearParam = url.searchParams.get('startYear');
     const endYearParam = url.searchParams.get('endYear');
 
-    // 4. Calculate date range
+    // 4. Calculate date range using deadline-config.json
     const now = new Date();
     const currentMonth = now.getMonth();
     const currentYear = now.getFullYear();
+
+    // Read academic year anchor from config (defaults to June 30)
+    const anchorMonth = deadlineConfig?.academicYear?.anchorMonth ?? 5; // June (0-indexed: 5)
+    const anchorDay = deadlineConfig?.academicYear?.anchorDay ?? 30;
 
     let academicStartYear: number;
     let academicEndYear: number;
@@ -94,13 +107,16 @@ export async function GET(request: NextRequest) {
       academicStartYear = parseInt(yearParam);
       academicEndYear = academicStartYear + 1;
     } else {
-      // Default: current/previous academic year (April-March)
-      academicStartYear = currentMonth < 3 ? currentYear - 1 : currentYear;
+      // Default: Based on academic year anchor from config
+      // If current date is before anchor (June 30), use previous year as start
+      const anchorDate = new Date(currentYear, anchorMonth, anchorDay);
+      academicStartYear = now < anchorDate ? currentYear - 1 : currentYear;
       academicEndYear = academicStartYear + 1;
     }
 
-    const startDate = new Date(`${academicStartYear}-04-01T00:00:00.000Z`);
-    const endDate = new Date(`${academicEndYear}-03-31T23:59:59.999Z`);
+    // Use academic year anchor for date range instead of April-March fiscal year
+    const startDate = new Date(`${academicStartYear}-07-01T00:00:00.000Z`); // July 1 (start of academic year)
+    const endDate = new Date(`${academicEndYear}-${String(anchorMonth + 1).padStart(2, '0')}-${String(anchorDay).padStart(2, '0')}T23:59:59.999Z`); // June 30 (end)
     const financialYear = `${academicStartYear}-${academicEndYear}`;
 
     console.log(`📊 Annual Export: FY ${financialYear}`);
@@ -199,22 +215,30 @@ export async function GET(request: NextRequest) {
       console.error("❌ PDF generation failed:", pdfError.message);
     }
 
-    // 12. Create Gmail transporter
+    // 12. Fetch admin recipients from Firestore
+    console.log("📧 Fetching admin email recipients from Firestore...");
+    const adminRecipients = await getAdminEmailRecipients();
+    const adminEmails = adminRecipients.length > 0
+      ? adminRecipients.map(a => a.email)
+      : [ADMIN_EMAIL!]; // Fallback to env email
+    console.log(`📧 Will send to ${adminEmails.length} admin(s):`, adminEmails.join(', '));
+
+    // 13. Create Gmail transporter
     const transporter = nodemailer.createTransport({
       host: "smtp.gmail.com",
       port: 465,
       secure: true,
       auth: {
-        user: GMAIL_USER,
+        user: ADMIN_EMAIL,
         pass: GMAIL_PASS,
       },
     });
 
-    // 13. Verify SMTP connection
+    // 14. Verify SMTP connection
     await transporter.verify();
     console.log("✅ SMTP connection verified");
 
-    // 14. Prepare PDF attachment
+    // 15. Prepare PDF attachment
     const attachments: any[] = [];
     if (pdfBuffer) {
       attachments.push({
@@ -224,10 +248,10 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    // 15. Send email
+    // 16. Send email to all admins
     const info = await transporter.sendMail({
-      from: `"noreply@adtu-transport-services.com" <${GMAIL_USER}>`,
-      to: ADMIN_EMAIL,
+      from: `"AdtU Bus Services" <${ADMIN_EMAIL}>`,
+      to: adminEmails,
       replyTo: "noreply@adtu.ac.in",
       subject: `📊 Payment Export – FY ${financialYear} | ADTU Bus Services`,
       html: emailHTML,
@@ -235,7 +259,7 @@ export async function GET(request: NextRequest) {
     });
 
     const emailSent = !!info.messageId;
-    console.log(`✅ Export email sent: ${info.messageId}`);
+    console.log(`✅ Export email sent to ${adminEmails.length} admin(s): ${info.messageId}`);
 
     const duration = ((Date.now() - startTime) / 1000).toFixed(2);
 
@@ -254,7 +278,7 @@ export async function GET(request: NextRequest) {
           pendingCount,
           hasPdf: !!pdfBuffer,
           duration: `${duration}s`,
-          sentTo: ADMIN_EMAIL,
+          sentTo: adminEmails,
           // NOTE: No cleanup or archival - this is a READ-ONLY export
           safeExport: true,
           paymentsPreserved: true,
@@ -269,7 +293,8 @@ export async function GET(request: NextRequest) {
     // 17. Success response
     return NextResponse.json({
       success: true,
-      message: `Annual export sent to ${ADMIN_EMAIL}`,
+      message: `Annual export sent to ${adminEmails.length} admin(s)`,
+      sentTo: adminEmails,
       reportId,
       financialYear,
       transactionCount: paymentData.length,

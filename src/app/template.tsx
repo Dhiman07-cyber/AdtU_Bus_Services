@@ -1,8 +1,6 @@
 "use client";
 
 import { PageTransition } from "@/components/page-transition";
-import { useEffect } from "react";
-import Lenis from "lenis";
 
 export default function Template({ children }: { children: React.ReactNode }) {
     // Ensure smooth scroll is re-initialized/updated on route change if needed

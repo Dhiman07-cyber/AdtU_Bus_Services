@@ -311,6 +311,16 @@ export default function StudentTrackBusPage() {
     };
 
     fetchData();
+
+    // Re-fetch data on window focus to handle bus reassignments
+    const handleFocus = () => {
+      if (document.visibilityState === 'visible') {
+        fetchData();
+      }
+    };
+
+    window.addEventListener('focus', handleFocus);
+    return () => window.removeEventListener('focus', handleFocus);
   }, [loading, currentUser, userData, router, addToast]);
 
   // Subscribe to acknowledgment channel for instant feedback
@@ -472,12 +482,13 @@ export default function StudentTrackBusPage() {
           .from("driver_status")
           .select("status")
           .eq("bus_id", busData.busId)
+          .in("status", ["on_trip", "enroute"]) // Explicitly look for ACTIVE trips
           .maybeSingle();
 
         if (!error && data) {
-          const isActive = data.status === "on_trip" || data.status === "enroute";
-          setTripActive(isActive);
-          console.log("🔄 Trip status from driver_status:", isActive ? "ACTIVE" : "IDLE");
+          // If we found a record, it MUST be active due to the filter
+          setTripActive(true);
+          console.log("🔄 Trip status from driver_status: ACTIVE");
         } else if (!data) {
           // No driver_status record - DON'T assume trip is inactive!
           // The driver might be broadcasting but the record isn't created yet
@@ -659,6 +670,45 @@ export default function StudentTrackBusPage() {
       supabase.removeChannel(waitingFlagChannel);
     };
   }, [currentUser?.uid, busData?.busId, addToast]);
+
+  // Screen Wake Lock API
+  useEffect(() => {
+    let wakeLock: any = null;
+
+    const requestWakeLock = async () => {
+      try {
+        if ('wakeLock' in navigator) {
+          wakeLock = await (navigator as any).wakeLock.request('screen');
+          console.log('💡 Screen Wake Lock active');
+        }
+      } catch (err: any) {
+        if (err.name !== 'NotAllowedError') { // Ignore NotAllowedError from background tabs
+          console.error(`❌ Wake Lock error: ${err.name}, ${err.message}`);
+        }
+      }
+    };
+
+    // Request wake lock when trip is active or tracking or map is full screen
+    if (tripActive || isWaiting || busLocation || isFullScreenMap) {
+      requestWakeLock();
+    }
+
+    const handleVisibilityChange = async () => {
+      if (document.visibilityState === 'visible' && (tripActive || isWaiting || busLocation || isFullScreenMap)) {
+        await requestWakeLock();
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      if (wakeLock) {
+        wakeLock.release().catch(() => { });
+        wakeLock = null;
+      }
+    };
+  }, [tripActive, isWaiting, busLocation, isFullScreenMap]);
 
   // Raise waiting flag
   const handleRaiseWaitingFlag = async () => {
@@ -1117,15 +1167,16 @@ export default function StudentTrackBusPage() {
                   submittingFlag
                     ? "Processing..."
                     : isWaiting
-                      ? "Cancel Waiting Flag"
+                      ? "⏳ Waiting flag already raised"
                       : pendingRaise
                         ? `Cancel (${countdown}s)`
                         : !tripActive
                           ? "Trip Not Active"
                           : "🚩 Raise Waiting Flag"
                 }
-                primaryActionColor={isWaiting ? 'red' : !tripActive ? 'blue' : 'orange'}
-                onPrimaryAction={(!tripActive && !isWaiting) ? undefined : handleToggleWaitingFlag}
+                primaryActionColor={isWaiting ? 'yellow' : !tripActive ? 'blue' : 'orange'}
+                primaryActionDisabled={isWaiting || submittingFlag}
+                onPrimaryAction={(!tripActive && !isWaiting) ? undefined : (isWaiting ? undefined : handleToggleWaitingFlag)}
               />
             </div>
           </div>
@@ -1372,8 +1423,8 @@ export default function StudentTrackBusPage() {
                     <h3 className="text-lg font-black text-white tracking-tight">{studentData.fullName || 'Student'}</h3>
                   </div>
                   <div className={`px-3 py-1 rounded-full text-[10px] font-bold ${studentData.status === 'active'
-                      ? 'bg-green-500/20 text-green-400 border border-green-500/30'
-                      : 'bg-red-500/20 text-red-400 border border-red-500/30'
+                    ? 'bg-green-500/20 text-green-400 border border-green-500/30'
+                    : 'bg-red-500/20 text-red-400 border border-red-500/30'
                     }`}>
                     {studentData.status === 'active' ? 'ACTIVE' : 'INACTIVE'}
                   </div>

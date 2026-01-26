@@ -338,7 +338,7 @@ export function generateOfflinePaymentId(purpose: 'new_registration' | 'renewal'
     const timestamp = Date.now();
     const random = Math.random().toString(36).substring(2, 6).toUpperCase();
     const prefix = purpose === 'new_registration' ? 'OADF_' : 'ORTF_';
-    return `${prefix}${timestamp}${random}`;
+    return `${prefix}${timestamp}_${random}`;
 }
 
 /**
@@ -348,7 +348,7 @@ export function generateOnlinePaymentId(purpose: 'new_registration' | 'renewal' 
     const timestamp = Date.now();
     const random = Math.random().toString(36).substring(2, 6).toUpperCase();
     const prefix = purpose === 'new_registration' ? 'OADN_' : 'ORTN_';
-    return `${prefix}${timestamp}${random}`;
+    return `${prefix}${timestamp}_${random}`;
 }
 
 /**

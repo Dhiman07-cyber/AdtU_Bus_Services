@@ -12,8 +12,7 @@ export default function manifest(): MetadataRoute.Manifest {
             const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
             if (config.appName) {
                 appName = config.appName;
-                const words = config.appName.split(' ');
-                shortName = words.length > 1 ? words.slice(0, 2).join(' ') : config.appName;
+                shortName = config.appName;
             }
         }
     } catch (e) {
@@ -31,20 +30,14 @@ export default function manifest(): MetadataRoute.Manifest {
         orientation: 'portrait-primary',
         icons: [
             {
-                src: '/icons/icon-72x72.svg',
-                sizes: '72x72',
-                type: 'image/svg+xml',
-                purpose: 'any maskable' as any
-            },
-            {
-                src: '/icons/icon-192x192.svg',
-                sizes: '192x192',
-                type: 'image/svg+xml',
-                purpose: 'any maskable' as any
-            },
-            {
-                src: '/icons/icon-512x512.png',
+                src: '/manifest-icon',
                 sizes: '512x512',
+                type: 'image/png',
+                purpose: 'any maskable' as any
+            },
+            {
+                src: '/manifest-icon', // Use same dynamic icon for 192 as well, browser resizes or we can add size param
+                sizes: '192x192',
                 type: 'image/png',
                 purpose: 'any maskable' as any
             }
@@ -56,14 +49,14 @@ export default function manifest(): MetadataRoute.Manifest {
                 short_name: 'Track',
                 description: 'Track your bus in real-time',
                 url: '/student/track-bus',
-                icons: [{ src: '/icons/icon-192x192.svg', sizes: '192x192' }]
+                icons: [{ src: '/manifest-icon', sizes: '192x192' }]
             },
             {
                 name: 'Live Tracking',
                 short_name: 'Live',
                 description: 'Driver live tracking',
                 url: '/driver/live-tracking',
-                icons: [{ src: '/icons/icon-192x192.svg', sizes: '192x192' }]
+                icons: [{ src: '/manifest-icon', sizes: '192x192' }]
             }
         ],
         prefer_related_applications: false,

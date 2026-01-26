@@ -3,8 +3,6 @@ import { db as adminDb, FieldValue } from './firebase-admin';
 import { DriverSwapRequest, DriverSwapAudit } from './types';
 import type { Transaction } from 'firebase-admin/firestore';
 import { CleanupService } from './cleanup-service';
-import { NotificationService } from './notifications/NotificationService';
-import { NotificationTarget } from './notifications/types';
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -1213,45 +1211,55 @@ export class DriverSwapService {
     toDriverUID: string
   ): Promise<void> {
     try {
-      const notificationService = new NotificationService();
+      console.log(`📧 Sending swap request notification to driver: ${toDriverUID}`);
 
-      const sender = {
-        userId: 'system',
-        userName: 'System',
-        userRole: 'admin' as const,
-        employeeId: undefined
+      // Create notification directly in Firestore using adminDb (server-side)
+      const notificationData = {
+        title: '🔄 Driver Swap Request',
+        content: `${fromDriverName} has requested you to take over Bus ${busNumber}. Please review and respond to this swap request in your Driver Swap Requests page.`,
+        sender: {
+          userId: 'system',
+          userName: 'System',
+          userRole: 'admin'
+        },
+        target: {
+          type: 'specific_users',
+          specificUserIds: [toDriverUID]
+        },
+        recipientIds: [toDriverUID],
+        autoInjectedRecipientIds: [],
+        createdAt: FieldValue.serverTimestamp(),
+        isEdited: false,
+        isDeletedGlobally: false,
+        hiddenForUserIds: [],
+        readByUserIds: [],
+        metadata: {
+          requestId,
+          type: 'trip'
+        }
       };
 
-      const target: NotificationTarget = {
-        type: 'specific_users',
-        specificUserIds: [toDriverUID]
-      };
-
-      const content = `${fromDriverName} has requested you to take over Bus ${busNumber}. Please review and respond to this swap request in your Driver Swap Requests page.`;
-      const title = '🔄 Driver Swap Request';
-
-      // Create notification for target driver using new system
-      await notificationService.createNotification(
-        sender,
-        target,
-        content,
-        title,
-        { requestId, type: 'trip' }
-      );
+      await adminDb.collection('notifications').add(notificationData);
+      console.log(`✅ Notification created for driver swap request to ${toDriverName}`);
 
       // Send real-time notification via Supabase
-      const channel = supabase.channel(`driver:${toDriverUID}`);
-      await channel.send({
-        type: 'broadcast',
-        event: 'swap_request',
-        payload: {
-          requestId,
-          fromDriverName,
-          busNumber
-        }
-      });
+      try {
+        const channel = supabase.channel(`driver:${toDriverUID}`);
+        await channel.send({
+          type: 'broadcast',
+          event: 'swap_request',
+          payload: {
+            requestId,
+            fromDriverName,
+            busNumber
+          }
+        });
+        console.log(`📡 Real-time broadcast sent for swap request`);
+      } catch (broadcastError) {
+        console.warn('⚠️ Supabase broadcast failed (non-critical):', broadcastError);
+      }
     } catch (error) {
-      console.error('Error sending notifications:', error);
+      console.error('❌ Error sending swap request notifications:', error);
     }
   }
 
@@ -1269,29 +1277,51 @@ export class DriverSwapService {
     routeName: string
   ): Promise<void> {
     try {
-      const notificationService = new NotificationService();
-      const sender = {
-        userId: 'system',
-        userName: 'System',
-        userRole: 'admin' as const,
-        employeeId: undefined
+      console.log(`📧 Sending swap accepted notifications...`);
+
+      // Helper to create notification using adminDb
+      const createNotification = async (
+        recipientIds: string[],
+        title: string,
+        content: string,
+        metadata: Record<string, any>
+      ) => {
+        await adminDb.collection('notifications').add({
+          title,
+          content,
+          sender: {
+            userId: 'system',
+            userName: 'System',
+            userRole: 'admin'
+          },
+          target: {
+            type: 'specific_users',
+            specificUserIds: recipientIds
+          },
+          recipientIds,
+          autoInjectedRecipientIds: [],
+          createdAt: FieldValue.serverTimestamp(),
+          isEdited: false,
+          isDeletedGlobally: false,
+          hiddenForUserIds: [],
+          readByUserIds: [],
+          metadata
+        });
       };
 
       // Notification for original driver
-      await notificationService.createNotification(
-        sender,
-        { type: 'specific_users', specificUserIds: [fromDriverUID] },
-        `${toDriverName} accepted your swap request for Bus ${busNumber}. Your active duties have been removed for this bus.`,
+      await createNotification(
+        [fromDriverUID],
         '✅ Swap Accepted',
+        `${toDriverName} accepted your swap request for Bus ${busNumber}. Your active duties have been removed for this bus.`,
         { busId, type: 'trip' }
       );
 
       // Notification for new driver
-      await notificationService.createNotification(
-        sender,
-        { type: 'specific_users', specificUserIds: [toDriverUID] },
-        `You are now active driver for Bus ${busNumber} on Route ${routeName}.`,
+      await createNotification(
+        [toDriverUID],
         '✅ Swap Confirmed',
+        `You are now active driver for Bus ${busNumber} on Route ${routeName}.`,
         { busId, routeId, type: 'trip' }
       );
 
@@ -1304,11 +1334,10 @@ export class DriverSwapService {
       const studentUIDs = studentsSnapshot.docs.map((doc: any) => doc.data().uid).filter((uid: any) => uid);
 
       if (studentUIDs.length > 0) {
-        await notificationService.createNotification(
-          sender,
-          { type: 'specific_users', specificUserIds: studentUIDs },
-          `Notice: Driver ${toDriverName} will operate Bus ${busNumber} (Route: ${routeName}) today instead of ${fromDriverName}.`,
+        await createNotification(
+          studentUIDs,
           `🚌 Driver Change — ${busNumber}`,
+          `Notice: Driver ${toDriverName} will operate Bus ${busNumber} (Route: ${routeName}) today instead of ${fromDriverName}.`,
           { busId, routeId, type: 'trip' }
         );
       }
@@ -1322,16 +1351,17 @@ export class DriverSwapService {
       const managementUIDs = [...moderatorUIDs, ...adminUIDs];
 
       if (managementUIDs.length > 0) {
-        await notificationService.createNotification(
-          sender,
-          { type: 'specific_users', specificUserIds: managementUIDs },
-          `Driver ${toDriverName} is now operating Bus ${busNumber} (Route: ${routeName}) instead of ${fromDriverName}.`,
+        await createNotification(
+          managementUIDs,
           '📋 Driver Swap Executed',
+          `Driver ${toDriverName} is now operating Bus ${busNumber} (Route: ${routeName}) instead of ${fromDriverName}.`,
           { busId, routeId, fromDriverUID, toDriverUID, type: 'notice' }
         );
       }
+
+      console.log(`✅ Swap accepted notifications sent successfully`);
     } catch (error) {
-      console.error('Error sending accepted notifications:', error);
+      console.error('❌ Error sending accepted notifications:', error);
     }
   }
 
@@ -1344,23 +1374,36 @@ export class DriverSwapService {
     busNumber: string
   ): Promise<void> {
     try {
-      const notificationService = new NotificationService();
-      const sender = {
-        userId: 'system',
-        userName: 'System',
-        userRole: 'admin' as const,
-        employeeId: undefined
-      };
+      console.log(`📧 Sending swap rejected notification to: ${fromDriverUID}`);
 
-      await notificationService.createNotification(
-        sender,
-        { type: 'specific_users', specificUserIds: [fromDriverUID] },
-        `${toDriverName} rejected your swap request for Bus ${busNumber}.`,
-        '❌ Swap Request Rejected',
-        { busNumber, type: 'trip' }
-      );
+      await adminDb.collection('notifications').add({
+        title: '❌ Swap Request Rejected',
+        content: `${toDriverName} rejected your swap request for Bus ${busNumber}.`,
+        sender: {
+          userId: 'system',
+          userName: 'System',
+          userRole: 'admin'
+        },
+        target: {
+          type: 'specific_users',
+          specificUserIds: [fromDriverUID]
+        },
+        recipientIds: [fromDriverUID],
+        autoInjectedRecipientIds: [],
+        createdAt: FieldValue.serverTimestamp(),
+        isEdited: false,
+        isDeletedGlobally: false,
+        hiddenForUserIds: [],
+        readByUserIds: [],
+        metadata: {
+          busNumber,
+          type: 'trip'
+        }
+      });
+
+      console.log(`✅ Swap rejected notification sent`);
     } catch (error) {
-      console.error('Error sending rejected notification:', error);
+      console.error('❌ Error sending rejected notification:', error);
     }
   }
 
@@ -1376,24 +1419,39 @@ export class DriverSwapService {
     adminName: string
   ): Promise<void> {
     try {
-      const notificationService = new NotificationService();
-      const sender = {
-        userId: 'system',
-        userName: 'System',
-        userRole: 'admin' as const,
-        employeeId: undefined
-      };
+      console.log(`📧 Sending swap revert notifications...`);
 
-      // Notify both drivers
-      await notificationService.createNotification(
-        sender,
-        { type: 'specific_users', specificUserIds: [fromDriverUID, toDriverUID] },
-        `Administrator ${adminName} has reverted the driver swap for Bus ${busNumber}. ${fromDriverName} is now the active driver again.`,
-        '↩️ Swap Reverted by Admin',
-        { busNumber, adminName, type: 'notice' }
-      );
+      const recipientIds = [fromDriverUID, toDriverUID];
+
+      await adminDb.collection('notifications').add({
+        title: '↩️ Swap Reverted by Admin',
+        content: `Administrator ${adminName} has reverted the driver swap for Bus ${busNumber}. ${fromDriverName} is now the active driver again.`,
+        sender: {
+          userId: 'system',
+          userName: 'System',
+          userRole: 'admin'
+        },
+        target: {
+          type: 'specific_users',
+          specificUserIds: recipientIds
+        },
+        recipientIds,
+        autoInjectedRecipientIds: [],
+        createdAt: FieldValue.serverTimestamp(),
+        isEdited: false,
+        isDeletedGlobally: false,
+        hiddenForUserIds: [],
+        readByUserIds: [],
+        metadata: {
+          busNumber,
+          adminName,
+          type: 'notice'
+        }
+      });
+
+      console.log(`✅ Swap revert notifications sent`);
     } catch (error) {
-      console.error('Error sending revert notifications:', error);
+      console.error('❌ Error sending revert notifications:', error);
     }
   }
 

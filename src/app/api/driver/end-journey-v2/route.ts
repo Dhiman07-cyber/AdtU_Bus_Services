@@ -14,10 +14,7 @@ import { auth, db as adminDb } from '@/lib/firebase-admin';
 import { createClient } from '@supabase/supabase-js';
 import { FieldValue } from 'firebase-admin/firestore';
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL || '',
-  process.env.SUPABASE_SERVICE_ROLE_KEY || ''
-);
+
 
 interface CleanupStats {
   busLocations: number;
@@ -33,6 +30,7 @@ interface CleanupStats {
  * Parallel Supabase cleanup
  */
 async function cleanupSupabase(
+  supabase: any,
   busId: string,
   tripId: string
 ): Promise<Partial<CleanupStats>> {
@@ -42,56 +40,47 @@ async function cleanupSupabase(
 
   // Execute all cleanup operations in parallel
   const results = await Promise.allSettled([
-    // 1. Delete bus locations for this trip
+    // 1. Delete bus locations for this bus (current state)
     supabase
       .from('bus_locations')
       .delete()
       .eq('bus_id', busId)
-      .eq('trip_id', tripId)
-      .then(({ data, count }) => {
+      // Removed .eq('trip_id', tripId) to ensure cleanup even if trip_id is missing/null
+      .then(({ data, count }: { data: any, count: number }) => {
         stats.busLocations = count || 0;
         console.log(`✅ Deleted ${count || 0} bus_locations`);
       }),
 
-    // 2. Delete/expire waiting flags
+    // 2. Delete driver_location_updates for this bus (historical trail for this trip)
+    supabase
+      .from('driver_location_updates')
+      .delete()
+      .eq('bus_id', busId)
+      .then(({ data, count }: { data: any, count: number }) => {
+        stats.driverLocationUpdates = count || 0;
+        console.log(`✅ Deleted ${count || 0} driver_location_updates`);
+      }),
+
+    // 3. Delete/expire waiting flags
     supabase
       .from('waiting_flags')
       .delete()
       .eq('bus_id', busId)
       .in('status', ['raised', 'acknowledged'])
-      .then(({ data, count }) => {
+      .then(({ data, count }: { data: any, count: number }) => {
         stats.waitingFlags = count || 0;
         console.log(`✅ Deleted ${count || 0} waiting_flags`);
       }),
 
-    // 3. Update driver status
+    // 5. DELETE driver_status row completely (ensures clean state for next trip)
+    // This is critical: the student dashboard queries for rows with status 'on_trip' or 'enroute'
+    // Deleting the row ensures no false positives when checking for active trips
     supabase
       .from('driver_status')
-      .update({
-        status: 'idle',
-        trip_id: null,
-        last_updated_at: new Date().toISOString()
-      })
+      .delete()
       .eq('bus_id', busId)
-      .then(() => {
-        console.log('✅ Reset driver_status to idle');
-      }),
-
-    // 4. Archive trip to trip_sessions_archive
-    supabase
-      .from('trip_sessions_archive')
-      .insert({
-        id: tripId,
-        bus_id: busId,
-        route_id: '', // Will be filled from Firestore data
-        driver_uid: '', // Will be filled from Firestore data
-        trip_status: 'completed',
-        started_at: new Date().toISOString(),
-        ended_at: new Date().toISOString(),
-        archived_at: new Date().toISOString()
-      })
-      .then(() => {
-        console.log('✅ Archived trip session');
+      .then(({ count }: { count: number }) => {
+        console.log(`✅ Deleted driver_status row (${count || 1} row removed)`);
       })
   ]);
 
@@ -129,6 +118,7 @@ async function cleanupFirestore(
  * Broadcast trip end to all channels
  */
 async function broadcastTripEnd(
+  supabase: any,
   busId: string,
   tripId: string,
   busNumber: string
@@ -163,6 +153,21 @@ async function broadcastTripEnd(
 
 export async function POST(request: Request) {
   const startTime = Date.now();
+
+  // Initialize Supabase client
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+  if (!supabaseUrl || !supabaseKey) {
+    console.error("❌ Missing Supabase credentials in end-journey-v2");
+    return NextResponse.json(
+      { error: 'Server configuration error: Missing Supabase credentials' },
+      { status: 500 }
+    );
+  }
+
+  // Create client inside handler
+  const supabase = createClient(supabaseUrl, supabaseKey);
 
   try {
     const body = await request.json();
@@ -215,10 +220,13 @@ export async function POST(request: Request) {
     // Remove trip_sessions update (not using collection anymore)
 
 
-    // Update bus status
+    // Clear trip-related fields from bus document
+    // NOTE: We do NOT update the 'status' field here because it represents
+    // the bus condition (maintenance, active, etc.) - NOT trip status.
+    // Trip status is tracked in Supabase 'driver_status' table.
     await adminDb.collection('buses').doc(busId).update({
-      status: 'idle',
       activeTripId: null,
+      activeDriverId: null,
       lastEndedAt: FieldValue.serverTimestamp()
     });
 
@@ -227,12 +235,12 @@ export async function POST(request: Request) {
 
     // Execute cleanup in parallel where possible
     const [supabaseStats, firestoreStats] = await Promise.all([
-      cleanupSupabase(busId, activeTripId),
+      cleanupSupabase(supabase, busId, activeTripId),
       cleanupFirestore(busId, activeTripId)
     ]);
 
     // Broadcast trip end to all subscribers
-    await broadcastTripEnd(busId, activeTripId, busNumber);
+    await broadcastTripEnd(supabase, busId, activeTripId, busNumber);
 
     // Send FCM notifications to students
     try {

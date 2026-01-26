@@ -4,21 +4,29 @@
  * - Create new payment records
  * - Update payment status (Pending → Completed)
  * - Read/query payment records
-  
+ *   
  * IMPORTANT: Use only with service role key on server side.
  */
 
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import { encryptData, decryptData } from '@/lib/security/encryption.service';
 
 // ============================================
 // TYPES
 // ============================================
 
 export interface PaymentRecord {
+    id: string;
     payment_id: string;
-    student_id?: string;
-    student_uid?: string;
-    student_name?: string;
+    student_uid?: string;  // Firebase UID - NOT encrypted (needed for RLS filtering)
+
+    // These fields store ENCRYPTED data (AES-256-GCM base64url) for new records
+    // Legacy plain-text data is automatically handled by decryptData() - it returns as-is if not encrypted
+    student_id?: string;              // Enrollment ID (encrypted for new, plain for legacy)
+    student_name?: string;            // Student name (encrypted for new, plain for legacy)
+    offline_transaction_id?: string;  // TX ID (encrypted for new, plain for legacy)
+    stop_id?: string;                 // Stop ID (encrypted for new, plain for legacy)
+
     amount?: number;
     currency?: string;
     method?: 'Online' | 'Offline';
@@ -28,9 +36,8 @@ export interface PaymentRecord {
     duration_years?: number;
     valid_until?: string;
     transaction_date?: string;
-    offline_transaction_id?: string;
-    razorpay_payment_id?: string;
-    razorpay_order_id?: string;
+    razorpay_payment_id?: string;     // NOT encrypted - needed for Razorpay reconciliation
+    razorpay_order_id?: string;       // NOT encrypted - needed for API lookups
     approved_by?: {
         type?: string;
         userId?: string;
@@ -41,6 +48,8 @@ export interface PaymentRecord {
     approved_at?: string;
     created_at?: string;
     updated_at?: string;
+    // RSA-2048 digital signature for tamper-proof receipts
+    document_signature?: string;
 }
 
 export interface CreatePaymentInput {
@@ -48,6 +57,7 @@ export interface CreatePaymentInput {
     studentId?: string;
     studentUid?: string;
     studentName?: string;
+    stopId?: string;
     amount?: number;
     method: 'Online' | 'Offline';
     status?: 'Pending' | 'Completed';
@@ -99,6 +109,29 @@ class PaymentsSupabaseService {
     }
 
     // ============================================
+    // ENCRYPTION HELPERS
+    // ============================================
+
+    /**
+     * Decrypt sensitive fields in a payment record
+     */
+    private decryptRecord(record: PaymentRecord): PaymentRecord {
+        if (!record) return record;
+
+        // decryptData() handles both encrypted and plain-text values:
+        // - If encrypted: returns decrypted value
+        // - If plain text (legacy): returns as-is
+        return {
+            ...record,
+            student_name: decryptData(record.student_name || ''),
+            student_id: decryptData(record.student_id || ''),
+            offline_transaction_id: decryptData(record.offline_transaction_id || ''),
+            stop_id: decryptData(record.stop_id || ''),
+            // razorpay_payment_id & razorpay_order_id are stored as plaintext for lookup
+        };
+    }
+
+    // ============================================
     // CREATE OPERATIONS
     // ============================================
 
@@ -112,10 +145,12 @@ class PaymentsSupabaseService {
         }
 
         try {
-            const record: PaymentRecord = {
+            // Prepare record - encrypt PII fields before storage
+            // Data is stored encrypted in existing columns
+            // decryptData() will handle both encrypted and legacy plain-text when reading
+            const record: any = {
                 payment_id: input.paymentId,
-                student_id: input.studentId,
-                student_uid: input.studentUid,
+                student_uid: input.studentUid,  // NOT encrypted - needed for RLS filtering
                 amount: input.amount,
                 currency: 'INR',
                 method: input.method,
@@ -125,12 +160,21 @@ class PaymentsSupabaseService {
                 duration_years: input.durationYears,
                 valid_until: input.validUntil?.toISOString(),
                 transaction_date: input.transactionDate?.toISOString() || new Date().toISOString(),
-                offline_transaction_id: input.offlineTransactionId,
+
+                // ENCRYPTED PII FIELDS - stored in existing columns
+                student_name: input.studentName ? encryptData(input.studentName) : null,
+                student_id: input.studentId ? encryptData(input.studentId) : null,
+                offline_transaction_id: input.offlineTransactionId ? encryptData(input.offlineTransactionId) : null,
+                // NOTE: stop_id is intentionally excluded - column doesn't exist in Supabase yet
+                // To enable: run 'ALTER TABLE payments ADD COLUMN stop_id TEXT;' in Supabase SQL Editor
+                // Then uncomment: stop_id: input.stopId ? encryptData(input.stopId) : null,
+
+                // NOT encrypted - needed for Razorpay reconciliation/lookup
                 razorpay_payment_id: input.razorpayPaymentId,
                 razorpay_order_id: input.razorpayOrderId,
+
                 approved_by: input.approvedBy,
                 approved_at: input.approvedAt?.toISOString(),
-                student_name: input.studentName,
             };
 
             const { data, error } = await this.supabase
@@ -208,6 +252,52 @@ class PaymentsSupabaseService {
         }
     }
 
+    /**
+     * Store document signature for a payment (for tamper-proof receipts)
+     * This signature is generated using RSA-2048 and stored separately
+     */
+    async storeDocumentSignature(paymentId: string, signature: string): Promise<boolean> {
+        if (!this.isReady()) return false;
+
+        try {
+            const { error } = await this.supabase
+                .from('payments')
+                .update({ document_signature: signature })
+                .eq('payment_id', paymentId);
+
+            if (error) {
+                console.error('[PaymentsSupabaseService] Signature storage error:', error);
+                return false;
+            }
+
+            console.log(`[PaymentsSupabaseService] Document signature stored for: ${paymentId}`);
+            return true;
+        } catch (err) {
+            console.error('[PaymentsSupabaseService] Signature storage exception:', err);
+            return false;
+        }
+    }
+
+    /**
+     * Get document signature for a payment
+     */
+    async getDocumentSignature(paymentId: string): Promise<string | null> {
+        if (!this.isReady()) return null;
+
+        try {
+            const { data, error } = await this.supabase
+                .from('payments')
+                .select('document_signature')
+                .eq('payment_id', paymentId)
+                .single();
+
+            if (error) return null;
+            return data?.document_signature || null;
+        } catch {
+            return null;
+        }
+    }
+
     // ============================================
     // READ OPERATIONS
     // ============================================
@@ -216,37 +306,60 @@ class PaymentsSupabaseService {
      * Get payment by ID
      */
     async getPaymentById(paymentId: string): Promise<PaymentRecord | null> {
-        if (!this.isReady()) return null;
+        if (!this.isReady()) {
+            console.error('[PaymentsSupabaseService] Service not initialized when fetching paymentId:', paymentId);
+            return null;
+        }
 
         try {
+            console.log('[PaymentsSupabaseService] Fetching payment by ID:', paymentId);
             const { data, error } = await this.supabase
                 .from('payments')
                 .select('*')
                 .eq('payment_id', paymentId)
                 .single();
 
-            if (error) return null;
-            return data as PaymentRecord;
-        } catch {
+            if (error) {
+                console.error('[PaymentsSupabaseService] Error fetching payment:', error.message);
+                return null;
+            }
+            console.log('[PaymentsSupabaseService] Payment found successfully');
+            return this.decryptRecord(data as PaymentRecord);
+        } catch (err) {
+            console.error('[PaymentsSupabaseService] Exception fetching payment:', err);
             return null;
         }
     }
 
     /**
      * Get payment by Razorpay Payment ID
+     * 
+     * NOTE: razorpay_payment_id is stored as PLAINTEXT to allow exact-match looking.
+     * Encrypting it would require a separate hash column for lookups, which is not currently implemented.
      */
     async getPaymentByRazorpayId(razorpayPaymentId: string): Promise<PaymentRecord | null> {
         if (!this.isReady()) return null;
 
         try {
+            // Cannot search by encrypted value with random IV. 
+            // So this method might fail if we rely on the encrypted column.
+            // However, usually online payments use payment_id = razorpay_payment_id.
+            // So we can try `getPaymentById` instead if they match.
+
+            // For now, attempting exact match on column will fail if encrypted.
+            // I'll leave this query as is, but it will likely return nothing if encrypted.
+            // Given the constraints, I will NOT encrypt razorpay_payment_id column to preserve lookup capability 
+            // OR the user accepts this trade-off. 
+            // Let's TRY to encrypt `student_name` and `offline_transaction_id` ONLY.
+
             const { data, error } = await this.supabase
                 .from('payments')
                 .select('*')
-                .eq('razorpay_payment_id', razorpayPaymentId)
+                .eq('razorpay_payment_id', razorpayPaymentId) // This query assumes plaintext
                 .single();
 
             if (error) return null;
-            return data as PaymentRecord;
+            return this.decryptRecord(data as PaymentRecord);
         } catch {
             return null;
         }
@@ -273,7 +386,7 @@ class PaymentsSupabaseService {
                 .range(offset, offset + limit - 1);
 
             if (error) return [];
-            return (data || []) as PaymentRecord[];
+            return (data || []).map(p => this.decryptRecord(p as PaymentRecord));
         } catch {
             return [];
         }
@@ -300,7 +413,7 @@ class PaymentsSupabaseService {
                 .range(offset, offset + limit - 1);
 
             if (error) return [];
-            return (data || []) as PaymentRecord[];
+            return (data || []).map(p => this.decryptRecord(p as PaymentRecord));
         } catch {
             return [];
         }
@@ -325,7 +438,7 @@ class PaymentsSupabaseService {
                 .order('transaction_date', { ascending: true });
 
             if (error) return [];
-            return (data || []) as PaymentRecord[];
+            return (data || []).map(p => this.decryptRecord(p as PaymentRecord));
         } catch {
             return [];
         }
@@ -345,7 +458,7 @@ class PaymentsSupabaseService {
                 .limit(limit);
 
             if (error) return [];
-            return (data || []) as PaymentRecord[];
+            return (data || []).map(p => this.decryptRecord(p as PaymentRecord));
         } catch {
             return [];
         }
@@ -366,7 +479,7 @@ class PaymentsSupabaseService {
                 .order('created_at', { ascending: true });
 
             if (error) return [];
-            return (data || []) as PaymentRecord[];
+            return (data || []).map(p => this.decryptRecord(p as PaymentRecord));
         } catch {
             return [];
         }
@@ -397,7 +510,7 @@ class PaymentsSupabaseService {
             }
 
             console.log(`[PaymentsSupabaseService] Found ${data?.length || 0} completed payments for reporting`);
-            return (data || []) as PaymentRecord[];
+            return (data || []).map(p => this.decryptRecord(p as PaymentRecord));
         } catch (err) {
             console.error('[PaymentsSupabaseService] Reporting fetch exception:', err);
             return [];
@@ -493,6 +606,57 @@ class PaymentsSupabaseService {
             });
         } catch (err) {
             console.error('[PaymentsSupabaseService] Trend exception:', err);
+            return [];
+        }
+    }
+
+    /**
+     * Get payment trend for the last 6 months (Monthly Revenue)
+     */
+    async getPaymentTrendMonthly(): Promise<{ date: string; amount: number }[]> {
+        if (!this.isReady()) return [];
+
+        try {
+            // Generate last 6 months
+            const last6Months = Array.from({ length: 6 }, (_, i) => {
+                const d = new Date();
+                d.setMonth(d.getMonth() - (5 - i));
+                d.setDate(1);
+                d.setHours(0, 0, 0, 0);
+                return d;
+            });
+
+            const startDate = last6Months[0].toISOString();
+
+            const { data, error } = await this.supabase
+                .from('payments')
+                .select('amount, transaction_date')
+                .eq('status', 'Completed')
+                .gte('transaction_date', startDate)
+                .order('transaction_date', { ascending: true });
+
+            if (error) {
+                console.error('[PaymentsSupabaseService] Monthly trend error:', error);
+                return [];
+            }
+
+            const payments = data || [];
+
+            return last6Months.map(month => {
+                const dateStr = month.toLocaleDateString('en-US', { month: 'short', year: '2-digit' });
+                const monthYear = `${month.getFullYear()}-${String(month.getMonth() + 1).padStart(2, '0')}`;
+
+                const monthTotal = payments
+                    .filter(p => p.transaction_date?.startsWith(monthYear))
+                    .reduce((sum, p) => sum + (p.amount || 0), 0);
+
+                return {
+                    date: dateStr,
+                    amount: monthTotal
+                };
+            });
+        } catch (err) {
+            console.error('[PaymentsSupabaseService] Monthly trend exception:', err);
             return [];
         }
     }

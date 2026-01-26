@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { auth } from '@/lib/firebase-admin';
-import { DriverSwapService } from '@/lib/driver-swap-service';
+import { DriverSwapSupabaseService } from '@/lib/driver-swap-supabase';
 
 /**
  * POST /api/driver-swap/requests/[id]/end
@@ -17,10 +17,6 @@ export async function POST(
     const resolvedParams = await params;
     const requestId = resolvedParams.id;
     console.log('📝 Request ID:', requestId);
-
-    const body = await request.json();
-    console.log('📦 Request body:', body);
-    const { reason } = body;
 
     // Get authentication token
     const authHeader = request.headers.get('authorization');
@@ -42,20 +38,15 @@ export async function POST(
 
     console.log(`📥 End swap request received:`, {
       requestId,
-      reason: reason || 'completed',
       actor: actorUID.substring(0, 8) + '...'
     });
 
-    // End the swap
-    console.log('🔄 Calling DriverSwapService.endSwap...');
-    const result = await DriverSwapService.endSwap(
-      requestId,
-      reason || 'completed',
-      actorUID
-    );
+    // End the swap using Supabase
+    console.log('🔄 Calling DriverSwapSupabaseService.endSwap...');
+    const result = await DriverSwapSupabaseService.endSwap(requestId, actorUID);
     console.log('📥 Service result:', result);
 
-    if (!result.success) {
+    if (!result.success && !result.pendingTripEnd) {
       console.error('❌ Service returned error:', result.error);
       return NextResponse.json(
         { error: result.error || 'Failed to end swap' },
@@ -63,9 +54,20 @@ export async function POST(
       );
     }
 
+    // Handle pending revert case (trip in progress)
+    if (result.pendingTripEnd) {
+      console.log('⏳ Swap marked for pending revert (trip in progress)');
+      return NextResponse.json({
+        success: true,
+        pendingTripEnd: true,
+        message: 'Swap will end automatically when the current trip is finished.'
+      });
+    }
+
     console.log('✅ Swap ended successfully!');
     return NextResponse.json({
       success: true,
+      pendingTripEnd: false,
       message: 'Swap ended successfully. Drivers restored to original assignments.'
     });
 

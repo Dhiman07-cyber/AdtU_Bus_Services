@@ -21,6 +21,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import {
     getDocs,
+    getDocsFromServer,
     query,
     limit,
     startAfter,
@@ -248,7 +249,11 @@ export function usePaginatedCollection<T = DocumentData>(
 
             q = query(q, ...constraints);
 
-            const snapshot = await getDocs(q);
+            // SPARK PLAN FIX: Force server fetch when refreshing to ensure latest data
+            // parsing bypassCache = true means we want fresh data from server
+            const fetcher = bypassCache ? getDocsFromServer : getDocs;
+
+            const snapshot = await fetcher(q);
 
             if (!isMountedRef.current) return;
 
@@ -395,7 +400,7 @@ export function usePaginatedCollectionWithQuery<T = DocumentData>(
     const isMountedRef = useRef(true);
     const retryCountRef = useRef(0);
 
-    const fetchPage = useCallback(async (isNextPage: boolean = false) => {
+    const fetchPage = useCallback(async (isNextPage: boolean = false, bypassCache: boolean = false) => {
         if (!currentUser || !enabled) {
             setLoading(false);
             return;
@@ -414,7 +419,8 @@ export function usePaginatedCollectionWithQuery<T = DocumentData>(
 
             q = query(q, ...constraints);
 
-            const snapshot = await getDocs(q);
+            const fetcher = bypassCache ? getDocsFromServer : getDocs;
+            const snapshot = await fetcher(q);
 
             if (!isMountedRef.current) return;
 
@@ -450,7 +456,7 @@ export function usePaginatedCollectionWithQuery<T = DocumentData>(
         setCursor(null);
         setHasMore(true);
         setPages([]);
-        await fetchPage(false);
+        await fetchPage(false, true);
     }, [fetchPage]);
 
     useEffect(() => {

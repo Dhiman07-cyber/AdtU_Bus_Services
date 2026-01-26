@@ -25,6 +25,7 @@ import { StatusBadge } from '@/components/application/status-badge';
 import { cn } from '@/lib/utils';
 import { downloadFile } from '@/lib/download-utils';
 import { PremiumPageLoader } from '@/components/LoadingSpinner';
+import { invalidateCollectionCache } from '@/hooks/usePaginatedCollection';
 
 export default function AdminApplicationDetailPage() {
   const { currentUser, userData, loading } = useAuth();
@@ -37,6 +38,7 @@ export default function AdminApplicationDetailPage() {
   const [loadingApp, setLoadingApp] = useState(true);
   const [processing, setProcessing] = useState(false);
   const [rejectDialogOpen, setRejectDialogOpen] = useState(false);
+  const [rejectionReason, setRejectionReason] = useState('');
   const [receiptModalOpen, setReceiptModalOpen] = useState(false);
   const [copied, setCopied] = useState(false);
   const [busData, setBusData] = useState<any>(null);
@@ -234,23 +236,23 @@ export default function AdminApplicationDetailPage() {
     setProcessing(true);
     try {
       const token = await currentUser?.getIdToken();
-      const response = await fetch('/api/applications/approve', {
+
+      // Use the standard approve endpoint that includes email notification
+      const response = await fetch('/api/applications/approve-unauth', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
         },
         body: JSON.stringify({
-          applicationId,
-          approverName: `${userData.fullName} ${userData.empId || ''}`,
-          approverId: currentUser?.uid,
-          notes: 'Application approved by admin'
+          studentUid: applicationId
         })
       });
 
       if (response.ok) {
-        showToast('Application approved successfully', 'success');
-        loadApplication();
+        showToast('Application approved successfully! Student notified via email.', 'success');
+        invalidateCollectionCache('applications');
+        router.push('/admin/applications');
       } else {
         const errorData = await response.json();
         throw new Error(errorData.error || 'Failed to approve application');
@@ -266,25 +268,33 @@ export default function AdminApplicationDetailPage() {
   const handleReject = async () => {
     if (!userData) return;
 
+    if (!rejectionReason.trim()) {
+      showToast('Please provide a reason for rejection', 'error');
+      return;
+    }
+
     setProcessing(true);
     try {
       const token = await currentUser?.getIdToken();
-      const response = await fetch('/api/applications/reject', {
+
+      // Use the standard reject endpoint that includes email notification with reason
+      const response = await fetch('/api/applications/reject-unauth', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
         },
         body: JSON.stringify({
-          applicationId,
-          rejectorName: `${userData.fullName} ${userData.empId || ''}`,
-          rejectorId: currentUser?.uid
+          studentUid: applicationId,
+          reason: rejectionReason
         })
       });
 
       if (response.ok) {
-        showToast('Application rejected', 'success');
+        showToast('Application rejected and student notified.', 'success');
         setRejectDialogOpen(false);
+        setRejectionReason('');
+        invalidateCollectionCache('applications');
         router.push('/admin/applications');
       } else {
         const errorData = await response.json();
@@ -550,7 +560,7 @@ export default function AdminApplicationDetailPage() {
                   <InfoRow
                     label="Bus Stop"
                     value={(() => {
-                      const stopId = application.formData?.stopId;
+                      const stopId = application.formData?.stopId || (application.formData as any)?.pickupPoint;
                       if (!stopId) return '—';
                       let stopName = stopId;
                       if (routeData?.stops) {
@@ -777,30 +787,57 @@ export default function AdminApplicationDetailPage() {
         )}
 
         {/* Rejection Dialog */}
-        <Dialog open={rejectDialogOpen} onOpenChange={setRejectDialogOpen}>
+        <Dialog open={rejectDialogOpen} onOpenChange={(open) => {
+          setRejectDialogOpen(open);
+          if (!open) setRejectionReason(''); // Clear reason when closing
+        }}>
           <DialogContent className="max-w-md bg-[#0E0F12] border-white/10 text-white">
             <DialogHeader>
-              <DialogTitle>Reject Application</DialogTitle>
+              <DialogTitle className="flex items-center gap-2">
+                <XCircle className="h-5 w-5 text-red-400" />
+                Reject Application
+              </DialogTitle>
               <DialogDescription className="text-zinc-400">
-                Are you sure you want to reject this application? This action will permanently remove the application and all associated data.
+                Please provide a reason for rejecting this application. The student will receive an email with your explanation.
               </DialogDescription>
             </DialogHeader>
-            <DialogFooter className="mt-6">
+
+            <div className="py-4">
+              <Label htmlFor="rejectionReason" className="text-sm font-medium text-zinc-300 mb-2 block">
+                Reason for Rejection *
+              </Label>
+              <Textarea
+                id="rejectionReason"
+                value={rejectionReason}
+                onChange={(e) => setRejectionReason(e.target.value)}
+                placeholder="e.g., Incomplete documentation, Invalid payment proof, Incorrect information..."
+                className="min-h-[100px] bg-white/5 border-white/10 text-white placeholder:text-zinc-500 focus:border-red-500/50"
+                required
+              />
+              <p className="text-xs text-zinc-500 mt-2">
+                This reason will be sent to {application.formData?.email || 'the student'}
+              </p>
+            </div>
+
+            <DialogFooter className="gap-2">
               <Button
-                variant="ghost"
-                onClick={() => setRejectDialogOpen(false)}
+                variant="outline"
+                onClick={() => {
+                  setRejectDialogOpen(false);
+                  setRejectionReason('');
+                }}
                 disabled={processing}
-                className="text-zinc-400 hover:text-white"
+                className="border-white/10 text-zinc-300 hover:bg-white/5"
               >
                 Cancel
               </Button>
               <Button
                 variant="destructive"
                 onClick={handleReject}
-                disabled={processing}
-                className="gap-2 bg-red-600 hover:bg-red-700 text-white border-none"
+                disabled={processing || !rejectionReason.trim()}
+                className="gap-2 bg-red-600 hover:bg-red-700 text-white border-none disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {processing ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                {processing ? <Loader2 className="h-4 w-4 animate-spin" /> : <XCircle className="h-4 w-4" />}
                 Confirm Rejection
               </Button>
             </DialogFooter>

@@ -1,49 +1,29 @@
 import { createClient } from '@supabase/supabase-js';
 
-// Validate environment variables
+// Environment configuration
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
 const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
 
-console.log('Supabase Storage environment variables:');
-console.log('NEXT_PUBLIC_SUPABASE_URL:', supabaseUrl ? 'SET' : 'NOT SET');
-console.log('NEXT_PUBLIC_SUPABASE_ANON_KEY:', supabaseAnonKey ? 'SET' : 'NOT SET');
-console.log('SUPABASE_SERVICE_ROLE_KEY:', supabaseServiceRoleKey ? 'SET' : 'NOT SET');
-console.log('NEXT_PUBLIC_SUPABASE_URL value:', supabaseUrl);
-console.log('NEXT_PUBLIC_SUPABASE_ANON_KEY value length:', supabaseAnonKey?.length || 0);
-console.log('SUPABASE_SERVICE_ROLE_KEY value length:', supabaseServiceRoleKey?.length || 0);
-
-// Initialize Supabase client for storage operations only if environment variables are present
+// Initialize Supabase clients
 let supabase: any = null;
 let supabaseService: any = null;
 
 if (supabaseUrl && supabaseAnonKey) {
   try {
-    console.log('Attempting to create Supabase client for storage...');
     supabase = createClient(supabaseUrl, supabaseAnonKey);
-    console.log('Supabase client for storage created successfully');
   } catch (error) {
-    console.error('Failed to initialize Supabase client for storage:', error);
+    console.error('❌ Supabase storage client init failed:', error);
   }
-} else {
-  console.warn('Supabase client not initialized for storage - missing environment variables');
 }
 
 if (supabaseUrl && supabaseServiceRoleKey) {
   try {
-    console.log('Attempting to create Supabase service client for storage...');
     supabaseService = createClient(supabaseUrl, supabaseServiceRoleKey);
-    console.log('Supabase service client for storage created successfully');
   } catch (error) {
-    console.error('Failed to initialize Supabase service client for storage:', error);
+    console.error('❌ Supabase storage service client init failed:', error);
   }
-} else {
-  console.warn('Supabase service client not initialized for storage - missing environment variables');
 }
-
-console.log('Supabase Storage clients initialized:');
-console.log('supabase:', supabase ? 'SUCCESS' : 'FAILED');
-console.log('supabaseService:', supabaseService ? 'SUCCESS' : 'FAILED');
 
 // Storage bucket name
 const BUCKET_NAME = 'adtu_bus_assets';
@@ -130,12 +110,12 @@ export class SupabaseStorageService {
 
       // Generate unique file name if not provided
       const fileExtension = file.name.split('.').pop() || 'jpg';
-      const uniqueFileName = fileName 
+      const uniqueFileName = fileName
         ? `${fileName}.${fileExtension}`
         : `${Date.now()}_${Math.random().toString(36).substring(2)}.${fileExtension}`;
-      
+
       const path = `${folder}/${uniqueFileName}`;
-      
+
       return await this.uploadFile(file, path);
     } catch (error) {
       console.error('Error uploading file with auto path:', error);
@@ -158,7 +138,7 @@ export class SupabaseStorageService {
       const { data } = supabase.storage
         .from(BUCKET_NAME)
         .getPublicUrl(path);
-      
+
       return data.publicUrl;
     } catch (error) {
       console.error('Error getting file URL:', error);

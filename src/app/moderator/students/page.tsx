@@ -1,7 +1,7 @@
 "use client";
 
 import { useAuth } from '@/contexts/auth-context';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { exportToExcel } from '@/lib/export-helpers';
@@ -46,7 +46,7 @@ import {
     SelectTrigger,
     SelectValue,
 } from "@/components/ui/select";
-import { MoreHorizontal, Eye, Edit, Trash2, Search, Loader2, Plus, RefreshCw, Filter, X, Users, ArrowRightLeft } from "lucide-react";
+import { MoreHorizontal, Eye, Edit, Trash2, Search, Loader2, Plus, RefreshCw, Filter, X, Users, ArrowRightLeft, QrCode } from "lucide-react";
 import { deleteStudent } from '@/lib/dataService';
 import { useToast } from '@/contexts/toast-context';
 import Avatar from '@/components/Avatar';
@@ -89,7 +89,7 @@ export default function AdminStudents() {
     const [searchTerm, setSearchTerm] = useState("");
     const [shiftFilter, setShiftFilter] = useState<string>("all");
     const [busFilter, setBusFilter] = useState<string>("all");
-    const [isRefreshing, setIsRefreshing] = useState(false);
+
 
     // Search State
     const [debouncedSearchTerm, setDebouncedSearchTerm] = useState("");
@@ -97,6 +97,16 @@ export default function AdminStudents() {
     const [isSearching, setIsSearching] = useState(false);
 
     const isLoading = loadingStudents || loadingBuses || isSearching;
+    const [isRefreshing, setIsRefreshing] = useState(false);
+
+    // Manual refresh handler
+    const handleRefresh = async () => {
+        setIsRefreshing(true);
+        invalidateCollectionCache('students');
+        await Promise.all([refreshStudents(), refreshBuses()]);
+        addToast('Data refreshed', 'success');
+        setIsRefreshing(false);
+    };
 
     // Debounce search term
     useEffect(() => {
@@ -164,14 +174,7 @@ export default function AdminStudents() {
         performSearch();
     }, [debouncedSearchTerm, addToast]);
 
-    // Manual refresh handler
-    const handleRefresh = async () => {
-        setIsRefreshing(true);
-        invalidateCollectionCache('students');
-        await Promise.all([refreshStudents(), refreshBuses()]);
-        addToast('Data refreshed', 'success');
-        setIsRefreshing(false);
-    };
+
 
     useEffect(() => {
         if (!authLoading && !currentUser) {
@@ -196,39 +199,41 @@ export default function AdminStudents() {
     };
 
     // Get unique values for filters with proper numeric sorting
-    const uniqueBuses = Array.from(new Set(students.map(s => s.busId).filter(Boolean)))
+    const uniqueBuses = useMemo(() => Array.from(new Set(students.map(s => s.busId).filter(Boolean)))
         .sort((a, b) => {
             const numA = parseInt(a.replace(/\D/g, '')) || 0;
             const numB = parseInt(b.replace(/\D/g, '')) || 0;
             return numA - numB;
-        });
+        }), [students]);
 
     // Decide source: Search Results (if available) OR Paginated List
     const sourceStudents = searchResults !== null ? searchResults : students;
 
-    const filteredStudents = sourceStudents.filter(student => {
-        // Search filter - check both name and fullName fields
-        const matchesSearch = !searchTerm ||
-            (student.name && student.name.toLowerCase().includes(searchTerm.toLowerCase())) ||
-            (student.fullName && student.fullName.toLowerCase().includes(searchTerm.toLowerCase())) ||
-            (student.email && student.email.toLowerCase().includes(searchTerm.toLowerCase())) ||
-            (student.phone && student.phone.includes(searchTerm)) ||
-            (student.phoneNumber && student.phoneNumber.includes(searchTerm)) ||
-            (student.enrollmentId && student.enrollmentId.toLowerCase().includes(searchTerm.toLowerCase()));
+    const filteredStudents = useMemo(() => {
+        return sourceStudents.filter(student => {
+            // Search filter - check both name and fullName fields
+            const matchesSearch = !searchTerm ||
+                (student.name && student.name.toLowerCase().includes(searchTerm.toLowerCase())) ||
+                (student.fullName && student.fullName.toLowerCase().includes(searchTerm.toLowerCase())) ||
+                (student.email && student.email.toLowerCase().includes(searchTerm.toLowerCase())) ||
+                (student.phone && student.phone.includes(searchTerm)) ||
+                (student.phoneNumber && student.phoneNumber.includes(searchTerm)) ||
+                (student.enrollmentId && student.enrollmentId.toLowerCase().includes(searchTerm.toLowerCase()));
 
-        // Shift filter
-        const matchesShift = shiftFilter === "all" || (student.shift && student.shift.toLowerCase() === shiftFilter.toLowerCase());
+            // Shift filter
+            const matchesShift = shiftFilter === "all" || (student.shift && student.shift.toLowerCase() === shiftFilter.toLowerCase());
 
-        // Bus filter
-        const matchesBus = busFilter === "all" || (student.busId && student.busId === busFilter);
+            // Bus filter
+            const matchesBus = busFilter === "all" || (student.busId && student.busId === busFilter);
 
-        return matchesSearch && matchesShift && matchesBus;
-    });
+            return matchesSearch && matchesShift && matchesBus;
+        });
+    }, [sourceStudents, searchTerm, shiftFilter, busFilter]);
 
     // Unique key safety
-    const uniqueFilteredStudents = filteredStudents.filter((student, index, self) =>
+    const uniqueFilteredStudents = useMemo(() => filteredStudents.filter((student, index, self) =>
         index === self.findIndex((s) => s.id === student.id)
-    );
+    ), [filteredStudents]);
 
     // Export students data
     const handleExportStudents = async () => {
@@ -337,23 +342,34 @@ export default function AdminStudents() {
                             Add New Student
                         </Button>
                     </Link>
-                    <Link href="/moderator/renew-services">
-                        <Button className="bg-yellow-500 hover:bg-yellow-600 text-white border border-yellow-600 transition-all duration-200 hover:scale-105 hover:shadow-lg rounded-md px-2.5 py-1.5 text-xs h-8">
-                            <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
-                            Renewal Services
-                        </Button>
-                    </Link>
+
                     <Link href="/moderator/smart-allocation">
                         <Button className="bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white border-0 transition-all duration-200 hover:scale-105 hover:shadow-lg hover:shadow-purple-500/25 rounded-md px-2.5 py-1.5 text-xs h-8">
                             <ArrowRightLeft className="mr-1.5 h-3.5 w-3.5" />
                             Student Reassignment
                         </Button>
                     </Link>
+                    <Link href="/moderator/verification">
+                        <Button className="bg-cyan-600 hover:bg-cyan-700 text-white border border-cyan-700 transition-all duration-200 hover:scale-105 hover:shadow-lg rounded-md px-2.5 py-1.5 text-xs h-8">
+                            <QrCode className="mr-1.5 h-3.5 w-3.5" />
+                            Verification
+                        </Button>
+                    </Link>
                     <ExportButton
                         onClick={() => handleExportStudents()}
-                        label="Export Students"
-                        className="bg-white hover:bg-gray-100 !text-black border border-gray-300 transition-all duration-200 hover:scale-105 hover:shadow-lg rounded-md px-2.5 py-1.5 text-xs h-8"
+                        label="Export"
+                        className="h-8 px-4 bg-white hover:bg-gray-50 text-gray-600 hover:text-purple-600 border border-gray-200 hover:border-purple-200 shadow-sm hover:shadow-lg hover:shadow-purple-500/10 font-bold text-[10px] uppercase tracking-widest rounded-lg transition-all duration-300 active:scale-95"
                     />
+                    <Button
+                        size="sm"
+                        onClick={handleRefresh}
+                        disabled={isRefreshing}
+                        className="group h-8 px-4 bg-white hover:bg-gray-50 text-gray-600 hover:text-purple-600 border border-gray-200 hover:border-purple-200 shadow-sm hover:shadow-lg hover:shadow-purple-500/10 font-bold text-[10px] uppercase tracking-widest rounded-lg transition-all duration-300 active:scale-95"
+                    >
+                        <RefreshCw className={`mr-2 h-3.5 w-3.5 transition-transform duration-500 ${isRefreshing ? 'animate-spin' : 'group-hover:rotate-180'}`} />
+                        Refresh
+                    </Button>
+
                 </div>
             </div>
 
@@ -363,7 +379,7 @@ export default function AdminStudents() {
                         {/* Search Bar and Filters */}
                         <div className="flex flex-col md:flex-row gap-3">
                             {/* Search Bar - Top (Full Width on Mobile) */}
-                            <div className="relative w-full md:flex-shrink-0 md:w-[600px]">
+                            <div className="relative w-full md:flex-1">
                                 <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-gray-400" />
                                 <Input
                                     placeholder="Search by name, email, or phone..."
@@ -420,7 +436,7 @@ export default function AdminStudents() {
                     </div>
 
                     <div className="students-section">
-                        <div className="students-scroll-wrapper rounded-md border" role="region" aria-label="Student list">
+                        <div className="students-scroll-wrapper rounded-md border overflow-x-auto" role="region" aria-label="Student list">
                             <Table>
                                 <TableHeader>
                                     <TableRow className="h-8">
@@ -521,13 +537,13 @@ export default function AdminStudents() {
                                                             <DropdownMenuLabel className="text-white text-[11px] font-semibold px-2 py-1.5">Actions</DropdownMenuLabel>
                                                             <DropdownMenuSeparator className="bg-gray-600" />
                                                             <DropdownMenuItem asChild>
-                                                                <Link href={`/admin/students/view/${student.id}`} className="text-white hover:bg-gray-700 dark:hover:bg-gray-800 focus:bg-gray-700 dark:focus:bg-gray-800 px-2 py-1.5 !text-white text-[11px]">
+                                                                <Link href={`/moderator/students/view/${student.id}`} className="text-white hover:bg-gray-700 dark:hover:bg-gray-800 focus:bg-gray-700 dark:focus:bg-gray-800 px-2 py-1.5 !text-white text-[11px]">
                                                                     <Eye className="mr-1.5 h-3 w-3 text-blue-400" />
                                                                     View Details
                                                                 </Link>
                                                             </DropdownMenuItem>
                                                             <DropdownMenuItem asChild>
-                                                                <Link href={`/admin/students/edit/${student.id}`} className="text-white hover:bg-gray-700 dark:hover:bg-gray-800 focus:bg-gray-700 dark:focus:bg-gray-800 px-2 py-1.5 !text-white text-[11px]">
+                                                                <Link href={`/moderator/students/edit/${student.id}`} className="text-white hover:bg-gray-700 dark:hover:bg-gray-800 focus:bg-gray-700 dark:focus:bg-gray-800 px-2 py-1.5 !text-white text-[11px]">
                                                                     <Edit className="mr-1.5 h-3 w-3 text-yellow-400" />
                                                                     Edit
                                                                 </Link>

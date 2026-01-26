@@ -4,8 +4,8 @@ import { getApps, initializeApp } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
 import { getAuth } from 'firebase-admin/auth';
 import { cert } from 'firebase-admin/app';
-import fs from 'fs';
-import path from 'path';
+
+import { computeBlockDatesForStudent } from '@/lib/utils/deadline-computation';
 
 let adminApp: any;
 let auth: any;
@@ -13,23 +13,7 @@ let db: any;
 let useAdminSDK = false;
 
 // Get the data directory path
-const dataDirectory = path.join(process.cwd(), 'src', 'data');
 
-// Helper function to read JSON files
-const readJsonFile = (filename: string) => {
-  const filePath = path.join(dataDirectory, filename);
-  if (fs.existsSync(filePath)) {
-    const fileContents = fs.readFileSync(filePath, 'utf8');
-    return JSON.parse(fileContents);
-  }
-  return [];
-};
-
-// Helper function to write JSON files
-const writeJsonFile = (filename: string, data: any) => {
-  const filePath = path.join(dataDirectory, filename);
-  fs.writeFileSync(filePath, JSON.stringify(data, null, 2), 'utf8');
-};
 
 // Try to initialize Firebase Admin SDK
 try {
@@ -126,7 +110,9 @@ export async function POST(request: Request) {
       staffId,
       employeeId,
       driverId,
+      assignedRouteId,
       routeId,
+      assignedBusId,
       busId,
       address,
       bloodGroup,
@@ -235,6 +221,8 @@ export async function POST(request: Request) {
             sessionStartYear: sessionStartYear || new Date().getFullYear(),
             sessionEndYear: sessionEndYear || (new Date().getFullYear() + 1),
             validUntil: validUntil || new Date(new Date().getFullYear() + 1, 6, 31).toISOString(),
+            // Block dates computed from sessionEndYear
+            ...computeBlockDatesForStudent(sessionEndYear || (new Date().getFullYear() + 1)),
             pickupPoint: pickupPoint || '',
             waitingFlag: false,
             boardedFlag: false,
@@ -257,10 +245,8 @@ export async function POST(request: Request) {
             driverId: driverId || employeeId || '',
             address: address || '',
             profilePhotoUrl: profilePhotoUrl || '',
-            assignedRouteId: routeId || null,
-            routeId: routeId || null, // Same as assignedRouteId for consistency
-            assignedBusId: busId || null,
-            busId: busId || null, // Same as assignedBusId for consistency
+            assignedRouteId: assignedRouteId || routeId || null,
+            assignedBusId: assignedBusId || busId || null,
             shift: shift || 'Morning & Evening', // Default to Both Shifts if not provided
             approvedBy: approvedBy || 'System (AUTO_MIGRATION)',
             dob: dob || '',
@@ -355,6 +341,13 @@ export async function POST(request: Request) {
           busId: busId || undefined,
           shift: shift || 'Morning',
           approvedBy: approvedBy || 'System (AUTO_MIGRATION)',
+          // Session System fields
+          sessionDuration: sessionDuration || '1',
+          sessionStartYear: sessionStartYear || new Date().getFullYear(),
+          sessionEndYear: sessionEndYear || (new Date().getFullYear() + 1),
+          validUntil: validUntil || new Date(new Date().getFullYear() + 1, 6, 31).toISOString(),
+          // Block dates computed from sessionEndYear
+          ...computeBlockDatesForStudent(sessionEndYear || (new Date().getFullYear() + 1)),
           waitingFlag: false,
           boardedFlag: false,
           feesStatus: 'draft',
@@ -376,8 +369,8 @@ export async function POST(request: Request) {
           driverId: driverId || employeeId || '',
           address: address || '',
           profilePhotoUrl: profilePhotoUrl || '',
-          assignedRouteId: routeId || undefined,
-          assignedBusId: busId || undefined,
+          assignedRouteId: assignedRouteId || routeId || undefined,
+          assignedBusId: assignedBusId || busId || undefined,
           shift: shift || 'Morning & Evening',
           approvedBy: approvedBy || 'System (AUTO_MIGRATION)',
           dob: dob || '',

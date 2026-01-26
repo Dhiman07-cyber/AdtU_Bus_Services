@@ -4,6 +4,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
 import { useToast } from '@/contexts/toast-context';
 import { Route } from '@/lib/types';
 import { Loader2, AlertCircle, CheckCircle, Info } from 'lucide-react';
@@ -22,9 +23,13 @@ interface RouteSelectionSectionProps {
   selectedBusId: string;
   selectedStopId: string;
   selectedShift?: string; // Added: shift selection for capacity check
+  busAssigned?: string; // Optional restoration of display text
   onReferenceChange: (field: string, value: any) => void; // Generic handler for parent state updates
   onCapacityCheckResult?: (result: CapacityCheckResult | null) => void;
   isReadOnly?: boolean;
+  shiftContent?: React.ReactNode;
+  children?: React.ReactNode;
+  extraLabelMargin?: boolean;
 }
 
 export default function RouteSelectionSection({
@@ -34,9 +39,13 @@ export default function RouteSelectionSection({
   selectedBusId,
   selectedStopId,
   selectedShift,
+  busAssigned,
   onReferenceChange,
   onCapacityCheckResult,
-  isReadOnly = false
+  isReadOnly = false,
+  shiftContent,
+  children,
+  extraLabelMargin = false
 }: RouteSelectionSectionProps) {
   const { showToast } = useToast();
 
@@ -46,7 +55,7 @@ export default function RouteSelectionSection({
   const [checkingCapacity, setCheckingCapacity] = useState(false);
   const [simpleCapacityInfo, setSimpleCapacityInfo] = useState<BusCapacityInfo | null>(null);
   const [detailedCapacityResult, setDetailedCapacityResult] = useState<CapacityCheckResult | null>(null);
-  const [busAssignedDisplay, setBusAssignedDisplay] = useState('');
+  const [busAssignedDisplay, setBusAssignedDisplay] = useState(busAssigned || '');
   const [showStops, setShowStops] = useState(false);
 
   useEffect(() => {
@@ -321,15 +330,23 @@ export default function RouteSelectionSection({
   return (
     <div className="space-y-3">
       <div className="grid grid-cols-1 md:grid-cols-2 gap-x-3 gap-y-3">
-        {/* Route Selection - Side by Side with Bus */}
+        {/* Slot 1: Shift Content (if provided) */}
+        {shiftContent && (
+          <div className="space-y-1">
+            {shiftContent}
+          </div>
+        )}
+
+        {/* Slot 2: Route Selection */}
         <div className="space-y-1">
-          <Label htmlFor="routeId" className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-0.5">
+          <Label htmlFor="routeId" className={`block text-xs font-medium text-gray-700 dark:text-gray-300 ${extraLabelMargin ? 'mt-1' : 'mb-0.5'}`}>
             Route
           </Label>
 
           <div className="flex gap-2">
             <div className="flex-1 min-w-0">
               <Select
+                key={selectedRouteId}
                 value={selectedRouteId}
                 onValueChange={handleRouteSelect}
                 disabled={isReadOnly || !selectedShift}
@@ -348,15 +365,15 @@ export default function RouteSelectionSection({
             </div>
 
             {selectedRouteId && (
-              <div className="relative group">
-                <div
-                  className="h-9 w-9 flex items-center justify-center bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-md cursor-help text-blue-500 hover:text-blue-600 dark:text-blue-400 dark:hover:text-blue-300 transition-colors"
-                >
-                  <Info className="h-4 w-4" />
-                </div>
-
-                {/* Hover Card for Stops */}
-                <div className="absolute right-0 top-full mt-2 w-64 md:w-80 p-3 bg-white dark:bg-gray-800 rounded-lg shadow-xl border border-gray-200 dark:border-gray-700 z-50 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200">
+              <HoverCard>
+                <HoverCardTrigger asChild>
+                  <div
+                    className="h-9 w-9 flex items-center justify-center bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-md cursor-pointer text-blue-500 hover:text-blue-600 dark:text-blue-400 dark:hover:text-blue-300 transition-colors"
+                  >
+                    <Info className="h-4 w-4" />
+                  </div>
+                </HoverCardTrigger>
+                <HoverCardContent align="end" className="w-64 md:w-80 p-3 bg-white dark:bg-gray-800 rounded-lg shadow-xl border border-gray-200 dark:border-gray-700 z-[100]">
                   <p className="text-xs font-semibold text-gray-900 dark:text-gray-100 mb-2 border-b border-gray-100 dark:border-gray-700 pb-2">
                     Stops in this route
                   </p>
@@ -374,13 +391,13 @@ export default function RouteSelectionSection({
                       <p className="text-xs text-gray-500 italic">No stops data available.</p>
                     )}
                   </div>
-                </div>
-              </div>
+                </HoverCardContent>
+              </HoverCard>
             )}
           </div>
         </div>
 
-        {/* Bus Selection - Side by Side with Route */}
+        {/* Slot 3: Bus Selection */}
         <div className="space-y-1 transition-all duration-300 ease-in-out">
           <Label htmlFor="busId" className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-0.5">
             Bus
@@ -390,6 +407,7 @@ export default function RouteSelectionSection({
             associatedBuses.length > 1 ? (
               // Case 2: Bus Dropdown
               <Select
+                key={selectedBusId}
                 value={selectedBusId}
                 onValueChange={handleBusSelect}
                 disabled={isReadOnly}
@@ -412,7 +430,7 @@ export default function RouteSelectionSection({
               <Input
                 value={busAssignedDisplay || (associatedBuses.length === 0 ? "No bus assigned" : "Loading...")}
                 readOnly
-                className="h-9 bg-gray-100 dark:bg-gray-700 text-gray-500 cursor-not-allowed border-gray-200 dark:border-gray-700 text-xs"
+                className="h-9 bg-blue-600/10 border-blue-500/20 text-gray-900 dark:text-gray-100 cursor-not-allowed text-[11px]"
               />
             )
           ) : (
@@ -428,7 +446,7 @@ export default function RouteSelectionSection({
 
         </div>
 
-        {/* Pickup Point / Stop Selection - Under Route */}
+        {/* Slot 4: Pickup Point / Stop Selection */}
         <div className="space-y-1 transition-all duration-300 ease-in-out">
           <Label htmlFor="stopId" className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-0.5">
             Pickup Point / Stop
@@ -436,6 +454,7 @@ export default function RouteSelectionSection({
 
           {selectedRouteId ? (
             <Select
+              key={selectedStopId}
               value={selectedStopId}
               onValueChange={handleStopSelect}
               disabled={isReadOnly || stops.length === 0}
@@ -444,7 +463,8 @@ export default function RouteSelectionSection({
                 <SelectValue placeholder="Select Stop" />
               </SelectTrigger>
               <SelectContent className="max-h-[300px]">
-                {stops.map((stop: any, index: number) => {
+                {/* User request: Filter out the last stop (destination campus) from pickup options */}
+                {stops.slice(0, -1).map((stop: any, index: number) => {
                   const val = stop.stopId || stop.id || stop.name;
                   const display = stop.name || stop.stopName || val;
                   return (
@@ -463,58 +483,67 @@ export default function RouteSelectionSection({
             </Select>
           )}
         </div>
+
+        {/* Slot 5 (if content overflows): Children (e.g. Session Start Year) */}
+        {children && (
+          <div className="space-y-1 transition-all duration-300 ease-in-out">
+            {children}
+          </div>
+        )}
       </div>
 
       {/* Detailed Capacity Feedback Alert - Full width below the grid */}
-      {detailedCapacityResult && !checkingCapacity && (
-        // Only show if there's an issue
-        detailedCapacityResult.isFull ? (
-          detailedCapacityResult.hasAlternatives && detailedCapacityResult.alternativeBuses.length > 0 ? (
-            // Case 2A: Bus full but alternatives exist - show alternative buses
-            <Alert variant="destructive" className="mt-3 bg-amber-50 dark:bg-amber-900/10 border-amber-200 dark:border-amber-800 text-amber-800 dark:text-amber-300">
-              <div className="flex items-start">
-                <AlertCircle className="h-4 w-4 mr-2 mt-0.5" />
-                <div className="flex-1">
-                  <AlertDescription className="font-medium text-xs">
-                    The selected bus is on maximum load for the selected shift.
-                  </AlertDescription>
+      {
+        detailedCapacityResult && !checkingCapacity && (
+          // Only show if there's an issue
+          detailedCapacityResult.isFull ? (
+            detailedCapacityResult.hasAlternatives && detailedCapacityResult.alternativeBuses.length > 0 ? (
+              // Case 2A: Bus full but alternatives exist - show alternative buses
+              <Alert variant="destructive" className="mt-3 bg-amber-50 dark:bg-amber-900/10 border-amber-200 dark:border-amber-800 text-amber-800 dark:text-amber-300">
+                <div className="flex items-start">
+                  <AlertCircle className="h-4 w-4 mr-2 mt-0.5" />
+                  <div className="flex-1">
+                    <AlertDescription className="font-medium text-xs">
+                      The selected bus is on maximum load for the selected shift.
+                    </AlertDescription>
 
-                  <div className="mt-2 p-2 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg text-blue-800 dark:text-blue-300">
-                    <p className="font-semibold text-xs mb-1.5">
-                      {detailedCapacityResult.alternativeBuses.length === 1
-                        ? "This bus also serves the selected stop:"
-                        : "These buses also serve the selected stop. Please pick any of them:"}
-                    </p>
-                    <ul className="space-y-1 text-xs">
-                      {detailedCapacityResult.alternativeBuses.map((bus, idx) => (
-                        <li key={idx} className="flex items-center gap-2">
-                          <span className="w-1.5 h-1.5 bg-blue-500 rounded-full"></span>
-                          <span className="font-medium">{bus.busNumber}</span>
-                          <span className="text-blue-600 dark:text-blue-400">
-                            ({bus.availableSeats} seats available)
-                          </span>
-                        </li>
-                      ))}
-                    </ul>
+                    <div className="mt-2 p-2 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg text-blue-800 dark:text-blue-300">
+                      <p className="font-semibold text-xs mb-1.5">
+                        {detailedCapacityResult.alternativeBuses.length === 1
+                          ? "This bus also serves the selected stop:"
+                          : "These buses also serve the selected stop. Please pick any of them:"}
+                      </p>
+                      <ul className="space-y-1 text-xs">
+                        {detailedCapacityResult.alternativeBuses.map((bus, idx) => (
+                          <li key={idx} className="flex items-center gap-2">
+                            <span className="w-1.5 h-1.5 bg-blue-500 rounded-full"></span>
+                            <span className="font-medium">{bus.busNumber}</span>
+                            <span className="text-blue-600 dark:text-blue-400">
+                              ({bus.availableSeats} seats available)
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
                   </div>
                 </div>
-              </div>
-            </Alert>
-          ) : (
-            // Case 1 & 2B: Bus full and no alternatives - show admin review message
-            <Alert variant="destructive" className="mt-3 bg-amber-50 dark:bg-amber-900/10 border-amber-200 dark:border-amber-800 text-amber-800 dark:text-amber-300">
-              <div className="flex items-start">
-                <AlertCircle className="h-4 w-4 mr-2 mt-0.5" />
-                <div className="flex-1">
-                  <AlertDescription className="text-xs">
-                    Your application will be reviewed by the administrative team after submission, for final bus assignment.
-                  </AlertDescription>
+              </Alert>
+            ) : (
+              // Case 1 & 2B: Bus full and no alternatives - show admin review message
+              <Alert variant="destructive" className="mt-3 bg-amber-50 dark:bg-amber-900/10 border-amber-200 dark:border-amber-800 text-amber-800 dark:text-amber-300">
+                <div className="flex items-start">
+                  <AlertCircle className="h-4 w-4 mr-2 mt-0.5" />
+                  <div className="flex-1">
+                    <AlertDescription className="text-xs">
+                      Your application will be reviewed by the administrative team after submission, for final bus assignment.
+                    </AlertDescription>
+                  </div>
                 </div>
-              </div>
-            </Alert>
-          )
-        ) : null
-      )}
-    </div>
+              </Alert>
+            )
+          ) : null
+        )
+      }
+    </div >
   );
 }

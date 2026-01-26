@@ -3,7 +3,7 @@
 import { ReactNode } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Home, Users, Navigation, User, QrCode } from "lucide-react";
+import { Home, Users, Navigation, User, QrCode, RefreshCcw } from "lucide-react";
 import { cn } from "@/lib/utils";
 import DriverSwapBanner from "@/components/DriverSwapBanner";
 
@@ -16,10 +16,10 @@ export default function DriverLayout({ children }: DriverLayoutProps) {
 
   const navItems = [
     { href: "/driver", icon: Home, label: "Dashboard" },
-    { href: "/driver/live-tracking", icon: Navigation, label: "Tracking" },
+    { href: "/driver/live-tracking", icon: Navigation, label: "Start Trip" },
     { href: "/driver/scan-pass", icon: QrCode, label: "Scan Pass" },
+    { href: "/driver/swap-request", icon: RefreshCcw, label: "Swap" },
     { href: "/driver/students", icon: Users, label: "Students" },
-    { href: "/driver/profile", icon: User, label: "Profile" },
   ];
 
   return (

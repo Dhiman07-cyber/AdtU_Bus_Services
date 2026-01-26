@@ -6,8 +6,8 @@ import { useRouter } from "next/navigation";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { 
-  Bus, 
+import {
+  Bus,
   MapPin,
   User,
   Users,
@@ -69,8 +69,8 @@ export default function ModeratorDashboard() {
         { event: 'UPDATE', schema: 'public', table: 'driver_status' },
         (payload: any) => {
           console.log('Driver status update:', payload);
-          setDriverStatuses(prev => 
-            prev.map(status => 
+          setDriverStatuses(prev =>
+            prev.map(status =>
               status.driver_uid === payload.new.driver_uid ? payload.new : status
             )
           );
@@ -97,7 +97,7 @@ export default function ModeratorDashboard() {
         const { data: statusData, error: statusError } = await supabase
           .from('driver_status')
           .select('*');
-        
+
         if (statusError) {
           console.error('Error fetching driver statuses:', statusError);
         } else {
@@ -110,7 +110,7 @@ export default function ModeratorDashboard() {
           .select('*')
           .order('created_at', { ascending: false })
           .limit(10);
-        
+
         if (notificationError) {
           console.error('Error fetching notifications:', notificationError);
         } else {
@@ -166,8 +166,8 @@ export default function ModeratorDashboard() {
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
               {driverStatuses.map((status) => (
-                <div 
-                  key={status.driver_uid} 
+                <div
+                  key={status.driver_uid}
                   className="border rounded-lg p-4 flex items-center justify-between"
                 >
                   <div className="flex items-center space-x-3">
@@ -179,7 +179,7 @@ export default function ModeratorDashboard() {
                       <p className="text-sm text-muted-foreground">Bus: {status.bus_id}</p>
                     </div>
                   </div>
-                  <Badge 
+                  <Badge
                     variant={status.status === 'online' ? 'default' : 'secondary'}
                   >
                     {status.status}
@@ -205,8 +205,8 @@ export default function ModeratorDashboard() {
           ) : (
             <div className="space-y-3">
               {notifications.map((notification) => (
-                <div 
-                  key={notification.id} 
+                <div
+                  key={notification.id}
                   className="border rounded-lg p-4 flex items-start space-x-3"
                 >
                   <div className="bg-green-100 p-2 rounded-full mt-1">
@@ -257,7 +257,7 @@ export default function ModeratorDashboard() {
                 <p className="text-sm text-muted-foreground">Active Drivers</p>
               </div>
             </div>
-            
+
             <div className="border rounded-lg p-4 flex items-center space-x-3">
               <div className="bg-orange-100 p-2 rounded-full">
                 <MapPin className="h-5 w-5 text-orange-600" />
@@ -269,7 +269,7 @@ export default function ModeratorDashboard() {
                 <p className="text-sm text-muted-foreground">Buses En Route</p>
               </div>
             </div>
-            
+
             <div className="border rounded-lg p-4 flex items-center space-x-3">
               <div className="bg-red-100 p-2 rounded-full">
                 <AlertCircle className="h-5 w-5 text-red-600" />

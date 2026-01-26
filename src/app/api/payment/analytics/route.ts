@@ -13,8 +13,18 @@ export async function GET(request: NextRequest) {
         const decodedToken = await verifyToken(token);
         // basic role check could be added here if needed, but verifyToken ensures validity
 
+        // Get mode from query parameter: 'days' (default) or 'months'
+        const { searchParams } = new URL(request.url);
+        const mode = searchParams.get('mode') || 'days';
+
         const stats = await paymentsSupabaseService.getPaymentStats();
-        const trend = await paymentsSupabaseService.getPaymentTrend();
+
+        let trend;
+        if (mode === 'months') {
+            trend = await paymentsSupabaseService.getPaymentTrendMonthly();
+        } else {
+            trend = await paymentsSupabaseService.getPaymentTrend();
+        }
 
         return NextResponse.json({
             success: true,

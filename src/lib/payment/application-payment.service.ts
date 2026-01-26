@@ -23,7 +23,9 @@ export interface PaymentSession {
   status: 'pending' | 'processing' | 'completed' | 'failed';
   razorpayOrderId?: string;
   razorpayPaymentId?: string;
+  offlinePaymentId?: string;
   paymentReceipt?: string;
+  verifiedAt?: string;
   createdAt: string;
   updatedAt: string;
 }

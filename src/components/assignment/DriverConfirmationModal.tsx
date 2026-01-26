@@ -181,7 +181,7 @@ export function DriverConfirmationModal({
                     exit={{ scale: 0.95, opacity: 0, y: 20 }}
                     className={cn(
                         "relative flex flex-col rounded-2xl shadow-2xl border overflow-hidden",
-                        "w-full max-h-[80vh]"
+                        "w-full max-h-[90vh] max-sm:max-w-[calc(100vw-1rem)]"
                     )}
                     style={{
                         backgroundColor: tokens.modalBg,
@@ -200,28 +200,28 @@ export function DriverConfirmationModal({
 
                     {/* Header */}
                     <div
-                        className="px-6 py-4 border-b flex-shrink-0"
+                        className="px-4 sm:px-6 py-3 sm:py-4 border-b flex-shrink-0"
                         style={{
                             background: tokens.gradient,
                             borderColor: tokens.borderDark,
                         }}
                     >
-                        <div className="flex items-center justify-between pr-10">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:pr-10">
                             <div className="flex items-center gap-3">
                                 <div
-                                    className="w-10 h-10 rounded-xl flex items-center justify-center bg-gradient-to-br from-purple-500 to-pink-500"
+                                    className="w-8 h-8 sm:w-10 sm:h-10 rounded-lg sm:rounded-xl flex items-center justify-center bg-gradient-to-br from-purple-500 to-pink-500"
                                 >
-                                    <Shield className="w-5 h-5 text-white" />
+                                    <Shield className="w-4 h-4 sm:w-5 sm:h-5 text-white" />
                                 </div>
                                 <div>
                                     <h2
                                         id="driver-confirm-modal-title"
-                                        className="text-xl font-bold bg-gradient-to-r from-purple-400 to-pink-400 bg-clip-text text-transparent"
+                                        className="text-lg sm:text-xl font-bold bg-gradient-to-r from-purple-400 to-pink-400 bg-clip-text text-transparent"
                                     >
-                                        Confirm Driver Assignments
+                                        Confirm Assignments
                                     </h2>
-                                    <p className="text-xs mt-0.5" style={{ color: tokens.textMuted }}>
-                                        Review the {confirmationRows.length} net change(s) below before finalizing
+                                    <p className="text-[10px] sm:text-xs mt-0.5" style={{ color: tokens.textMuted }}>
+                                        Review {confirmationRows.length} change(s) before finalizing
                                     </p>
                                 </div>
                             </div>
@@ -233,9 +233,9 @@ export function DriverConfirmationModal({
                                         variant="ghost"
                                         size="sm"
                                         onClick={handleDownload}
-                                        className="flex items-center gap-2 h-8 px-3 rounded-lg border border-white/10 hover:opacity-90 text-[10px] font-medium transition-all shadow-sm text-white bg-gradient-to-r from-[#FF7A2D] to-[#fb923c]"
+                                        className="flex items-center gap-2 h-7 sm:h-8 px-2 sm:px-3 rounded-lg border border-white/10 hover:opacity-90 text-[9px] sm:text-[10px] font-medium transition-all shadow-sm text-white bg-gradient-to-r from-[#FF7A2D] to-[#fb923c]"
                                     >
-                                        <Download className="w-3.5 h-3.5" />
+                                        <Download className="w-3 sm:w-3.5 h-3 sm:h-3.5" />
                                         <span>Download Report</span>
                                     </Button>
                                 )}
@@ -245,7 +245,7 @@ export function DriverConfirmationModal({
 
                     {/* Summary Alert */}
                     <div
-                        className="mx-6 mt-4 px-4 py-3 rounded-xl border flex-shrink-0"
+                        className="mx-3 sm:mx-6 mt-3 sm:mt-4 px-3 sm:px-4 py-2 sm:py-3 rounded-xl border flex-shrink-0"
                         style={{
                             backgroundColor: hasNoNetChanges ? `${tokens.success}10` : `${tokens.primaryOrange}10`,
                             borderColor: hasNoNetChanges ? `${tokens.success}30` : `${tokens.primaryOrange}30`,
@@ -274,24 +274,24 @@ export function DriverConfirmationModal({
                     </div>
 
                     {/* Confirmation Table */}
-                    <div className="flex-1 min-h-0 px-6 py-4 overflow-hidden">
-                        <ScrollArea className="h-full max-h-[calc(60vh-200px)]">
+                    <div className="flex-1 min-h-0 px-3 sm:px-6 py-3 sm:py-4 overflow-hidden">
+                        <ScrollArea className="h-full max-h-[calc(70vh-200px)]">
                             {confirmationRows.length === 0 ? (
-                                <div className="flex flex-col items-center justify-center py-12 text-center">
-                                    <CheckCircle2 className="w-16 h-16 mb-4" style={{ color: tokens.success }} />
-                                    <h3 className="text-lg font-semibold mb-2" style={{ color: tokens.textPrimary }}>
+                                <div className="flex flex-col items-center justify-center py-8 sm:py-12 text-center">
+                                    <CheckCircle2 className="w-12 h-12 sm:w-16 sm:h-16 mb-3 sm:mb-4" style={{ color: tokens.success }} />
+                                    <h3 className="text-base sm:text-lg font-semibold mb-1 sm:mb-2" style={{ color: tokens.textPrimary }}>
                                         No Net Changes
                                     </h3>
-                                    <p className="text-sm max-w-md" style={{ color: tokens.textMuted }}>
+                                    <p className="text-[10px] sm:text-sm max-w-md" style={{ color: tokens.textMuted }}>
                                         All staged operations resulted in no actual changes.
                                         This can happen when drivers are swapped back to their original positions.
                                     </p>
                                     {removedNoOpInfo.length > 0 && (
                                         <div className="mt-4 text-left w-full max-w-md">
-                                            <p className="text-xs font-semibold mb-2" style={{ color: tokens.textMuted }}>
+                                            <p className="text-[10px] font-semibold mb-1" style={{ color: tokens.textMuted }}>
                                                 Eliminated operations:
                                             </p>
-                                            <ul className="text-xs space-y-1">
+                                            <ul className="text-[10px] space-y-1">
                                                 {removedNoOpInfo.map((info, idx) => (
                                                     <li key={idx} style={{ color: tokens.textMuted }}>
                                                         • {info}
@@ -302,134 +302,136 @@ export function DriverConfirmationModal({
                                     )}
                                 </div>
                             ) : (
-                                <Table>
-                                    <TableHeader>
-                                        <TableRow style={{ backgroundColor: '#0D1520' }}>
-                                            <TableHead className="text-[9px] font-semibold w-8 px-1 text-center" style={{ color: tokens.textMuted }}>
-                                                Sl.
-                                            </TableHead>
-                                            <TableHead className="text-[9px] font-semibold min-w-[100px] px-2 text-center" style={{ color: tokens.textMuted }}>
-                                                Bus
-                                            </TableHead>
-                                            <TableHead className="text-[9px] font-semibold min-w-[120px] px-2 text-center" style={{ color: tokens.textMuted }}>
-                                                Initially
-                                            </TableHead>
-                                            <TableHead className="text-[9px] font-semibold min-w-[150px] px-2 text-center" style={{ color: tokens.textMuted }}>
-                                                Initial Driver Impact
-                                            </TableHead>
-                                            <TableHead className="text-[9px] font-semibold min-w-[120px] px-2 text-center" style={{ color: tokens.textMuted }}>
-                                                Finally
-                                            </TableHead>
-                                            <TableHead className="text-[9px] font-semibold min-w-[150px] px-2 text-center" style={{ color: tokens.textMuted }}>
-                                                Final Driver Impact
-                                            </TableHead>
-                                            <TableHead className="text-[9px] font-semibold w-8 text-center px-1" style={{ color: tokens.textMuted }}>
-                                                Info
-                                            </TableHead>
-                                        </TableRow>
-                                    </TableHeader>
-                                    <TableBody>
-                                        {confirmationRows.map((row) => (
-                                            <TableRow
-                                                key={row.slNo}
-                                                className={cn(
-                                                    "transition-colors",
-                                                    row.status === "error" && "bg-red-950/20"
-                                                )}
-                                                style={{ borderColor: tokens.borderDark }}
-                                            >
-                                                {/* Sl. no */}
-                                                <TableCell className="text-[9px] font-medium px-1 py-3 text-center" style={{ color: tokens.textPrimary }}>
-                                                    {row.slNo}
-                                                </TableCell>
-
-                                                {/* Bus Affected */}
-                                                <TableCell className="px-2 text-center">
-                                                    <div className="flex items-center justify-center gap-1.5">
-                                                        <div
-                                                            className="w-5 h-5 rounded flex items-center justify-center flex-shrink-0"
-                                                            style={{ backgroundColor: `${tokens.primaryPurple}20` }}
-                                                        >
-                                                            <Bus className="w-2.5 h-2.5" style={{ color: tokens.primaryPurple }} />
-                                                        </div>
-                                                        <p className="text-[10px] font-medium whitespace-nowrap" style={{ color: tokens.textPrimary }}>
-                                                            {row.busAffected}
-                                                        </p>
-                                                    </div>
-                                                </TableCell>
-
-                                                {/* Initially */}
-                                                <TableCell className="px-2 text-center">
-                                                    <p className="text-[10px] whitespace-nowrap" style={{ color: tokens.textMuted }}>
-                                                        {row.initially}
-                                                    </p>
-                                                </TableCell>
-
-                                                {/* Initial Driver Impact */}
-                                                <TableCell className="px-2 text-center">
-                                                    <div className="flex flex-wrap items-center justify-center gap-1 max-w-[200px] mx-auto">
-                                                        <span
-                                                            className="text-[9px] font-medium leading-tight"
-                                                            style={{ color: tokens.primaryPurple }}
-                                                        >
-                                                            {row.initialDriverImpact}
-                                                        </span>
-                                                    </div>
-                                                </TableCell>
-
-                                                {/* Finally */}
-                                                <TableCell className="px-2 text-center">
-                                                    <p className="text-[10px] font-medium whitespace-nowrap" style={{ color: tokens.success }}>
-                                                        {row.finally}
-                                                    </p>
-                                                </TableCell>
-
-                                                {/* Final Driver Impact */}
-                                                <TableCell className="px-2 text-center">
-                                                    <div className="flex flex-wrap items-center justify-center gap-1 max-w-[200px] mx-auto">
-                                                        <span
-                                                            className="text-[9px] font-medium leading-tight"
-                                                            style={{ color: tokens.primaryPurple }}
-                                                        >
-                                                            {row.finalDriverImpact}
-                                                        </span>
-                                                    </div>
-                                                </TableCell>
-
-                                                {/* Info */}
-                                                <TableCell className="text-center px-1">
-                                                    <HoverCard openDelay={100} closeDelay={50}>
-                                                        <HoverCardTrigger asChild>
-                                                            <Button
-                                                                variant="ghost"
-                                                                size="sm"
-                                                                className="h-5 w-5 p-0 hover:bg-blue-500/20"
-                                                            >
-                                                                <Info className="w-3 h-3 text-blue-400" />
-                                                            </Button>
-                                                        </HoverCardTrigger>
-                                                        <HoverCardContent
-                                                            side="left"
-                                                            className="w-80 text-xs"
-                                                            style={{
-                                                                backgroundColor: '#1E293B',
-                                                                color: tokens.textPrimary,
-                                                                borderColor: tokens.borderDark,
-                                                            }}
-                                                        >
-                                                            <div className="space-y-2">
-                                                                <h4 className="font-semibold text-sm" style={{ color: tokens.primaryPurple }}>
-                                                                    Assignment Details
-                                                                </h4>
-                                                                <p className="leading-relaxed">{row.infoTooltip}</p>
-                                                            </div>
-                                                        </HoverCardContent>
-                                                    </HoverCard>
-                                                </TableCell>
+                                <div className="min-w-[800px]">
+                                    <Table>
+                                        <TableHeader>
+                                            <TableRow style={{ backgroundColor: '#0D1520' }}>
+                                                <TableHead className="text-[9px] font-semibold w-8 px-1 text-center" style={{ color: tokens.textMuted }}>
+                                                    Sl.
+                                                </TableHead>
+                                                <TableHead className="text-[9px] font-semibold min-w-[100px] px-2 text-center" style={{ color: tokens.textMuted }}>
+                                                    Bus
+                                                </TableHead>
+                                                <TableHead className="text-[9px] font-semibold min-w-[120px] px-2 text-center" style={{ color: tokens.textMuted }}>
+                                                    Initially
+                                                </TableHead>
+                                                <TableHead className="text-[9px] font-semibold min-w-[150px] px-2 text-center" style={{ color: tokens.textMuted }}>
+                                                    Initial Impact
+                                                </TableHead>
+                                                <TableHead className="text-[9px] font-semibold min-w-[120px] px-2 text-center" style={{ color: tokens.textMuted }}>
+                                                    Finally
+                                                </TableHead>
+                                                <TableHead className="text-[9px] font-semibold min-w-[150px] px-2 text-center" style={{ color: tokens.textMuted }}>
+                                                    Final Impact
+                                                </TableHead>
+                                                <TableHead className="text-[9px] font-semibold w-8 text-center px-1" style={{ color: tokens.textMuted }}>
+                                                    Info
+                                                </TableHead>
                                             </TableRow>
-                                        ))}
-                                    </TableBody>
-                                </Table>
+                                        </TableHeader>
+                                        <TableBody>
+                                            {confirmationRows.map((row) => (
+                                                <TableRow
+                                                    key={row.slNo}
+                                                    className={cn(
+                                                        "transition-colors",
+                                                        row.status === "error" && "bg-red-950/20"
+                                                    )}
+                                                    style={{ borderColor: tokens.borderDark }}
+                                                >
+                                                    {/* Sl. no */}
+                                                    <TableCell className="text-[9px] font-medium px-1 py-3 text-center" style={{ color: tokens.textPrimary }}>
+                                                        {row.slNo}
+                                                    </TableCell>
+
+                                                    {/* Bus Affected */}
+                                                    <TableCell className="px-2 text-center">
+                                                        <div className="flex items-center justify-center gap-1.5">
+                                                            <div
+                                                                className="w-5 h-5 rounded flex items-center justify-center flex-shrink-0"
+                                                                style={{ backgroundColor: `${tokens.primaryPurple}20` }}
+                                                            >
+                                                                <Bus className="w-2.5 h-2.5" style={{ color: tokens.primaryPurple }} />
+                                                            </div>
+                                                            <p className="text-[10px] font-medium whitespace-nowrap" style={{ color: tokens.textPrimary }}>
+                                                                {row.busAffected}
+                                                            </p>
+                                                        </div>
+                                                    </TableCell>
+
+                                                    {/* Initially */}
+                                                    <TableCell className="px-2 text-center">
+                                                        <p className="text-[10px] whitespace-nowrap" style={{ color: tokens.textMuted }}>
+                                                            {row.initially}
+                                                        </p>
+                                                    </TableCell>
+
+                                                    {/* Initial Impact */}
+                                                    <TableCell className="px-2 text-center">
+                                                        <div className="flex flex-wrap items-center justify-center gap-1 max-w-[200px] mx-auto">
+                                                            <span
+                                                                className="text-[9px] font-medium leading-tight"
+                                                                style={{ color: tokens.primaryPurple }}
+                                                            >
+                                                                {row.initialDriverImpact}
+                                                            </span>
+                                                        </div>
+                                                    </TableCell>
+
+                                                    {/* Finally */}
+                                                    <TableCell className="px-2 text-center">
+                                                        <p className="text-[10px] font-medium whitespace-nowrap" style={{ color: tokens.success }}>
+                                                            {row.finally}
+                                                        </p>
+                                                    </TableCell>
+
+                                                    {/* Final Impact */}
+                                                    <TableCell className="px-2 text-center">
+                                                        <div className="flex flex-wrap items-center justify-center gap-1 max-w-[200px] mx-auto">
+                                                            <span
+                                                                className="text-[9px] font-medium leading-tight"
+                                                                style={{ color: tokens.primaryPurple }}
+                                                            >
+                                                                {row.finalDriverImpact}
+                                                            </span>
+                                                        </div>
+                                                    </TableCell>
+
+                                                    {/* Info */}
+                                                    <TableCell className="text-center px-1">
+                                                        <HoverCard openDelay={100} closeDelay={50}>
+                                                            <HoverCardTrigger asChild>
+                                                                <Button
+                                                                    variant="ghost"
+                                                                    size="sm"
+                                                                    className="h-5 w-5 p-0 hover:bg-blue-500/20"
+                                                                >
+                                                                    <Info className="w-3 h-3 text-blue-400" />
+                                                                </Button>
+                                                            </HoverCardTrigger>
+                                                            <HoverCardContent
+                                                                side="left"
+                                                                className="w-80 text-xs"
+                                                                style={{
+                                                                    backgroundColor: '#1E293B',
+                                                                    color: tokens.textPrimary,
+                                                                    borderColor: tokens.borderDark,
+                                                                }}
+                                                            >
+                                                                <div className="space-y-2">
+                                                                    <h4 className="font-semibold text-sm" style={{ color: tokens.primaryPurple }}>
+                                                                        Assignment Details
+                                                                    </h4>
+                                                                    <p className="leading-relaxed">{row.infoTooltip}</p>
+                                                                </div>
+                                                            </HoverCardContent>
+                                                        </HoverCard>
+                                                    </TableCell>
+                                                </TableRow>
+                                            ))}
+                                        </TableBody>
+                                    </Table>
+                                </div>
                             )}
                             <ScrollBar orientation="horizontal" className="opacity-50" />
                         </ScrollArea>
@@ -437,37 +439,37 @@ export function DriverConfirmationModal({
 
                     {/* Footer */}
                     <div
-                        className="px-6 py-4 border-t flex justify-between items-center flex-shrink-0"
+                        className="px-4 sm:px-6 py-3 sm:py-4 border-t flex flex-col sm:flex-row justify-between items-center flex-shrink-0 gap-4"
                         style={{ borderColor: tokens.borderDark }}
                     >
                         <div className="flex items-center gap-2">
-                            <Shield className="w-4 h-4" style={{ color: tokens.textMuted }} />
-                            <span className="text-xs" style={{ color: tokens.textMuted }}>
+                            <Shield className="w-3.5 sm:w-4 h-3.5 sm:h-4" style={{ color: tokens.textMuted }} />
+                            <span className="text-[10px] sm:text-xs" style={{ color: tokens.textMuted }}>
                                 All changes are atomic and reversible until confirmed
                             </span>
                         </div>
 
-                        <div className="flex gap-3">
+                        <div className="flex gap-2 sm:gap-3 w-full sm:w-auto">
                             <Button
                                 variant="outline"
                                 onClick={handleCancel}
-                                className="min-w-[100px] border-gray-600 text-gray-400 hover:bg-gray-800"
+                                className="flex-1 sm:min-w-[100px] h-9 sm:h-10 border-gray-600 text-gray-400 hover:bg-gray-800 text-[11px] sm:text-xs"
                             >
                                 Cancel
                             </Button>
                             <Button
                                 onClick={handleProceed}
                                 disabled={hasNoNetChanges || confirmationRows.length === 0 || processing}
-                                className="min-w-[180px] text-white bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 text-xs font-bold uppercase tracking-widest shadow-lg shadow-purple-500/20 transition-all active:scale-95"
+                                className="flex-[2] sm:min-w-[180px] h-9 sm:h-10 text-white bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 text-[10px] sm:text-xs font-bold uppercase tracking-wider sm:tracking-widest shadow-lg shadow-purple-500/20 transition-all active:scale-95"
                             >
                                 {processing ? (
                                     <>
-                                        <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
+                                        <RefreshCw className="w-3 sm:w-4 h-3 sm:h-4 mr-1.5 sm:mr-2 animate-spin" />
                                         Committing...
                                     </>
                                 ) : (
                                     <>
-                                        <Sparkles className="w-4 h-4 mr-2" />
+                                        <Sparkles className="w-3 sm:w-4 h-3 sm:h-4 mr-1.5 sm:mr-2" />
                                         Proceed to Finalize
                                     </>
                                 )}
@@ -476,7 +478,7 @@ export function DriverConfirmationModal({
                     </div>
                 </motion.div>
             </motion.div>
-        </AnimatePresence>
+        </AnimatePresence >
     );
 }
 

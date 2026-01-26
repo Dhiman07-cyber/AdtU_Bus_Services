@@ -4,6 +4,7 @@ import { createContext, useContext, useEffect, useState, ReactNode, useRef } fro
 import { onAuthStateChanged, User as FirebaseUser } from 'firebase/auth';
 import { doc, onSnapshot, getDoc, Unsubscribe } from 'firebase/firestore';
 import { auth, db } from '@/lib/firebase';
+import { setSigningOut, getSigningOutState } from '@/lib/firestore-error-handler';
 import { User, signInWithGoogle } from '@/lib/user-service';
 
 interface AuthContextType {
@@ -22,39 +23,35 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 const CACHE_KEY = 'adtu_bus_user_data';
 const CACHE_EXPIRY_KEY = 'adtu_bus_cache_expiry';
 
-// 🚨 DEVELOPMENT MODE: Disable caching for real-time updates
-// Change to 24 * 60 * 60 * 1000 for production (24 hours)
-const CACHE_DURATION = 0; // DISABLED - Always fetch fresh data
+// Cache duration: 5 minutes - balanced for real-time updates while reducing Firestore reads
+// Real-time listeners will still update immediately when data changes
+const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
 
 /**
  * Get cached user data from localStorage
- * NOTE: Caching disabled for development to ensure real-time updates
+ * Used for instant UI on page load; real-time listeners update afterwards
  */
 function getCachedUserData(): User | null {
-  // 🚨 DEVELOPMENT: Skip cache entirely for real-time testing
-  console.log('⚠️ Cache disabled - fetching fresh data from Firestore');
-  return null;
-
-  /* PRODUCTION CODE - Uncomment for production:
   try {
+    if (typeof window === 'undefined') return null;
+
     const cached = localStorage.getItem(CACHE_KEY);
     const expiry = localStorage.getItem(CACHE_EXPIRY_KEY);
-    
+
     if (!cached || !expiry) return null;
-    
+
     // Check if cache is expired
     if (Date.now() > parseInt(expiry)) {
       localStorage.removeItem(CACHE_KEY);
       localStorage.removeItem(CACHE_EXPIRY_KEY);
       return null;
     }
-    
+
     return JSON.parse(cached);
   } catch (error) {
     console.warn('Failed to read cache:', error);
     return null;
   }
-  */
 }
 
 /**
@@ -292,26 +289,29 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             (error) => {
               if (!isMounted) return;
 
-              // Check if this is expected during sign-out
-              const { getSigningOutState } = require('@/lib/firestore-error-handler');
+              // Check if this error should be suppressed (signout, network issues, etc.)
               if (getSigningOutState()) {
                 // Suppress errors during sign-out
                 return;
               }
 
-              console.error(`❌ Listener error for ${targetCollection}:`, error);
+              // Check for permission denied specifically
+              const isPermissionError = error.code === 'permission-denied' ||
+                error.message?.includes('Missing or insufficient permissions');
 
-              // If permission error, user might need to apply
-              if (error.code === 'permission-denied') {
-                console.error('Permission denied - user may need to apply');
+              if (isPermissionError) {
+                // During active session, permission denied usually means user needs to apply
+                // But only if we're not in signout process
+                console.warn('Permission denied - user may need to apply');
                 setUserData(null);
                 setCachedUserData(null);
                 setNeedsApplication(true);
                 setIsExpired(false);
                 setLoading(false);
               } else {
-                // Other errors - don't immediately assume they need to apply
-                console.error('Listener error, but not setting needsApplication');
+                // Other errors - log but don't immediately assume they need to apply
+                // Could be network issues, Firestore service issues, etc.
+                console.warn('Listener error (non-permission):', error.message || error.code || 'Unknown error');
                 setLoading(false);
               }
             }
@@ -378,38 +378,43 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const signOut = async () => {
     try {
       // Set flag to suppress permission errors during sign-out
-      const { setSigningOut } = await import('@/lib/firestore-error-handler');
       setSigningOut(true);
 
-      // Clean up listener first
+      // Clean up listener FIRST before any state changes
       if (listenerUnsubscribe.current) {
-        listenerUnsubscribe.current();
+        try {
+          listenerUnsubscribe.current();
+        } catch (e) {
+          // Ignore listener cleanup errors
+        }
         listenerUnsubscribe.current = null;
       }
+
+      // Clear state immediately to prevent any more Firestore operations
+      setUserData(null);
+      setNeedsApplication(false);
+      setIsExpired(false);
+      setCurrentUser(null);
 
       // Clear cache
       setCachedUserData(null);
 
-      const { signOutUser } = await import('@/lib/user-service');
-      const response = await signOutUser();
-
-      if (response.success) {
-        setUserData(null);
-        setNeedsApplication(false);
-        setIsExpired(false);
-
-        // Reset the flag after a short delay to allow any pending errors to be suppressed
-        setTimeout(() => setSigningOut(false), 1000);
-
-        return { success: true };
-      } else {
-        setSigningOut(false);
-        return { success: false, error: response.error || 'Sign out failed' };
+      // Now sign out from Firebase
+      try {
+        const { signOutUser } = await import('@/lib/user-service');
+        await signOutUser();
+      } catch (signOutError) {
+        // Even if Firebase signout fails, we've already cleared local state
+        console.warn('Firebase signout error (user state already cleared):', signOutError);
       }
+
+      // Reset the flag after a longer delay to allow any pending errors to be suppressed
+      setTimeout(() => setSigningOut(false), 2000);
+
+      return { success: true };
     } catch (error) {
       // Reset flag on error
-      const { setSigningOut } = await import('@/lib/firestore-error-handler');
-      setSigningOut(false);
+      setTimeout(() => setSigningOut(false), 2000);
       return { success: false, error: (error as Error).message };
     }
   };

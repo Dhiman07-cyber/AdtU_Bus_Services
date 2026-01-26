@@ -5,8 +5,111 @@ import { calculateValidUntilDate } from '@/lib/utils/date-utils';
 import { calculateRenewalDate } from '@/lib/utils/renewal-utils';
 import { incrementBusCapacity } from '@/lib/busCapacityService';
 import { generateOfflinePaymentId, OfflinePaymentDocument } from '@/lib/types/payment';
+import { computeBlockDatesFromValidUntil } from '@/lib/utils/deadline-computation';
+import {
+  sendStudentAddedNotification,
+  getAdminEmailRecipients,
+  StudentAddedEmailData,
+  AdminEmailRecipient
+} from '@/lib/services/admin-email.service';
+import { generateReceiptPdf } from '@/lib/services/receipt.service';
 import path from 'path';
 import fs from 'fs';
+
+// Helper function to read bus fee from system_config.json
+function getBusFeeFromConfig(): number {
+  const configPath = path.join(process.cwd(), 'src', 'config', 'system_config.json');
+  let busFeeAmount = 5000; // Default fallback
+
+  if (fs.existsSync(configPath)) {
+    try {
+      const fileContent = fs.readFileSync(configPath, 'utf-8');
+      const config = JSON.parse(fileContent);
+      busFeeAmount = config?.busFee?.amount || 5000;
+      console.log('📋 Bus fee loaded from system_config.json:', busFeeAmount);
+    } catch (e) {
+      console.error('Error reading system_config.json for bus fee:', e);
+    }
+  } else {
+    // Fallback to bus_fee.json for backward compatibility
+    const fallbackPath = path.join(process.cwd(), 'src', 'config', 'bus_fee.json');
+    if (fs.existsSync(fallbackPath)) {
+      try {
+        const fileContent = fs.readFileSync(fallbackPath, 'utf-8');
+        const busFeeData = JSON.parse(fileContent);
+        busFeeAmount = busFeeData.amount || 5000;
+        console.log('📋 Bus fee loaded from bus_fee.json (fallback):', busFeeAmount);
+      } catch (e) {
+        console.error('Error reading bus_fee.json:', e);
+      }
+    }
+  }
+
+  return busFeeAmount;
+}
+
+// Helper function to get route name from routeId
+async function getRouteName(routeId: string): Promise<string> {
+  if (!routeId) return 'Not Assigned';
+  try {
+    const routeDoc = await adminDb.collection('routes').doc(routeId).get();
+    if (routeDoc.exists) {
+      return routeDoc.data()?.routeName || routeDoc.data()?.name || routeId;
+    }
+  } catch (e) {
+    console.error('Error fetching route name:', e);
+  }
+  return routeId;
+}
+
+// Helper function to get bus name from busId
+async function getBusName(busId: string): Promise<string> {
+  if (!busId) return 'Auto-assigned';
+  try {
+    const busDoc = await adminDb.collection('buses').doc(busId).get();
+    if (busDoc.exists) {
+      const data = busDoc.data();
+      const busNumber = data?.displayIndex || data?.sequenceNumber || data?.busNumber;
+      const licensePlate = data?.licensePlate || data?.plateNumber;
+      if (busNumber && licensePlate) {
+        return `Bus-${busNumber} (${licensePlate})`;
+      }
+      return data?.name || busId;
+    }
+  } catch (e) {
+    console.error('Error fetching bus name:', e);
+  }
+  return busId;
+}
+
+// Helper function to get stop name from route and stopId
+async function getStopName(routeId: string, stopId: string): Promise<string> {
+  if (!routeId || !stopId) return 'Not Selected';
+  try {
+    const routeDoc = await adminDb.collection('routes').doc(routeId).get();
+    if (routeDoc.exists) {
+      const stops = routeDoc.data()?.stops || [];
+      const stop = stops.find((s: any) => s.id === stopId || s.stopId === stopId);
+      if (stop) {
+        return stop.name || stop.stopName || stopId;
+      }
+    }
+  } catch (e) {
+    console.error('Error fetching stop name:', e);
+  }
+  return stopId;
+}
+
+// Helper function to normalize shift values (remove "Shift" word, standardize to "Morning"/"Evening")
+function normalizeShift(shift: string | undefined): string {
+  if (!shift) return 'Morning';
+  const normalized = shift.toLowerCase().trim();
+  if (normalized.includes('evening')) return 'Evening';
+  if (normalized.includes('morning')) return 'Morning';
+  if (normalized === 'both') return 'Both';
+  return 'Morning'; // Default
+}
+
 
 export async function POST(request: Request) {
   try {
@@ -92,6 +195,7 @@ export async function POST(request: Request) {
       age,
       faculty,
       department,
+      semester, // Added semester
       parentName,
       parentPhone,
       dob,
@@ -102,21 +206,29 @@ export async function POST(request: Request) {
       driverId,
       employeeId,
       staffId,
-      routeId,
-      busId,
+      assignedRouteId, // new field
+      routeId, // legacy support 
+      assignedBusId, // new field
+      busId, // legacy support
       address,
       bloodGroup,
       shift,
       approvedBy,
       // Session fields for students
-      sessionDuration,
+      durationYears, // New field for direct duration
+      sessionDuration, // Fallback for duration
       sessionStartYear,
       sessionEndYear,
       validUntil,
       pickupPoint,
-      status,
-      semester // Added semester
+      stopId, // Standard field name
+      status
     } = userData;
+
+    // Use priority: stopId > pickupPoint
+    const finalStopId = stopId || pickupPoint || '';
+    // Use priority: durationYears > sessionDuration (parsed) > default 1
+    const finalDuration = durationYears || parseInt(sessionDuration) || 1;
 
     // Validate required input
     if (!email || !name || !role) {
@@ -151,18 +263,19 @@ export async function POST(request: Request) {
 
     // 1. Handle STUDENT creation (Exact match to Approval Flow)
     if (role === 'student') {
-      const durationYears = parseInt(sessionDuration || '1');
-
       // Calculate validity
       // Use provided validUntil or calculate it
       let finalValidUntil = validUntil;
       let finalSessionEndYear = sessionEndYear;
 
       if (!finalValidUntil) {
-        const { newValidUntil } = calculateRenewalDate(null, durationYears);
+        const { newValidUntil } = calculateRenewalDate(null, finalDuration);
         finalValidUntil = newValidUntil;
         finalSessionEndYear = new Date(finalValidUntil).getFullYear();
       }
+
+      // Compute block dates from finalValidUntil
+      const blockDates = computeBlockDatesFromValidUntil(finalValidUntil);
 
       // Create STUDENTS collection document
       const studentDoc: any = {
@@ -176,7 +289,7 @@ export async function POST(request: Request) {
         createdAt: now,
         department: department || '',
         dob: dob || '',
-        durationYears: durationYears,
+        durationYears: finalDuration,
         email: email,
         enrollmentId: enrollmentId || '',
         faculty: faculty || '',
@@ -191,30 +304,25 @@ export async function POST(request: Request) {
         semester: semester || '',
         sessionEndYear: finalSessionEndYear,
         sessionStartYear: sessionStartYear || new Date().getFullYear(),
-        shift: shift || 'Morning',
+        shift: normalizeShift(shift),
         status: 'active', // Direct active status
-        stopId: pickupPoint || '', // Map pickupPoint to stopId
+        stopId: finalStopId, // Map to standardized stopId
         uid: uid,
         updatedAt: now,
         validUntil: finalValidUntil,
+        // Block dates
+        softBlock: blockDates.softBlock,
+        hardBlock: blockDates.hardBlock,
         // Payment information
         paymentAmount: 0, // Will update below
         paid_on: now
       };
 
       // Create Payment Record logic
-      // 1. Read bus fee config
-      const configPath = path.join(process.cwd(), 'src', 'config', 'bus_fee.json');
-      let busFeeAmount = 1200; // Default fallback
-      if (fs.existsSync(configPath)) {
-        try {
-          const fileContent = fs.readFileSync(configPath, 'utf-8');
-          const busFeeData = JSON.parse(fileContent);
-          busFeeAmount = busFeeData.amount || 1200;
-        } catch (e) { console.error("Error reading bus fee config", e); }
-      }
+      // 1. Read bus fee from system_config.json
+      const busFeeAmount = getBusFeeFromConfig();
 
-      const totalAmount = busFeeAmount * durationYears;
+      const totalAmount = busFeeAmount * finalDuration;
 
       // Update student doc with payment amount
       studentDoc.paymentAmount = totalAmount;
@@ -223,25 +331,30 @@ export async function POST(request: Request) {
       await adminDb.collection('students').doc(uid).set(studentDoc);
       console.log('✅ STUDENTS document created successfully');
 
+      // Generate payment ID (used for both supabase and email notification)
+      const paymentId = generateOfflinePaymentId('new_registration');
+      const offlineTransactionId = `manual_entry_${Date.now()}`;
+
       // Create Payment Document in SUPABASE
       if (totalAmount > 0) {
         const { paymentsSupabaseService } = await import('@/lib/services/payments-supabase');
-        const paymentId = generateOfflinePaymentId('new_registration');
+
 
         const paymentCreated = await paymentsSupabaseService.createPayment({
           paymentId,
           studentId: enrollmentId || '',
           studentUid: uid,
           studentName: name,
+          stopId: finalStopId, // Map to standardized stopId
           amount: totalAmount,
           method: 'Offline',
           status: 'Completed',
           sessionStartYear: sessionStartYear || new Date().getFullYear(),
           sessionEndYear: finalSessionEndYear,
-          durationYears: durationYears,
+          durationYears: finalDuration,
           validUntil: new Date(finalValidUntil),
           transactionDate: new Date(),
-          offlineTransactionId: `manual_entry_${Date.now()}`,
+          offlineTransactionId: offlineTransactionId,
           approvedBy: {
             type: 'Manual',
             userId: currentUserUid,
@@ -281,6 +394,86 @@ export async function POST(request: Request) {
       await adminDb.collection('users').doc(uid).set(userDoc);
       console.log('✅ USERS document created successfully');
 
+      // Send email notification to admins if added by moderator
+      if (currentUserRole === 'moderator') {
+        console.log('📧 Moderator added student - sending notification to admins');
+        try {
+          // Resolve names for email notification
+          const routeName = await getRouteName(routeId || '');
+          const busName = await getBusName(busId || '');
+          const stopName = await getStopName(routeId || '', finalStopId);
+
+          // Fetch admin recipients from centralized service
+          const adminRecipients = await getAdminEmailRecipients();
+
+          if (adminRecipients.length > 0) {
+            const emailData: StudentAddedEmailData = {
+              studentName: name,
+              studentEmail: email,
+              studentPhone: phone || '',
+              enrollmentId: enrollmentId || '',
+              faculty: faculty || '',
+              department: department || '',
+              semester: semester || '',
+              shift: shift || 'Morning',
+              routeName,
+              busName,
+              pickupPoint: stopName,
+              sessionStartYear: sessionStartYear || new Date().getFullYear(),
+              sessionEndYear: finalSessionEndYear,
+              validUntil: finalValidUntil,
+              durationYears: durationYears,
+              paymentAmount: totalAmount,
+              transactionId: paymentId,
+              addedBy: {
+                name: currentUserName,
+                employeeId: currentUserEmployeeId,
+                role: 'moderator'
+              },
+              addedAt: now
+            };
+
+            // Generate e-receipt PDF
+            // Add a small delay to ensure Supabase has fully committed the payment record
+            console.log('📄 Waiting for Supabase consistency before generating PDF...');
+            await new Promise(resolve => setTimeout(resolve, 500));
+
+            console.log('📄 Generating e-receipt PDF for email attachment with paymentId:', paymentId);
+            let pdfBuffer: Buffer | null = null;
+            try {
+              pdfBuffer = await generateReceiptPdf(paymentId);
+              if (pdfBuffer) {
+                console.log('✅ PDF generated successfully, size:', pdfBuffer.length, 'bytes');
+              } else {
+                console.warn('⚠️ PDF generation returned null - payment might not be found in Supabase');
+              }
+            } catch (pdfError) {
+              console.error('❌ Error generating PDF:', pdfError);
+            }
+
+            const emailResult = await sendStudentAddedNotification(
+              adminRecipients,
+              emailData,
+              pdfBuffer ? {
+                content: pdfBuffer,
+                filename: `Receipt_${name.replace(/\s+/g, '_')}_${paymentId}.pdf`
+              } : undefined
+            );
+
+            if (emailResult.success) {
+              console.log('✅ Admin notification email sent successfully' + (pdfBuffer ? ' with e-receipt' : ''));
+            } else {
+              console.warn('⚠️ Failed to send admin notification email:', emailResult.error);
+            }
+          } else {
+            console.warn('⚠️ No admin recipients found for notification');
+          }
+        } catch (emailError) {
+          console.error('❌ Error sending notification email:', emailError);
+          // Don't fail the request just because email failed
+        }
+      }
+
     } else if (role === 'driver') {
       const driverDocData: any = {
         uid, // Set the actual Firebase Auth UID
@@ -294,10 +487,9 @@ export async function POST(request: Request) {
         driverId: driverId || employeeId || '',
         address: address || '',
         profilePhotoUrl: profilePhotoUrl || '',
-        assignedRouteId: routeId || null,
-        routeId: routeId || null, // Same as assignedRouteId for consistency
-        assignedBusId: busId || null,
-        busId: busId || null, // Same as assignedBusId for consistency
+        profilePhotoUrl: profilePhotoUrl || '',
+        assignedRouteId: assignedRouteId || routeId || null,
+        assignedBusId: assignedBusId || busId || null,
         shift: shift || 'Morning & Evening', // Default to Both Shifts if not provided
         approvedBy: approvedByDisplay,
         dob: dob || '',

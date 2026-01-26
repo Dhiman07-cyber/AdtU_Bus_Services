@@ -41,6 +41,18 @@ export default function ProfileImageAddModal({
     // Reset state when modal closes
     useEffect(() => {
         if (!isOpen) {
+            // Cleanup blob URLs to prevent memory leaks
+            if (previewUrl && previewUrl.startsWith('data:')) {
+                // data URLs don't need cleanup
+            } else if (previewUrl) {
+                URL.revokeObjectURL(previewUrl);
+            }
+            if (croppedImageUrl && croppedImageUrl.startsWith('data:')) {
+                // data URLs don't need cleanup
+            } else if (croppedImageUrl) {
+                URL.revokeObjectURL(croppedImageUrl);
+            }
+            
             setStep('select');
             setSelectedFile(null);
             setPreviewUrl(null);
@@ -49,8 +61,12 @@ export default function ProfileImageAddModal({
             setError(null);
             setCroppedImageUrl(null);
             setImgAspect(1);
+            // Reset file input
+            if (fileInputRef.current) {
+                fileInputRef.current.value = '';
+            }
         }
-    }, [isOpen]);
+    }, [isOpen, previewUrl, croppedImageUrl]);
 
     const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];

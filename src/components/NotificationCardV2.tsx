@@ -18,6 +18,7 @@ import {
   DialogHeader,
   DialogTitle,
   DialogFooter,
+  DialogDescription,
 } from '@/components/ui/dialog';
 import {
   AlertDialog,
@@ -44,7 +45,11 @@ import {
   Globe,
   Loader2,
   AlertCircle,
-  ExternalLink
+  ExternalLink,
+  MessageSquare,
+  Bus,
+  Truck,
+  X
 } from 'lucide-react';
 import Link from 'next/link';
 import { useAuth } from '@/contexts/auth-context';
@@ -68,12 +73,16 @@ export default function NotificationCardV2({
   onDeleteGlobally,
   onRefresh,
 }: NotificationCardV2Props) {
-  const { currentUser } = useAuth();
+  const { currentUser, userData } = useAuth();
   const { addToast } = useToast();
   const [isViewDialogOpen, setIsViewDialogOpen] = useState(false);
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [loading, setLoading] = useState(false);
+
+  const [didMarkAsRead, setDidMarkAsRead] = useState(false);
+  // Combine prop state with local state for instant UI updates
+  const isEffectiveRead = notification.isRead || didMarkAsRead;
 
   const formatDate = (timestamp: any) => {
     if (!timestamp) return '';
@@ -158,7 +167,7 @@ export default function NotificationCardV2({
     },
     all: {
       color: "blue",
-      label: "Everyone",
+      label: "Everyone", // Fallback
       bg: "bg-blue-600",
       lightBg: "bg-blue-50/50",
       border: "border-blue-100",
@@ -180,12 +189,31 @@ export default function NotificationCardV2({
   const typeTheme = typeThemes[notification.type] || typeThemes.default;
   const ThemeIcon = typeTheme.icon;
 
-  const handleMarkAsRead = async () => {
-    if (onMarkAsRead && !notification.isRead) {
+  const isFeedbackIssue = !!notification.metadata?.feedbackId;
+  const isRenewalRequest = notification.title.toLowerCase().includes('renewal request');
+
+  const getDisplayLabel = () => {
+    if (targetRole !== 'all') return roleTheme.label;
+
+    const userRole = userData?.role || (currentUser?.email?.includes('admin') ? 'admin' : 'student');
+
+    if (userRole === 'admin' || userRole === 'moderator') return "Global Broadcast";
+    if (userRole === 'student') return "Campus Notice";
+    if (userRole === 'driver') return "Fleet Notice";
+    return "General Notice";
+  };
+
+  const displayLabel = getDisplayLabel();
+
+  const handleMarkAsRead = async (skipRefresh = false) => {
+    if (onMarkAsRead && !isEffectiveRead) {
       setLoading(true);
       try {
         await onMarkAsRead(notification.id);
-        onRefresh?.();
+        setDidMarkAsRead(true); // Visually mark as read instantly
+        if (!skipRefresh) {
+          onRefresh?.();
+        }
       } catch (error) { addToast('Failed to mark as read', 'error'); }
       finally { setLoading(false); }
     }
@@ -209,17 +237,18 @@ export default function NotificationCardV2({
   return (
     <>
       <Card
-        className={`group relative flex flex-col overflow-hidden transition-all duration-500 border-l-[6px] cursor-pointer ${!notification.isRead
+        className={`group relative flex flex-col overflow-hidden transition-all duration-500 border-l-[6px] cursor-pointer ${!isEffectiveRead
           ? `bg-gradient-to-br from-white to-${roleTheme.color}-50/40 dark:from-slate-800/60 dark:to-${roleTheme.color}-900/20 ${roleTheme.glow} scale-[1.01] z-10 border-r border-t border-b border-${roleTheme.color}-200/50 dark:border-${roleTheme.color}-800/30`
           : `bg-white dark:bg-slate-900/80 backdrop-blur-sm shadow-sm hover:shadow-xl hover:dark:bg-slate-900 transition-all shadow-black/5`} rounded-[24px] border ${roleTheme.border} dark:border-slate-800 hover:shadow-2xl hover:shadow-${roleTheme.color}-500/10 transition-all duration-300`}
         style={{ borderLeftColor: `var(--role-${targetRole})` }}
         onClick={() => {
           setIsViewDialogOpen(true);
-          if (!notification.isRead) handleMarkAsRead();
+          // Pass true to skip refresh, preventing component unmount during open
+          if (!isEffectiveRead) handleMarkAsRead(true);
         }}
       >
         {/* Unread Animation */}
-        {!notification.isRead && (
+        {!isEffectiveRead && (
           <div className={`absolute top-0 right-0 w-24 h-24 bg-${roleTheme.color}-500/10 blur-3xl -mr-12 -mt-12 animate-pulse`} />
         )}
 
@@ -235,10 +264,10 @@ export default function NotificationCardV2({
                 <div className="space-y-0.5">
                   <div className="flex items-center gap-2">
                     <span className={`text-[10px] font-black uppercase tracking-[0.15em] bg-clip-text text-transparent bg-gradient-to-r ${roleTheme.accent}`}>
-                      {notification.type}
+                      {isFeedbackIssue ? "Issues" : isRenewalRequest ? "Request" : notification.type}
                     </span>
                     <Badge variant="outline" className={`h-4 text-[8px] font-bold border-${roleTheme.color}-200 text-${roleTheme.color}-600 dark:border-${roleTheme.color}-800 dark:text-${roleTheme.color}-400 px-1.5`}>
-                      {roleTheme.label}
+                      {displayLabel}
                     </Badge>
                   </div>
                   <div className="flex items-center gap-1.5 text-[10px] text-slate-400 font-bold">
@@ -249,7 +278,7 @@ export default function NotificationCardV2({
               </div>
 
               <div className="flex items-center gap-2">
-                {!notification.isRead && (
+                {!isEffectiveRead && (
                   <span className={`flex h-2 w-2 rounded-full bg-${roleTheme.color}-500 animate-bounce`} />
                 )}
                 {(notification.canEdit || notification.canDeleteGlobally) && (
@@ -262,13 +291,15 @@ export default function NotificationCardV2({
                     <DropdownMenuContent align="end" className="w-56 rounded-[20px] border-slate-200/50 dark:border-slate-800/50 shadow-2xl backdrop-blur-xl bg-white/90 dark:bg-slate-950/90 p-1.5">
                       <DropdownMenuItem className="py-2.5 rounded-xl font-bold text-xs cursor-pointer focus:bg-slate-100 dark:focus:bg-slate-900 transition-all" onClick={() => {
                         setIsViewDialogOpen(true);
-                        if (!notification.isRead) handleMarkAsRead();
+                        // Skip refresh here too to prevent closing
+                        if (!isEffectiveRead) handleMarkAsRead(true);
                       }}>
                         <Eye className="h-4 w-4 mr-3 text-slate-500" /> View Detailed Broadcast
                       </DropdownMenuItem>
-                      {!notification.isRead && (
+                      {!isEffectiveRead && (
                         <DropdownMenuItem className="py-2.5 rounded-xl font-bold text-xs cursor-pointer focus:bg-blue-50 dark:focus:bg-blue-900/40 text-blue-600 transition-all" onClick={(e) => {
                           e.stopPropagation();
+                          // Standard refresh is fine here as we aren't opening a modal
                           handleMarkAsRead();
                         }}>
                           <CheckCheck className="h-4 w-4 mr-3" /> Acknowledge Message
@@ -302,10 +333,10 @@ export default function NotificationCardV2({
 
             {/* Title: The Core Focus */}
             <div className="space-y-2">
-              <h3 className={`text-[17px] font-extrabold leading-tight tracking-tight ${!notification.isRead ? 'text-slate-900 dark:text-white' : 'text-slate-700 dark:text-slate-300'}`}>
+              <h3 className={`text-[17px] font-extrabold leading-tight tracking-tight break-all line-clamp-1 ${!isEffectiveRead ? 'text-slate-900 dark:text-white' : 'text-slate-700 dark:text-slate-300'}`}>
                 {notification.title}
               </h3>
-              <p className={`text-[13px] leading-relaxed font-medium line-clamp-2 ${notification.isRead ? 'text-slate-500/80' : 'text-slate-600 dark:text-slate-400'}`}>
+              <p className={`text-[13px] leading-relaxed font-medium line-clamp-2 break-all ${isEffectiveRead ? 'text-slate-500/80' : 'text-slate-600 dark:text-slate-400'}`}>
                 {notification.content}
               </p>
             </div>
@@ -319,12 +350,18 @@ export default function NotificationCardV2({
                   </div>
                 </div>
                 <div className="flex flex-col">
-                  <span className="text-[11px] font-black text-slate-800 dark:text-slate-100 leading-none tracking-tight">{notification.sender.userName}</span>
-                  <div className="flex items-center gap-1.5 mt-1">
-                    <Badge variant="secondary" className="h-3.5 text-[7px] font-black uppercase tracking-widest px-1 bg-slate-100 dark:bg-slate-800 text-slate-500">
-                      {notification.sender.userRole}
-                    </Badge>
-                  </div>
+                  {isRenewalRequest ? (
+                    <span className="text-[11px] font-black text-slate-800 dark:text-slate-100 leading-none tracking-tight">Student name : {notification.sender.userName}</span>
+                  ) : (
+                    <>
+                      <span className="text-[11px] font-black text-slate-800 dark:text-slate-100 leading-none tracking-tight">{notification.sender.userName}</span>
+                      <div className="flex items-center gap-1.5 mt-1">
+                        <Badge variant="secondary" className="h-3.5 text-[7px] font-black uppercase tracking-widest px-1 bg-slate-100 dark:bg-slate-800 text-slate-500">
+                          {notification.sender.userRole}
+                        </Badge>
+                      </div>
+                    </>
+                  )}
                 </div>
               </div>
 
@@ -338,11 +375,12 @@ export default function NotificationCardV2({
           </div>
 
           {/* Detailed View Link for Unread */}
-          {!notification.isRead && (
+          {!isEffectiveRead && (
             <button
               onClick={() => {
                 setIsViewDialogOpen(true);
-                if (!notification.isRead) handleMarkAsRead();
+                // Skip refresh to prevent closing
+                if (!isEffectiveRead) handleMarkAsRead(true);
               }}
               className={`w-full py-3.5 bg-gradient-to-r ${roleTheme.accent} hover:brightness-110 active:scale-[0.98] text-[11px] font-black text-white uppercase tracking-[0.2em] transition-all shadow-lg overflow-hidden relative group/btn`}
             >
@@ -364,18 +402,36 @@ export default function NotificationCardV2({
       </Card>
 
       {/* Enhanced View Dialog */}
-      <Dialog open={isViewDialogOpen} onOpenChange={setIsViewDialogOpen}>
+      <Dialog
+        open={isViewDialogOpen}
+        onOpenChange={(open) => {
+          setIsViewDialogOpen(open);
+          // If closing and we marked as read locally, trigger real refresh now
+          if (!open && didMarkAsRead) {
+            onRefresh?.();
+          }
+        }}
+      >
         <DialogContent
+          showCloseButton={false}
           onWheel={(e) => e.stopPropagation()}
-          className="max-w-[98vw] sm:max-w-4xl p-0 border-0 rounded-2xl sm:rounded-[28px] overflow-hidden bg-white dark:bg-slate-950 shadow-[0_32px_128px_-16px_rgba(0,0,0,0.3)] animate-in zoom-in-95 duration-500 sm:top-[54%] !translate-y-[-50%] sm:mt-0"
+          className="max-w-[95vw] sm:max-w-4xl p-0 border-2 border-white sm:border-0 rounded-2xl sm:rounded-[28px] overflow-hidden bg-white dark:bg-slate-950 shadow-[0_32px_128px_-16px_rgba(0,0,0,0.3)] animate-in zoom-in-95 duration-500 sm:top-[54%] !translate-y-[-50%] sm:mt-0"
         >
           <div className="relative flex flex-col max-h-[80vh] sm:max-h-[90vh]">
             {/* Modal Header Wrap - Compact on mobile */}
-            <div className={`relative px-3 sm:px-8 pt-6 sm:pt-10 pb-3 sm:pb-6 bg-gradient-to-br from-${roleTheme.color}-500/5 to-transparent`}>
-              <div className={`absolute top-0 left-0 w-full h-0.5 sm:h-1.5 bg-gradient-to-r ${roleTheme.accent}`} />
+            <div className={`relative px-5 sm:px-8 pt-6 sm:pt-10 pb-3 sm:pb-6 bg-gradient-to-br from-${roleTheme.color}-500/5 to-transparent`}>
 
-              {/* Mobile: Stacked Layout, Desktop: Row Layout */}
-              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-4 mb-3 sm:mb-6">
+
+              {/* Close Button - Single Instance, Top Right */}
+              <button
+                onClick={() => setIsViewDialogOpen(false)}
+                className="absolute top-3 right-3 sm:top-5 sm:right-5 p-2 bg-black/5 hover:bg-black/10 dark:bg-white/10 dark:hover:bg-white/20 backdrop-blur-md rounded-full text-slate-500 dark:text-slate-400 transition-all duration-300 hover:rotate-90 hover:scale-110 active:scale-95 z-[60] group/close shadow-sm border border-black/5 dark:border-white/5"
+              >
+                <X className="h-4 w-4 sm:h-5 sm:w-5 group-hover/close:text-red-500 transition-colors" />
+              </button>
+
+              {/* Mobile: Row Layout for everything */}
+              <div className="flex flex-row items-center justify-between gap-2 sm:gap-4 mb-3 sm:mb-6 pr-8">
                 {/* Left: Icon + Badges */}
                 <div className="flex items-center gap-2 sm:gap-3">
                   <div className={`w-8 h-8 sm:w-11 sm:h-11 rounded-lg sm:rounded-[16px] bg-gradient-to-br ${roleTheme.accent} shadow-lg ${roleTheme.glow} flex items-center justify-center text-white ring-1 sm:ring-4 ring-${roleTheme.color}-500/5`}>
@@ -384,9 +440,9 @@ export default function NotificationCardV2({
                   <div className="space-y-0.5">
                     <div className="flex items-center gap-1.5">
                       <Badge className={`bg-${roleTheme.color}-500 hover:bg-${roleTheme.color}-600 text-white font-black px-1 sm:px-1.5 py-0 sm:py-0.5 text-[6px] sm:text-[8px] tracking-wider border-0 shadow-sm`}>
-                        {notification.type.toUpperCase()}
+                        {isFeedbackIssue ? "ISSUES" : isRenewalRequest ? "REQUEST" : notification.type.toUpperCase()}
                       </Badge>
-                      {!notification.isRead && (
+                      {!isEffectiveRead && (
                         <Badge variant="default" className="bg-blue-600 text-[6px] sm:text-[8px] font-black px-1 py-0 uppercase animate-pulse shadow-sm">New</Badge>
                       )}
                     </div>
@@ -397,41 +453,125 @@ export default function NotificationCardV2({
                   </div>
                 </div>
 
-                {/* Right: Sender Info - Compact on mobile */}
-                <div className="flex items-center gap-2 bg-white/40 dark:bg-slate-900/40 backdrop-blur-md px-2 sm:px-3.5 py-1.5 sm:py-2 rounded-lg sm:rounded-xl border border-slate-200/40 dark:border-slate-800/40 shadow-sm self-start sm:self-auto">
+                {/* Right: Sender Info - Hidden on mobile in the MODAL as requested */}
+                <div className={`hidden sm:flex items-center gap-2 bg-white/40 dark:bg-slate-900/40 backdrop-blur-md px-2 sm:px-3.5 py-1.5 sm:py-2 rounded-lg sm:rounded-xl border border-slate-200/40 dark:border-slate-800/40 shadow-sm`}>
                   <div className={`h-6 w-6 sm:h-8 sm:w-8 rounded-md sm:rounded-lg bg-gradient-to-br ${roleTheme.accent} flex items-center justify-center font-black text-white shadow-md text-[10px] sm:text-xs ring-1 sm:ring-2 ring-white dark:ring-slate-900`}>
                     {notification.sender.userName.charAt(0)}
                   </div>
-                  <div>
-                    <p className="text-[8px] sm:text-[10px] font-black text-slate-900 dark:text-white leading-tight uppercase tracking-tight">{notification.sender.userName}</p>
-                    <p className={`text-[6px] sm:text-[7px] text-${roleTheme.color}-600 dark:text-${roleTheme.color}-400 font-black uppercase tracking-widest`}>{notification.sender.userRole}</p>
+                  <div className="hidden sm:block">
+                    {isRenewalRequest ? (
+                      <p className="text-[8px] sm:text-[10px] font-black text-slate-900 dark:text-white leading-tight uppercase tracking-tight">Student name : {notification.sender.userName}</p>
+                    ) : (
+                      <>
+                        <p className="text-[8px] sm:text-[10px] font-black text-slate-900 dark:text-white leading-tight uppercase tracking-tight">{notification.sender.userName}</p>
+                        <p className={`text-[6px] sm:text-[7px] text-${roleTheme.color}-600 dark:text-${roleTheme.color}-400 font-black uppercase tracking-widest`}>{notification.sender.userRole}</p>
+                      </>
+                    )}
                   </div>
                 </div>
               </div>
 
-              <DialogTitle className="text-base sm:text-2xl font-[900] text-slate-900 dark:text-white leading-tight tracking-tight pr-6 sm:pr-6">
+              <DialogTitle className="text-base sm:text-2xl font-[900] text-slate-900 dark:text-white leading-tight tracking-tight pr-12 sm:pr-0 break-all">
                 {notification.title}
               </DialogTitle>
+              <DialogDescription className="sr-only">
+                Detailed view of the notification content
+              </DialogDescription>
             </div>
 
             {/* Scrollable Content Area - Compact on mobile */}
             <div
-              className="px-3 sm:px-8 py-3 sm:py-6 overflow-y-auto custom-scrollbar overscroll-contain touch-pan-y flex-1 relative max-h-[350px] sm:max-h-[450px]"
+              className="px-5 sm:px-8 py-3 sm:py-6 overflow-y-auto custom-scrollbar overscroll-contain touch-pan-y flex-1 relative max-h-[350px] sm:max-h-[450px]"
               onWheel={(e) => e.stopPropagation()}
             >
               <div className="max-w-none relative z-10">
-                <div className="text-sm text-slate-700 dark:text-slate-300 leading-relaxed font-medium tracking-tight whitespace-pre-wrap mb-4">
-                  {(() => {
-                    const matrixData = (notification as any).metadata?.matrix;
-                    if (matrixData && matrixData.length > 0) {
-                      // If we have matrix data, we attempt to clean the ASCII version from the text
-                      // The ASCII version usually starts with "Bus-X :"
-                      const lines = notification.content.split('\n');
-                      const introLines = lines.filter(line => !line.trim().startsWith('Bus-') && !line.includes(' : Route-'));
-                      return introLines.join('\n').trim();
-                    }
-                    return notification.content;
-                  })()}
+                <div className="text-sm text-slate-700 dark:text-slate-300 leading-relaxed font-medium tracking-tight whitespace-pre-wrap mb-4 break-all">
+                  {isFeedbackIssue ? (
+                    <div className="space-y-5">
+                      {/* Premium Sender & Bus Cards */}
+                      <div className="grid grid-cols-2 gap-3 sm:gap-4">
+                        <div className="relative group overflow-hidden rounded-[20px] bg-slate-50 dark:bg-slate-900/40 border border-slate-200/50 dark:border-slate-800/50 p-3.5 transition-all hover:shadow-lg hover:shadow-blue-500/5">
+                          <div className="absolute top-0 right-0 w-16 h-16 bg-blue-500/5 blur-2xl rounded-full translate-x-1/2 -translate-y-1/2" />
+                          <div className="flex items-center gap-3">
+                            <div className="p-2 rounded-xl bg-blue-500/10 text-blue-600 dark:text-blue-400">
+                              <User className="h-4 w-4" />
+                            </div>
+                            <div className="min-w-0">
+                              <p className="text-[9px] font-black uppercase tracking-[0.15em] text-slate-400/80 mb-0.5">Reporter</p>
+                              <p className="text-[11px] sm:text-xs font-bold text-slate-800 dark:text-slate-100 truncate">{notification.metadata?.feedbackSenderName || 'Unknown'}</p>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="relative group overflow-hidden rounded-[20px] bg-slate-50 dark:bg-slate-900/40 border border-slate-200/50 dark:border-slate-800/50 p-3.5 transition-all hover:shadow-lg hover:shadow-amber-500/5">
+                          <div className="absolute top-0 right-0 w-16 h-16 bg-amber-500/5 blur-2xl rounded-full translate-x-1/2 -translate-y-1/2" />
+                          <div className="flex items-center gap-3">
+                            <div className="p-2 rounded-xl bg-amber-500/10 text-amber-600 dark:text-amber-400">
+                              <Bus className="h-4 w-4" />
+                            </div>
+                            <div className="min-w-0">
+                              <p className="text-[9px] font-black uppercase tracking-[0.15em] text-slate-400/80 mb-0.5">Vehicle</p>
+                              <p className="text-[11px] sm:text-xs font-bold text-slate-800 dark:text-slate-100 truncate">
+                                {notification.metadata?.feedbackBusId ? (
+                                  `Bus-${notification.metadata.feedbackBusId.split('_')[1] || notification.metadata.feedbackBusId} ${notification.metadata.feedbackBusPlate ? `(${notification.metadata.feedbackBusPlate})` : ''}`
+                                ) : 'N/A'}
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Content Section: Original Feedback */}
+                      <div className="relative overflow-hidden rounded-[24px] bg-gradient-to-br from-slate-50 to-white dark:from-slate-950 dark:to-slate-900/50 border border-slate-200/60 dark:border-slate-800/60 p-5 sm:p-6 shadow-sm">
+                        <div className="flex items-center justify-between mb-4">
+                          <div className="flex items-center gap-2.5">
+                            <div className="p-2 rounded-lg bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
+                              <MessageSquare className="h-4 w-4" />
+                            </div>
+                            <span className="text-[10px] font-black uppercase tracking-[0.2em] text-emerald-600 dark:text-emerald-400">Original Submission</span>
+                          </div>
+                          <div className="h-px flex-1 mx-4 bg-emerald-500/10" />
+                        </div>
+                        <div className="text-[14px] leading-relaxed text-slate-600 dark:text-slate-300 font-medium italic break-all">
+                          <span className="text-emerald-500/40 text-3xl font-serif mr-1 leading-none">"</span>
+                          {notification.metadata?.originalFeedback || (
+                            notification.content.includes('Original Feedback from')
+                              ? notification.content.split('---')[0].split('):\n\n')[1]?.replace(/^"|"$/g, '')
+                              : notification.content
+                          )}
+                          <span className="text-emerald-500/40 text-3xl font-serif ml-1 leading-none inline-block align-bottom">"</span>
+                        </div>
+                      </div>
+
+                      {/* Admin Note: Action/Instruction */}
+                      <div className="relative overflow-hidden rounded-[24px] bg-indigo-500/[0.03] dark:bg-indigo-500/[0.02] border-2 border-indigo-500/10 dark:border-indigo-500/10 p-5 sm:p-6 shadow-xl shadow-indigo-500/5">
+                        <div className="absolute top-0 left-0 w-1 h-full bg-indigo-500" />
+                        <div className="flex items-center gap-2.5 mb-4">
+                          <div className="p-2 rounded-lg bg-indigo-500 text-white shadow-lg shadow-indigo-500/20">
+                            <AlertCircle className="h-4 w-4" />
+                          </div>
+                          <span className="text-[10px] font-black uppercase tracking-[0.2em] text-indigo-600 dark:text-indigo-400">Resolution & Action</span>
+                        </div>
+                        <div className="text-[14px] leading-relaxed text-slate-800 dark:text-slate-100 font-bold tracking-tight break-all">
+                          {notification.metadata?.adminNote || (
+                            notification.content.includes("Administrator's Note:")
+                              ? notification.content.split("Administrator's Note:")[1]?.trim()
+                              : "Review required."
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    (() => {
+                      const matrixData = (notification as any).metadata?.matrix;
+                      if (matrixData && matrixData.length > 0) {
+                        const lines = notification.content.split('\n');
+                        const introLines = lines.filter(line => !line.trim().startsWith('Bus-') && !line.includes(' : Route-'));
+                        return introLines.join('\n').trim();
+                      }
+                      return notification.content;
+                    })()
+                  )}
                 </div>
 
                 {/* Premium Matrix Table */}
@@ -523,24 +663,33 @@ export default function NotificationCardV2({
                 })()}
               </div>
 
-              {notification.title.toLowerCase().includes('swap') && (
-                <div className="mt-6">
-                  <Link href="/driver/driver-swap-requests?tab=incoming" className={`group flex items-center justify-between p-4 rounded-xl bg-gradient-to-r ${roleTheme.accent} text-white hover:scale-[1.01] active:scale-95 transition-all shadow-lg ${roleTheme.glow}`}>
-                    <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 bg-white/15 rounded-lg flex items-center justify-center backdrop-blur-md">
-                        <AlertCircle className="h-5 w-5 text-white" />
+              {/* Only show Action Required for pending swap requests, not for acceptance/completion notifications */}
+              {notification.title.toLowerCase().includes('swap') &&
+                !notification.title.toLowerCase().includes('accepted') &&
+                !notification.title.toLowerCase().includes('completed') &&
+                !notification.title.toLowerCase().includes('ended') &&
+                !notification.title.toLowerCase().includes('rejected') &&
+                !notification.title.toLowerCase().includes('cancelled') &&
+                !notification.title.toLowerCase().includes('expired') &&
+                !notification.content.toLowerCase().includes('has been accepted') &&
+                !notification.content.toLowerCase().includes('accepted your') && (
+                  <div className="mt-6">
+                    <Link href="/driver/swap-request?tab=incoming" className={`group flex items-center justify-between p-4 rounded-xl bg-gradient-to-r ${roleTheme.accent} text-white hover:scale-[1.01] active:scale-95 transition-all shadow-lg ${roleTheme.glow}`}>
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 bg-white/15 rounded-lg flex items-center justify-center backdrop-blur-md">
+                          <AlertCircle className="h-5 w-5 text-white" />
+                        </div>
+                        <div>
+                          <span className="block font-black text-sm leading-tight text-white tracking-tight">Action Required</span>
+                          <span className="text-white/70 text-[10px] font-bold tracking-wide">Respond to this swap request</span>
+                        </div>
                       </div>
-                      <div>
-                        <span className="block font-black text-sm leading-tight text-white tracking-tight">Action Required</span>
-                        <span className="text-white/70 text-[10px] font-bold tracking-wide">Respond to this swap request</span>
+                      <div className="w-7 h-7 rounded-full bg-white/10 flex items-center justify-center transition-transform group-hover:translate-x-1">
+                        <ExternalLink className="h-3.5 w-3.5" />
                       </div>
-                    </div>
-                    <div className="w-7 h-7 rounded-full bg-white/10 flex items-center justify-center transition-transform group-hover:translate-x-1">
-                      <ExternalLink className="h-3.5 w-3.5" />
-                    </div>
-                  </Link>
-                </div>
-              )}
+                    </Link>
+                  </div>
+                )}
 
               <div className={`absolute bottom-0 right-0 w-40 h-40 bg-${roleTheme.color}-500/5 blur-[80px] pointer-events-none -z-10`} />
             </div>
@@ -558,10 +707,12 @@ export default function NotificationCardV2({
                   </div>
                 )}
 
-                <div className="flex items-center gap-2.5 px-3.5 py-2 rounded-xl bg-white dark:bg-slate-800/50 text-slate-500 border border-slate-200/50 dark:border-slate-700/50 w-full sm:w-auto shadow-sm">
-                  <div className={`h-1.5 w-1.5 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]`} />
-                  <span className="text-[9px] font-black uppercase tracking-[0.1em] text-emerald-600 dark:text-emerald-400">Official Broadcast</span>
-                </div>
+                {!isFeedbackIssue && (
+                  <div className="flex items-center gap-2.5 px-3.5 py-2 rounded-xl bg-white dark:bg-slate-800/50 text-slate-500 border border-slate-200/50 dark:border-slate-700/50 w-full sm:w-auto shadow-sm">
+                    <div className={`h-1.5 w-1.5 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]`} />
+                    <span className="text-[9px] font-black uppercase tracking-[0.1em] text-emerald-600 dark:text-emerald-400">Official Broadcast</span>
+                  </div>
+                )}
               </div>
 
               <Button
@@ -571,35 +722,36 @@ export default function NotificationCardV2({
                 Close View
               </Button>
             </div>
-          </div>
-        </DialogContent>
-      </Dialog>
+          </div >
+        </DialogContent >
+      </Dialog >
 
       {/* Edit Form */}
-      <NotificationFormV2
+      < NotificationFormV2
         open={isEditDialogOpen}
-        onClose={() => setIsEditDialogOpen(false)}
+        onClose={() => setIsEditDialogOpen(false)
+        }
         mode="edit"
         initialData={notification}
         onEdit={handleEdit}
       />
 
       <AlertDialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
-        <AlertDialogContent className="rounded-[40px] border-0 shadow-[0_40px_120px_-20px_rgba(0,0,0,0.4)] p-12 bg-white dark:bg-slate-950 max-w-lg">
+        <AlertDialogContent className="rounded-[24px] border-0 shadow-2xl p-6 sm:p-8 bg-white dark:bg-slate-950 max-w-[90vw] sm:max-w-md">
           <AlertDialogHeader>
-            <div className="w-20 h-20 bg-red-50 dark:bg-red-900/20 rounded-[28px] flex items-center justify-center mb-8 mx-auto animate-bounce">
-              <Trash2 className="h-10 w-10 text-red-600" />
+            <div className="w-14 h-14 bg-red-50 dark:bg-red-900/20 rounded-2xl flex items-center justify-center mb-4 mx-auto">
+              <Trash2 className="h-7 w-7 text-red-600" />
             </div>
-            <AlertDialogTitle className="text-3xl font-black text-center text-slate-900 dark:text-white tracking-tight">Destructive Action</AlertDialogTitle>
-            <AlertDialogDescription className="text-slate-500 dark:text-slate-400 text-lg font-medium text-center leading-relaxed mt-4">
-              This will permanently revoke access to this notification for <span className="text-red-600 font-bold">everyone</span>. This action is final and irreversible.
+            <AlertDialogTitle className="text-xl font-black text-center text-slate-900 dark:text-white tracking-tight">Destructive Action</AlertDialogTitle>
+            <AlertDialogDescription className="text-slate-500 dark:text-slate-400 text-sm font-medium text-center leading-relaxed mt-2">
+              This will permanently revoke access to this notification for <span className="text-red-600 font-bold">everyone</span>. This action is irreversible.
             </AlertDialogDescription>
           </AlertDialogHeader>
-          <AlertDialogFooter className="mt-12 flex flex-col sm:flex-row gap-4 w-full">
-            <AlertDialogCancel className="w-full sm:w-1/2 font-black text-xs uppercase tracking-widest rounded-2xl border-slate-200 h-14 hover:bg-slate-50 transition-all">Abort Action</AlertDialogCancel>
+          <AlertDialogFooter className="mt-6 flex flex-col sm:flex-row gap-3 w-full">
+            <AlertDialogCancel className="w-full sm:w-1/2 font-black text-[10px] uppercase tracking-widest rounded-xl border-slate-200 h-11 hover:bg-slate-50 transition-all">Abort Action</AlertDialogCancel>
             <AlertDialogAction
               onClick={() => onDeleteGlobally?.(notification.id)}
-              className="w-full sm:w-1/2 bg-red-600 hover:bg-red-700 text-white font-black text-xs uppercase tracking-[0.2em] rounded-2xl h-14 shadow-2xl shadow-red-500/30 active:scale-95 transition-all"
+              className="w-full sm:w-1/2 bg-red-600 hover:bg-red-700 text-white font-black text-[10px] uppercase tracking-[0.2em] rounded-xl h-11 shadow-lg shadow-red-500/20 active:scale-95 transition-all"
             >
               Confirm Deletion
             </AlertDialogAction>

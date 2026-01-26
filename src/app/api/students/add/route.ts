@@ -1,8 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getApps, initializeApp } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
-import fs from 'fs';
-import path from 'path';
+
 
 // Define types for our data
 interface Student {
@@ -25,21 +24,7 @@ interface Student {
   [key: string]: any; // Allow additional properties
 }
 
-// Get the data directory path
-const dataDirectory = path.join(process.cwd(), 'src', 'data');
 
-// Helper function to read JSON files
-const readJsonFile = (filename: string) => {
-  const filePath = path.join(dataDirectory, filename);
-  const fileContents = fs.readFileSync(filePath, 'utf8');
-  return JSON.parse(fileContents);
-};
-
-// Helper function to write JSON files
-const writeJsonFile = (filename: string, data: any) => {
-  const filePath = path.join(dataDirectory, filename);
-  fs.writeFileSync(filePath, JSON.stringify(data, null, 2), 'utf8');
-};
 
 let db: any = null;
 
@@ -72,40 +57,36 @@ export async function POST(request: Request) {
   try {
     const newStudentData = await request.json();
     console.log('Received student data:', newStudentData);
-    
+
     // Generate a unique ID
     const studentId = Date.now().toString();
     const newStudent = {
       ...newStudentData,
       id: studentId
     };
-    
-    // Try to save to Firebase first
-    if (db) {
-      try {
-        // Save to Firestore with the role field
-        const studentDocRef = db.doc(`users/${studentId}`);
-        await studentDocRef.set({
-          ...newStudent,
-          uid: studentId,
-          role: 'student',
-          createdAt: new Date().toISOString()
-        });
-        console.log('Student saved to Firestore:', newStudent);
-      } catch (firebaseError) {
-        console.error('Error saving student to Firestore:', firebaseError);
-        // Continue with JSON file save even if Firebase fails
-      }
+
+    // Save to Firebase (Critical Path)
+    if (!db) {
+      console.error('Firebase Admin SDK not initialized');
+      return NextResponse.json({ error: 'Database service unavailable' }, { status: 503 });
     }
-    
-    // Also save to JSON file for backward compatibility
-    const students: Student[] = readJsonFile('Students.json');
-    students.push(newStudent);
-    writeJsonFile('Students.json', students);
-    
-    console.log('Student saved to JSON file:', newStudent);
-    
-    return NextResponse.json(newStudent, { status: 201 });
+
+    try {
+      // Save to Firestore with the role field
+      const studentDocRef = db.doc(`users/${studentId}`);
+      await studentDocRef.set({
+        ...newStudent,
+        uid: studentId,
+        role: 'student',
+        createdAt: new Date().toISOString()
+      });
+      console.log('Student saved to Firestore:', newStudent);
+
+      return NextResponse.json(newStudent, { status: 201 });
+    } catch (firebaseError: any) {
+      console.error('Error saving student to Firestore:', firebaseError);
+      return NextResponse.json({ error: 'Failed to save student data: ' + firebaseError.message }, { status: 500 });
+    }
   } catch (error) {
     console.error('Error adding student:', error);
     return NextResponse.json({ error: 'Failed to add student' }, { status: 500 });

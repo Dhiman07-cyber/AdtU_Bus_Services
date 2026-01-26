@@ -1,9 +1,199 @@
 /**
  * Mobile Error Handler
- * Prevents silent crashes on mobile by catching unhandled errors
+ * Comprehensive error handling for mobile devices and PWA
+ * 
+ * Handles:
+ * - Chunk loading failures (Failed to load chunk / _next/static/chunks...)
+ * - Network errors when screen turns off/on
+ * - Empty error details
+ * - Firestore permission errors during signout
+ * - Connection recovery on app foreground
  */
 
+import { getSigningOutState } from '@/lib/firestore-error-handler';
+
 let isInitialized = false;
+let reconnectTimeoutId: NodeJS.Timeout | null = null;
+let lastOnlineStatus = true;
+let chunkFailureCount = 0;
+const MAX_CHUNK_FAILURES_BEFORE_RELOAD = 3;
+
+// Errors to suppress completely (don't log or store)
+const SUPPRESSED_ERROR_PATTERNS = [
+  'Missing or insufficient permissions',
+  'permission-denied',
+  'Failed to get document because the client is offline',
+  'ResizeObserver loop',
+  'ResizeObserver loop completed with undelivered notifications',
+  'Non-Error promise rejection captured',
+  'Network request failed',
+  'Load failed',
+  'net::ERR_',
+  'Failed to fetch',
+  'AbortError',
+];
+
+// Chunk-loading related errors
+const CHUNK_ERROR_PATTERNS = [
+  'Failed to load chunk',
+  'Loading chunk',
+  'ChunkLoadError',
+  '_next/static/chunks',
+  'Loading CSS chunk',
+  'Failed to fetch dynamically imported module',
+  'Unable to preload CSS',
+];
+
+/**
+ * Check if an error message matches known suppressed patterns
+ */
+function shouldSuppressError(message: string): boolean {
+  if (!message || getSigningOutState()) return true;
+
+  const lowerMessage = message.toLowerCase();
+  return SUPPRESSED_ERROR_PATTERNS.some(pattern =>
+    lowerMessage.includes(pattern.toLowerCase())
+  );
+}
+
+/**
+ * Check if error is a chunk loading failure
+ */
+function isChunkLoadError(message: string): boolean {
+  if (!message) return false;
+
+  return CHUNK_ERROR_PATTERNS.some(pattern =>
+    message.includes(pattern)
+  );
+}
+
+/**
+ * Normalize error message for display and logging
+ */
+export function normalizeErrorMessage(error: any): string {
+  if (!error) return 'An unknown error occurred';
+
+  // Handle empty error objects {}
+  if (typeof error === 'object') {
+    if (Object.keys(error).length === 0) {
+      return 'Connection error. Please check your network.';
+    }
+
+    // Try common error properties
+    const message = error.message || error.error || error.reason || error.detail;
+    if (message) return message;
+
+    // Try to stringify for debugging
+    try {
+      const stringified = JSON.stringify(error);
+      if (stringified === '{}') {
+        return 'Connection error. Please check your network.';
+      }
+    } catch {
+      // Ignore stringify errors
+    }
+  }
+
+  if (typeof error === 'string') {
+    return error || 'An error occurred';
+  }
+
+  return 'An unexpected error occurred';
+}
+
+/**
+ * Handle chunk loading failures gracefully
+ */
+function handleChunkLoadError(message: string) {
+  chunkFailureCount++;
+  console.warn(`📦 Chunk load failure #${chunkFailureCount}:`, message);
+
+  // Store for debugging
+  try {
+    sessionStorage.setItem('last_chunk_error', JSON.stringify({
+      message,
+      timestamp: new Date().toISOString(),
+      count: chunkFailureCount
+    }));
+  } catch {
+    // Ignore
+  }
+
+  // After multiple failures, suggest or auto-reload
+  if (chunkFailureCount >= MAX_CHUNK_FAILURES_BEFORE_RELOAD) {
+    console.warn('🔄 Multiple chunk failures detected. Attempting to recover...');
+
+    // Clear the chunk failure count
+    chunkFailureCount = 0;
+
+    // Try to reload the page to get fresh chunks
+    // Wait a moment to allow any pending operations to complete
+    setTimeout(() => {
+      // Only reload if user is still on the page and online
+      if (navigator.onLine && !document.hidden) {
+        console.log('♻️ Reloading page to recover from chunk errors...');
+        window.location.reload();
+      }
+    }, 1000);
+  }
+}
+
+/**
+ * Handle visibility change (app foreground/background)
+ */
+function handleVisibilityChange() {
+  if (document.hidden) {
+    console.log('📱 App backgrounded');
+    // Clear any pending reconnect attempts
+    if (reconnectTimeoutId) {
+      clearTimeout(reconnectTimeoutId);
+      reconnectTimeoutId = null;
+    }
+  } else {
+    console.log('📱 App foregrounded');
+
+    // Check network status and trigger reconnection if needed
+    if (navigator.onLine) {
+      // Dispatch a custom event that components can listen to for refreshing data
+      window.dispatchEvent(new CustomEvent('app-foreground'));
+
+      // Reset chunk failure count on foreground
+      chunkFailureCount = 0;
+    } else {
+      console.warn('⚠️ App foregrounded but device is offline');
+    }
+  }
+}
+
+/**
+ * Handle online/offline status changes
+ */
+function handleOnlineStatusChange() {
+  const isOnline = navigator.onLine;
+
+  if (isOnline && !lastOnlineStatus) {
+    // Just came back online
+    console.log('🌐 Connection restored');
+
+    // Clear any pending reconnect
+    if (reconnectTimeoutId) {
+      clearTimeout(reconnectTimeoutId);
+    }
+
+    // Wait a moment for network to stabilize, then signal reconnection
+    reconnectTimeoutId = setTimeout(() => {
+      window.dispatchEvent(new CustomEvent('app-reconnected'));
+      reconnectTimeoutId = null;
+    }, 1000);
+
+  } else if (!isOnline && lastOnlineStatus) {
+    // Just went offline
+    console.log('📴 Connection lost');
+    window.dispatchEvent(new CustomEvent('app-offline'));
+  }
+
+  lastOnlineStatus = isOnline;
+}
 
 /**
  * Initialize mobile error handling
@@ -14,32 +204,48 @@ export function initMobileErrorHandler() {
     return;
   }
 
-  console.log('📱 Initializing mobile error handler...');
+  console.log('📱 Initializing enhanced mobile error handler...');
+
+  // Initialize online status
+  lastOnlineStatus = navigator.onLine;
 
   // Catch unhandled promise rejections
   window.addEventListener('unhandledrejection', (event) => {
-    console.error('❌ Unhandled Promise Rejection:', event.reason);
-    
+    const errorMessage = normalizeErrorMessage(event.reason);
+
+    // Check if we should suppress this error
+    if (shouldSuppressError(errorMessage)) {
+      event.preventDefault();
+      return;
+    }
+
+    // Check for chunk loading errors
+    if (isChunkLoadError(errorMessage)) {
+      event.preventDefault();
+      handleChunkLoadError(errorMessage);
+      return;
+    }
+
+    console.error('❌ Unhandled Promise Rejection:', errorMessage);
+
     // Prevent the default behavior (which might crash the app)
     event.preventDefault();
-    
-    // Log to console for debugging
+
+    // Log to console for debugging (with normalized message)
     if (event.reason instanceof Error) {
       console.error('Error details:', {
-        message: event.reason.message,
-        stack: event.reason.stack,
-        name: event.reason.name
+        message: event.reason.message || 'No message',
+        name: event.reason.name || 'Unknown',
+        stack: event.reason.stack || 'No stack trace'
       });
     }
-    
-    // You can send this to an error tracking service here
-    // For now, just log it
+
+    // Store in sessionStorage for debugging
     try {
-      // Store in sessionStorage for debugging
       const errors = JSON.parse(sessionStorage.getItem('app_errors') || '[]');
       errors.push({
         type: 'unhandledrejection',
-        message: event.reason?.message || String(event.reason),
+        message: errorMessage,
         timestamp: new Date().toISOString(),
       });
       // Keep only last 10 errors
@@ -52,26 +258,40 @@ export function initMobileErrorHandler() {
 
   // Catch uncaught errors
   window.addEventListener('error', (event) => {
-    console.error('❌ Uncaught Error:', event.error);
-    
+    const errorMessage = normalizeErrorMessage(event.error || event.message);
+
+    // Check if we should suppress this error
+    if (shouldSuppressError(errorMessage)) {
+      event.preventDefault();
+      return;
+    }
+
+    // Check for chunk loading errors
+    if (isChunkLoadError(event.message || errorMessage)) {
+      event.preventDefault();
+      handleChunkLoadError(event.message || errorMessage);
+      return;
+    }
+
+    console.error('❌ Uncaught Error:', errorMessage);
+
     // Prevent the default behavior
     event.preventDefault();
-    
+
     // Log details
     console.error('Error details:', {
-      message: event.message,
-      filename: event.filename,
-      lineno: event.lineno,
-      colno: event.colno,
-      error: event.error
+      message: event.message || 'No message',
+      filename: event.filename || 'Unknown file',
+      lineno: event.lineno || 0,
+      colno: event.colno || 0,
     });
-    
+
     // Store for debugging
     try {
       const errors = JSON.parse(sessionStorage.getItem('app_errors') || '[]');
       errors.push({
         type: 'error',
-        message: event.message,
+        message: errorMessage,
         filename: event.filename,
         lineno: event.lineno,
         colno: event.colno,
@@ -88,21 +308,28 @@ export function initMobileErrorHandler() {
   window.addEventListener('error', (event) => {
     if (event.target && (event.target as any).tagName) {
       const target = event.target as HTMLElement;
-      console.warn('⚠️ Resource failed to load:', {
-        tag: target.tagName,
-        src: (target as any).src || (target as any).href
-      });
+      const tagName = target.tagName?.toLowerCase();
+      const src = (target as any).src || (target as any).href;
+
+      // Check if it's a chunk loading failure
+      if (src && isChunkLoadError(src)) {
+        handleChunkLoadError(`Resource failed to load: ${src}`);
+      } else {
+        // Only log non-chunk resource failures
+        console.warn('⚠️ Resource failed to load:', {
+          tag: tagName,
+          src: src || 'unknown'
+        });
+      }
     }
   }, true); // Use capture phase
 
-  // Log when page is hidden (mobile background)
-  document.addEventListener('visibilitychange', () => {
-    if (document.hidden) {
-      console.log('📱 App backgrounded');
-    } else {
-      console.log('📱 App foregrounded');
-    }
-  });
+  // Handle visibility changes
+  document.addEventListener('visibilitychange', handleVisibilityChange);
+
+  // Handle online/offline status
+  window.addEventListener('online', handleOnlineStatusChange);
+  window.addEventListener('offline', handleOnlineStatusChange);
 
   // Detect low memory warnings on mobile
   if ('onmemorywarning' in window) {
@@ -110,8 +337,8 @@ export function initMobileErrorHandler() {
       console.warn('⚠️ Low memory warning!');
       // Clear caches, unload unnecessary data
       try {
-        // Clear old localStorage data
-        const keysToKeep = ['applicationDraft', 'currentPaymentSession'];
+        // Clear old localStorage data (except critical items)
+        const keysToKeep = ['applicationDraft', 'currentPaymentSession', 'adtu_bus_user_data'];
         Object.keys(localStorage).forEach(key => {
           if (!keysToKeep.includes(key)) {
             localStorage.removeItem(key);
@@ -124,7 +351,7 @@ export function initMobileErrorHandler() {
   }
 
   isInitialized = true;
-  console.log('✅ Mobile error handler initialized');
+  console.log('✅ Enhanced mobile error handler initialized');
 }
 
 /**
@@ -154,9 +381,9 @@ export function clearLoggedErrors() {
  */
 export function isMobileDevice(): boolean {
   if (typeof window === 'undefined') return false;
-  
+
   const userAgent = navigator.userAgent || navigator.vendor || (window as any).opera;
-  
+
   // Mobile detection
   return /android|webos|iphone|ipad|ipod|blackberry|iemobile|opera mini/i.test(
     userAgent.toLowerCase()

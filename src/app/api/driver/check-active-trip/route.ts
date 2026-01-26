@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { auth, db as adminDb } from '@/lib/firebase-admin';
+import { createClient } from '@supabase/supabase-js';
 
 /**
  * POST /api/driver/check-active-trip
@@ -47,10 +48,18 @@ export async function POST(request: Request) {
 
     console.log('✅ Firebase Admin initialized, verifying token...');
 
-    const decodedToken = await auth.verifyIdToken(token);
-    const driverUid = decodedToken.uid;
-
-    console.log('✅ Token verified, driver UID:', driverUid);
+    let driverUid: string;
+    try {
+      const decodedToken = await auth.verifyIdToken(token);
+      driverUid = decodedToken.uid;
+      console.log('✅ Token verified, driver UID:', driverUid);
+    } catch (authError: any) {
+      console.error('❌ Token verification failed:', authError.message);
+      return NextResponse.json(
+        { error: 'Invalid or expired token', details: authError.message },
+        { status: 401 }
+      );
+    }
 
     // Verify user exists and is a driver
     const userDoc = await adminDb.collection('users').doc(driverUid).get();
@@ -87,56 +96,124 @@ export async function POST(request: Request) {
       );
     }
 
-    // Check for active trip in BUS collection (since we moved away from trip_sessions)
-    console.log('🔍 Querying bus document for active trip:', { busId });
+    // Check for active trip using Supabase (matching start-journey-v2 logic)
+    console.log('🔍 Querying Supabase driver_status for active trip:', { busId });
 
-    const busDoc = await adminDb.collection('buses').doc(busId).get();
+    // Initialize Supabase
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-    if (busDoc.exists) {
-      const busData = busDoc.data();
-      console.log('🚌 Bus data:', {
-        id: busDoc.id,
-        status: busData?.status,
-        activeDriverId: busData?.activeDriverId,
-        activeTripId: busData?.activeTripId
+    if (!supabaseUrl || !supabaseKey) {
+      console.error('❌ Missing Supabase credentials');
+      return NextResponse.json({
+        hasActiveTrip: false,
+        tripData: null,
+        error: 'Server configuration error',
+        debug: { missingCredentials: true }
+      }, { status: 200 }); // Return 200 with error info instead of 500
+    }
+
+    const supabase = createClient(supabaseUrl, supabaseKey);
+
+    let statusData = null;
+    try {
+      const { data, error: statusError } = await supabase
+        .from('driver_status')
+        .select('id, status, driver_uid, bus_id, started_at') // Select only needed fields
+        .eq('driver_uid', driverUid)
+        .order('last_updated_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (statusError) {
+        console.error('❌ Error querying Supabase driver_status:', statusError);
+        // Don't throw - return graceful response
+        return NextResponse.json({
+          hasActiveTrip: false,
+          tripData: null,
+          debug: {
+            supabaseError: statusError.message,
+            code: statusError.code
+          }
+        });
+      }
+
+      statusData = data;
+    } catch (queryError: any) {
+      console.error('❌ Supabase query exception:', queryError);
+      return NextResponse.json({
+        hasActiveTrip: false,
+        tripData: null,
+        debug: { queryException: queryError.message }
+      });
+    }
+
+    if (statusData) {
+      console.log('🚌 Driver status data:', {
+        driverUid: statusData.driver_uid,
+        status: statusData.status,
+        startedAt: statusData.started_at
       });
 
-      // Check if bus is enroute and driver matches
-      if (busData?.status === 'enroute' && busData?.activeDriverId === driverUid) {
-        console.log('✅ Active trip found on bus document');
+      // Check if status is on_trip or enroute and driver matches
+      // Note: we check driver_uid from the status record to ensure the current driver is the one on the trip
+      if ((statusData.status === 'on_trip' || statusData.status === 'enroute') && statusData.driver_uid === driverUid && statusData.bus_id === busId) {
+        console.log('✅ Active trip found in Supabase');
+
+        const startTime = statusData.started_at ? new Date(statusData.started_at).getTime() : Date.now();
+        // Construct a consistent tripId based on start time
+        const tripId = `trip_${busId}_${startTime}`;
 
         return NextResponse.json({
           hasActiveTrip: true,
           tripData: {
-            tripId: busData.activeTripId || `trip_${busId}_legacy`,
-            startTime: busData.lastStartedAt,
+            tripId: tripId,
+            startTime: startTime,
             busId: busId,
             driverUid: driverUid,
             busStatus: 'enroute'
           }
         });
+      } else if (statusData) {
+        console.warn(`⚠️ Trip found but conditions failed:`, {
+          status: statusData.status,
+          driverMatch: statusData.driver_uid === driverUid,
+          expectedDriver: driverUid,
+          actualDriver: statusData.driver_uid
+        });
       }
+    } else {
+      console.log(`ℹ️ No row found in driver_status for bus_id: ${busId}`);
     }
 
-    console.log('ℹ️ No active trip found on bus document');
+    console.log('ℹ️ No active trip found in Supabase');
     return NextResponse.json({
       hasActiveTrip: false,
-      tripData: null
+      tripData: null,
+      debug: statusData ? {
+        foundRow: true,
+        status: statusData.status,
+        driverMatch: statusData.driver_uid === driverUid,
+        driverUid: statusData.driver_uid // Be careful returning this if insensitive, but driverUid is just an ID
+      } : {
+        foundRow: false,
+        busIdChecked: busId
+      }
     });
 
   } catch (error: any) {
     console.error('❌ Error checking active trip:', error);
-    console.error('❌ Error stack:', error.stack);
+    // console.error('❌ Error stack:', error.stack); // Reduce noise
     console.error('❌ Error details:', {
       message: error.message,
-      code: error.code,
+      code: error.code || 'unknown',
       name: error.name
     });
     return NextResponse.json(
       {
         error: error.message || 'Failed to check active trip',
         details: error.code || 'Unknown error',
-        stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+        // stack: process.env.NODE_ENV === 'development' ? error.stack : undefined // Don't expose stack
       },
       { status: 500 }
     );

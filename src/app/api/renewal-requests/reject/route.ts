@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { adminAuth, adminDb } from '@/lib/firebase-admin';
 import { FieldValue } from 'firebase-admin/firestore';
 import { v2 as cloudinary } from 'cloudinary';
+import nodemailer from 'nodemailer';
 
 // Configure Cloudinary
 if (process.env.CLOUDINARY_API_KEY && process.env.CLOUDINARY_API_SECRET && process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME) {
@@ -66,6 +67,51 @@ export async function POST(request: NextRequest) {
     console.log('Request ID:', requestId);
     console.log('Student ID:', studentId);
     console.log('Reason:', reason);
+
+    // Fetch student email if not in request
+    let studentEmail = requestData?.studentEmail;
+    if (!studentEmail && studentId) {
+      try {
+        const studentDoc = await adminDb.collection('students').doc(studentId).get();
+        if (studentDoc.exists) {
+          studentEmail = studentDoc.data()?.email;
+        } else {
+          // Try searching by enrollmentId if studentId didn't work (fallback)
+          const enrollmentId = requestData?.enrollmentId;
+          if (enrollmentId) {
+            const studentsQuery = await adminDb.collection('students').where('enrollmentId', '==', enrollmentId).limit(1).get();
+            if (!studentsQuery.empty) {
+              studentEmail = studentsQuery.docs[0].data()?.email;
+            }
+          }
+        }
+      } catch (err) {
+        console.error('Error fetching student email:', err);
+      }
+    }
+
+    // Send Rejection Email via Service
+    if (studentEmail) {
+      try {
+        const { sendApplicationRejectedNotification } = await import('@/lib/services/admin-email.service');
+
+        console.log(`📧 Notification: Queuing renewal rejection email for ${requestData?.studentName} (${studentEmail})`);
+
+        await sendApplicationRejectedNotification({
+          studentName: requestData?.studentName || 'Student',
+          studentEmail: studentEmail,
+          reason: reason,
+          rejectedBy: rejectorName || 'Administrator'
+        });
+
+        console.log(`📧 Rejection email sent to ${studentEmail}`);
+      } catch (emailError) {
+        console.error('❌ Failed to send rejection email:', emailError);
+        // Continue with deletion even if email fails
+      }
+    } else {
+      console.warn('⚠️ Student email not found. Notification skipped.');
+    }
 
     // Delete payment proof image from Cloudinary (if exists)
     const receiptImageUrl = requestData?.receiptImageUrl;

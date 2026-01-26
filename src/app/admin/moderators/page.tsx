@@ -47,7 +47,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { MoreHorizontal, Eye, Edit, Trash2, Search, Plus, Filter } from "lucide-react";
+import { MoreHorizontal, Eye, Edit, Trash2, Search, Plus, Filter, RefreshCw } from "lucide-react";
 import { deleteModerator } from '@/lib/dataService';
 import { usePaginatedCollection, invalidateCollectionCache } from '@/hooks/usePaginatedCollection';
 import { useEventDrivenRefresh } from '@/hooks/useEventDrivenRefresh';
@@ -77,6 +77,15 @@ export default function AdminModerators() {
   const [searchTerm, setSearchTerm] = useState("");
   const [experienceFilter, setExperienceFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
+  const handleRefresh = async () => {
+    setIsRefreshing(true);
+    invalidateCollectionCache('moderators');
+    await refreshModerators();
+    addToast('Data refreshed', 'success');
+    setIsRefreshing(false);
+  };
 
   const isLoading = authLoading || loadingModerators;
 
@@ -258,6 +267,15 @@ export default function AdminModerators() {
             label="Export Moderators"
             className="bg-white hover:bg-gray-100 !text-black border border-gray-300 transition-all duration-200 hover:scale-105 hover:shadow-lg rounded-md px-2.5 py-1.5 text-xs h-8"
           />
+          <Button
+            size="sm"
+            onClick={handleRefresh}
+            disabled={isRefreshing}
+            className="group h-8 px-4 bg-white hover:bg-gray-50 text-gray-600 hover:text-purple-600 border border-gray-200 hover:border-purple-200 shadow-sm hover:shadow-lg hover:shadow-purple-500/10 font-bold text-[10px] uppercase tracking-widest rounded-lg transition-all duration-300 active:scale-95"
+          >
+            <RefreshCw className={`mr-2 h-3.5 w-3.5 transition-transform duration-500 ${isRefreshing ? 'animate-spin' : 'group-hover:rotate-180'}`} />
+            Refresh
+          </Button>
         </div>
       </div>
 

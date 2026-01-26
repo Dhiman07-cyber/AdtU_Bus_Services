@@ -94,7 +94,7 @@ export default function RouteVisualization({
           <span className="font-semibold text-sm text-zinc-800 dark:text-gray-100">
             {bus.busNumber}
           </span>
-          <span className="text-xs text-zinc-500 dark:text-gray-400">
+          <span className="text-xs text-zinc-500 dark:text-gray-400 hidden sm:inline">
             - {bus.routeName}
           </span>
         </div>
@@ -288,7 +288,7 @@ export default function RouteVisualization({
               </span>
             </div>
           </div>
-          <div className="text-[10px] text-purple-600 dark:text-purple-400">
+          <div className="text-[10px] text-purple-600 dark:text-purple-400 hidden sm:block">
             Click on stops to select/deselect students
           </div>
         </div>

@@ -1,24 +1,27 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useAuth } from "@/contexts/auth-context";
 import { useRouter } from "next/navigation";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { 
-  Users, 
-  Bus, 
+import {
+  Users,
+  Bus,
   AlertCircle,
   CheckCircle,
   Clock,
-  Send
+  Send,
+  RefreshCw
 } from "lucide-react";
 import { getDriverById as getDriverByUid, getBusById, getAllDrivers } from "@/lib/dataService";
+import { useToast } from "@/contexts/toast-context";
 
 export default function DriverSwapPage() {
   const { currentUser, userData } = useAuth();
   const router = useRouter();
+  const { addToast } = useToast();
   const [driverData, setDriverData] = useState<any>(null);
   const [currentBus, setCurrentBus] = useState<any>(null);
   const [availableDrivers, setAvailableDrivers] = useState<any[]>([]);
@@ -27,50 +30,7 @@ export default function DriverSwapPage() {
   const [swapRequests, setSwapRequests] = useState<any[]>([]);
   const [selectedDriverId, setSelectedDriverId] = useState("");
   const [sendingRequest, setSendingRequest] = useState(false);
-
-  // Fetch driver data and available drivers
-  useEffect(() => {
-    const fetchData = async () => {
-      if (!currentUser?.uid) return;
-      
-      try {
-        // Fetch driver data
-        const driver = await getDriverByUid(currentUser.uid);
-        if (driver) {
-          setDriverData(driver);
-          
-          // Fetch current bus
-          if (driver.assignedBusId) {
-            const bus = await getBusById(driver.assignedBusId);
-            if (bus) {
-              setCurrentBus(bus);
-            }
-          }
-          
-          // Fetch all available drivers
-          console.log('Fetching all drivers');
-          const drivers = await getAllDrivers();
-          console.log('All drivers:', drivers);
-          // Filter out the current driver
-          const available = drivers.filter((d: any) => d.uid !== driver.uid);
-          console.log('Available drivers:', available);
-          setAvailableDrivers(available);
-          
-          // Fetch existing swap requests
-          await fetchSwapRequests(driver.uid);
-        } else {
-          setError("Driver data not found");
-        }
-      } catch (error) {
-        console.error("Error fetching data:", error);
-        setError("Failed to load data");
-      } finally {
-        setLoading(false);
-      }
-    };
-    
-    fetchData();
-  }, [currentUser]);
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
   // Fetch swap requests
   const fetchSwapRequests = async (driverUid: string) => {
@@ -78,13 +38,67 @@ export default function DriverSwapPage() {
       // Fetch pending swap requests where this driver is either the requester or target
       const response = await fetch(`/api/driver/swap-requests?driverUid=${driverUid}`);
       const result = await response.json();
-      
+
       if (response.ok) {
         setSwapRequests(result.requests || []);
       }
     } catch (error) {
       console.error("Error fetching swap requests:", error);
     }
+  };
+
+  const fetchData = useCallback(async () => {
+    if (!currentUser?.uid) return;
+
+    // Only set loading on initial load, not refresh
+    if (!driverData) setLoading(true);
+
+    try {
+      // Fetch driver data
+      const driver = await getDriverByUid(currentUser.uid);
+      if (driver) {
+        setDriverData(driver);
+
+        // Fetch current bus
+        if (driver.assignedBusId) {
+          const bus = await getBusById(driver.assignedBusId);
+          if (bus) {
+            setCurrentBus(bus);
+          }
+        }
+
+        // Fetch all available drivers
+        console.log('Fetching all drivers');
+        const drivers = await getAllDrivers();
+        console.log('All drivers:', drivers);
+        // Filter out the current driver
+        const available = drivers.filter((d: any) => d.uid !== driver.uid);
+        console.log('Available drivers:', available);
+        setAvailableDrivers(available);
+
+        // Fetch existing swap requests
+        await fetchSwapRequests(driver.uid);
+      } else {
+        setError("Driver data not found");
+      }
+    } catch (error) {
+      console.error("Error fetching data:", error);
+      setError("Failed to load data");
+    } finally {
+      setLoading(false);
+    }
+  }, [currentUser, driverData]);
+
+  // Fetch driver data and available drivers
+  useEffect(() => {
+    fetchData();
+  }, [currentUser]);
+
+  const handleRefresh = async () => {
+    setIsRefreshing(true);
+    await fetchData();
+    addToast('Data refreshed', 'success');
+    setIsRefreshing(false);
   };
 
   // Redirect if user is not a driver
@@ -96,13 +110,13 @@ export default function DriverSwapPage() {
 
   const handleSwapRequest = async () => {
     if (!driverData?.assignedBusId || !selectedDriverId || !currentUser) return;
-    
+
     setSendingRequest(true);
     try {
       // Get Firebase ID token
       if (!currentUser) return;
       const token = await currentUser.getIdToken();
-      
+
       // Create swap request via API
       const response = await fetch('/api/driver/swap-request', {
         method: 'POST',
@@ -116,9 +130,9 @@ export default function DriverSwapPage() {
           idToken: token
         }),
       });
-      
+
       const result = await response.json();
-      
+
       if (response.ok && result.success) {
         // Show success message
         alert("Swap request submitted successfully!");
@@ -141,7 +155,7 @@ export default function DriverSwapPage() {
       // Get Firebase ID token
       if (!currentUser) return;
       const token = await currentUser.getIdToken();
-      
+
       // Accept swap request via API
       const response = await fetch('/api/driver/accept-swap', {
         method: 'POST',
@@ -154,9 +168,9 @@ export default function DriverSwapPage() {
           idToken: token
         }),
       });
-      
+
       const result = await response.json();
-      
+
       if (response.ok && result.success) {
         // Show success message
         alert("Swap request accepted successfully!");
@@ -229,11 +243,22 @@ export default function DriverSwapPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-3xl font-bold dark:text-white">Driver Swap Request</h1>
-        <p className="text-gray-500 dark:text-gray-400">
-          Request to swap with another driver or accept incoming requests
-        </p>
+      <div className="flex justify-between items-center bg-white dark:bg-gray-800 p-4 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm">
+        <div>
+          <h1 className="text-2xl md:text-3xl font-bold dark:text-white">Driver Swap</h1>
+          <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+            Manage your bus assignments and swaps
+          </p>
+        </div>
+        <Button
+          size="sm"
+          onClick={handleRefresh}
+          disabled={isRefreshing}
+          className="group h-8 px-4 bg-white hover:bg-gray-50 text-gray-600 hover:text-purple-600 border border-gray-200 hover:border-purple-200 shadow-sm hover:shadow-lg hover:shadow-purple-500/10 font-bold text-[10px] uppercase tracking-widest rounded-lg transition-all duration-300 active:scale-95"
+        >
+          <RefreshCw className={`mr-2 h-3.5 w-3.5 transition-transform duration-500 ${isRefreshing ? 'animate-spin' : 'group-hover:rotate-180'}`} />
+          Refresh
+        </Button>
       </div>
 
       {/* Current Assignment */}
@@ -280,8 +305,8 @@ export default function DriverSwapPage() {
                   <div className="flex items-center justify-between">
                     <div>
                       <p className="font-medium">
-                        {request.fromDriverUid === driverData.uid 
-                          ? `Request to swap with ${request.toDriverName || request.toDriverUid}` 
+                        {request.fromDriverUid === driverData.uid
+                          ? `Request to swap with ${request.toDriverName || request.toDriverUid}`
                           : `Swap request from ${request.fromDriverName || request.fromDriverUid}`}
                       </p>
                       <p className="text-sm text-muted-foreground">
@@ -292,18 +317,18 @@ export default function DriverSwapPage() {
                       {request.status}
                     </Badge>
                   </div>
-                  
+
                   {request.status === 'pending' && request.toDriverUid === driverData.uid && (
                     <div className="mt-3 flex space-x-2">
-                      <Button 
-                        size="sm" 
+                      <Button
+                        size="sm"
                         onClick={() => handleAcceptSwap(request.id)}
                       >
                         <CheckCircle className="h-4 w-4 mr-1" />
                         Accept
                       </Button>
-                      <Button 
-                        size="sm" 
+                      <Button
+                        size="sm"
                         variant="outline"
                         disabled
                       >
@@ -339,13 +364,12 @@ export default function DriverSwapPage() {
           ) : (
             <div className="space-y-4">
               {availableDrivers.map((driver) => (
-                <div 
-                  key={driver.uid} 
-                  className={`flex items-center justify-between p-4 border rounded-lg cursor-pointer ${
-                    selectedDriverId === driver.uid 
-                      ? "border-blue-500 bg-blue-50 dark:bg-blue-900/20" 
-                      : "hover:bg-gray-50 dark:hover:bg-gray-800"
-                  }`}
+                <div
+                  key={driver.uid}
+                  className={`flex items-center justify-between p-4 border rounded-lg cursor-pointer ${selectedDriverId === driver.uid
+                    ? "border-blue-500 bg-blue-50 dark:bg-blue-900/20"
+                    : "hover:bg-gray-50 dark:hover:bg-gray-800"
+                    }`}
                   onClick={() => setSelectedDriverId(driver.uid)}
                 >
                   <div className="flex items-center space-x-4">
@@ -381,7 +405,7 @@ export default function DriverSwapPage() {
           <div className="space-y-4">
             <div>
               <label className="text-sm font-medium">Reason for Swap (Optional)</label>
-              <textarea 
+              <textarea
                 className="w-full mt-1 p-2 border rounded-md"
                 rows={3}
                 placeholder="Explain why you need to swap with this driver..."

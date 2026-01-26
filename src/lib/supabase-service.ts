@@ -1,72 +1,38 @@
 import { createClient } from '@supabase/supabase-js';
 import { RealtimeChannel } from '@supabase/supabase-js';
 
-// Validate environment variables
+// Environment configuration
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
-// For frontend, we can only use the anon key, not the service role key
 const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
-
-console.log('Supabase environment variables:');
-console.log('NEXT_PUBLIC_SUPABASE_URL:', supabaseUrl ? 'SET' : 'NOT SET');
-console.log('NEXT_PUBLIC_SUPABASE_ANON_KEY:', supabaseAnonKey ? 'SET' : 'NOT SET');
-console.log('SUPABASE_SERVICE_ROLE_KEY (server only):', supabaseServiceRoleKey ? 'SET' : 'NOT SET');
-console.log('NEXT_PUBLIC_SUPABASE_URL value:', supabaseUrl);
-console.log('NEXT_PUBLIC_SUPABASE_ANON_KEY value length:', supabaseAnonKey?.length || 0);
+const isProduction = process.env.NODE_ENV === 'production';
 
 // Initialize Supabase clients
-// For frontend, we'll use the anon client for all operations
-// For server-side, we can use the service client if available
 let supabaseAnon: any = null;
 let supabaseServiceClient: any = null;
 
 try {
   if (supabaseUrl && supabaseAnonKey) {
-    console.log('Attempting to create Supabase anonymous client...');
     supabaseAnon = createClient(supabaseUrl, supabaseAnonKey);
-    console.log('Supabase anonymous client created successfully');
-  } else {
-    console.log('Skipping Supabase anonymous client creation - missing URL or key');
   }
 } catch (error) {
-  console.error('Error creating Supabase anonymous client:', error);
+  console.error('❌ Supabase client init failed:', error);
 }
 
-// For server-side execution, we can use the service role key
-// But for client-side, we'll fall back to the anon client
+// Server-side service client
 try {
   if (typeof window === 'undefined' && supabaseUrl && supabaseServiceRoleKey) {
-    // Server-side execution
-    console.log('Attempting to create Supabase service client (server-side)...');
     supabaseServiceClient = createClient(supabaseUrl, supabaseServiceRoleKey, {
-      auth: {
-        persistSession: false
-      }
+      auth: { persistSession: false }
     });
-    console.log('Supabase service client created successfully');
-  } else if (typeof window !== 'undefined' && supabaseUrl && supabaseAnonKey) {
-    // Client-side execution - use anon client
-    console.log('Client-side execution - using anonymous client for all operations');
+  } else if (supabaseUrl && supabaseAnonKey) {
     supabaseServiceClient = supabaseAnon;
-  } else if (typeof window === 'undefined' && supabaseUrl && supabaseAnonKey) {
-    // Server-side but no service key - fall back to anon client
-    console.log('Server-side but no service key available - using anonymous client');
-    supabaseServiceClient = supabaseAnon;
-  } else {
-    console.log('No suitable credentials available for service client');
   }
 } catch (error) {
-  console.error('Error creating Supabase service client:', error);
-  // Fall back to anon client if service client fails
-  if (supabaseAnon) {
-    console.log('Falling back to anonymous client for service operations');
-    supabaseServiceClient = supabaseAnon;
-  }
+  console.error('❌ Supabase service client init failed:', error);
+  if (supabaseAnon) supabaseServiceClient = supabaseAnon;
 }
 
-console.log('Supabase clients initialized:');
-console.log('supabaseAnon:', supabaseAnon ? 'SUCCESS' : 'FAILED');
-console.log('supabaseServiceClient:', supabaseServiceClient ? 'SUCCESS' : 'FAILED');
 
 // Type definitions
 interface BusLocation {
@@ -117,18 +83,6 @@ export class SupabaseService {
   constructor() {
     this.supabase = supabaseAnon;
     this.supabaseService = supabaseServiceClient;
-    
-    // Log initialization status
-    if (!this.supabase) {
-      console.warn('Supabase anonymous client not initialized - missing environment variables');
-    }
-    if (!this.supabaseService) {
-      console.warn('Supabase service client not initialized - missing environment variables');
-    }
-    
-    console.log('SupabaseService constructor called');
-    console.log('this.supabase:', this.supabase ? 'SET' : 'UNSET');
-    console.log('this.supabaseService:', this.supabaseService ? 'SET' : 'UNSET');
   }
 
   // Public methods to check initialization status
@@ -145,25 +99,25 @@ export class SupabaseService {
     try {
       // Use anon client for frontend, service client for backend
       const client = typeof window === 'undefined' && this.supabaseService ? this.supabaseService : this.supabase;
-      
+
       if (!client) {
         console.error('No Supabase client available');
         return [];
       }
-      
+
       let query = client.from('bus_locations').select('*');
-      
+
       if (busId) {
         query = query.eq('bus_id', busId);
       }
-      
+
       const { data, error } = await query;
-      
+
       if (error) {
         console.error('Error fetching bus locations:', error);
         return [];
       }
-      
+
       return data as BusLocation[];
     } catch (error) {
       console.error('Error fetching bus locations:', error);
@@ -175,29 +129,29 @@ export class SupabaseService {
     try {
       // Use anon client for frontend, service client for backend
       const client = typeof window === 'undefined' && this.supabaseService ? this.supabaseService : this.supabase;
-      
+
       if (!client) {
         console.error('No Supabase client available');
         return [];
       }
-      
+
       let query = client.from('waiting_flags').select('*');
-      
+
       if (busId) {
         query = query.eq('bus_id', busId);
       }
-      
+
       if (status) {
         query = query.eq('status', status);
       }
-      
+
       const { data, error } = await query;
-      
+
       if (error) {
         console.error('Error fetching waiting flags:', error);
         return [];
       }
-      
+
       return data as WaitingFlag[];
     } catch (error) {
       console.error('Error fetching waiting flags:', error);
@@ -209,24 +163,24 @@ export class SupabaseService {
     try {
       // Use anon client for frontend, service client for backend
       const client = typeof window === 'undefined' && this.supabaseService ? this.supabaseService : this.supabase;
-      
+
       if (!client) {
         console.error('No Supabase client available');
         return null;
       }
-      
+
       const { data, error } = await client
         .from('waiting_flags')
         .select('*')
         .eq('student_uid', studentUid)
         .eq('status', 'waiting')
         .maybeSingle();
-      
+
       if (error) {
         console.error('Error fetching waiting flag by student UID:', error);
         return null;
       }
-      
+
       return data as WaitingFlag;
     } catch (error) {
       console.error('Error fetching waiting flag by student UID:', error);
@@ -238,25 +192,25 @@ export class SupabaseService {
     try {
       // Use anon client for frontend, service client for backend
       const client = typeof window === 'undefined' && this.supabaseService ? this.supabaseService : this.supabase;
-      
+
       if (!client) {
         console.error('No Supabase client available');
         return [];
       }
-      
+
       let query = client.from('driver_status').select('*');
-      
+
       if (driverUid) {
         query = query.eq('driver_uid', driverUid);
       }
-      
+
       const { data, error } = await query;
-      
+
       if (error) {
         console.error('Error fetching driver status:', error);
         return [];
       }
-      
+
       return data as DriverStatus[];
     } catch (error) {
       console.error('Error fetching driver status:', error);
@@ -268,25 +222,25 @@ export class SupabaseService {
     try {
       // Use anon client for frontend, service client for backend
       const client = typeof window === 'undefined' && this.supabaseService ? this.supabaseService : this.supabase;
-      
+
       if (!client) {
         console.error('No Supabase client available');
         return [];
       }
-      
+
       let query = client.from('notifications').select('*').order('created_at', { ascending: false });
-      
+
       if (limit) {
         query = query.limit(limit);
       }
-      
+
       const { data, error } = await query;
-      
+
       if (error) {
         console.error('Error fetching notifications:', error);
         return [];
       }
-      
+
       return data as Notification[];
     } catch (error) {
       console.error('Error fetching notifications:', error);
@@ -303,7 +257,7 @@ export class SupabaseService {
     try {
       // For write operations, we need the service client on server-side
       const client = typeof window === 'undefined' && this.supabaseService ? this.supabaseService : this.supabase;
-      
+
       if (!client) {
         console.error('No Supabase client available');
         return null;
@@ -332,10 +286,10 @@ export class SupabaseService {
           details: error.details,
           hint: error.hint
         });
-        
+
         // Log the full error object for better debugging
         console.error('Full error object:', JSON.stringify(error, null, 2));
-        
+
         // If it's an RLS error, we might need to use the service client
         if (error.message && error.message.includes('row-level security')) {
           console.log('RLS error detected, trying with service client if available...');
@@ -346,7 +300,7 @@ export class SupabaseService {
               .insert(newFlag)
               .select()
               .single();
-            
+
             if (retryError) {
               console.error('Retry with service client also failed:', retryError);
               console.error('Retry error details:', {
@@ -357,11 +311,11 @@ export class SupabaseService {
               });
               return null;
             }
-            
+
             return retryData.id;
           }
         }
-        
+
         return null;
       }
 
@@ -399,7 +353,7 @@ export class SupabaseService {
     try {
       // For write operations, we need the service client on server-side
       const client = typeof window === 'undefined' && this.supabaseService ? this.supabaseService : this.supabase;
-      
+
       if (!client) {
         console.error('No Supabase client available');
         return false;
@@ -450,7 +404,7 @@ export class SupabaseService {
     try {
       // For write operations, we need the service client on server-side
       const client = typeof window === 'undefined' && this.supabaseService ? this.supabaseService : this.supabase;
-      
+
       if (!client) {
         console.error('No Supabase client available');
         return false;
@@ -478,7 +432,7 @@ export class SupabaseService {
     try {
       // For write operations, we need the service client on server-side
       const client = typeof window === 'undefined' && this.supabaseService ? this.supabaseService : this.supabase;
-      
+
       if (!client) {
         console.error('No Supabase client available');
         return false;
@@ -528,7 +482,7 @@ export class SupabaseService {
     try {
       // For write operations, we need the service client on server-side
       const client = typeof window === 'undefined' && this.supabaseService ? this.supabaseService : this.supabase;
-      
+
       if (!client) {
         console.error('No Supabase client available');
         return false;
@@ -579,7 +533,7 @@ export class SupabaseService {
     try {
       // For write operations, we need the service client on server-side
       const client = typeof window === 'undefined' && this.supabaseService ? this.supabaseService : this.supabase;
-      
+
       if (!client) {
         console.error('No Supabase client available for location update');
         return false;
@@ -619,10 +573,10 @@ export class SupabaseService {
         });
         // Also log the full error object to see what's in it
         console.error('Full error object:', JSON.stringify(error, null, 2));
-        
+
         // Check if it's an RLS error and try with service client
-        if (error.message && error.message.includes('row-level security') && 
-            this.supabaseService && typeof window === 'undefined') {
+        if (error.message && error.message.includes('row-level security') &&
+          this.supabaseService && typeof window === 'undefined') {
           console.log('RLS error detected, retrying with service client...');
           const { data: retryData, error: retryError } = await this.supabaseService
             .from('bus_locations')
@@ -635,16 +589,16 @@ export class SupabaseService {
               heading: heading,
               updated_at: new Date().toISOString()
             });
-          
+
           if (retryError) {
             console.error('Retry with service client also failed:', retryError);
             return false;
           }
-          
+
           console.log('Location update successful on retry:', retryData);
           return true;
         }
-        
+
         return false;
       }
 

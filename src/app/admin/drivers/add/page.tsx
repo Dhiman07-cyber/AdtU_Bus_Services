@@ -12,12 +12,21 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { RefreshCw, Info, Camera, Trash2 } from "lucide-react";
+import { OptimizedInput, OptimizedTextarea } from '@/components/forms';
 import EnhancedDatePicker from "@/components/enhanced-date-picker";
 import ProfileImageAddModal from '@/components/ProfileImageAddModal';
 import Image from 'next/image';
 import { getAllRoutes, getAllBuses, getAllDrivers, getModeratorById } from '@/lib/dataService';
 import { Route } from '@/lib/types';
 import RouteSelect from '@/components/RouteSelect';
+import { useDebouncedStorage } from '@/hooks/useDebouncedStorage';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 // Define the form data type
 type DriverFormData = {
@@ -95,6 +104,12 @@ export default function AddDriver() {
   };
 
   const [formData, setFormData] = useState<DriverFormData>(getInitialFormData);
+
+  // Debounced storage to prevent input lag
+  const storage = useDebouncedStorage<DriverFormData>('driverFormData', {
+    debounceMs: 500,
+    excludeFields: ['profilePhoto', 'email'],
+  });
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
 
   const [finalImageUrl, setFinalImageUrl] = useState<string | null>(null);
@@ -108,34 +123,39 @@ export default function AddDriver() {
   // Auto-fill approvedBy field with current admin's details
   useEffect(() => {
     const fetchApproverDetails = async () => {
-      if (userData && userData.name) {
-        let idSuffix = 'ADMIN';
+      if (userData && (userData.name || userData.fullName)) {
+        const approverName = userData.fullName || userData.name;
+        let idSuffix = '';
 
-        if (userData.role === 'moderator') {
-          idSuffix = 'MOD'; // Default
+        if (userData.role === 'admin') {
+          idSuffix = 'Admin';
+        } else if (userData.role === 'moderator') {
+          // Try to get from current userData first
+          idSuffix = (userData as any).employeeId || (userData as any).empId || (userData as any).staffId || (userData as any).id || (userData as any).uid || 'MODERATOR';
 
-          const localId = (userData as any).employeeId || (userData as any).empId || (userData as any).staffId || (userData as any).driverId;
-
-          if (localId && localId !== 'undefined') {
-            idSuffix = localId;
-          } else if (currentUser?.uid) {
+          // If it's a default/generic suffix, try fetching full data
+          if (['MODERATOR', 'MOD'].includes(idSuffix) && currentUser?.uid) {
             try {
               const modData = await getModeratorById(currentUser.uid);
               if (modData) {
-                idSuffix = (modData as any).employeeId || (modData as any).empId || (modData as any).staffId || (modData as any).driverId || 'MOD';
+                idSuffix = (modData as any).employeeId || (modData as any).empId || (modData as any).staffId || idSuffix;
               }
             } catch (err) {
               console.error('Error fetching moderator ID:', err);
             }
           }
-        } else if (userData.role === 'admin') {
-          idSuffix = 'ADMIN';
+        } else {
+          idSuffix = userData.role?.charAt(0).toUpperCase() + userData.role?.slice(1) || 'Unknown';
         }
 
-        setFormData(prev => ({
-          ...prev,
-          approvedBy: `${userData.name} (${idSuffix})`
-        }));
+        const approvedByValue = `${approverName} (${idSuffix})`;
+
+        setFormData(prev => {
+          if (!prev.approvedBy || prev.approvedBy === '' || prev.approvedBy.includes('undefined')) {
+            return { ...prev, approvedBy: approvedByValue };
+          }
+          return prev;
+        });
       }
     };
     fetchApproverDetails();
@@ -144,11 +164,10 @@ export default function AddDriver() {
   // Save form data to localStorage whenever it changes (except sensitive fields)
   useEffect(() => {
     if (typeof window !== 'undefined') {
-      // Create a copy without sensitive data
-      const { email, profilePhoto, ...dataToSave } = formData;
-      localStorage.setItem('driverFormData', JSON.stringify(dataToSave));
+      // Trigger debounced save (non-blocking)
+      storage.save(formData);
     }
-  }, [formData]);
+  }, [formData]); // Removed storage from deps - it's stable
 
   // Fetch routes and buses when component mounts
   useEffect(() => {
@@ -209,9 +228,9 @@ export default function AddDriver() {
         try {
           const parsedData = JSON.parse(savedData);
           if (parsedData.email) {
-            // Remove sensitive fields from saved data
-            const { email, profilePhoto, ...cleanData } = parsedData;
-            localStorage.setItem('driverFormData', JSON.stringify(cleanData));
+            // Remove sensitive fields from saved data - handled by storage hook now
+            storage.clear();
+            storage.save(parsedData);
           }
         } catch (e) {
           console.error('Error cleaning saved form data:', e);
@@ -225,8 +244,6 @@ export default function AddDriver() {
 
     if (!formData.name.trim()) {
       newErrors.name = "Full name is required";
-    } else if (/[^a-zA-Z\s]/.test(formData.name)) {
-      newErrors.name = "Name cannot contain special symbols";
     }
 
     if (!formData.email.trim()) {
@@ -332,13 +349,16 @@ export default function AddDriver() {
       if (associatedBuses.length === 1) {
         // EXACTLY ONE BUS: Auto-select
         const bus = associatedBuses[0];
-        const selectedRoute = routes.find(r => r.routeId === routeId);
-        const routeNum = selectedRoute ? selectedRoute.routeName.split('-')[1] : '';
+
+        // Fix: prioritize bus's own number over route number
+        // Check if busNumber is a valid distinct number (e.g. "1", "10", "101")
+        // If it looks like a license plate or is missing, try other fields
+        const isDistinctBusNum = bus.busNumber && bus.busNumber.length < 5 && !isNaN(Number(bus.busNumber));
         const busIdParts = (bus.id || bus.busId || '').split('_');
         const busIdNum = busIdParts.length > 1 ? busIdParts[1] : '';
 
-        const busNumberValue = bus.displayIndex || bus.sequenceNumber || routeNum || busIdNum || (isNaN(Number(bus.busNumber)) ? '' : bus.busNumber) || '?';
-        const licensePlate = bus.licensePlate || bus.plateNumber || bus.busNumber || 'N/A';
+        const busNumberValue = bus.displayIndex || bus.sequenceNumber || (isDistinctBusNum ? bus.busNumber : null) || busIdNum || bus.busNumber || '?';
+        const licensePlate = bus.licensePlate || bus.plateNumber || (bus.busNumber !== busNumberValue ? bus.busNumber : 'N/A');
 
         newBusAssigned = `Bus-${busNumberValue} (${licensePlate})`;
         newBusId = bus.id || bus.busId;
@@ -438,8 +458,6 @@ export default function AddDriver() {
           joiningDate: formData.joiningDate,
           driverId: formData.driverId,
           address: formData.address,
-          routeId: assignedRouteId,
-          busId: assignedBusId,
           assignedBusId: assignedBusId,
           assignedRouteId: assignedRouteId,
           approvedBy: formData.approvedBy
@@ -451,7 +469,7 @@ export default function AddDriver() {
       if (data.success) {
         // Clear saved form data on successful submission
         if (typeof window !== 'undefined') {
-          localStorage.removeItem('driverFormData');
+          storage.clear();
         }
 
         addToast('Driver created successfully!', 'success');
@@ -497,7 +515,7 @@ export default function AddDriver() {
 
     // Clear saved form data
     if (typeof window !== 'undefined') {
-      localStorage.removeItem('driverFormData');
+      storage.clear();
     }
 
     addToast('Form reset successfully', 'info');
@@ -610,72 +628,53 @@ export default function AddDriver() {
               {/* Left Column */}
               <div className="space-y-3">
                 <div>
-                  <Label htmlFor="name" className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
-                    Full Name <span className="text-red-500">*</span>
-                  </Label>
-                  <Input
-                    type="text"
+                  <OptimizedInput
                     id="name"
-                    name="name"
+                    label="Full Name"
                     value={formData.name}
-                    onChange={handleInputChange}
+                    onChange={(value) => setFormData(prev => ({ ...prev, name: value }))}
                     placeholder="Enter full name"
                     required
-                    className="h-9 text-sm"
                   />
                   {errors.name && <p className="text-red-500 text-xs mt-0.5">{errors.name}</p>}
                 </div>
 
                 <div>
-                  <Label htmlFor="email" className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
-                    Email Address <span className="text-red-500">*</span>
-                  </Label>
-                  <Input
-                    type="email"
+                  <OptimizedInput
                     id="email"
-                    name="email"
+                    label="Email Address"
+                    type="email"
                     value={formData.email}
-                    onChange={handleInputChange}
+                    onChange={(value) => setFormData(prev => ({ ...prev, email: value }))}
                     placeholder="driver@example.com"
                     required
-                    autoComplete="off"
-                    autoCorrect="off"
-                    autoCapitalize="off"
-                    spellCheck="false"
-                    className="h-9 text-sm"
                   />
                   {errors.email && <p className="text-red-500 text-xs mt-0.5">{errors.email}</p>}
                 </div>
 
                 <div>
-                  <Label htmlFor="phone" className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
-                    Phone Number <span className="text-red-500">*</span>
-                  </Label>
-                  <Input
-                    type="tel"
+                  <OptimizedInput
                     id="phone"
-                    name="phone"
+                    label="Phone Number"
+                    type="tel"
                     value={formData.phone}
-                    onChange={handleInputChange}
+                    onChange={(value) => setFormData(prev => ({ ...prev, phone: value }))}
                     placeholder="10-digit phone number"
                     required
-                    className="h-9 text-sm"
+                    transform={(val) => val.replace(/[^0-9]/g, '')}
                   />
                   {errors.phone && <p className="text-xs text-red-500 mt-0.5">{errors.phone}</p>}
                 </div>
 
                 <div>
-                  <Label htmlFor="alternatePhone" className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
-                    Alternate Phone
-                  </Label>
-                  <Input
-                    type="tel"
+                  <OptimizedInput
                     id="alternatePhone"
-                    name="alternatePhone"
+                    label="Alternate Phone"
+                    type="tel"
                     value={formData.alternatePhone}
-                    onChange={handleInputChange}
+                    onChange={(value) => setFormData(prev => ({ ...prev, alternatePhone: value }))}
                     placeholder="Optional"
-                    className="h-9 text-sm"
+                    transform={(val) => val.replace(/[^0-9]/g, '')}
                   />
                   {errors.alternatePhone && <p className="text-red-500 text-xs mt-0.5">{errors.alternatePhone}</p>}
                 </div>
@@ -685,15 +684,13 @@ export default function AddDriver() {
                     Driver ID <span className="text-red-500">*</span>
                   </Label>
                   <div className="relative">
-                    <Input
-                      type="text"
+                    <OptimizedInput
                       id="driverId"
-                      name="driverId"
                       value={formData.driverId}
-                      onChange={handleInputChange}
+                      onChange={(value) => setFormData(prev => ({ ...prev, driverId: value }))}
                       placeholder="Driver ID"
                       required
-                      className="h-9 text-sm pr-9"
+                      className="pr-9"
                     />
                     <button
                       type="button"
@@ -708,17 +705,14 @@ export default function AddDriver() {
                 </div>
 
                 <div>
-                  <Label htmlFor="address" className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
-                    Address <span className="text-red-500">*</span>
-                  </Label>
-                  <Textarea
+                  <OptimizedTextarea
                     id="address"
-                    name="address"
+                    label="Address"
                     value={formData.address}
-                    onChange={handleTextareaChange}
+                    onChange={(value) => setFormData(prev => ({ ...prev, address: value }))}
                     placeholder="Full address"
                     required
-                    className="resize-none text-sm min-h-[105px]"
+                    rows={4}
                   />
                   {errors.address && <p className="text-red-500 text-xs mt-0.5">{errors.address}</p>}
                 </div>
@@ -727,35 +721,25 @@ export default function AddDriver() {
               {/* Right Column */}
               <div className="space-y-3 pt-[1px]">
                 <div>
-                  <Label htmlFor="licenseNumber" className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
-                    License Number <span className="text-red-500">*</span>
-                  </Label>
-                  <Input
-                    type="text"
+                  <OptimizedInput
                     id="licenseNumber"
-                    name="licenseNumber"
+                    label="License Number"
                     value={formData.licenseNumber}
-                    onChange={handleInputChange}
+                    onChange={(value) => setFormData(prev => ({ ...prev, licenseNumber: value }))}
                     placeholder="License number"
                     required
-                    className="h-9 text-sm"
                   />
                   {errors.licenseNumber && <p className="text-red-500 text-xs mt-0.5">{errors.licenseNumber}</p>}
                 </div>
 
                 <div>
-                  <Label htmlFor="aadharNumber" className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
-                    AADHAR Number <span className="text-red-500">*</span>
-                  </Label>
-                  <Input
-                    type="text"
+                  <OptimizedInput
                     id="aadharNumber"
-                    name="aadharNumber"
+                    label="AADHAR Number"
                     value={formData.aadharNumber}
-                    onChange={handleInputChange}
+                    onChange={(value) => setFormData(prev => ({ ...prev, aadharNumber: value }))}
                     placeholder="AADHAR number"
                     required
-                    className="h-9 text-sm"
                   />
                   {errors.aadharNumber && <p className="text-red-500 text-xs mt-0.5">{errors.aadharNumber}</p>}
                 </div>
@@ -798,6 +782,7 @@ export default function AddDriver() {
                     value={formData.routeId}
                     onChange={handleRouteSelect}
                     isLoading={loadingRoutes}
+                    allowReserved={true}
                   />
                   {errors.routeId && <p className="text-red-500 text-xs mt-1">{errors.routeId}</p>}
                 </div>
@@ -808,58 +793,64 @@ export default function AddDriver() {
                     Bus (Auto-assigned)
                   </Label>
                   {busOptions.length > 1 ? (
-                    <select
-                      id="busId"
-                      name="busId"
+                    <Select
                       value={formData.busId || ''}
-                      onChange={(e) => {
-                        const value = e.target.value;
+                      onValueChange={(value) => {
                         const selectedBus = busOptions.find(b => (b.id === value || b.busId === value));
                         if (selectedBus) {
-                          const selectedRoute = routes.find(r => r.routeId === formData.routeId);
-                          const routeNum = selectedRoute ? selectedRoute.routeName.split('-')[1] : '';
+                          // Logic to generate display string (replicated from handleRouteSelect for consistency)
+                          const isDistinctBusNum = selectedBus.busNumber && selectedBus.busNumber.length < 5 && !isNaN(Number(selectedBus.busNumber));
                           const busIdParts = (selectedBus.id || selectedBus.busId || '').split('_');
                           const busIdNum = busIdParts.length > 1 ? busIdParts[1] : '';
 
-                          const busNumberValue = selectedBus.displayIndex || selectedBus.sequenceNumber || routeNum || busIdNum || (isNaN(Number(selectedBus.busNumber)) ? '' : selectedBus.busNumber) || '?';
-                          const licensePlate = selectedBus.licensePlate || selectedBus.plateNumber || selectedBus.busNumber || 'N/A';
-                          const busDisplay = `Bus-${busNumberValue} (${licensePlate})`;
+                          const busNumberValue = selectedBus.displayIndex || selectedBus.sequenceNumber || (isDistinctBusNum ? selectedBus.busNumber : null) || busIdNum || selectedBus.busNumber || '?';
+                          const licensePlate = selectedBus.licensePlate || selectedBus.plateNumber || (selectedBus.busNumber !== busNumberValue ? selectedBus.busNumber : 'N/A');
+
+                          const displayStr = `Bus-${busNumberValue} (${licensePlate})`;
 
                           setFormData(prev => ({
                             ...prev,
-                            busId: selectedBus.id || selectedBus.busId,
-                            busAssigned: busDisplay
+                            busId: value,
+                            busAssigned: displayStr
                           }));
+                        } else {
+                          setFormData(prev => ({ ...prev, busId: value }));
                         }
                       }}
-                      className="w-full h-9 px-2 text-sm border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
                     >
-                      <option value="">Select Bus</option>
-                      {busOptions.map(bus => {
-                        const selectedRoute = routes.find(r => r.routeId === formData.routeId);
-                        const routeNum = selectedRoute ? selectedRoute.routeName.split('-')[1] : '';
-                        const busIdParts = (bus.id || bus.busId || '').split('_');
-                        const busIdNum = busIdParts.length > 1 ? busIdParts[1] : '';
+                      <SelectTrigger className="w-full h-9">
+                        <SelectValue placeholder="Select Bus" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {busOptions.map(bus => {
+                          const isDistinctBusNum = bus.busNumber && bus.busNumber.length < 5 && !isNaN(Number(bus.busNumber));
+                          const busIdParts = (bus.id || bus.busId || '').split('_');
+                          const busIdNum = busIdParts.length > 1 ? busIdParts[1] : '';
 
-                        const busNumberValue = bus.displayIndex || bus.sequenceNumber || routeNum || busIdNum || (isNaN(Number(bus.busNumber)) ? '' : bus.busNumber) || '?';
-                        const licensePlate = bus.licensePlate || bus.plateNumber || bus.busNumber || 'N/A';
-                        return (
-                          <option key={bus.id || bus.busId} value={bus.id || bus.busId}>
-                            Bus-{busNumberValue} ({licensePlate})
-                          </option>
-                        );
-                      })}
-                    </select>
+                          const busNumberValue = bus.displayIndex || bus.sequenceNumber || (isDistinctBusNum ? bus.busNumber : null) || busIdNum || bus.busNumber || '?';
+                          const licensePlate = bus.licensePlate || bus.plateNumber || (bus.busNumber !== busNumberValue ? bus.busNumber : 'N/A');
+
+                          const display = `Bus-${busNumberValue} (${licensePlate})`;
+                          return (
+                            <SelectItem key={bus.id || bus.busId} value={bus.id || bus.busId}>
+                              {display}
+                            </SelectItem>
+                          );
+                        })}
+                      </SelectContent>
+                    </Select>
                   ) : (
                     <Input
                       type="text"
                       id="busAssigned"
                       name="busAssigned"
-                      value={formData.busAssigned}
+                      value={formData.busAssigned || (formData.routeId === 'reserved' ? 'Reserved (No Bus)' : 'No bus assigned')}
                       readOnly
-                      placeholder={routes.length > 0 && !formData.routeId ? "Select a route first" : "No bus assigned"}
-                      className="h-9 text-sm bg-gray-100 dark:bg-gray-700 cursor-not-allowed"
+                      className="bg-gray-100 dark:bg-gray-700 cursor-not-allowed border-dashed"
                     />
+                  )}
+                  {busOptions.length === 0 && formData.routeId && formData.routeId !== 'reserved' && (
+                    <p className="text-[10px] text-amber-500 mt-1">No buses found for this route</p>
                   )}
                 </div>
 

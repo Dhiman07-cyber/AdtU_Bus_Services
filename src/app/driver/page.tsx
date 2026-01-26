@@ -471,7 +471,7 @@ export default function DriverDashboard() {
           <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-80 h-80 bg-pink-400 rounded-full mix-blend-multiply filter blur-3xl opacity-20 animate-blob animation-delay-4000"></div>
         </div>
 
-        <div className="text-center space-y-12 relative z-10">
+        <div className="text-center space-y-12 relative z-10 -mt-24">
           {/* Premium spinner with gradient ring */}
           <div className="relative flex items-center justify-center">
             {/* Gradient ring structure */}
@@ -995,12 +995,7 @@ export default function DriverDashboard() {
                     )}
                   </div>
 
-                  {/* Action Button */}
-                  <Link href="/driver/bus">
-                    <Button className="w-full bg-blue-600 dark:bg-blue-500 text-white hover:bg-blue-700 dark:hover:bg-blue-400 transition-all duration-300 text-sm sm:text-base py-2 sm:py-2.5">
-                      View Details <ArrowRight className="ml-1.5 sm:ml-2 h-3.5 w-3.5 sm:h-4 sm:w-4 transition-transform duration-300" />
-                    </Button>
-                  </Link>
+                  {/* View Details link removed as the page has been replaced by Swap and Live Tracking */}
                 </div>
               ) : (
                 <div className="text-center py-8">

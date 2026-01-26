@@ -275,8 +275,7 @@ export default function EditDriverPage({ params }: { params: Promise<{ id: strin
         aadharNumber: formData.aadharNumber,
         address: formData.address,
         profilePhotoUrl,
-        routeId: formData.routeId === 'Reserved' ? '' : formData.routeId,
-        isReserved: formData.routeId === 'Reserved',
+
         status: formData.status,
         employeeId: formData.employeeId,
         updatedAt: new Date().toISOString()

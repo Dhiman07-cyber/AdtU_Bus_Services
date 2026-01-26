@@ -215,7 +215,8 @@ export default function UberLikeDriverMap({
     return { ...student, distance };
   }).sort((a, b) => (a.distance || 999) - (b.distance || 999));
 
-  // Handle Fullscreen Transitions & Map State
+  // Handle Fullscreen Transitions - Only invalidate size, NOT auto-center
+  // User can freely scroll the map without it snapping back
   useEffect(() => {
     // Safety check
     if (!mapRef.current || !tripActive) return;
@@ -226,10 +227,9 @@ export default function UberLikeDriverMap({
 
       try {
         if (map) {
+          // Only invalidate size to handle container resize
+          // DO NOT pan to location - let user scroll freely
           map.invalidateSize();
-          if (driverLocation && driverLocation.lat && driverLocation.lng) {
-            map.panTo([driverLocation.lat, driverLocation.lng], { animate: true, duration: 0.5 });
-          }
         }
       } catch (error) {
         console.debug('Map operation skipped:', error);
@@ -237,7 +237,7 @@ export default function UberLikeDriverMap({
     }, 300);
 
     return () => clearTimeout(timer);
-  }, [isFullScreen, driverLocation, tripActive]);
+  }, [isFullScreen, tripActive]); // REMOVED driverLocation from dependencies to prevent auto-centering
 
   // Initialize custom icons
   useEffect(() => {
@@ -248,41 +248,47 @@ export default function UberLikeDriverMap({
         const leafletModule = await import('leaflet');
         const L = leafletModule.default || leafletModule;
 
-        // Premium 3D Bus icon
+        // Premium 3D Bus icon with SVG
         const driverIconElement = L.divIcon({
-          className: 'custom-driver-marker',
+          className: 'custom-driver-marker-3d',
           html: `
-            <div style="position: relative; filter: drop-shadow(0px 10px 6px rgba(0,0,0,0.3));">
+            <div style="position: relative; filter: drop-shadow(0 8px 16px rgba(37, 99, 235, 0.5));">
+              <!-- Main bus circle with 3D gradient -->
               <div style="
-                background: linear-gradient(135deg, #2563EB 0%, #1E40AF 100%);
-                width: 52px;
-                height: 52px;
+                background: linear-gradient(145deg, #3B82F6 0%, #1D4ED8 50%, #1E40AF 100%);
+                width: 58px;
+                height: 58px;
                 border-radius: 50%;
                 display: flex;
                 align-items: center;
                 justify-content: center;
-                border: 3px solid white;
+                border: 4px solid white;
+                box-shadow: inset 0 -4px 8px rgba(0,0,0,0.2), 0 4px 12px rgba(30, 64, 175, 0.5);
                 position: relative;
                 z-index: 2;
               ">
-                <span style="font-size: 26px;">🚌</span>
+                <!-- Bus SVG icon -->
+                <svg width="30" height="30" viewBox="0 0 24 24" fill="white" stroke="none">
+                  <path d="M4 16c0 .88.39 1.67 1 2.22V20c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-1h8v1c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-1.78c.61-.55 1-1.34 1-2.22V6c0-3.5-3.58-4-8-4s-8 .5-8 4v10zm3.5 1c-.83 0-1.5-.67-1.5-1.5S6.67 14 7.5 14s1.5.67 1.5 1.5S8.33 17 7.5 17zm9 0c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5zm1.5-6H6V6h12v5z"/>
+                </svg>
               </div>
               
-              <!-- 3D Depth Effect / Pointer -->
+              <!-- 3D Pointer/Pin effect -->
               <div style="
                 position: absolute;
-                bottom: -8px;
+                bottom: -10px;
                 left: 50%;
                 transform: translateX(-50%);
                 width: 0;
                 height: 0;
-                border-left: 12px solid transparent;
-                border-right: 12px solid transparent;
-                border-top: 14px solid #1E40AF;
+                border-left: 14px solid transparent;
+                border-right: 14px solid transparent;
+                border-top: 16px solid #1E40AF;
+                filter: drop-shadow(0 2px 4px rgba(0,0,0,0.3));
                 z-index: 1;
               "></div>
               
-              <!-- Pulsing Ring -->
+              <!-- Animated pulsing ring -->
               <div style="
                  position: absolute;
                  top: 50%;
@@ -291,21 +297,21 @@ export default function UberLikeDriverMap({
                  width: 100%;
                  height: 100%;
                  border-radius: 50%;
-                 border: 2px solid #3B82F6;
-                 animation: pulse-ring 2s infinite;
+                 border: 3px solid #60A5FA;
+                 animation: driver-pulse 2s ease-out infinite;
                  z-index: 0;
               "></div>
             </div>
             <style>
-              @keyframes pulse-ring {
-                0% { transform: translate(-50%, -50%) scale(1); opacity: 0.8; }
-                100% { transform: translate(-50%, -50%) scale(1.6); opacity: 0; }
+              @keyframes driver-pulse {
+                0% { transform: translate(-50%, -50%) scale(1); opacity: 0.9; }
+                100% { transform: translate(-50%, -50%) scale(1.8); opacity: 0; }
               }
             </style>
           `,
-          iconSize: [52, 60],
-          iconAnchor: [26, 60],
-          popupAnchor: [0, -60],
+          iconSize: [58, 72],
+          iconAnchor: [29, 72],
+          popupAnchor: [0, -72],
         });
 
         // Waiting Student icon
@@ -380,21 +386,22 @@ export default function UberLikeDriverMap({
     initIcons();
   }, []);
 
-  // Auto-center on driver location
-  useEffect(() => {
-    if (driverLocation && mapRef.current && tripActive) {
-      try {
-        if (driverLocation.lat && driverLocation.lng) {
-          mapRef.current.flyTo([driverLocation.lat, driverLocation.lng], 16, {
-            duration: 1,
-            easeLinearity: 0.25
-          });
-        }
-      } catch (e) {
-        console.debug('Map pan skipped');
-      }
-    }
-  }, [driverLocation, tripActive]);
+  // Auto-center on driver location - DISABLED to allow free scrolling
+  // User can click the navigation/recenter button to center on their location
+  // useEffect(() => {
+  //   if (driverLocation && mapRef.current && tripActive) {
+  //     try {
+  //       if (driverLocation.lat && driverLocation.lng) {
+  //         mapRef.current.flyTo([driverLocation.lat, driverLocation.lng], 16, {
+  //           duration: 1,
+  //           easeLinearity: 0.25
+  //         });
+  //       }
+  //     } catch (e) {
+  //       console.debug('Map pan skipped');
+  //     }
+  //   }
+  // }, [driverLocation, tripActive]);
 
   if (!tripActive) {
     return (
@@ -409,6 +416,30 @@ export default function UberLikeDriverMap({
           <p className="text-gray-500 dark:text-gray-400">
             Start the trip to view the map
           </p>
+        </div>
+      </div>
+    );
+  }
+
+  // Show GPS acquisition loading state if trip is active but no location yet
+  if (tripActive && !driverLocation) {
+    return (
+      <div className="w-full h-full bg-gradient-to-br from-blue-50 to-purple-50 dark:from-gray-900 dark:to-gray-800 rounded-3xl flex items-center justify-center">
+        <div className="text-center p-6">
+          <div className="w-20 h-20 mx-auto mb-6 bg-gradient-to-br from-green-500 to-emerald-600 rounded-full flex items-center justify-center shadow-lg shadow-green-500/30 animate-pulse">
+            <Navigation className="w-10 h-10 text-white" />
+          </div>
+          <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-2">
+            Acquiring GPS Location...
+          </h3>
+          <p className="text-gray-500 dark:text-gray-400">
+            Please wait while we get your precise location
+          </p>
+          <div className="mt-4 flex justify-center gap-1">
+            <div className="w-2 h-2 bg-green-500 rounded-full animate-bounce" style={{ animationDelay: '0s' }}></div>
+            <div className="w-2 h-2 bg-green-500 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
+            <div className="w-2 h-2 bg-green-500 rounded-full animate-bounce" style={{ animationDelay: '0.4s' }}></div>
+          </div>
         </div>
       </div>
     );
@@ -624,16 +655,19 @@ export default function UberLikeDriverMap({
 
       {/* Floating Map Controls (Right Side) */}
       <div className={`absolute z-[1000] flex flex-col gap-3 ${isFullScreen ? 'bottom-32 right-4' : 'bottom-6 right-4'}`}>
-        {/* Recenter */}
+        {/* Recenter - Premium Design */}
         <button
           onClick={() => {
             if (mapRef.current && driverLocation) {
               mapRef.current.flyTo([driverLocation.lat, driverLocation.lng], 17);
             }
           }}
-          className="w-10 h-10 bg-white dark:bg-gray-800 rounded-full shadow-lg flex items-center justify-center text-blue-600 hover:bg-blue-50 transition-colors"
+          className="relative w-12 h-12 bg-gradient-to-br from-blue-500 via-blue-600 to-indigo-700 rounded-full shadow-xl flex items-center justify-center text-white hover:scale-110 hover:shadow-blue-500/40 transition-all duration-300 group overflow-hidden"
+          title="Center on my location"
         >
-          <Navigation className="w-5 h-5 fill-current" />
+          {/* Animated ring effect on hover */}
+          <span className="absolute inset-0 rounded-full border-2 border-white/30 group-hover:scale-125 group-hover:opacity-0 transition-all duration-500"></span>
+          <Navigation className="w-5 h-5 fill-current relative z-10 drop-shadow-sm" />
         </button>
 
         {/* Zoom Controls (Grouped) */}

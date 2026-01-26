@@ -31,10 +31,12 @@ CREATE TABLE IF NOT EXISTS bus_locations (
   lng DOUBLE PRECISION NOT NULL,
   speed DOUBLE PRECISION,
   heading DOUBLE PRECISION,
+  accuracy DOUBLE PRECISION, -- GPS accuracy in meters
   timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   is_snapshot BOOLEAN DEFAULT FALSE,
   trip_id TEXT,
-  created_at TIMESTAMPTZ DEFAULT NOW()
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
 CREATE INDEX IF NOT EXISTS idx_bus_locations_bus_id ON bus_locations(bus_id);
@@ -104,20 +106,6 @@ CREATE INDEX IF NOT EXISTS idx_driver_location_updates_driver_uid ON driver_loca
 CREATE INDEX IF NOT EXISTS idx_driver_location_updates_timestamp ON driver_location_updates(timestamp DESC);
 CREATE INDEX IF NOT EXISTS idx_driver_location_updates_cleanup ON driver_location_updates(driver_uid, bus_id);
 
--- notifications table (Supabase-based)
-CREATE TABLE IF NOT EXISTS notifications (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  audience JSONB NOT NULL,
-  title TEXT NOT NULL,
-  body TEXT NOT NULL,
-  meta JSONB,
-  status TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'sent')),
-  created_at TIMESTAMPTZ DEFAULT NOW()
-);
-
-CREATE INDEX IF NOT EXISTS idx_notifications_status ON notifications(status);
-CREATE INDEX IF NOT EXISTS idx_notifications_created_at ON notifications(created_at DESC);
-
 -- route_cache table (ORS geometry caching)
 CREATE TABLE IF NOT EXISTS route_cache (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -136,33 +124,6 @@ CREATE INDEX IF NOT EXISTS idx_route_cache_route_id ON route_cache(route_id);
 CREATE INDEX IF NOT EXISTS idx_route_cache_expires_at ON route_cache(expires_at);
 CREATE INDEX IF NOT EXISTS idx_route_cache_fallback ON route_cache(fallback_used) WHERE fallback_used = TRUE;
 
--- trip_sessions_archive table (analytics)
-CREATE TABLE IF NOT EXISTS trip_sessions_archive (
-  id TEXT PRIMARY KEY,
-  bus_id TEXT NOT NULL,
-  route_id TEXT NOT NULL,
-  driver_uid TEXT NOT NULL,
-  trip_status TEXT NOT NULL,
-  started_at TIMESTAMPTZ NOT NULL,
-  ended_at TIMESTAMPTZ,
-  route_geometry JSONB,
-  snapped_stops JSONB,
-  route_geometry_source TEXT,
-  snap_success_rate NUMERIC(5,2),
-  route_fallback BOOLEAN DEFAULT FALSE,
-  total_distance_km NUMERIC(10,2),
-  total_duration_minutes INTEGER,
-  students_notified INTEGER DEFAULT 0,
-  waiting_flags_raised INTEGER DEFAULT 0,
-  archived_at TIMESTAMPTZ DEFAULT NOW(),
-  created_at TIMESTAMPTZ DEFAULT NOW()
-);
-
-CREATE INDEX IF NOT EXISTS idx_trip_archive_bus ON trip_sessions_archive(bus_id);
-CREATE INDEX IF NOT EXISTS idx_trip_archive_driver ON trip_sessions_archive(driver_uid);
-CREATE INDEX IF NOT EXISTS idx_trip_archive_route ON trip_sessions_archive(route_id);
-CREATE INDEX IF NOT EXISTS idx_trip_archive_date ON trip_sessions_archive(started_at);
-
 -- =====================================================
 -- SECTION 2: DRIVER SWAP SYSTEM TABLES
 -- =====================================================
@@ -170,32 +131,79 @@ CREATE INDEX IF NOT EXISTS idx_trip_archive_date ON trip_sessions_archive(starte
 -- driver_swap_requests table
 CREATE TABLE IF NOT EXISTS driver_swap_requests (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  -- Requester (fromDriver) info
   requester_driver_uid TEXT NOT NULL,
   requester_name TEXT NOT NULL,
-  bus_id TEXT NOT NULL,
-  route_id TEXT NOT NULL,
+  -- Target (toDriver) info  
   candidate_driver_uid TEXT NOT NULL,
   candidate_name TEXT NOT NULL,
+  -- Primary bus/route being swapped
+  bus_id TEXT NOT NULL,
+  bus_number TEXT,
+  route_id TEXT,
+  route_name TEXT,
+  -- Secondary bus/route for true swaps (both drivers have buses)
+  secondary_bus_id TEXT,
+  secondary_bus_number TEXT,
+  secondary_route_id TEXT,
+  secondary_route_name TEXT,
+  -- Swap timing
   starts_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   ends_at TIMESTAMPTZ NOT NULL,
+  expires_at TIMESTAMPTZ, -- When acceptance window expires
+  -- Swap details
+  swap_type TEXT DEFAULT 'assignment' CHECK (swap_type IN ('assignment', 'swap')),
   reason TEXT,
   status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'accepted', 'rejected', 'cancelled', 'expired')),
+  -- Timestamps
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  -- Action tracking
   accepted_by TEXT,
   accepted_at TIMESTAMPTZ,
   rejected_by TEXT,
   rejected_at TIMESTAMPTZ,
   cancelled_by TEXT,
   cancelled_at TIMESTAMPTZ,
+  -- Additional metadata
   meta JSONB DEFAULT '{}'::jsonb
 );
+
+-- Add missing columns if table already exists
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'driver_swap_requests' AND column_name = 'bus_number') THEN
+        ALTER TABLE driver_swap_requests ADD COLUMN bus_number TEXT;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'driver_swap_requests' AND column_name = 'route_name') THEN
+        ALTER TABLE driver_swap_requests ADD COLUMN route_name TEXT;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'driver_swap_requests' AND column_name = 'secondary_bus_id') THEN
+        ALTER TABLE driver_swap_requests ADD COLUMN secondary_bus_id TEXT;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'driver_swap_requests' AND column_name = 'secondary_bus_number') THEN
+        ALTER TABLE driver_swap_requests ADD COLUMN secondary_bus_number TEXT;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'driver_swap_requests' AND column_name = 'secondary_route_id') THEN
+        ALTER TABLE driver_swap_requests ADD COLUMN secondary_route_id TEXT;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'driver_swap_requests' AND column_name = 'secondary_route_name') THEN
+        ALTER TABLE driver_swap_requests ADD COLUMN secondary_route_name TEXT;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'driver_swap_requests' AND column_name = 'swap_type') THEN
+        ALTER TABLE driver_swap_requests ADD COLUMN swap_type TEXT DEFAULT 'assignment';
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'driver_swap_requests' AND column_name = 'expires_at') THEN
+        ALTER TABLE driver_swap_requests ADD COLUMN expires_at TIMESTAMPTZ;
+    END IF;
+END $$;
 
 CREATE INDEX IF NOT EXISTS idx_swap_requests_requester ON driver_swap_requests(requester_driver_uid);
 CREATE INDEX IF NOT EXISTS idx_swap_requests_candidate ON driver_swap_requests(candidate_driver_uid);
 CREATE INDEX IF NOT EXISTS idx_swap_requests_bus ON driver_swap_requests(bus_id);
 CREATE INDEX IF NOT EXISTS idx_swap_requests_status ON driver_swap_requests(status);
 CREATE INDEX IF NOT EXISTS idx_swap_requests_created ON driver_swap_requests(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_swap_requests_active ON driver_swap_requests(status) WHERE status IN ('pending', 'accepted');
 
 -- temporary_assignments table
 CREATE TABLE IF NOT EXISTS temporary_assignments (
@@ -217,23 +225,6 @@ CREATE INDEX IF NOT EXISTS idx_temp_assignments_bus ON temporary_assignments(bus
 CREATE INDEX IF NOT EXISTS idx_temp_assignments_current_driver ON temporary_assignments(current_driver_uid);
 CREATE INDEX IF NOT EXISTS idx_temp_assignments_active ON temporary_assignments(active) WHERE active = true;
 CREATE INDEX IF NOT EXISTS idx_temp_assignments_expires ON temporary_assignments(ends_at) WHERE active = true;
-
--- temporary_assignment_history table
-CREATE TABLE IF NOT EXISTS temporary_assignment_history (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  assignment_id UUID REFERENCES temporary_assignments(id),
-  bus_id TEXT NOT NULL,
-  original_driver_uid TEXT NOT NULL,
-  new_driver_uid TEXT NOT NULL,
-  action TEXT NOT NULL CHECK (action IN ('created', 'accepted', 'expired', 'cancelled', 'reverted', 'manual_override')),
-  actor_uid TEXT NOT NULL,
-  timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  notes TEXT
-);
-
-CREATE INDEX IF NOT EXISTS idx_assignment_history_assignment ON temporary_assignment_history(assignment_id);
-CREATE INDEX IF NOT EXISTS idx_assignment_history_bus ON temporary_assignment_history(bus_id);
-CREATE INDEX IF NOT EXISTS idx_assignment_history_timestamp ON temporary_assignment_history(timestamp DESC);
 
 -- =====================================================
 -- SECTION 3: REASSIGNMENT LOGS TABLE
@@ -301,8 +292,11 @@ CREATE TABLE IF NOT EXISTS public.payments (
   payment_id TEXT NOT NULL UNIQUE,
   
   -- Student Information
-  student_id TEXT,
-  student_uid TEXT,
+  -- student_id and student_name store ENCRYPTED data (AES-256-GCM base64url)
+  -- The decryptData() function handles both encrypted and plain-text (legacy) values
+  student_id TEXT,      -- Enrollment ID (encrypted for new records, plain for legacy)
+  student_uid TEXT,     -- Firebase UID (NOT encrypted - needed for RLS filtering)
+  student_name TEXT,    -- Student name (encrypted for new records, plain for legacy)
   
   -- Payment Details
   amount NUMERIC(12,2),
@@ -318,13 +312,16 @@ CREATE TABLE IF NOT EXISTS public.payments (
   
   -- Transaction Details
   transaction_date TIMESTAMPTZ,
-  offline_transaction_id TEXT,
-  razorpay_payment_id TEXT,
-  razorpay_order_id TEXT,
+  offline_transaction_id TEXT,  -- Can store encrypted or plain text
+  razorpay_payment_id TEXT,     -- NOT encrypted - needed for Razorpay reconciliation
+  razorpay_order_id TEXT,       -- NOT encrypted - needed for API lookups
   
   -- Approval Info (status updates only, no destructive changes)
   approved_by JSONB,
   approved_at TIMESTAMPTZ,
+  
+  -- Security Metadata
+  document_signature TEXT,      -- RSA-2048 digital signature for tamper-proof receipts
   
   -- Timestamps
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -335,6 +332,28 @@ CREATE TABLE IF NOT EXISTS public.payments (
   CONSTRAINT chk_payment_status CHECK (status IN ('Pending', 'Completed') OR status IS NULL)
 );
 
+-- Ensure columns exist (for existing tables)
+DO $$
+BEGIN
+    -- payments table
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'payments' AND column_name = 'document_signature') THEN
+        ALTER TABLE public.payments ADD COLUMN document_signature TEXT;
+    END IF;
+    
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'payments' AND column_name = 'student_name') THEN
+        ALTER TABLE public.payments ADD COLUMN student_name TEXT;
+    END IF;
+
+    -- bus_locations table
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'bus_locations' AND column_name = 'accuracy') THEN
+        ALTER TABLE bus_locations ADD COLUMN accuracy DOUBLE PRECISION;
+    END IF;
+    
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'bus_locations' AND column_name = 'updated_at') THEN
+        ALTER TABLE bus_locations ADD COLUMN updated_at TIMESTAMPTZ DEFAULT NOW();
+    END IF;
+END $$;
+
 CREATE INDEX IF NOT EXISTS idx_payments_student_uid ON public.payments (student_uid);
 CREATE INDEX IF NOT EXISTS idx_payments_student_id ON public.payments (student_id);
 CREATE INDEX IF NOT EXISTS idx_payments_date ON public.payments (transaction_date DESC);
@@ -342,6 +361,7 @@ CREATE INDEX IF NOT EXISTS idx_payments_status ON public.payments (status);
 CREATE INDEX IF NOT EXISTS idx_payments_method ON public.payments (method);
 CREATE INDEX IF NOT EXISTS idx_payments_year ON public.payments (session_start_year, session_end_year);
 CREATE INDEX IF NOT EXISTS idx_payments_created_at ON public.payments (created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_payments_signature ON public.payments ((document_signature IS NOT NULL));
 
 -- Payment exports table
 CREATE TABLE IF NOT EXISTS public.payment_exports (
@@ -455,13 +475,6 @@ BEGIN
     SET active = false
     WHERE id = v_assignment.id;
     
-    INSERT INTO temporary_assignment_history (
-      assignment_id, bus_id, original_driver_uid, new_driver_uid, action, actor_uid, notes
-    ) VALUES (
-      v_assignment.id, v_assignment.bus_id, v_assignment.original_driver_uid,
-      v_assignment.current_driver_uid, 'expired', 'system', 'Automatic expiry by scheduled job'
-    );
-    
     v_count := v_count + 1;
   END LOOP;
   
@@ -524,12 +537,9 @@ ALTER TABLE bus_locations ENABLE ROW LEVEL SECURITY;
 ALTER TABLE driver_status ENABLE ROW LEVEL SECURITY;
 ALTER TABLE waiting_flags ENABLE ROW LEVEL SECURITY;
 ALTER TABLE driver_location_updates ENABLE ROW LEVEL SECURITY;
-ALTER TABLE notifications ENABLE ROW LEVEL SECURITY;
 ALTER TABLE route_cache ENABLE ROW LEVEL SECURITY;
-ALTER TABLE trip_sessions_archive ENABLE ROW LEVEL SECURITY;
 ALTER TABLE driver_swap_requests ENABLE ROW LEVEL SECURITY;
 ALTER TABLE temporary_assignments ENABLE ROW LEVEL SECURITY;
-ALTER TABLE temporary_assignment_history ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.reassignment_logs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.payments ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.payment_exports ENABLE ROW LEVEL SECURITY;
@@ -555,8 +565,9 @@ CREATE POLICY "bus_locations_delete_service" ON bus_locations
 -- ========== driver_status policies ==========
 DROP POLICY IF EXISTS "driver_status_select_all" ON driver_status;
 DROP POLICY IF EXISTS "driver_status_select_authenticated" ON driver_status;
-CREATE POLICY "driver_status_select_authenticated" ON driver_status
-  FOR SELECT TO authenticated USING (true);
+-- Allow all users (including anon) to read driver_status for trip tracking
+CREATE POLICY "driver_status_select_all" ON driver_status
+  FOR SELECT USING (true);
 
 DROP POLICY IF EXISTS "driver_status_insert_service" ON driver_status;
 CREATE POLICY "driver_status_insert_service" ON driver_status
@@ -565,6 +576,13 @@ CREATE POLICY "driver_status_insert_service" ON driver_status
 DROP POLICY IF EXISTS "driver_status_update_service" ON driver_status;
 CREATE POLICY "driver_status_update_service" ON driver_status
   FOR UPDATE USING (auth.role() = 'service_role');
+
+DROP POLICY IF EXISTS "driver_status_delete_service" ON driver_status;
+CREATE POLICY "driver_status_delete_service" ON driver_status
+  FOR DELETE USING (auth.role() = 'service_role');
+
+-- Add index on bus_id for faster lookups
+CREATE INDEX IF NOT EXISTS idx_driver_status_bus_id ON driver_status(bus_id);
 
 -- ========== waiting_flags policies (SECURED) ==========
 DROP POLICY IF EXISTS "waiting_flags_select_all" ON waiting_flags;
@@ -632,14 +650,6 @@ DROP POLICY IF EXISTS "driver_location_updates_delete_service" ON driver_locatio
 CREATE POLICY "driver_location_updates_delete_service" ON driver_location_updates
   FOR DELETE USING (auth.role() = 'service_role');
 
--- ========== notifications policies ==========
-DROP POLICY IF EXISTS "notifications_select_all" ON notifications;
-CREATE POLICY "notifications_select_authenticated" ON notifications
-  FOR SELECT TO authenticated USING (true);
-
-DROP POLICY IF EXISTS "notifications_insert_service" ON notifications;
-CREATE POLICY "notifications_insert_service" ON notifications
-  FOR INSERT WITH CHECK (auth.role() = 'service_role');
 
 -- ========== route_cache policies ==========
 DROP POLICY IF EXISTS "route_cache_select_all" ON route_cache;
@@ -652,16 +662,6 @@ CREATE POLICY "route_cache_insert_service" ON route_cache
 DROP POLICY IF EXISTS "route_cache_update_service" ON route_cache;
 CREATE POLICY "route_cache_update_service" ON route_cache
   FOR UPDATE USING (auth.role() = 'service_role');
-
--- ========== trip_sessions_archive policies (SECURED) ==========
-DROP POLICY IF EXISTS "trip_archive_select_all" ON trip_sessions_archive;
-DROP POLICY IF EXISTS "trip_sessions_archive_select_service" ON trip_sessions_archive;
-CREATE POLICY "trip_sessions_archive_select_service" ON trip_sessions_archive
-  FOR SELECT USING (auth.role() = 'service_role');
-
-DROP POLICY IF EXISTS "trip_archive_insert_service" ON trip_sessions_archive;
-CREATE POLICY "trip_archive_insert_service" ON trip_sessions_archive
-  FOR INSERT WITH CHECK (auth.role() = 'service_role');
 
 -- ========== driver_swap_requests policies (SECURED) ==========
 DROP POLICY IF EXISTS "Drivers can read their swap requests" ON driver_swap_requests;
@@ -708,16 +708,6 @@ DROP POLICY IF EXISTS "temporary_assignments_delete_service" ON temporary_assign
 CREATE POLICY "temporary_assignments_delete_service" ON temporary_assignments
   FOR DELETE USING (auth.role() = 'service_role');
 
--- ========== temporary_assignment_history policies (SECURED) ==========
-DROP POLICY IF EXISTS "Drivers can read assignment history" ON temporary_assignment_history;
-DROP POLICY IF EXISTS "temporary_assignment_history_select_service" ON temporary_assignment_history;
-CREATE POLICY "temporary_assignment_history_select_service" ON temporary_assignment_history
-  FOR SELECT USING (auth.role() = 'service_role');
-
-DROP POLICY IF EXISTS "temporary_assignment_history_insert_service" ON temporary_assignment_history;
-CREATE POLICY "temporary_assignment_history_insert_service" ON temporary_assignment_history
-  FOR INSERT WITH CHECK (auth.role() = 'service_role');
-
 -- ========== reassignment_logs policies (SECURED) ==========
 DROP POLICY IF EXISTS "reassignment_logs_select_all" ON public.reassignment_logs;
 DROP POLICY IF EXISTS "reassignment_logs_select_service" ON public.reassignment_logs;
@@ -753,11 +743,13 @@ CREATE POLICY "payments_update_service" ON public.payments
 
 -- ⚠️ PAYMENTS ARE IMMUTABLE - NO DELETIONS ALLOWED (not even service_role)
 DROP POLICY IF EXISTS "payments_delete_service" ON public.payments;
+DROP POLICY IF EXISTS "payments_delete_blocked" ON public.payments;
 CREATE POLICY "payments_delete_blocked" ON public.payments
   FOR DELETE USING (false); -- BLOCKED: Payments are permanent financial records
 
 -- ========== payment_exports policies ==========
 DROP POLICY IF EXISTS "payment_exports_select_all" ON public.payment_exports;
+DROP POLICY IF EXISTS "payment_exports_select_service" ON public.payment_exports;
 CREATE POLICY "payment_exports_select_service" ON public.payment_exports
   FOR SELECT USING (auth.role() = 'service_role');
 
@@ -773,7 +765,6 @@ GRANT SELECT ON driver_swap_requests TO authenticated;
 GRANT INSERT ON driver_swap_requests TO authenticated;
 GRANT UPDATE ON driver_swap_requests TO authenticated;
 GRANT SELECT ON temporary_assignments TO authenticated;
-GRANT SELECT ON temporary_assignment_history TO authenticated;
 GRANT SELECT ON public.payments TO authenticated;
 
 -- =====================================================
@@ -794,16 +785,22 @@ BEGIN
     ALTER PUBLICATION supabase_realtime ADD TABLE waiting_flags;
   END IF;
   
-  IF NOT EXISTS (SELECT 1 FROM pg_publication_tables WHERE pubname = 'supabase_realtime' AND tablename = 'notifications') THEN
-    ALTER PUBLICATION supabase_realtime ADD TABLE notifications;
-  END IF;
-  
   IF NOT EXISTS (SELECT 1 FROM pg_publication_tables WHERE pubname = 'supabase_realtime' AND tablename = 'reassignment_logs') THEN
     ALTER PUBLICATION supabase_realtime ADD TABLE reassignment_logs;
   END IF;
   
   IF NOT EXISTS (SELECT 1 FROM pg_publication_tables WHERE pubname = 'supabase_realtime' AND tablename = 'payments') THEN
     ALTER PUBLICATION supabase_realtime ADD TABLE payments;
+  END IF;
+  
+  -- Driver Swap Requests: Enable realtime for instant swap updates
+  IF NOT EXISTS (SELECT 1 FROM pg_publication_tables WHERE pubname = 'supabase_realtime' AND tablename = 'driver_swap_requests') THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE driver_swap_requests;
+  END IF;
+  
+  -- Temporary Assignments: Enable realtime for active assignment updates  
+  IF NOT EXISTS (SELECT 1 FROM pg_publication_tables WHERE pubname = 'supabase_realtime' AND tablename = 'temporary_assignments') THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE temporary_assignments;
   END IF;
 END $$;
 
@@ -815,9 +812,7 @@ COMMENT ON TABLE bus_locations IS 'Real-time GPS coordinates of buses during act
 COMMENT ON TABLE driver_status IS 'Current operational status of drivers';
 COMMENT ON TABLE waiting_flags IS 'Student waiting signals at bus stops';
 COMMENT ON TABLE driver_location_updates IS 'Historical location breadcrumbs for audit/replay';
-COMMENT ON TABLE notifications IS 'System-wide notifications and alerts';
 COMMENT ON TABLE route_cache IS 'Cached route geometries from OpenRouteService';
-COMMENT ON TABLE trip_sessions_archive IS 'Historical trip data for analytics';
 COMMENT ON TABLE public.reassignment_logs IS 'Audit logs for driver/student/route reassignment operations';
 COMMENT ON TABLE public.payments IS 'IMMUTABLE FINANCIAL LEDGER - Payment records are permanent and cannot be deleted. Single source of truth for all payments.';
 COMMENT ON TABLE public.payment_exports IS 'Annual payment export tracking';
@@ -829,7 +824,7 @@ COMMENT ON TABLE public.payment_exports IS 'Annual payment export tracking';
 DO $$
 BEGIN
   RAISE NOTICE '✅ ADTU Bus XQ System - Complete Database Setup Done!';
-  RAISE NOTICE '📋 All 13 tables created';
+  RAISE NOTICE '📋 All 10 tables created';
   RAISE NOTICE '🔒 Security-hardened RLS policies applied';
   RAISE NOTICE '⚡ All indexes created for performance';
   RAISE NOTICE '🔄 Helper functions and triggers added';
@@ -837,30 +832,10 @@ BEGIN
   RAISE NOTICE '🚀 Ready for production!';
 END $$;
 
--- =================================================================
--- MIGRATION SCRIPT: REMOVE LEGACY COLUMNS
--- Run this script in the Supabase SQL Editor to remove the 
--- 'metadata' and 'approval_source' columns from the 'payments' table.
--- =================================================================
+-- Add comment explaining the encryption and signature strategy
+COMMENT ON COLUMN public.payments.student_name IS 'Student name - stores AES-256-GCM encrypted data for new records. Legacy plain-text data is handled transparently by decryptData() in the application.';
+COMMENT ON COLUMN public.payments.student_id IS 'Enrollment ID - stores AES-256-GCM encrypted data for new records. Legacy plain-text data is handled transparently.';
+COMMENT ON COLUMN public.payments.offline_transaction_id IS 'Offline transaction ID - stores AES-256-GCM encrypted data for new records. Legacy plain-text data is handled transparently.';
+COMMENT ON COLUMN public.payments.document_signature IS 'RSA-2048 digital signature for tamper-proof receipt verification. Generated during receipt creation and verified during QR scan.';
+COMMENT ON COLUMN bus_locations.accuracy IS 'GPS accuracy in meters from device sensors';
 
--- 1. Remove 'metadata' column if it exists
-DO $$
-BEGIN
-    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'payments' AND column_name = 'metadata') THEN
-        ALTER TABLE public.payments DROP COLUMN metadata;
-        RAISE NOTICE 'Dropped column: metadata';
-    ELSE
-        RAISE NOTICE 'Column does not exist: metadata';
-    END IF;
-END $$;
-
--- 2. Remove 'approval_source' column if it exists
-DO $$
-BEGIN
-    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'payments' AND column_name = 'approval_source') THEN
-        ALTER TABLE public.payments DROP COLUMN approval_source;
-        RAISE NOTICE 'Dropped column: approval_source';
-    ELSE
-        RAISE NOTICE 'Column does not exist: approval_source';
-    END IF;
-END $$;

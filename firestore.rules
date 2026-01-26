@@ -145,10 +145,11 @@ service cloud.firestore {
     // ============================================================================
 
     match /drivers/{driverId} {
-      // SECURITY FIX: Only driver themselves, admins, and moderators can read full data
+      // Allow drivers to read all driver documents (for swap feature)
       // Students can read limited fields for contact (handled in client)
       allow read: if request.auth != null && (
         request.auth.uid == driverId ||
+        isDriver(request.auth.uid) ||  // All drivers can read (for swap feature)
         isModerator(request.auth.uid) ||
         isAdmin(request.auth.uid) ||
         isStudent(request.auth.uid) // For viewing assigned driver info

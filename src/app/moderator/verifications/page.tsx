@@ -74,14 +74,13 @@ export default function ModeratorVerificationsPage() {
         </div>
         <div className="flex items-center gap-3">
           <Button
-            variant="outline"
             size="sm"
-            className="gap-2"
+            className="group h-8 px-4 bg-white hover:bg-gray-50 text-gray-600 hover:text-purple-600 border border-gray-200 hover:border-purple-200 shadow-sm hover:shadow-lg hover:shadow-purple-500/10 font-bold text-[10px] uppercase tracking-widest rounded-lg transition-all duration-300 active:scale-95"
             onClick={handleRefresh}
             disabled={isRefreshing}
           >
-            <RefreshCw className={`h-4 w-4 ${isRefreshing ? 'animate-spin' : ''}`} />
-            {isRefreshing ? 'Refreshing...' : 'Refresh'}
+            <RefreshCw className={`mr-2 h-3.5 w-3.5 transition-transform duration-500 ${isRefreshing ? 'animate-spin' : 'group-hover:rotate-180'}`} />
+            Refresh
           </Button>
           <Badge variant="secondary" className="text-lg px-4 py-2">
             {verifications.length} Pending
@@ -112,6 +111,7 @@ export default function ModeratorVerificationsPage() {
                   <TableHead>Enrollment ID</TableHead>
                   <TableHead>Amount</TableHead>
                   <TableHead>Payment Mode</TableHead>
+                  <TableHead>UPI ID / Ref</TableHead>
                   <TableHead>Requested</TableHead>
                   <TableHead>Actions</TableHead>
                 </TableRow>
@@ -130,6 +130,9 @@ export default function ModeratorVerificationsPage() {
                       <Badge variant="outline">
                         {verification.formData.paymentInfo.paymentMode}
                       </Badge>
+                    </TableCell>
+                    <TableCell className="font-mono text-xs">
+                      {verification.formData.paymentInfo.paymentReference || 'N/A'}
                     </TableCell>
                     <TableCell>
                       {new Date(verification.updatedAt).toLocaleDateString()}

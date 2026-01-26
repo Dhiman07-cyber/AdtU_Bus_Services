@@ -640,10 +640,10 @@ export default function EnhancedModeratorDashboard() {
           <Button
             onClick={handleRefreshAll}
             disabled={isRefreshing}
-            className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800 text-gray-600 dark:text-gray-300 transition-all h-8 px-3 text-xs gap-2 shadow-sm"
+            className="group h-8 px-4 bg-white hover:bg-gray-50 text-gray-600 hover:text-purple-600 border border-gray-200 hover:border-purple-200 shadow-sm hover:shadow-lg hover:shadow-purple-500/10 font-bold text-[10px] uppercase tracking-widest rounded-lg transition-all duration-300 active:scale-95"
             size="sm"
           >
-            <RefreshCw className={`h-3.5 w-3.5 ${isRefreshing ? 'animate-spin' : ''}`} />
+            <RefreshCw className={`mr-2 h-3.5 w-3.5 transition-transform duration-500 ${isRefreshing ? 'animate-spin' : 'group-hover:rotate-180'}`} />
             Refresh Data
           </Button>
         </div>
@@ -901,7 +901,7 @@ export default function EnhancedModeratorDashboard() {
               <CardDescription className="text-[10px]">Moderation shortcuts</CardDescription>
             </CardHeader>
             <CardContent className="flex flex-col gap-1.5 px-2.5">
-              <Link href="/moderator/renewal-requests" className="group/btn">
+              <Link href="/moderator/renewal-service" className="group/btn">
                 <Button className="w-full bg-gradient-to-r from-blue-600 to-cyan-600 hover:from-blue-700 hover:to-cyan-700 cursor-pointer h-7 text-[10px] transition-all group-hover/btn:shadow-md group-hover/btn:shadow-blue-500/30 group-hover/btn:-translate-y-0.5">
                   <RefreshCw className="h-3 w-3 mr-1 group-hover/btn:scale-110 transition-transform" />
                   <span className="group-hover/btn:text-gray-900 dark:text-white transition-colors">Renewal Management</span>

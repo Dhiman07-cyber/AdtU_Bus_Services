@@ -507,7 +507,7 @@ export async function createOverloadNotification(
   stopName: string
 ): Promise<boolean> {
   try {
-    // Fetch admin and moderator IDs
+    // Fetch admin and moderator IDs - NOTE: This will fail for students due to permissions
     const adminsSnap = await getDocs(collection(db, 'admins'));
     const moderatorsSnap = await getDocs(collection(db, 'moderators'));
 
@@ -553,7 +553,7 @@ export async function createOverloadNotification(
     return true;
   } catch (error) {
     console.error('Error creating overload notification:', error);
-    return false;
+    return false; // Silent return
   }
 }
 
@@ -569,7 +569,7 @@ export async function createNearCapacityNotification(
   futurePercentage: number
 ): Promise<boolean> {
   try {
-    // Fetch admin and moderator IDs
+    // Fetch admin and moderator IDs - NOTE: This will fail for students due to permissions
     const adminsSnap = await getDocs(collection(db, 'admins'));
     const moderatorsSnap = await getDocs(collection(db, 'moderators'));
 
@@ -627,6 +627,6 @@ export async function createNearCapacityNotification(
     return true;
   } catch (error) {
     console.error('Error creating near-capacity notification:', error);
-    return false;
+    return false; // Silent return
   }
 }

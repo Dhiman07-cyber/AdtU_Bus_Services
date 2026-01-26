@@ -293,7 +293,7 @@ export default function SmartDriverAssignmentPage() {
 
     // Get bus info for a driver
     const getBusForDriver = useCallback((driver: DriverData): BusData | null => {
-        const busId = driver.busId || driver.assignedBusId;
+        const busId = driver.assignedBusId || driver.busId;
         if (!busId) return null;
         return buses.find((b) => b.id === busId || b.busId === busId) || null;
     }, [buses]);
@@ -314,7 +314,7 @@ export default function SmartDriverAssignmentPage() {
 
         // Fallback: search drivers for anyone assigned to this bus (handles data inconsistencies)
         // Check both 'busId' and 'assignedBusId' fields on the driver document
-        const falloutDriver = drivers.find((d) => d.busId === bus.id || d.assignedBusId === bus.id);
+        const falloutDriver = drivers.find((d) => d.assignedBusId === bus.id || d.busId === bus.id);
         return falloutDriver || null;
     }, [drivers]);
 
@@ -667,8 +667,8 @@ export default function SmartDriverAssignmentPage() {
                 id: d.id,
                 name: d.fullName || d.name || "Unknown",
                 employeeId: d.driverId || d.employeeId || d.id,
-                busId: d.busId || d.assignedBusId || null,
-                isReserved: d.isReserved || (!d.busId && !d.assignedBusId),
+                busId: d.assignedBusId || d.busId || null,
+                isReserved: d.isReserved || (!d.assignedBusId && !d.busId),
             })),
             buses: buses.map(b => ({
                 id: b.id,
@@ -841,7 +841,7 @@ export default function SmartDriverAssignmentPage() {
 
     return (
         <TooltipProvider>
-            <div className="mt-8 space-y-6 px-2 sm:px-4 ml-0">
+            <div className="mt-20 sm:mt-8 space-y-6 px-2 sm:px-4 ml-0">
                 {/* Header */}
                 <div className="flex flex-col md:flex-row md:justify-between md:items-center gap-4 flex-shrink-0">
                     <div className="flex items-center gap-2.5">

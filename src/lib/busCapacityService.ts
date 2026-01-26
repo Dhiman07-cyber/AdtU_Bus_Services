@@ -98,10 +98,11 @@ export async function incrementBusCapacity(busId: string, studentUid: string, sh
       const normalizedShift = shift.toLowerCase();
       const currentLoad = busData?.load || { morningCount: 0, eveningCount: 0 };
 
-      if (normalizedShift === 'morning' || normalizedShift === 'both') {
+      // Use includes() to handle variations like "Morning", "morning shift", "Evening Shift"
+      if (normalizedShift.includes('morning') || normalizedShift === 'both') {
         updates['load.morningCount'] = (currentLoad.morningCount || 0) + 1;
       }
-      if (normalizedShift === 'evening' || normalizedShift === 'both') {
+      if (normalizedShift.includes('evening') || normalizedShift === 'both') {
         updates['load.eveningCount'] = (currentLoad.eveningCount || 0) + 1;
       }
     }
@@ -154,10 +155,11 @@ export async function decrementBusCapacity(busId: string, studentUid: string, sh
       const normalizedShift = shift.toLowerCase();
       const currentLoad = busData?.load || { morningCount: 0, eveningCount: 0 };
 
-      if (normalizedShift === 'morning' || normalizedShift === 'both') {
+      // Use includes() to handle variations like "Morning", "morning shift", "Evening Shift"
+      if (normalizedShift.includes('morning') || normalizedShift === 'both') {
         updates['load.morningCount'] = Math.max(0, (currentLoad.morningCount || 0) - 1);
       }
-      if (normalizedShift === 'evening' || normalizedShift === 'both') {
+      if (normalizedShift.includes('evening') || normalizedShift === 'both') {
         updates['load.eveningCount'] = Math.max(0, (currentLoad.eveningCount || 0) - 1);
       }
     }

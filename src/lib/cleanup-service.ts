@@ -218,6 +218,11 @@ export class CleanupService {
         .filter((uid: any) => uid);
 
       if (studentUIDs.length > 0) {
+        // Calculate expiry (1 day from now)
+        const expiryDate = new Date();
+        expiryDate.setDate(expiryDate.getDate() + 1);
+        expiryDate.setHours(23, 59, 59, 999);
+
         await adminDb.collection('notifications').add({
           title: `Driver Change Complete — ${busNumber}`,
           message: `${driverName} is back as your regular driver for Bus ${busNumber}.`,
@@ -226,7 +231,8 @@ export class CleanupService {
           audience: studentUIDs,
           status: 'sent',
           createdBy: 'system',
-          createdAt: FieldValue.serverTimestamp()
+          createdAt: FieldValue.serverTimestamp(),
+          expiresAt: expiryDate.toISOString()
         });
       }
 
@@ -241,6 +247,11 @@ export class CleanupService {
       const managementUIDs = [...moderatorUIDs, ...adminUIDs];
 
       if (managementUIDs.length > 0) {
+        // Calculate expiry (1 day from now)
+        const mgmtExpiryDate = new Date();
+        mgmtExpiryDate.setDate(mgmtExpiryDate.getDate() + 1);
+        mgmtExpiryDate.setHours(23, 59, 59, 999);
+
         await adminDb.collection('notifications').add({
           title: 'Driver Swap Auto-Completed',
           message: `Bus ${busNumber} swap period ended. ${driverName} resumed duties.`,
@@ -249,7 +260,8 @@ export class CleanupService {
           audience: managementUIDs,
           status: 'sent',
           createdBy: 'system',
-          createdAt: FieldValue.serverTimestamp()
+          createdAt: FieldValue.serverTimestamp(),
+          expiresAt: mgmtExpiryDate.toISOString()
         });
       }
     } catch (error) {

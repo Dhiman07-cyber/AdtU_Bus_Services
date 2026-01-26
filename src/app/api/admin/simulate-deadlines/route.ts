@@ -121,11 +121,14 @@ export async function POST(request: NextRequest) {
 
             // Parse validUntil
             let validUntil: Date | null = null;
+            let validUntilStr: string | null = null;
             if (data.validUntil) {
                 if (typeof data.validUntil === 'string') {
                     validUntil = new Date(data.validUntil);
+                    validUntilStr = data.validUntil;
                 } else if (data.validUntil.toDate) {
                     validUntil = data.validUntil.toDate();
+                    validUntilStr = validUntil?.toISOString() ?? null;
                 }
             }
 
@@ -134,7 +137,7 @@ export async function POST(request: NextRequest) {
             // This satisfies "Simulate Date will be the VALID UNTIL of student"
             const sessionEndYear = (body.syncSessionYear || true)
                 ? simYear
-                : (validUntil ? validUntil.getFullYear() : null);
+                : (validUntil ? validUntil?.getFullYear() : null);
 
             if (!sessionEndYear) {
                 allStudents.push({
@@ -155,31 +158,42 @@ export async function POST(request: NextRequest) {
                 return;
             }
 
-            // Calculate dates using config and the determined session end year
-            const studentSoftBlockDate = new Date(
-                sessionEndYear,
-                config.softBlock.month,
-                config.softBlock.day,
-                config.softBlock.hour || 0,
-                config.softBlock.minute || 0
-            );
+            // ✅ USE PRE-STORED DATES from Firestore (primary source)
+            // Fallback to computed dates if missing (for legacy migration)
+            let studentSoftBlockDate: Date;
+            let studentHardDeleteDate: Date;
 
-            const studentHardDeleteDate = new Date(
-                sessionEndYear + 1,
-                config.hardDelete.month,
-                config.hardDelete.day,
-                config.hardDelete.hour || 0,
-                config.hardDelete.minute || 0
-            );
+            if (data.softBlock) {
+                // Use stored date
+                studentSoftBlockDate = new Date(data.softBlock);
+            } else {
+                // Fallback: Compute from config
+                studentSoftBlockDate = new Date(
+                    sessionEndYear,
+                    config.softBlock.month,
+                    config.softBlock.day,
+                    config.softBlock.hour || 0,
+                    config.softBlock.minute || 0
+                );
+            }
 
-            // LOGIC:
-            // Soft Block: Current Year == Session Year && Today >= Soft Block Date
-            // Hard Delete: Current Year >= Session Year + 1 && Today >= Hard Delete Date
-            const isSoftBlockYear = simYear === sessionEndYear;
-            const isHardDeleteYear = simYear >= sessionEndYear + 1;
+            if (data.hardBlock) {
+                // Use stored date
+                studentHardDeleteDate = new Date(data.hardBlock);
+            } else {
+                // Fallback: Compute from config
+                studentHardDeleteDate = new Date(
+                    sessionEndYear + 1,
+                    config.hardDelete.month,
+                    config.hardDelete.day,
+                    config.hardDelete.hour || 0,
+                    config.hardDelete.minute || 0
+                );
+            }
 
-            const isPastSoftBlock = isSoftBlockYear && simDate >= studentSoftBlockDate;
-            const isPastHardDelete = isHardDeleteYear && simDate >= studentHardDeleteDate;
+            // ✅ COMPARE current simulated date against stored dates
+            const isPastSoftBlock = simDate >= studentSoftBlockDate;
+            const isPastHardDelete = simDate >= studentHardDeleteDate;
 
             // Calculate days past
             const daysPastSoftBlock = isPastSoftBlock

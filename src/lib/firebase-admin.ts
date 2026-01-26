@@ -8,22 +8,14 @@ let db: any;
 
 // Try to initialize Firebase Admin SDK
 try {
-  console.log('Attempting to initialize Firebase Admin SDK...');
-  console.log('Environment check:', {
-    hasClientEmail: !!process.env.FIREBASE_CLIENT_EMAIL,
-    hasPrivateKey: !!process.env.FIREBASE_PRIVATE_KEY,
-    hasProjectId: !!process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
-    clientEmail: process.env.FIREBASE_CLIENT_EMAIL ? 'present' : 'missing',
-    privateKey: process.env.FIREBASE_PRIVATE_KEY ? 'present' : 'missing',
-    projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID || 'missing'
-  });
+  const isProduction = process.env.NODE_ENV === 'production';
+
+  if (!isProduction) {
+    console.log('🔧 Initializing Firebase Admin SDK...');
+  }
 
   if (process.env.FIREBASE_CLIENT_EMAIL && process.env.FIREBASE_PRIVATE_KEY) {
-    console.log('Firebase credentials found in environment variables');
-
     if (!getApps().length) {
-      console.log('No existing Firebase apps, initializing new app');
-
       // Process the private key - handle both quoted and unquoted keys, and escaped newlines
       let privateKey = process.env.FIREBASE_PRIVATE_KEY || '';
 
@@ -38,25 +30,20 @@ try {
         }),
       });
 
-      console.log('Firebase Admin app initialized successfully');
+      if (!isProduction) {
+        console.log('✅ Firebase Admin SDK initialized');
+      }
     } else {
-      const existingApp = getApps()[0];
-      const projectId = (existingApp.options as any).credential?.projectId || existingApp.options.projectId;
-      console.log(`Using existing Firebase app for project: ${projectId}`);
-      adminApp = existingApp;
+      adminApp = getApps()[0];
     }
 
     auth = getAuth(adminApp);
     db = getFirestore(adminApp);
-
-    console.log('Firebase Auth and Firestore initialized successfully');
-  } else {
-    console.warn('Firebase Admin credentials not found in environment variables');
+  } else if (!isProduction) {
+    console.warn('⚠️ Firebase Admin credentials not found');
   }
 } catch (error: any) {
-  console.error('Failed to initialize Firebase Admin SDK:', error);
-  console.error('Error name:', error.name);
-  console.error('Error message:', error.message);
+  console.error('❌ Firebase Admin SDK initialization failed:', error.message);
 }
 
 // Verify token function

@@ -25,7 +25,7 @@ export async function POST(request: Request) {
     const arrayBuffer = await file.arrayBuffer();
     const base64 = Buffer.from(arrayBuffer).toString('base64');
     const dataURI = `data:${file.type};base64,${base64}`;
-    
+
     // Upload to Cloudinary
     const result = await cloudinary.uploader.upload(dataURI, {
       folder: folder,
@@ -33,7 +33,7 @@ export async function POST(request: Request) {
       unique_filename: false,
       overwrite: true
     });
-    
+
     return new Response(JSON.stringify({ url: result.secure_url }), {
       status: 200,
       headers: { 'Content-Type': 'application/json' },

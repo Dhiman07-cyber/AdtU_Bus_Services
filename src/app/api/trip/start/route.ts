@@ -21,7 +21,7 @@ try {
   } else {
     adminApp = getApps()[0];
   }
-  
+
   db = getFirestore(adminApp);
   messaging = getMessaging(adminApp);
 } catch (error) {
@@ -68,6 +68,11 @@ export async function POST(request: NextRequest) {
 
     // 3. Create in-app trip notification for each student
     const notificationPromises = students.map(async (student: any) => {
+      // Calculate expiry (1 day from now, end of day)
+      const expiryDate = new Date();
+      expiryDate.setDate(expiryDate.getDate() + 1);
+      expiryDate.setHours(23, 59, 59, 999);
+
       return db.collection('notifications').add({
         type: 'trip',
         title: 'Bus Trip Started',
@@ -84,6 +89,7 @@ export async function POST(request: NextRequest) {
         busId: bus_id,
         routeId: route_id,
         createdAt: new Date(),
+        expiresAt: expiryDate.toISOString(),
         startDate: new Date(),
         endDate: new Date(Date.now() + 24 * 60 * 60 * 1000), // 24 hours
       });

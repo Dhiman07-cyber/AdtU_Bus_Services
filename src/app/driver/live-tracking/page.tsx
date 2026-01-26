@@ -11,6 +11,13 @@ import { Bus, MapPin, Clock, Users, Flag, PlayCircle, StopCircle, AlertCircle, N
 import { supabase } from "@/lib/supabase-client";
 import { getDriverById, getBusById, getRouteById } from "@/lib/dataService";
 import { useToast } from "@/contexts/toast-context";
+import {
+  checkDeviceSession,
+  registerDeviceSession,
+  heartbeatDeviceSession,
+  releaseDeviceSession,
+  getOrCreateDeviceId
+} from "@/lib/session-device-service";
 
 // Dynamically import components to avoid SSR issues
 const BrowserCompatibilityBanner = dynamic(() => import('@/components/BrowserCompatibilityBanner'), {
@@ -86,6 +93,14 @@ export default function DriverLiveTrackingPage() {
   // Map center
   const [mapCenter, setMapCenter] = useState<[number, number]>([0, 0]); // Default center
   const [hasActiveSwapRequest, setHasActiveSwapRequest] = useState(false);
+  const [swapPeriodInfo, setSwapPeriodInfo] = useState<{
+    startTime: Date | null;
+    endTime: Date | null;
+  } | null>(null);
+  // Track whether current user is sender (requester) or receiver (candidate) of the swap
+  const [swapRole, setSwapRole] = useState<'sender' | 'receiver' | null>(null);
+  // Track swap type: 'assignment' (to reserved driver) or 'exchange' (true swap between two assigned drivers)
+  const [swapType, setSwapType] = useState<'assignment' | 'exchange' | null>(null);
 
   const [swapRequestLoading, setSwapRequestLoading] = useState(true);
 
@@ -95,6 +110,15 @@ export default function DriverLiveTrackingPage() {
   // Scanner Modal State
   const [isScannerOpen, setIsScannerOpen] = useState(false);
   // Track if location channel is subscribed and ready
+
+  // Device Session Management (Multi-device conflict detection)
+  const [deviceConflict, setDeviceConflict] = useState<{
+    hasConflict: boolean;
+    otherDeviceId?: string;
+    sessionAge?: number;
+  }>({ hasConflict: false });
+  const deviceSessionHeartbeatRef = useRef<NodeJS.Timeout | null>(null);
+  const currentDeviceId = useRef<string>('');
   const [isChannelReady, setIsChannelReady] = useState(false);
 
   // Start location tracking with better error handling and fallback
@@ -287,7 +311,7 @@ export default function DriverLiveTrackingPage() {
     }
   }, []);
 
-  // Check for active (ACCEPTED) swap requests - only blocks when swap is actually in progress
+  // Check for active (ACCEPTED) swap requests - only blocks BEFORE the swap period starts
   useEffect(() => {
     const checkActiveSwapRequests = async () => {
       if (!currentUser) {
@@ -315,25 +339,94 @@ export default function DriverLiveTrackingPage() {
         );
 
         let hasActiveSwap = false;
+        let swapPeriodStarted = false;
+        let pendingSwapPeriod: { startTime: Date; endTime: Date } | null = null;
+        let detectedSwapRole: 'sender' | 'receiver' | null = null;
+        let detectedSwapType: 'assignment' | 'exchange' | null = null;
+        const now = new Date();
 
         if (outgoingResponse.ok) {
           const outgoingData = await outgoingResponse.json();
           if (outgoingData.requests && outgoingData.requests.length > 0) {
-            hasActiveSwap = true;
             console.log('📋 Active outgoing swaps (accepted):', outgoingData.requests.length);
+
+            // Check if any swap period has started
+            for (const swap of outgoingData.requests) {
+              const startTime = swap.timePeriod?.startTime ? new Date(swap.timePeriod.startTime) : null;
+              const endTime = swap.timePeriod?.endTime ? new Date(swap.timePeriod.endTime) : null;
+
+              // If we're within the swap period, driver should be allowed to use live tracking
+              // (they've swapped out, so they're currently "off duty" for their original bus)
+              if (startTime && endTime && now >= startTime && now <= endTime) {
+                swapPeriodStarted = true;
+                console.log('✅ Outgoing swap period is ACTIVE - swap requester is off-duty');
+              } else if (startTime && endTime && now < startTime) {
+                // Store swap period info for display
+                pendingSwapPeriod = { startTime, endTime };
+                // Current user is the SENDER (requester who initiated the swap)
+                detectedSwapRole = 'sender';
+                // Determine swap type: exchange if there's a secondary bus, otherwise assignment
+                detectedSwapType = swap.secondaryBusId ? 'exchange' : 'assignment';
+                console.log('📤 User is SENDER of this swap, type:', detectedSwapType);
+              }
+            }
+
+            // Only block if swap period hasn't started yet
+            if (!swapPeriodStarted) {
+              hasActiveSwap = true;
+            }
           }
         }
 
         if (incomingResponse.ok) {
           const incomingData = await incomingResponse.json();
           if (incomingData.requests && incomingData.requests.length > 0) {
-            hasActiveSwap = true;
             console.log('📋 Active incoming swaps (accepted):', incomingData.requests.length);
+
+            // Check if any swap period has started
+            for (const swap of incomingData.requests) {
+              const startTime = swap.timePeriod?.startTime ? new Date(swap.timePeriod.startTime) : null;
+              const endTime = swap.timePeriod?.endTime ? new Date(swap.timePeriod.endTime) : null;
+
+              // If we're within the swap period, the acceptor should be allowed to drive
+              if (startTime && endTime && now >= startTime && now <= endTime) {
+                swapPeriodStarted = true;
+                console.log('✅ Incoming swap period is ACTIVE - acceptor can drive the swapped bus');
+              } else if (startTime && endTime && now < startTime) {
+                // Store swap period info for display
+                pendingSwapPeriod = { startTime, endTime };
+                // Current user is the RECEIVER (candidate who accepted the swap)
+                detectedSwapRole = 'receiver';
+                // Determine swap type: exchange if there's a secondary bus, otherwise assignment
+                detectedSwapType = swap.secondaryBusId ? 'exchange' : 'assignment';
+                console.log('📥 User is RECEIVER of this swap, type:', detectedSwapType);
+              }
+            }
+
+            // Only block if swap period hasn't started yet
+            if (!swapPeriodStarted) {
+              hasActiveSwap = true;
+            }
           }
         }
 
+        // If swap period has started, don't block access - driver has temporary assignment
+        if (swapPeriodStarted) {
+          hasActiveSwap = false;
+          setSwapPeriodInfo(null);
+          setSwapRole(null);
+          setSwapType(null);
+          console.log('🚌 Swap period in progress - allowing live tracking access');
+        } else if (hasActiveSwap && pendingSwapPeriod) {
+          // Store the swap period info for display
+          setSwapPeriodInfo(pendingSwapPeriod);
+          setSwapRole(detectedSwapRole);
+          setSwapType(detectedSwapType);
+          console.log('⏳ Swap period not started yet - showing time info, role:', detectedSwapRole, 'type:', detectedSwapType);
+        }
+
         setHasActiveSwapRequest(hasActiveSwap);
-        console.log('🔄 Has active swap (accepted):', hasActiveSwap);
+        console.log('🔄 Has active swap blocking access:', hasActiveSwap, '| Swap period started:', swapPeriodStarted, '| Role:', detectedSwapRole);
       } catch (error) {
         console.error('Error checking swap requests:', error);
       } finally {
@@ -411,6 +504,48 @@ export default function DriverLiveTrackingPage() {
 
     fetchData();
   }, [currentUser, userData, router, addToast]);
+
+  // Screen Wake Lock API for Driver
+  useEffect(() => {
+    let wakeLock: WakeLockSentinel | null = null;
+
+    const requestWakeLock = async () => {
+      try {
+        if ('wakeLock' in navigator) {
+          wakeLock = await navigator.wakeLock.request('screen');
+          console.log('💡 Screen Wake Lock active (Driver)');
+
+          wakeLock.addEventListener('release', () => {
+            console.log('💡 Screen Wake Lock released (Driver)');
+          });
+        }
+      } catch (err: any) {
+        if (err.name !== 'NotAllowedError') {
+          console.error(`❌ Wake Lock error: ${err.name}, ${err.message}`);
+        }
+      }
+    };
+
+    if (tripActive) {
+      requestWakeLock();
+    }
+
+    const handleVisibilityChange = async () => {
+      if (document.visibilityState === 'visible' && tripActive) {
+        await requestWakeLock();
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      if (wakeLock) {
+        wakeLock.release().catch(e => console.error('Wake Lock release error', e));
+        wakeLock = null;
+      }
+    };
+  }, [tripActive]);
 
   // Check for active trip when busData is available
   useEffect(() => {
@@ -502,6 +637,107 @@ export default function DriverLiveTrackingPage() {
 
     return () => clearInterval(interval);
   }, [currentUser, busData, tripActive, tripId, currentLocation, startLocationTracking]); // Dependencies for checking state changes
+
+  // ==========================================
+  // DEVICE SESSION MANAGEMENT (Multi-Device Conflict Detection)
+  // ==========================================
+  // This prevents location sharing confusion when the same driver account
+  // is accessed from multiple devices simultaneously.
+  useEffect(() => {
+    if (!currentUser?.uid) return;
+
+    // Initialize device ID on mount
+    currentDeviceId.current = getOrCreateDeviceId();
+    console.log('📱 Current device ID:', currentDeviceId.current.substring(0, 8) + '...');
+
+    // Check for existing sessions when page loads
+    const checkExistingSession = async () => {
+      const sessionCheck = await checkDeviceSession(currentUser.uid, 'driver_location_share');
+      console.log('🔍 Device session check:', sessionCheck);
+
+      if (sessionCheck.hasActiveSession && !sessionCheck.isCurrentDevice) {
+        // Another device is actively sharing location
+        setDeviceConflict({
+          hasConflict: true,
+          otherDeviceId: sessionCheck.otherDeviceId,
+          sessionAge: sessionCheck.sessionAge
+        });
+        console.warn('⚠️ Another device is currently sharing location for this account');
+      } else {
+        setDeviceConflict({ hasConflict: false });
+      }
+    };
+
+    checkExistingSession();
+
+    // Cleanup on unmount
+    return () => {
+      // If this device was broadcasting, release the session
+      if (tripActive) {
+        console.log('🧹 Releasing device session on unmount...');
+        releaseDeviceSession(currentUser.uid, 'driver_location_share');
+      }
+      if (deviceSessionHeartbeatRef.current) {
+        clearInterval(deviceSessionHeartbeatRef.current);
+        deviceSessionHeartbeatRef.current = null;
+      }
+    };
+  }, [currentUser?.uid, tripActive]);
+
+  // Start/Stop device session heartbeat when trip is active
+  useEffect(() => {
+    if (!currentUser?.uid) return;
+
+    if (tripActive) {
+      // Register this device as the active broadcaster
+      registerDeviceSession(currentUser.uid, 'driver_location_share')
+        .then((result) => {
+          if (result.success) {
+            console.log('✅ Device session registered for location sharing');
+            setDeviceConflict({ hasConflict: false });
+          }
+        });
+
+      // Start heartbeat every 10 seconds to keep session alive
+      deviceSessionHeartbeatRef.current = setInterval(async () => {
+        const success = await heartbeatDeviceSession(currentUser.uid, 'driver_location_share');
+        if (!success) {
+          console.warn('⚠️ Device session heartbeat failed');
+        }
+      }, 10000);
+    } else {
+      // Trip ended - release session
+      if (deviceSessionHeartbeatRef.current) {
+        clearInterval(deviceSessionHeartbeatRef.current);
+        deviceSessionHeartbeatRef.current = null;
+      }
+      releaseDeviceSession(currentUser.uid, 'driver_location_share');
+    }
+
+    return () => {
+      if (deviceSessionHeartbeatRef.current) {
+        clearInterval(deviceSessionHeartbeatRef.current);
+        deviceSessionHeartbeatRef.current = null;
+      }
+    };
+  }, [currentUser?.uid, tripActive]);
+
+  // Function to take over location sharing from another device
+  const handleTakeOverSession = async () => {
+    if (!currentUser?.uid) return;
+
+    console.log('🔄 Taking over location sharing from another device...');
+
+    // Force register this device (will override the other device's session)
+    const result = await registerDeviceSession(currentUser.uid, 'driver_location_share');
+    if (result.success) {
+      setDeviceConflict({ hasConflict: false });
+      addToast('Location sharing transferred to this device', 'success');
+      console.log('✅ Successfully took over location sharing');
+    } else {
+      addToast('Failed to take over session: ' + result.error, 'error');
+    }
+  };
 
   // Dynamic centering when location changes during active trip
   useEffect(() => {
@@ -711,6 +947,72 @@ export default function DriverLiveTrackingPage() {
     };
   }, [tripActive]);
 
+  // ==========================================
+  // AUTO-DISMISS WAITING FLAGS WHEN DRIVER REACHES STUDENT
+  // ==========================================
+  // When the driver's distance to a waiting student is less than 50 meters,
+  // automatically mark the flag as 'picked_up' to clear it from both UIs
+  useEffect(() => {
+    if (!tripActive || !currentLocation || waitingFlags.length === 0) return;
+
+    // Calculate distance between driver and each waiting student
+    const checkProximity = async () => {
+      for (const flag of waitingFlags) {
+        const studentLat = flag.stop_lat || flag.lat;
+        const studentLng = flag.stop_lng || flag.lng;
+
+        if (!studentLat || !studentLng) continue;
+
+        // Haversine formula to calculate distance
+        const R = 6371000; // Earth's radius in meters
+        const dLat = (studentLat - currentLocation.lat) * Math.PI / 180;
+        const dLon = (studentLng - currentLocation.lng) * Math.PI / 180;
+        const a = Math.sin(dLat / 2) ** 2 +
+          Math.cos(currentLocation.lat * Math.PI / 180) *
+          Math.cos(studentLat * Math.PI / 180) *
+          Math.sin(dLon / 2) ** 2;
+        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+        const distance = R * c; // Distance in meters
+
+        // If within 50 meters, auto-dismiss the flag
+        if (distance <= 50) {
+          console.log(`🎯 Driver reached student ${flag.student_name} (${distance.toFixed(0)}m) - auto-dismissing flag`);
+
+          try {
+            // Update flag status to 'picked_up' in Supabase
+            const { error } = await supabase
+              .from('waiting_flags')
+              .update({ status: 'picked_up' })
+              .eq('id', flag.id);
+
+            if (!error) {
+              // Remove from local state
+              setWaitingFlags(prev => prev.filter(f => f.id !== flag.id));
+
+              // Broadcast removal to student
+              const channel = supabase.channel(`student_${flag.student_uid}`);
+              await channel.subscribe();
+              await channel.send({
+                type: 'broadcast',
+                event: 'flag_acknowledged',
+                payload: { flagId: flag.id, status: 'picked_up', message: 'Driver has arrived!' }
+              });
+              await supabase.removeChannel(channel);
+
+              addToast(`🎉 Reached ${flag.student_name}!`, 'success');
+              console.log(`✅ Auto-dismissed flag for ${flag.student_name}`);
+            } else {
+              console.error('❌ Failed to auto-dismiss flag:', error);
+            }
+          } catch (err) {
+            console.error('❌ Error auto-dismissing flag:', err);
+          }
+        }
+      }
+    };
+
+    checkProximity();
+  }, [tripActive, currentLocation, waitingFlags]);
 
 
   // Manage persistent location channel for better performance
@@ -936,13 +1238,34 @@ export default function DriverLiveTrackingPage() {
     try {
       setLoading(true);
 
+      // ========================================
+      // DEVICE SESSION CHECK (Multi-Device Protection)
+      // ========================================
+      // Check if another device is currently sharing location
+      const sessionCheck = await checkDeviceSession(currentUser.uid, 'driver_location_share');
+      if (sessionCheck.hasActiveSession && !sessionCheck.isCurrentDevice) {
+        // Another device is active - show conflict UI
+        setDeviceConflict({
+          hasConflict: true,
+          otherDeviceId: sessionCheck.otherDeviceId,
+          sessionAge: sessionCheck.sessionAge
+        });
+        setLoading(false);
+        addToast('Another device is currently sharing location. Take over or go back.', 'warning');
+        return;
+      }
+
+      // Register this device as the active broadcaster
+      const regResult = await registerDeviceSession(currentUser.uid, 'driver_location_share');
+      if (!regResult.success) {
+        console.error('Failed to register device session:', regResult.error);
+        // Continue anyway - location sharing is critical
+      }
+
       // Reset the manually ended flag (allow active trip checks again)
       manuallyEndedTripRef.current = false;
 
-      // Start location tracking (async - don't wait for GPS)
-      // GPS will update location when ready
-      startLocationTracking();
-
+      // CRITICAL FIX: Set default location BEFORE starting trip to prevent map from appearing broken
       // Use default campus location if no GPS yet
       const defaultLat = 26.1445;
       const defaultLng = 91.7362;
@@ -952,7 +1275,19 @@ export default function DriverLiveTrackingPage() {
         accuracy: 500
       };
 
+      // Set the location immediately if we don't have one yet (prevents map from appearing empty)
+      if (!currentLocation) {
+        console.log("📍 Setting default location before trip start to prevent empty map");
+        setCurrentLocation(initialLocation);
+        setMapCenter([initialLocation.lat, initialLocation.lng]);
+        setAccuracy(initialLocation.accuracy);
+      }
+
       console.log("🚀 Starting trip with location:", initialLocation);
+
+      // Start location tracking (async - will update with real GPS when ready)
+      // GPS will update location when ready
+      startLocationTracking();
 
       const idToken = await currentUser.getIdToken();
       let response;
@@ -1324,26 +1659,251 @@ export default function DriverLiveTrackingPage() {
 
   // Show message if driver has active (accepted) swap
   if (hasActiveSwapRequest) {
+    const formatDateTime = (date: Date | null) => {
+      if (!date) return 'N/A';
+      return date.toLocaleString('en-IN', {
+        weekday: 'short',
+        day: 'numeric',
+        month: 'short',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: true
+      });
+    };
+
+    const formatTimeOnly = (date: Date | null) => {
+      if (!date) return 'N/A';
+      return date.toLocaleString('en-IN', {
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: true
+      });
+    };
+
     return (
-      <div className="container mx-auto p-6">
-        <Card>
-          <CardHeader>
-            <CardTitle>🔄 Active Swap in Progress</CardTitle>
+      <div className={`min-h-screen flex items-center justify-center p-4 ${swapRole === 'sender' && swapType === 'assignment'
+        ? 'bg-gradient-to-br from-green-50 via-emerald-50 to-teal-50 dark:from-gray-950 dark:via-green-950/30 dark:to-emerald-950/20'
+        : 'bg-gradient-to-br from-amber-50 via-orange-50 to-yellow-50 dark:from-gray-950 dark:via-amber-950/30 dark:to-orange-950/20'
+        }`}>
+        <Card className="max-w-lg w-full border-0 shadow-2xl bg-white/90 dark:bg-gray-900/90 backdrop-blur-xl rounded-3xl overflow-hidden">
+          {/* Header with gradient - different colors based on role */}
+          <div className={`relative p-6 pb-8 ${swapRole === 'sender' && swapType === 'assignment'
+            ? 'bg-gradient-to-r from-green-500 via-emerald-500 to-green-600'
+            : 'bg-gradient-to-r from-amber-500 via-orange-500 to-amber-600'
+            }`}>
+            <div className="absolute inset-0 bg-[url('/noise.png')] opacity-10" />
+            <div className="relative flex flex-col items-center text-center">
+              {/* Icon */}
+              <div className="mb-4 p-4 bg-white/20 backdrop-blur-md rounded-2xl border border-white/30 shadow-lg">
+                {swapRole === 'sender' && swapType === 'assignment' ? (
+                  <CheckCircle className="w-10 h-10 text-white" />
+                ) : (
+                  <Clock className="w-10 h-10 text-white" />
+                )}
+              </div>
+              <h1 className="text-2xl font-bold text-white tracking-tight">
+                {swapRole === 'sender' && swapType === 'assignment'
+                  ? 'Swap Request Active'
+                  : swapType === 'exchange'
+                    ? 'Bus Exchange Scheduled'
+                    : 'Swap Scheduled'}
+              </h1>
+              <p className={`text-sm mt-1 font-medium ${swapRole === 'sender' && swapType === 'assignment' ? 'text-green-100' : 'text-amber-100'
+                }`}>
+                {swapRole === 'sender' && swapType === 'assignment'
+                  ? 'Your swap request has been accepted'
+                  : swapType === 'exchange'
+                    ? 'Waiting for exchange period to begin'
+                    : 'Waiting for swap period to begin'}
+              </p>
+            </div>
+          </div>
+
+          <CardContent className="p-6 -mt-4">
+            {/* Main Info Card */}
+            <div className={`rounded-2xl p-5 border shadow-sm ${swapRole === 'sender' && swapType === 'assignment'
+              ? 'bg-gradient-to-br from-green-50 to-emerald-50 dark:from-gray-800 dark:to-green-900/20 border-green-200 dark:border-green-800/50'
+              : 'bg-gradient-to-br from-amber-50 to-orange-50 dark:from-gray-800 dark:to-amber-900/20 border-amber-200 dark:border-amber-800/50'
+              }`}>
+              <div className="text-center mb-4">
+                <p className="text-gray-600 dark:text-gray-400 text-sm">
+                  {swapRole === 'sender' && swapType === 'assignment' ? (
+                    <>
+                      Your swap request has been <span className="font-bold text-green-600 dark:text-green-400">accepted</span>!
+                      Another driver will temporarily cover your duty.
+                    </>
+                  ) : swapType === 'exchange' ? (
+                    <>
+                      You have a <span className="font-bold text-amber-600 dark:text-amber-400">bus exchange</span> scheduled.
+                      Both drivers will swap buses once the exchange period begins.
+                    </>
+                  ) : (
+                    <>
+                      You have an <span className="font-bold text-amber-600 dark:text-amber-400">accepted swap</span> that hasn't started yet.
+                    </>
+                  )}
+                </p>
+              </div>
+
+              {/* Swap Period Times */}
+              {swapPeriodInfo && (
+                <div className="grid grid-cols-2 gap-3 mt-4">
+                  <div className="bg-white dark:bg-gray-800 rounded-xl p-4 border border-green-200 dark:border-green-800/50 text-center shadow-sm">
+                    <div className="flex items-center justify-center gap-1.5 mb-2">
+                      <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
+                      <span className="text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wider font-semibold">
+                        {swapRole === 'sender' && swapType === 'assignment' ? 'Off-Duty From' : 'Access From'}
+                      </span>
+                    </div>
+                    <p className="text-lg font-bold text-green-600 dark:text-green-400">
+                      {formatTimeOnly(swapPeriodInfo.startTime)}
+                    </p>
+                    <p className="text-xs text-gray-400 mt-0.5">
+                      {swapPeriodInfo.startTime?.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}
+                    </p>
+                  </div>
+                  <div className="bg-white dark:bg-gray-800 rounded-xl p-4 border border-red-200 dark:border-red-800/50 text-center shadow-sm">
+                    <div className="flex items-center justify-center gap-1.5 mb-2">
+                      <div className="w-2 h-2 bg-red-500 rounded-full" />
+                      <span className="text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wider font-semibold">
+                        {swapRole === 'sender' && swapType === 'assignment' ? 'Off-Duty Until' : 'Access Until'}
+                      </span>
+                    </div>
+                    <p className="text-lg font-bold text-red-600 dark:text-red-400">
+                      {formatTimeOnly(swapPeriodInfo.endTime)}
+                    </p>
+                    <p className="text-xs text-gray-400 mt-0.5">
+                      {swapPeriodInfo.endTime?.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}
+                    </p>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Info Message - Different based on role */}
+            <div className={`mt-4 p-4 rounded-xl border ${swapRole === 'sender' && swapType === 'assignment'
+              ? 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800/50'
+              : 'bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800/50'
+              }`}>
+              <div className="flex gap-3">
+                <AlertCircle className={`w-5 h-5 flex-shrink-0 mt-0.5 ${swapRole === 'sender' && swapType === 'assignment' ? 'text-green-500' : 'text-blue-500'
+                  }`} />
+                <div className={`text-sm ${swapRole === 'sender' && swapType === 'assignment'
+                  ? 'text-green-700 dark:text-green-300'
+                  : 'text-blue-700 dark:text-blue-300'
+                  }`}>
+                  <p className="font-medium">
+                    {swapRole === 'sender' && swapType === 'assignment'
+                      ? 'Duty Coverage'
+                      : swapType === 'exchange'
+                        ? 'Bus Exchange Info'
+                        : 'Live Tracking Access'}
+                  </p>
+                  <p className={`mt-1 ${swapRole === 'sender' && swapType === 'assignment'
+                    ? 'text-green-600 dark:text-green-400'
+                    : 'text-blue-600 dark:text-blue-400'
+                    }`}>
+                    {swapRole === 'sender' && swapType === 'assignment' ? (
+                      <>
+                        The replacement driver will operate your bus during this period.
+                        You'll be notified when the swap period ends.
+                      </>
+                    ) : swapType === 'exchange' ? (
+                      <>
+                        You and the other driver will exchange buses at <strong>{swapPeriodInfo ? formatTimeOnly(swapPeriodInfo.startTime) : 'the scheduled time'}</strong>.
+                        You can then start driving your temporary bus.
+                      </>
+                    ) : (
+                      <>
+                        You can start the trip and share your live location once the swap period begins at <strong>{swapPeriodInfo ? formatTimeOnly(swapPeriodInfo.startTime) : 'the scheduled time'}</strong>.
+                      </>
+                    )}
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* Action Button */}
+            <div className="mt-6">
+              <Button
+                onClick={() => router.push('/driver/swap-request')}
+                className={`w-full h-12 font-bold rounded-xl shadow-lg transition-all active:scale-[0.98] ${swapRole === 'sender' && swapType === 'assignment'
+                  ? 'bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 shadow-green-500/20'
+                  : 'bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-600 hover:to-orange-700 shadow-amber-500/20'
+                  } text-white`}
+              >
+                View Swap Details
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  // Show warning if another device is actively sharing location
+  if (deviceConflict.hasConflict && tripActive) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-amber-50 via-orange-50 to-red-50 dark:from-gray-950 dark:via-amber-950 dark:to-red-950 flex items-center justify-center p-4">
+        <Card className="max-w-2xl w-full border-0 shadow-2xl bg-white/80 dark:bg-gray-900/80 backdrop-blur-xl">
+          <CardHeader className="text-center space-y-4 pb-6">
+            <div className="flex justify-center">
+              <div className="relative">
+                <div className="absolute inset-0 bg-gradient-to-r from-amber-400 to-orange-600 rounded-full blur-2xl opacity-30 animate-pulse"></div>
+                <div className="relative p-6 bg-gradient-to-br from-amber-500 to-orange-600 rounded-full shadow-xl">
+                  <AlertCircle className="w-16 h-16 text-white" />
+                </div>
+              </div>
+            </div>
+            <div className="space-y-2">
+              <CardTitle className="text-3xl font-bold bg-gradient-to-r from-amber-600 to-orange-600 bg-clip-text text-transparent">
+                Multi-Device Conflict Detected
+              </CardTitle>
+              <p className="text-lg text-muted-foreground">
+                Location is being shared from another device
+              </p>
+            </div>
           </CardHeader>
-          <CardContent>
+          <CardContent className="space-y-6">
+            <div className="p-6 bg-gradient-to-br from-amber-50 to-orange-50 dark:from-amber-900/20 dark:to-orange-900/20 rounded-2xl border border-amber-200 dark:border-amber-800">
+              <div className="flex items-start gap-4">
+                <div className="p-3 bg-amber-100 dark:bg-amber-900/40 rounded-xl">
+                  <Bus className="h-6 w-6 text-amber-600 dark:text-amber-400" />
+                </div>
+                <div className="space-y-2 flex-1">
+                  <h3 className="font-semibold text-foreground">Another Device is Active</h3>
+                  <p className="text-sm text-muted-foreground">
+                    Your account is currently sharing live location from <strong className="text-amber-600 dark:text-amber-400">another device</strong>.
+                    To prevent sending conflicting location data to students, only one device can broadcast at a time.
+                  </p>
+                  {deviceConflict.sessionAge && (
+                    <p className="text-xs text-muted-foreground mt-2">
+                      Session age: {Math.round((deviceConflict.sessionAge || 0) / 1000)}s ago
+                    </p>
+                  )}
+                </div>
+              </div>
+            </div>
+
             <div className="space-y-3">
-              <p className="text-muted-foreground">
-                You have an <strong>active swap</strong> in progress. The bus assignment has been temporarily changed.
+              <p className="text-sm text-muted-foreground text-center">
+                You can either go back to the dashboard, or take over location sharing on this device (the other device will stop broadcasting).
               </p>
-              <p className="text-sm text-muted-foreground">
-                Visit the <strong>Swap Requests</strong> page to end the swap when ready. Once the swap is ended, you will be reassigned to your original bus and can resume normal operations.
-              </p>
-              <div className="pt-4">
+
+              <div className="flex flex-col gap-3">
                 <Button
-                  onClick={() => router.push('/driver/swap-request')}
-                  className="bg-gradient-to-r from-blue-500 to-purple-600"
+                  onClick={handleTakeOverSession}
+                  className="w-full bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-600 hover:to-orange-700"
                 >
-                  View Swap Requests
+                  <Activity className="w-4 h-4 mr-2" />
+                  Take Over on This Device
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={() => router.push('/driver')}
+                  className="w-full"
+                >
+                  Go Back to Dashboard
                 </Button>
               </div>
             </div>

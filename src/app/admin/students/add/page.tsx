@@ -23,10 +23,13 @@ import { AlertCircle, ExternalLink } from 'lucide-react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import ProfileImageAddModal from '@/components/ProfileImageAddModal';
 import Image from 'next/image';
-import RouteSelectionSection from '@/components/RouteSelectionSection';
 
 import ApplyFormNavbar from '@/components/ApplyFormNavbar';
 import { uploadImage } from '@/lib/upload';
+import AddStudentPaymentSection from '@/components/AddStudentPaymentSection';
+import systemConfig from '@/config/system_config.json';
+import { useDebouncedStorage } from '@/hooks/useDebouncedStorage';
+import { OptimizedInput, OptimizedSelect, OptimizedTextarea } from '@/components/forms';
 
 // Define the form data type
 type StudentFormData = {
@@ -64,10 +67,12 @@ export default function AddStudentForm() {
   const { addToast } = useToast();
   const router = useRouter();
 
-  // Always initialize with empty form data - no auto-fill
-  // Always initialize with empty form data - no auto-fill
+  // Helper function to get initial form data from localStorage
   const getInitialFormData = (): StudentFormData => {
-    return {
+    const currentYear = new Date().getFullYear();
+    const defaultValidUntil = calculateValidUntilDate(currentYear, 1).toISOString();
+    
+    const defaultData: StudentFormData = {
       name: '',
       email: '',
       phone: '',
@@ -90,72 +95,44 @@ export default function AddStudentForm() {
       shift: '',
       approvedBy: '',
       sessionDuration: '1',
-      sessionStartYear: new Date().getFullYear(),
-      sessionEndYear: new Date().getFullYear() + 1,
-      validUntil: '',
+      sessionStartYear: currentYear,
+      sessionEndYear: currentYear + 1,
+      validUntil: defaultValidUntil,
       pickupPoint: '',
     };
-  };
 
-  const [formData, setFormData] = useState<StudentFormData>(getInitialFormData());
-
-  // Consolidate initialization and restore logic
-  // Consolidate initialization and restore logic
-  useEffect(() => {
-    // 1. Calculate dynamic defaults
-    const currentYear = new Date().getFullYear();
-    const defaultSessionStart = currentYear;
-    const defaultSessionEnd = currentYear + 1;
-    // Use consistent utility for default date
-    const defaultValidUntil = calculateValidUntilDate(defaultSessionStart, 1).toISOString();
-
-    // 2. Prepare base data with defaults
-    let initialData = {
-      ...getInitialFormData(),
-      sessionStartYear: defaultSessionStart,
-      sessionEndYear: defaultSessionEnd,
-      validUntil: defaultValidUntil,
-      sessionDuration: '1'
-    };
-
-    // 3. Attempt to restore from localStorage
+    // Try to load from localStorage synchronously
     if (typeof window !== 'undefined') {
-      const savedData = localStorage.getItem('adminStudentFormData');
-      console.log('🔍 [Admin] Checking localStorage for draft...', savedData ? 'Found' : 'Not found');
-
-      if (savedData) {
-        try {
-          const parsedData = JSON.parse(savedData);
-          // Aggressively merge saved data with current defaults
-          initialData = {
-            ...initialData,
-            ...parsedData,
+      try {
+        const stored = localStorage.getItem('adminStudentFormData');
+        if (stored) {
+          const parsed = JSON.parse(stored);
+          console.log('📬 [Admin Students] Loaded draft from localStorage on init');
+          return {
+            ...defaultData,
+            ...parsed,
             profilePhoto: null, // Never restore file objects
+            // Recalculate session dates if needed
+            sessionStartYear: parsed.sessionStartYear || currentYear,
+            sessionEndYear: parsed.sessionEndYear || currentYear + 1,
+            validUntil: parsed.validUntil || defaultValidUntil
           };
-
-          // RECALCULATION: If validUntil is missing, or if sessionStartYear is outdated (older than current year), update it
-          if (!initialData.validUntil || initialData.validUntil === 'N/A' || (initialData.sessionStartYear < currentYear)) {
-            // Force current year if stored year is old
-            if (initialData.sessionStartYear < currentYear) {
-              initialData.sessionStartYear = currentYear;
-            }
-
-            const startYear = typeof initialData.sessionStartYear === 'string' ? parseInt(initialData.sessionStartYear) : initialData.sessionStartYear || defaultSessionStart;
-            const duration = parseInt(initialData.sessionDuration) || 1;
-
-            initialData.validUntil = calculateValidUntilDate(startYear, duration).toISOString();
-            initialData.sessionEndYear = startYear + duration;
-            console.log('🔄 [Admin] Recalculated/Updated session details:', { start: initialData.sessionStartYear, validUntil: initialData.validUntil });
-          }
-        } catch (e) {
-          console.error('❌ [Admin] Error parsing saved form data:', e);
         }
+      } catch (error) {
+        console.error('❌ [Admin Students] Error loading draft:', error);
       }
     }
 
-    // 4. Update state once
-    setFormData(initialData);
-  }, []); // Run once on mount
+    return defaultData;
+  };
+
+  const [formData, setFormData] = useState<StudentFormData>(getInitialFormData);
+  
+  // Debounced storage to prevent input lag
+  const storage = useDebouncedStorage<StudentFormData>('adminStudentFormData', {
+    debounceMs: 500,
+    excludeFields: ['profilePhoto'],
+  });
 
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -171,6 +148,9 @@ export default function AddStudentForm() {
   const [loadingRoutes, setLoadingRoutes] = useState(true);
   const [loadingBuses, setLoadingBuses] = useState(true);
   const [facultySelected, setFacultySelected] = useState(false);
+
+  // Get bus fee from system config
+  const busFee = systemConfig?.busFee?.amount || 5000;
 
   // 5. Enable auto-save ONLY after data dependencies (routes/buses) are loaded
   useEffect(() => {
@@ -189,34 +169,42 @@ export default function AddStudentForm() {
   // Auto-fill approvedBy field with current admin's details
   useEffect(() => {
     const fetchApproverDetails = async () => {
-      if (userData && userData.name) {
-        let idSuffix = 'ADMIN';
+      if (userData && (userData.name || userData.fullName)) {
+        const approverName = userData.fullName || userData.name;
+        let idSuffix = '';
 
-        if (userData.role === 'moderator') {
-          idSuffix = 'MOD'; // Default
+        if (userData.role === 'admin') {
+          idSuffix = 'Admin';
+        } else if (userData.role === 'moderator') {
+          // Try to get from current userData first
+          idSuffix = (userData as any).employeeId || (userData as any).empId || (userData as any).staffId || (userData as any).id || (userData as any).uid || 'MODERATOR';
 
-          const localId = (userData as any).employeeId || (userData as any).empId || (userData as any).staffId;
-
-          if (localId && localId !== 'undefined') {
-            idSuffix = localId;
-          } else if (currentUser?.uid) {
+          // If it's a default/generic suffix, try fetching full data
+          if (['MODERATOR', 'MOD'].includes(idSuffix) && currentUser?.uid) {
             try {
               const modData = await getModeratorById(currentUser.uid);
               if (modData) {
-                idSuffix = (modData as any).employeeId || (modData as any).empId || (modData as any).staffId || 'MOD';
+                idSuffix = (modData as any).employeeId || (modData as any).empId || (modData as any).staffId || idSuffix;
               }
             } catch (err) {
               console.error('Error fetching moderator ID:', err);
             }
           }
-        } else if (userData.role === 'admin') {
-          idSuffix = 'Admin';
+        } else {
+          // Fallback for other roles if they somehow access this
+          idSuffix = userData.role?.charAt(0).toUpperCase() + userData.role?.slice(1) || 'Unknown';
         }
 
-        setFormData(prev => ({
-          ...prev,
-          approvedBy: idSuffix === 'Admin' ? `${userData.name} (Admin)` : `${userData.name} ( ${idSuffix} )`
-        }));
+        const approvedByValue = `${approverName} (${idSuffix})`;
+
+        setFormData(prev => {
+          // Only update if it's currently empty to allow manual override if needed
+          // or if the current value doesn't match the expected identity
+          if (!prev.approvedBy || prev.approvedBy === '' || prev.approvedBy.includes('undefined')) {
+            return { ...prev, approvedBy: approvedByValue };
+          }
+          return prev;
+        });
       }
     };
     fetchApproverDetails();
@@ -225,17 +213,10 @@ export default function AddStudentForm() {
   // Save form data to localStorage whenever it changes (except sensitive fields)
   useEffect(() => {
     if (typeof window !== 'undefined' && isLoaded) {
-      // Create a copy without sensitive data
-      const { profilePhoto, ...dataToSave } = formData;
-
-      // Safety check: Don't save if critical fields are suddenly empty (might be a component resetting state)
-      // If name is present (as seen in screenshot), we assume the form is mostly valid.
-      // But we can check if gender/semester are becoming empty after being non-empty.
-      // For now, let's just log and save.
-      console.log('💾 [Admin] Saving draft to localStorage:', dataToSave);
-      localStorage.setItem('adminStudentFormData', JSON.stringify(dataToSave));
+      // Trigger debounced save (non-blocking)
+      storage.save(formData);
     }
-  }, [formData, isLoaded]);
+  }, [formData, isLoaded]); // Removed storage from deps - it's stable
 
   // Fetch routes and buses when component mounts
   useEffect(() => {
@@ -367,11 +348,13 @@ export default function AddStudentForm() {
 
   const handleRefChange = (field: string, value: any) => {
     // Determine the field name to update based on component output
-    // The component sends 'routeId', 'busId', 'stopId', 'busAssigned'
+    // The component sends 'routeId', 'busId', 'stopId', 'busAssigned', 'sessionStartYear'
     console.log(`🔄 [Admin] Ref change: ${field} =`, value);
 
-    // Map 'stopId' to 'pickupPoint' as per form data structure
-    if (field === 'stopId') {
+    if (field === 'sessionStartYear') {
+      handleSessionStartYearChange(value);
+    } else if (field === 'stopId') {
+      // Map 'stopId' to 'pickupPoint' as per form data structure
       setFormData(prev => ({ ...prev, pickupPoint: value }));
     } else {
       setFormData(prev => ({ ...prev, [field]: value }));
@@ -449,11 +432,9 @@ export default function AddStudentForm() {
   const validateForm = () => {
     const newErrors: Record<string, string> = {};
 
-    // Name validation - no special symbols except spaces
+    // Name validation
     if (!formData.name.trim()) {
       newErrors.name = "Full name is required";
-    } else if (/[^a-zA-Z\s]/.test(formData.name)) {
-      newErrors.name = "Name cannot contain special symbols";
     }
 
     // Email validation
@@ -504,11 +485,9 @@ export default function AddStudentForm() {
       newErrors.semester = "Semester is required";
     }
 
-    // Parent name validation - no special symbols except spaces
+    // Parent name validation
     if (!formData.parentName.trim()) {
       newErrors.parentName = "Parent name is required";
-    } else if (/[^a-zA-Z\s]/.test(formData.parentName)) {
-      newErrors.parentName = "Parent name cannot contain special symbols";
     }
 
     // Parent phone validation - minimum 10 digits, only numbers
@@ -637,7 +616,7 @@ export default function AddStudentForm() {
 
         // 2. Clear saved form data on successful submission
         if (typeof window !== 'undefined') {
-          localStorage.removeItem('adminStudentFormData');
+          storage.clear();
         }
 
         addToast(result.message || 'Student created successfully!', 'success');
@@ -660,8 +639,15 @@ export default function AddStudentForm() {
   };
 
   const handleReset = () => {
-    const employeeId = (userData as any)?.employeeId || 'ADMIN';
-    const approvedByValue = userData?.name ? `${userData.name} (${employeeId})` : '';
+    const approverName = userData?.fullName || userData?.name;
+    let idSuffix = userData?.role === 'admin' ? 'Admin' : 'MODERATOR';
+    if (userData?.role === 'moderator') {
+      idSuffix = (userData as any).employeeId || (userData as any).empId || (userData as any).staffId || (userData as any).id || idSuffix;
+    }
+    const approvedByValue = approverName ? `${approverName} (${idSuffix})` : '';
+
+    const currentYear = new Date().getFullYear();
+    const { endYear, validUntil } = calculateSessionEnd(currentYear, 1);
 
     setFormData({
       name: '',
@@ -678,6 +664,7 @@ export default function AddStudentForm() {
       parentName: '',
       parentPhone: '',
       busAssigned: '',
+      busId: '',
       routeId: '',
       profilePhoto: null,
       address: '',
@@ -686,9 +673,9 @@ export default function AddStudentForm() {
       approvedBy: approvedByValue,
       // Reset session fields
       sessionDuration: '1',
-      sessionStartYear: new Date().getFullYear(),
-      sessionEndYear: new Date().getFullYear() + 1,
-      validUntil: '',
+      sessionStartYear: currentYear,
+      sessionEndYear: endYear,
+      validUntil: validUntil,
       pickupPoint: '',
     });
     setPreviewUrl(null);
@@ -697,7 +684,7 @@ export default function AddStudentForm() {
 
     // Clear saved form data
     if (typeof window !== 'undefined') {
-      localStorage.removeItem('adminStudentFormData');
+      storage.clear();
     }
 
     addToast('Form reset successfully', 'info');
@@ -777,45 +764,31 @@ export default function AddStudentForm() {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 {/* Left Column */}
                 <div className="space-y-3">
-                  <div>
-                    <Label htmlFor="name" className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
-                      Full Name
-                    </Label>
-                    <Input
-                      type="text"
-                      id="name"
-                      name="name"
-                      value={formData.name}
-                      onChange={handleInputChange}
-                      required
-                      className="h-9"
-                    />
-                    {errors.name && <p className="text-red-500 text-[10px]">{errors.name}</p>}
-                  </div>
+                  <OptimizedInput
+                    id="name"
+                    label="Full Name"
+                    value={formData.name}
+                    onChange={(value) => setFormData(prev => ({ ...prev, name: value }))}
+                    placeholder="Enter full name"
+                    required
+                  />
+                  {errors.name && <p className="text-red-500 text-[10px]">{errors.name}</p>}
 
-                  <div>
-                    <Label htmlFor="gender" className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
-                      Gender
-                    </Label>
-                    <Select
-                      key={formData.gender}
-                      value={formData.gender}
-                      onValueChange={(value) => handleRefChange('gender', value)}
-                    >
-                      <SelectTrigger className="h-9 bg-blue-600/10 border-blue-500/20 text-gray-900 dark:text-gray-100">
-                        <SelectValue placeholder="Select Gender" />
-                      </SelectTrigger>
-                      <SelectContent position="popper" side="bottom" align="start">
-                        <SelectItem value="male">Male</SelectItem>
-                        <SelectItem value="female">Female</SelectItem>
-                        <SelectItem value="other">Other</SelectItem>
-                      </SelectContent>
-                    </Select>
-                    {errors.gender && <p className="text-red-500 text-[10px]">{errors.gender}</p>}
-                  </div>
+                  <OptimizedSelect
+                    id="gender"
+                    label="Gender"
+                    value={formData.gender}
+                    onChange={(value) => setFormData(prev => ({ ...prev, gender: value }))}
+                    placeholder="Select Gender"
+                  >
+                    <SelectItem value="male">Male</SelectItem>
+                    <SelectItem value="female">Female</SelectItem>
+                    <SelectItem value="other">Other</SelectItem>
+                  </OptimizedSelect>
+                  {errors.gender && <p className="text-red-500 text-[10px]">{errors.gender}</p>}
 
-                  <div className="flex justify-center">
-                    <div className="w-full max-w-7xl relative">
+                  <div className="grid grid-cols-5 gap-2">
+                    <div className="col-span-4">
                       <EnhancedDatePicker
                         id="dob"
                         label="Date of Birth"
@@ -828,7 +801,7 @@ export default function AddStudentForm() {
                       {errors.dob && <p className="text-red-500 text-[10px]">{errors.dob}</p>}
                     </div>
 
-                    <div className="flex-1">
+                    <div className="col-span-1">
                       <Label htmlFor="age" className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
                         Age
                       </Label>
@@ -838,73 +811,58 @@ export default function AddStudentForm() {
                         name="age"
                         value={formData.age}
                         readOnly
-                        className="bg-gray-100 dark:bg-gray-700 cursor-not-allowed"
+                        className="bg-gray-100 dark:bg-gray-700 cursor-not-allowed h-9 w-full"
                       />
                       {errors.age && <p className="text-red-500 text-[10px]">{errors.age}</p>}
                     </div>
                   </div>
 
                   <div>
-                    <Label htmlFor="phone" className="block text-xs font-medium text-gray-700 dark:text-gray-300">
-                      Phone Number
-                    </Label>
-                    <Input
-                      type="tel"
+                    <OptimizedInput
                       id="phone"
-                      name="phone"
+                      label="Phone Number"
+                      type="tel"
                       value={formData.phone}
-                      onChange={handleInputChange}
+                      onChange={(value) => setFormData(prev => ({ ...prev, phone: value }))}
+                      placeholder="10-digit phone number"
                       required
-                      className="h-9"
+                      transform={(val) => val.replace(/[^0-9]/g, '')}
                     />
                     {errors.phone && <p className="text-red-500 text-[10px]">{errors.phone}</p>}
                   </div>
 
-                  <div>
-                    <Label htmlFor="email" className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
-                      Email Address
-                    </Label>
-                    <Input
-                      type="email"
-                      id="email"
-                      name="email"
-                      value={formData.email}
-                      onChange={handleInputChange}
-                      required
-                      autoComplete="off"
-                      autoCorrect="off"
-                      autoCapitalize="off"
-                      spellCheck="false"
-                      className="h-9"
-                    />
-                    {errors.email && <p className="text-red-500 text-[10px]">{errors.email}</p>}
-                  </div>
+                  <OptimizedInput
+                    id="email"
+                    label="Email Address"
+                    type="email"
+                    value={formData.email}
+                    onChange={(value) => setFormData(prev => ({ ...prev, email: value }))}
+                    placeholder="student@example.com"
+                    required
+                  />
+                  {errors.email && <p className="text-red-500 text-[10px]">{errors.email}</p>}
 
                   <div>
-                    <Label htmlFor="alternatePhone" className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
-                      Alternate Phone Number
-                    </Label>
-                    <Input
-                      type="tel"
+                    <OptimizedInput
                       id="alternatePhone"
-                      name="alternatePhone"
+                      label="Alternate Phone Number"
+                      type="tel"
                       value={formData.alternatePhone}
-                      onChange={handleInputChange}
-                      className="h-9"
+                      onChange={(value) => setFormData(prev => ({ ...prev, alternatePhone: value }))}
+                      placeholder="Optional alternate number"
+                      transform={(val) => val.replace(/[^0-9]/g, '')}
                     />
                     {errors.alternatePhone && <p className="text-red-500 text-[10px]">{errors.alternatePhone}</p>}
                   </div>
 
                   <div>
-                    <Label htmlFor="address" className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
-                      Address
-                    </Label>
-                    <Textarea
+                    <OptimizedTextarea
                       id="address"
-                      name="address"
+                      label="Address"
                       value={formData.address}
-                      onChange={handleInputChange}
-                      className="resize-none text-xs min-h-[110px]"
+                      onChange={(value) => setFormData(prev => ({ ...prev, address: value }))}
+                      placeholder="Enter full residential address"
+                      rows={4}
                     />
                     {errors.address && <p className="text-red-500 text-[10px]">{errors.address}</p>}
                   </div>
@@ -928,42 +886,36 @@ export default function AddStudentForm() {
                     <Label htmlFor="semester" className="block text-xs font-medium text-gray-700 dark:text-gray-300 mt-3 mb-1">
                       Semester
                     </Label>
-                    <Select
-                      key={formData.semester}
+                    <OptimizedSelect
+                      id="semester"
                       value={formData.semester}
-                      onValueChange={(value) => handleRefChange('semester', value)}
+                      onChange={(value) => setFormData(prev => ({ ...prev, semester: value }))}
+                      placeholder="Select Semester"
+                      className="h-9 bg-blue-600/10 border-blue-500/20 text-gray-900 dark:text-gray-100 cursor-pointer"
                     >
-                      <SelectTrigger className="h-9 bg-blue-600/10 border-blue-500/20 text-gray-900 dark:text-gray-100">
-                        <SelectValue placeholder="Select Semester" />
-                      </SelectTrigger>
-                      <SelectContent position="popper" side="bottom" align="start">
-                        {[1, 2, 3, 4, 5, 6, 7, 8].map((sem) => {
-                          const label = sem === 1 ? '1st Semester' : sem === 2 ? '2nd Semester' : sem === 3 ? '3rd Semester' : `${sem}th Semester`;
-                          return (
-                            <SelectItem key={sem} value={label}>
-                              {label}
-                            </SelectItem>
-                          );
-                        })}
+                      {[1, 2, 3, 4, 5, 6, 7, 8].map((sem) => {
+                        const label = sem === 1 ? '1st Semester' : sem === 2 ? '2nd Semester' : sem === 3 ? '3rd Semester' : `${sem}th Semester`;
+                        return (
+                          <SelectItem key={sem} value={label}>
+                            {label}
+                          </SelectItem>
+                        );
+                      })}
                       </SelectContent>
-                    </Select>
+                    </OptimizedSelect>
                     {errors.semester && <p className="text-red-500 text-[10px]">{errors.semester}</p>}
                   </div>
 
 
 
                   <div>
-                    <Label htmlFor="enrollmentId" className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
-                      Enrollment ID
-                    </Label>
-                    <Input
-                      type="text"
+                    <OptimizedInput
                       id="enrollmentId"
-                      name="enrollmentId"
+                      label="Enrollment ID"
                       value={formData.enrollmentId}
-                      onChange={handleInputChange}
+                      onChange={(value) => setFormData(prev => ({ ...prev, enrollmentId: value }))}
+                      placeholder="e.g. AU210001"
                       required
-                      className="h-9"
                     />
                     {errors.enrollmentId && <p className="text-red-500 text-[10px]">{errors.enrollmentId}</p>}
                   </div>
@@ -972,56 +924,47 @@ export default function AddStudentForm() {
                     <Label htmlFor="bloodGroup" className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
                       Blood Group
                     </Label>
-                    <Select
-                      key={formData.bloodGroup}
+                    <OptimizedSelect
+                      id="bloodGroup"
                       value={formData.bloodGroup}
-                      onValueChange={(value) => handleRefChange('bloodGroup', value)}
+                      onChange={(value) => setFormData(prev => ({ ...prev, bloodGroup: value }))}
+                      placeholder="Select Blood Group"
+                      className="h-9 bg-blue-600/10 border-blue-500/20 text-gray-900 dark:text-gray-100 cursor-pointer"
                     >
-                      <SelectTrigger className="h-9 bg-blue-600/10 border-blue-500/20 text-gray-900 dark:text-gray-100">
-                        <SelectValue placeholder="Select Blood Group" />
-                      </SelectTrigger>
-                      <SelectContent position="popper" side="bottom" align="start">
-                        <SelectItem value="A+">A+</SelectItem>
-                        <SelectItem value="A-">A-</SelectItem>
-                        <SelectItem value="B+">B+</SelectItem>
-                        <SelectItem value="B-">B-</SelectItem>
-                        <SelectItem value="AB+">AB+</SelectItem>
-                        <SelectItem value="AB-">AB-</SelectItem>
-                        <SelectItem value="O+">O+</SelectItem>
-                        <SelectItem value="O-">O-</SelectItem>
-                      </SelectContent>
-                    </Select>
+                      <SelectItem value="A+">A+</SelectItem>
+                      <SelectItem value="A-">A-</SelectItem>
+                      <SelectItem value="B+">B+</SelectItem>
+                      <SelectItem value="B-">B-</SelectItem>
+                      <SelectItem value="AB+">AB+</SelectItem>
+                      <SelectItem value="AB-">AB-</SelectItem>
+                      <SelectItem value="O+">O+</SelectItem>
+                      <SelectItem value="O-">O-</SelectItem>
+                    </OptimizedSelect>
                     {errors.bloodGroup && <p className="text-red-500 text-[10px]">{errors.bloodGroup}</p>}
                   </div>
 
                   <div>
-                    <Label htmlFor="parentName" className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
-                      Parent Name
-                    </Label>
-                    <Input
-                      type="text"
+                    <OptimizedInput
                       id="parentName"
-                      name="parentName"
+                      label="Parent Name"
                       value={formData.parentName}
-                      onChange={handleInputChange}
+                      onChange={(value) => setFormData(prev => ({ ...prev, parentName: value }))}
+                      placeholder="Enter parent name"
                       required
-                      className="h-9"
                     />
                     {errors.parentName && <p className="text-red-500 text-[10px]">{errors.parentName}</p>}
                   </div>
 
                   <div>
-                    <Label htmlFor="parentPhone" className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
-                      Parent Phone Number
-                    </Label>
-                    <Input
-                      type="tel"
+                    <OptimizedInput
                       id="parentPhone"
-                      name="parentPhone"
+                      label="Parent Phone Number"
+                      type="tel"
                       value={formData.parentPhone}
-                      onChange={handleInputChange}
+                      onChange={(value) => setFormData(prev => ({ ...prev, parentPhone: value }))}
+                      placeholder="Parent contact number"
                       required
-                      className="h-9"
+                      transform={(val) => val.replace(/[^0-9]/g, '')}
                     />
                     {errors.parentPhone && <p className="text-red-500 text-[10px]">{errors.parentPhone}</p>}
                   </div>
@@ -1044,140 +987,27 @@ export default function AddStudentForm() {
                 </div>
               </div>
 
-              {/* BUS SERVICE SESSION DETAILS */}
+              {/* BUS & ROUTE DETAILS + TRANSACTION DETAILS (Combined Payment Section) */}
               <div className="mt-4">
-                <h3 className="text-sm font-semibold mb-3 text-gray-900 dark:text-white border-b pb-1">
-                  Bus Service Session Details
-                </h3>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-x-3 gap-y-3">
-                  {/* Row 1: Shift and Session Duration */}
-                  <div>
-                    <Label htmlFor="shift" className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
-                      Shift <span className="text-red-500">*</span>
-                    </Label>
-                    <Select
-                      key={formData.shift}
-                      value={formData.shift}
-                      onValueChange={(value) => {
-                        handleRefChange('shift', value);
-                        // Clear route/bus/stop selection when shift changes
-                        handleRefChange('routeId', '');
-                        handleRefChange('busId', '');
-                        handleRefChange('stopId', '');
-                        handleRefChange('busAssigned', '');
-                      }}
-                    >
-                      <SelectTrigger className="bg-blue-600/10 border-blue-500/20 text-gray-900 dark:text-gray-100">
-                        <SelectValue placeholder="Select Shift" />
-                      </SelectTrigger>
-                      <SelectContent position="popper" side="bottom" align="start">
-                        <SelectItem value="Morning">Morning Shift</SelectItem>
-                        <SelectItem value="Evening">Evening Shift</SelectItem>
-                      </SelectContent>
-                    </Select>
-                    {errors.shift && <p className="text-red-500 text-[10px] mt-0.5">{errors.shift}</p>}
-                  </div>
-
-                  <div>
-                    <Label htmlFor="sessionDuration" className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
-                      Session Duration <span className="text-red-500">*</span>
-                    </Label>
-                    <Select
-                      key={formData.sessionDuration}
-                      value={formData.sessionDuration}
-                      onValueChange={handleSessionDurationChange}
-                    >
-                      <SelectTrigger className="bg-blue-600/10 border-blue-500/20 text-gray-900 dark:text-gray-100">
-                        <SelectValue placeholder="Select duration" />
-                      </SelectTrigger>
-                      <SelectContent position="popper" side="bottom" align="start">
-                        <SelectItem value="1">1 Year</SelectItem>
-                        <SelectItem value="2">2 Years</SelectItem>
-                        <SelectItem value="3">3 Years</SelectItem>
-                        <SelectItem value="4">4 Years</SelectItem>
-                      </SelectContent>
-                    </Select>
-                    <p className="text-[10px] text-gray-500 dark:text-gray-400 mt-0.5">
-                      Most students choose 1 year
-                    </p>
-                  </div>
-
-                  {/* Route, Bus, and Stop Selection - Requires shift to be selected first */}
-                  <div className="col-span-1 md:col-span-2">
-                    <RouteSelectionSection
-                      routes={routes}
-                      buses={buses}
-                      selectedRouteId={formData.routeId || ''}
-                      selectedBusId={formData.busId || ''}
-                      selectedStopId={formData.pickupPoint || ''}
-                      selectedShift={formData.shift}
-                      onReferenceChange={handleRefChange}
-                      onCapacityCheckResult={setCapacityCheckResult}
-                      isReadOnly={!formData.shift}
-                    />
-                    {!formData.shift && (
-                      <p className="text-[10px] text-amber-600 dark:text-amber-400 mt-1 flex items-center gap-1">
-                        <AlertCircle className="h-3 w-3" />
-                        Please select a shift first to enable route selection
-                      </p>
-                    )}
-                  </div>
-
-                  {/* Row 2: Session Start Year and Session End Year */}
-                  <div>
-                    <Label htmlFor="sessionStartYear" className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
-                      Session Start Year <span className="text-red-500">*</span>
-                    </Label>
-                    <Input
-                      type="number"
-                      id="sessionStartYear"
-                      name="sessionStartYear"
-                      value={formData.sessionStartYear}
-                      onChange={(e) => handleSessionStartYearChange(parseInt(e.target.value))}
-                      min={2020}
-                      max={2040}
-                    />
-                    <p className="text-[10px] text-gray-500 dark:text-gray-400 mt-0.5">
-                      Year when service begins
-                    </p>
-                  </div>
-
-                  <div>
-                    <Label htmlFor="sessionEndYear" className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
-                      Session End Year
-                    </Label>
-                    <Input
-                      type="number"
-                      id="sessionEndYear"
-                      value={formData.sessionEndYear}
-                      readOnly
-                      className="bg-gray-100 dark:bg-gray-700 cursor-not-allowed"
-                    />
-                    <p className="text-[10px] text-gray-500 dark:text-gray-400 mt-0.5">
-                      Auto-calculated based on duration
-                    </p>
-                  </div>
-
-                  {/* Row 3: Valid Until */}
-                  <div>
-                    <Label htmlFor="validUntil" className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
-                      Valid Until
-                    </Label>
-                    <Input
-                      type="text"
-                      id="validUntil"
-                      value={formData.validUntil ? new Date(formData.validUntil).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }) : 'N/A'}
-                      readOnly
-                      className="bg-gray-100 dark:bg-gray-700 cursor-not-allowed text-xs"
-                    />
-                    <p className="text-[10px] text-gray-500 dark:text-gray-400 mt-0.5">
-                      Service expires on {formData.validUntil ? new Date(formData.validUntil).toLocaleDateString('en-US', { month: 'long', day: 'numeric' }) : 'June 30'}, {formData.sessionEndYear}
-                    </p>
-                  </div>
-
-
-                </div>
+                <AddStudentPaymentSection
+                  formData={{
+                    shift: formData.shift,
+                    routeId: formData.routeId,
+                    busId: formData.busId || '',
+                    pickupPoint: formData.pickupPoint,
+                    sessionDuration: formData.sessionDuration,
+                    sessionStartYear: formData.sessionStartYear,
+                    sessionEndYear: formData.sessionEndYear,
+                    validUntil: formData.validUntil,
+                    busAssigned: formData.busAssigned,
+                  }}
+                  onFormChange={handleRefChange}
+                  routes={routes}
+                  buses={buses}
+                  busFee={busFee}
+                  loadingRoutes={loadingRoutes}
+                  loadingBuses={loadingBuses}
+                />
               </div>
 
               <div className="grid grid-cols-3 gap-2 mt-4 pt-2 w-full">

@@ -502,6 +502,83 @@ export function computedDatesToStorable(
 }
 
 /**
+ * Compute softBlock and hardBlock dates for a student based on their validUntil date.
+ * 
+ * This is THE SINGLE SOURCE OF TRUTH for block date computation.
+ * Call this whenever validUntil changes (renewal, application approval, etc.)
+ * 
+ * LOGIC:
+ * - validUntil is always June 30 of some year (e.g., June 30, 2027)
+ * - Soft Block: July 31 of the same year as validUntil (e.g., July 31, 2027)
+ * - Hard Block: August 31, TWO years after the validUntil year (e.g., August 31, 2029)
+ * 
+ * @param validUntil - The student's validUntil date (ISO string or Date object)
+ * @returns Object containing softBlock and hardBlock ISO date strings
+ * 
+ * @example
+ * ```typescript
+ * // Student enrolls in 2026 with 1-year plan → validUntil = June 30, 2027
+ * const { softBlock, hardBlock } = computeBlockDatesFromValidUntil('2027-06-30T23:59:59.999Z');
+ * // softBlock: "2027-07-31T23:59:59.999Z" 
+ * // hardBlock: "2029-08-31T23:59:59.999Z" (2 years after soft block year)
+ * ```
+ */
+export function computeBlockDatesFromValidUntil(validUntil: string | Date): { softBlock: string; hardBlock: string } {
+    const config = DEADLINE_CONFIG;
+
+    // Parse validUntil to get the year
+    const validUntilDate = typeof validUntil === 'string' ? new Date(validUntil) : validUntil;
+    const validUntilYear = validUntilDate.getFullYear();
+
+    // Soft Block: Same year as validUntil, using config month/day/time
+    // Use nullish coalescing (??) because 0 is a valid hour/minute
+    const softBlockDate = new Date(
+        validUntilYear,
+        config.softBlock.month,
+        config.softBlock.day,
+        config.softBlock.hour ?? 23,
+        config.softBlock.minute ?? 59,
+        59,
+        999
+    );
+
+    // Hard Block: TWO years after validUntil year, using config month/day/time
+    const hardBlockYear = validUntilYear + 2;
+    const hardBlockDate = normalizeLeapYearDate(
+        hardBlockYear,
+        config.hardDelete.month,
+        config.hardDelete.day
+    );
+    // Use config time for hard block as well, instead of forcing 23:59:59
+    hardBlockDate.setHours(
+        config.hardDelete.hour ?? 23,
+        config.hardDelete.minute ?? 59,
+        59,
+        999
+    );
+
+    return {
+        softBlock: softBlockDate.toISOString(),
+        hardBlock: hardBlockDate.toISOString()
+    };
+}
+
+/**
+ * @deprecated Use computeBlockDatesFromValidUntil instead.
+ * This function is kept for backward compatibility during migration.
+ */
+export function computeBlockDatesForStudent(sessionEndYear: number): { softBlock: string; hardBlock: string } {
+    // Create a validUntil date from sessionEndYear (June 30 of that year)
+    const validUntil = new Date(
+        sessionEndYear,
+        DEADLINE_CONFIG.academicYear.anchorMonth,
+        DEADLINE_CONFIG.academicYear.anchorDay,
+        23, 59, 59, 999
+    );
+    return computeBlockDatesFromValidUntil(validUntil);
+}
+
+/**
  * Generate a preview of deadline effects for a student
  * Used in admin UI for previewing before saving config changes
  */

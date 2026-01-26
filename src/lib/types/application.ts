@@ -120,6 +120,7 @@ export interface VerificationCode {
   enrollmentId: string;
   amount: number;
   paymentMode: string;
+  paymentReference?: string;
   shift: string;
 }
 

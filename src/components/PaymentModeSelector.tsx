@@ -8,6 +8,7 @@ import { Input } from '@/components/ui/input';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
+import { OptimizedInput } from '@/components/forms';
 import {
   CreditCard,
   Wallet,
@@ -29,6 +30,7 @@ import {
   Receipt,
   ArrowLeft
 } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
 import Image from 'next/image';
 import { useRazorpay } from '@/hooks/useRazorpay';
 import { toast } from 'sonner';
@@ -41,6 +43,8 @@ import {
   hasCompletedPayment,
   calculateFee
 } from '@/lib/payment/application-payment.service';
+import { uploadImage } from '@/lib/upload';
+import { isMobileDevice } from '@/lib/mobile-utils';
 
 interface PaymentModeSelectorProps {
   amount: number;
@@ -62,6 +66,8 @@ interface PaymentModeSelectorProps {
   onReceiptFileSelect?: (file: File) => void;
   onBack?: () => void;
   isFormComplete?: boolean;
+  isReadOnly?: boolean;
+  isVerified?: boolean;
 }
 
 export default function PaymentModeSelector({
@@ -83,7 +89,9 @@ export default function PaymentModeSelector({
   onOfflineSelected,
   onReceiptFileSelect,
   onBack,
-  isFormComplete = true
+  isFormComplete = true,
+  isReadOnly = false,
+  isVerified = false
 }: PaymentModeSelectorProps) {
   const [paymentMode, setPaymentMode] = useState<'online' | 'offline'>('online');
   const [isProcessingPayment, setIsProcessingPayment] = useState(false);
@@ -95,6 +103,7 @@ export default function PaymentModeSelector({
   const [offlinePaymentId, setOfflinePaymentId] = useState(initialPaymentId);
   const [receiptFile, setReceiptFile] = useState<File | null>(null);
   const [receiptPreview, setReceiptPreview] = useState<string>(initialReceiptPreview);
+  const [showOfflineSuccess, setShowOfflineSuccess] = useState(false);
 
   const { processPayment, isProcessing } = useRazorpay();
 
@@ -236,23 +245,31 @@ export default function PaymentModeSelector({
       } else {
         // Update session status to failed
         updatePaymentSessionStatus(userId, purpose, 'failed');
-        toast.error(result.error || 'Payment failed. Please try again.');
+        // Display generic error only if specific error details aren't present (hook handles rich errors)
+        if (!result.errorCode && !result.errorReason) {
+          console.log('Payment failed without specific code/reason, showing generic toast');
+          // optional: toast.error(result.error || 'Payment failed'); 
+          // We rely on useRazorpay to show the error toast to avoid duplicates
+        }
       }
     } catch (error: any) {
       console.error('Payment error:', error);
       updatePaymentSessionStatus(userId, purpose, 'failed');
-      toast.error('Payment processing failed. Please try again.');
+      // Only show toast if it wasn't already handled by the hook (which catches most internal errors)
+      if (!error.message?.includes('Payment cancelled') && !error.message?.includes('Payment failed')) {
+        toast.error('Payment processing initialization failed. Please try again.');
+      }
     } finally {
       setIsProcessingPayment(false);
     }
   };
 
-  const handleReceiptUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleReceiptUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    // Validate file size (5MB)
-    const maxSize = 5 * 1024 * 1024; // 5MB
+    // Validate file size (5MB max)
+    const maxSize = 5 * 1024 * 1024;
     if (file.size > maxSize) {
       toast.error('File size must be less than 5MB');
       return;
@@ -267,34 +284,50 @@ export default function PaymentModeSelector({
 
     console.log('📁 Receipt file selected:', {
       name: file.name,
-      size: file.size,
+      size: (file.size / 1024 / 1024).toFixed(2) + ' MB',
       type: file.type
     });
 
-    // Store the file locally
-    setReceiptFile(file);
+    try {
+      // Mobile optimization: Compress image if on mobile device
+      let processedFile = file;
+      if (isMobileDevice() && file.size > 1 * 1024 * 1024) { // 1MB threshold for mobile
+        console.log('📱 Mobile device detected, compressing receipt image...');
+        toast.info('Optimizing image for mobile...', { duration: 2000 });
 
-    // Create preview URL
-    const previewUrl = URL.createObjectURL(file);
-    setReceiptPreview(previewUrl);
+        // Import mobile utils dynamically to avoid SSR issues
+        const { compressImageForMobile } = await import('@/lib/mobile-utils');
+        processedFile = await compressImageForMobile(file, 2);
+        console.log(`📱 Receipt compressed: ${(file.size / 1024 / 1024).toFixed(2)}MB → ${(processedFile.size / 1024 / 1024).toFixed(2)}MB`);
+      }
 
-    // Notify parent component about the file selection
-    if (onReceiptFileSelect) {
-      console.log('✅ Passing receipt file to parent form');
-      onReceiptFileSelect(file);
-    } else {
-      console.warn('⚠️ No onReceiptFileSelect callback provided');
+      // Clean up previous object URL if it exists
+      if (receiptPreview && receiptPreview.startsWith('blob:')) {
+        URL.revokeObjectURL(receiptPreview);
+      }
+
+      // Create local preview URL
+      const previewUrl = URL.createObjectURL(processedFile);
+
+      setReceiptFile(processedFile);
+      setReceiptPreview(previewUrl);
+
+      if (onReceiptFileSelect) {
+        onReceiptFileSelect(processedFile);
+      }
+
+      if (purpose === 'new_registration') {
+        toast.success('✅ Receipt attached to application');
+        if (offlinePaymentId && onOfflineSelected) {
+          onOfflineSelected({ paymentId: offlinePaymentId });
+        }
+      } else {
+        toast.success('✅ Receipt ready! Click "Complete Offline Payment" below to submit.');
+      }
+    } catch (error) {
+      console.error('Error processing receipt:', error);
+      toast.error('Error processing image. Please try again.');
     }
-
-    // Notify parent about offline payment selection with transaction ID
-    if (onOfflineSelected && offlinePaymentId.trim()) {
-      onOfflineSelected({
-        paymentId: offlinePaymentId,
-        receiptUrl: previewUrl // Pass preview URL temporarily
-      });
-    }
-
-    toast.success('✅ Receipt ready! It will be uploaded when you submit the form.');
   };
 
   const handleOfflinePayment = async () => {
@@ -316,6 +349,22 @@ export default function PaymentModeSelector({
     setIsProcessingOffline(true);
 
     try {
+      console.log('📤 [Offline] Uploading receipt via mobile-optimized utility...');
+
+      // Mobile optimization: Show progress for large files
+      if (receiptFile.size > 2 * 1024 * 1024) {
+        toast.info('Large file detected. Upload may take longer on mobile devices.');
+      }
+
+      // Use the mobile-optimized uploadImage utility
+      const cloudinaryReceiptUrl = await uploadImage(receiptFile, 'receipts');
+
+      if (!cloudinaryReceiptUrl) {
+        throw new Error('Failed to upload receipt image. Please check your network or try a smaller file.');
+      }
+
+      console.log('✅ [Offline] Receipt uploaded successfully:', cloudinaryReceiptUrl);
+
       // Create offline payment session
       const session: PaymentSession = {
         userId,
@@ -331,33 +380,51 @@ export default function PaymentModeSelector({
         validUntil,
         paymentMode: 'offline',
         status: 'pending',
+        offlinePaymentId,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString()
       };
 
       savePaymentSession(session);
 
-      // Simulate processing time
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      // Store the Cloudinary URL for the callback
+      setReceiptPreview(cloudinaryReceiptUrl);
 
+      // AUTOMATIC SUBMISSION: Ensure parent receives data immediately to create the doc
       if (onOfflineSelected) {
         onOfflineSelected({
           paymentId: offlinePaymentId,
-          receiptUrl: receiptPreview
+          receiptUrl: cloudinaryReceiptUrl
         });
       }
 
+      // Show the premium success card
+      setShowOfflineSuccess(true);
+
       toast.success('Offline payment request submitted successfully!');
-    } catch (error) {
+    } catch (error: any) {
       console.error('Offline payment error:', error);
-      toast.error('Failed to submit offline payment request');
+      let errorMessage = 'Failed to submit offline payment request';
+
+      // Enhanced mobile-specific error handling
+      if (error instanceof TypeError && error.message.includes('fetch')) {
+        errorMessage = 'Network error during upload. Please check your internet connection and try again.';
+      } else if (error.message?.includes('timeout')) {
+        errorMessage = 'Upload timed out. Please try with a smaller image or better network connection.';
+      } else if (error.message?.includes('File size too large')) {
+        errorMessage = 'File size too large. Please compress the image or choose a smaller file.';
+      } else if (error.message) {
+        errorMessage = error.message;
+      }
+
+      toast.error(errorMessage);
     } finally {
       setIsProcessingOffline(false);
     }
   };
 
   return (
-    <Card className="w-full border-0 shadow-xl sm:shadow-2xl bg-[#0d1117] border border-white/5 backdrop-blur-sm overflow-hidden flex flex-col h-full">
+    <Card className="w-full border-0 shadow-xl sm:shadow-2xl bg-[#111117] border border-white/5 backdrop-blur-sm overflow-hidden flex flex-col h-full">
       {showHeader && (
         <CardHeader className="relative pb-4 sm:pb-6 pt-5 sm:pt-8 px-4 sm:px-6 bg-white/[0.02] border-b border-white/5">
           <div className="absolute top-0 right-0 w-40 h-40 bg-gradient-to-br from-violet-500/10 to-fuchsia-500/10 rounded-full blur-3xl"></div>
@@ -534,18 +601,19 @@ export default function PaymentModeSelector({
               <div className="relative p-1.5 bg-white/5 border border-white/10 rounded-xl sm:rounded-2xl shadow-inner">
                 {/* Sliding background indicator */}
                 <div
-                  className={`absolute top-1.5 h-[calc(100%-0.75rem)] w-[calc(50%-0.375rem)] rounded-xl shadow-xl transition-all duration-300 ease-out ${paymentMode === 'online'
+                  className={`absolute top-1.5 h-[calc(100%-0.75rem)] w-[calc(50%-0.375rem)] rounded-xl shadow-xl transition-all duration-300 ease-out pointer-events-none ${paymentMode === 'online'
                     ? 'left-1.5 bg-gradient-to-br from-emerald-600 via-teal-600 to-cyan-600'
                     : 'left-[calc(50%+0.1875rem)] bg-gradient-to-br from-emerald-600 via-teal-600 to-cyan-600'
                     }`}
                 ></div>
 
-                <div className="relative grid grid-cols-2 gap-1.5">
+                <div className="relative grid grid-cols-2 gap-1.5 z-10">
                   {/* Online Payment Option */}
                   <button
                     type="button"
-                    onClick={() => setPaymentMode('online')}
-                    className="relative group px-1.5 sm:px-4 py-2.5 sm:py-3.5 rounded-xl transition-all duration-300"
+                    onClick={() => !(isReadOnly || isVerified) && setPaymentMode('online')}
+                    disabled={isReadOnly || isVerified}
+                    className={`relative group px-1.5 sm:px-4 py-2.5 sm:py-3.5 rounded-xl transition-all duration-300 select-none touch-manipulation ${isReadOnly ? 'cursor-not-allowed opacity-80' : ''}`}
                   >
                     <div className="flex items-center justify-center gap-1.5 sm:gap-2.5">
                       {/* Icon */}
@@ -582,8 +650,9 @@ export default function PaymentModeSelector({
                   {/* Offline Payment Option */}
                   <button
                     type="button"
-                    onClick={() => setPaymentMode('offline')}
-                    className="relative group px-1.5 sm:px-4 py-2.5 sm:py-3.5 rounded-xl transition-all duration-300"
+                    onClick={() => !(isReadOnly || isVerified) && setPaymentMode('offline')}
+                    disabled={isReadOnly || isVerified}
+                    className={`relative group px-1.5 sm:px-4 py-2.5 sm:py-3.5 rounded-xl transition-all duration-300 select-none touch-manipulation ${isReadOnly ? 'cursor-not-allowed opacity-80' : ''}`}
                   >
                     <div className="flex items-center justify-center gap-1.5 sm:gap-2.5">
                       {/* Icon */}
@@ -651,26 +720,22 @@ export default function PaymentModeSelector({
                     </div>
                     UPI Transaction ID <span className="text-red-500 ml-1">*</span>
                   </Label>
-                  <Input
+                  <OptimizedInput
                     id="offlinePaymentId"
                     type="text"
                     value={offlinePaymentId}
-                    onChange={(e) => {
-                      const value = e.target.value;
+                    onChange={(value) => {
                       setOfflinePaymentId(value);
                       console.log('📝 Transaction ID entered:', value);
 
-                      // Notify parent component about payment ID change
-                      if (onOfflineSelected && value.trim()) {
-                        onOfflineSelected({
-                          paymentId: value,
-                          receiptUrl: receiptPreview
-                        });
+                      // For new registration, sync to parent immediately
+                      if (purpose === 'new_registration' && onOfflineSelected) {
+                        onOfflineSelected({ paymentId: value });
                       }
                     }}
                     placeholder="e.g., 234567890123"
                     required
-                    className="h-10 sm:h-11 font-mono text-xs sm:text-sm bg-white/5 border-2 border-violet-500/30 text-white focus:border-violet-500 focus:ring-2 focus:ring-violet-500/20"
+                    className={`h-10 sm:h-11 font-mono text-xs sm:text-sm bg-white/5 border-2 border-violet-500/30 text-white focus:border-violet-500 focus:ring-2 focus:ring-violet-500/20 ${(isReadOnly || isVerified) ? 'opacity-60 cursor-not-allowed border-gray-700' : ''}`}
                   />
                 </div>
 
@@ -689,27 +754,27 @@ export default function PaymentModeSelector({
                     {receiptPreview ? (
                       <div className="space-y-3 sm:space-y-4">
                         <div className="relative inline-block group">
-                          <Image
+                          <img
                             src={receiptPreview}
                             alt="Payment receipt preview"
-                            width={200}
-                            height={200}
-                            className="max-h-40 sm:max-h-48 rounded-xl object-contain shadow-xl border-2 border-green-500/50"
+                            className="max-h-40 sm:max-h-48 rounded-xl object-contain shadow-xl border-2 border-green-500/50 mx-auto"
                           />
-                          <Button
-                            size="sm"
-                            variant="destructive"
-                            className="absolute -top-2 -right-2 h-7 w-7 sm:h-8 sm:w-8 rounded-full shadow-xl opacity-0 group-hover:opacity-100 transition-opacity"
-                            onClick={() => {
-                              if (receiptPreview.startsWith('blob:')) {
-                                URL.revokeObjectURL(receiptPreview);
-                              }
-                              setReceiptPreview('');
-                              setReceiptFile(null);
-                            }}
-                          >
-                            <X className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
-                          </Button>
+                          {!isReadOnly && (
+                            <Button
+                              size="sm"
+                              variant="destructive"
+                              className="absolute -top-2 -right-2 h-7 w-7 sm:h-8 sm:w-8 rounded-full shadow-xl opacity-0 group-hover:opacity-100 transition-opacity"
+                              onClick={() => {
+                                if (receiptPreview.startsWith('blob:')) {
+                                  URL.revokeObjectURL(receiptPreview);
+                                }
+                                setReceiptPreview('');
+                                setReceiptFile(null);
+                              }}
+                            >
+                              <X className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
+                            </Button>
+                          )}
                         </div>
                         <div className="flex items-center justify-center gap-2 text-green-700 dark:text-green-300">
                           <CheckCircle className="h-4 w-4 sm:h-5 sm:w-5" />
@@ -725,19 +790,28 @@ export default function PaymentModeSelector({
                           </div>
                         </div>
                         <div className="flex flex-col items-center space-y-2 sm:space-y-3">
-                          <label
-                            htmlFor="receiptUploadOffline"
-                            className="cursor-pointer px-4 sm:px-6 py-2 sm:py-2.5 rounded-lg sm:rounded-xl bg-gradient-to-r from-purple-600 via-violet-600 to-fuchsia-600 hover:from-purple-700 hover:via-violet-700 hover:to-fuchsia-700 text-white font-bold text-xs sm:text-sm transition-all duration-200 shadow-lg hover:shadow-xl"
-                          >
-                            📸 Choose Receipt File
-                          </label>
-                          <input
-                            id="receiptUploadOffline"
-                            type="file"
-                            accept="image/*"
-                            onChange={handleReceiptUpload}
-                            className="hidden"
-                          />
+                          {!isReadOnly ? (
+                            <>
+                              <label
+                                htmlFor="receiptUploadOffline"
+                                className="cursor-pointer px-4 sm:px-6 py-2 sm:py-2.5 rounded-lg sm:rounded-xl bg-gradient-to-r from-purple-600 via-violet-600 to-fuchsia-600 hover:from-purple-700 hover:via-violet-700 hover:to-fuchsia-700 text-white font-bold text-xs sm:text-sm transition-all duration-200 shadow-lg hover:shadow-xl"
+                              >
+                                📸 Choose Receipt File
+                              </label>
+                              <input
+                                id="receiptUploadOffline"
+                                type="file"
+                                accept="image/*"
+                                onChange={handleReceiptUpload}
+                                className="hidden"
+                              />
+                            </>
+                          ) : (
+                            <div className="px-4 py-2 rounded-lg bg-gray-800 text-gray-400 text-xs font-semibold flex items-center gap-2">
+                              <Lock className="h-3 w-3" />
+                              Verification Fixed
+                            </div>
+                          )}
                           <p className="text-[10px] sm:text-xs text-purple-400 font-medium">
                             PNG, JPG, JPEG • Max 5MB
                           </p>
@@ -746,6 +820,27 @@ export default function PaymentModeSelector({
                     )}
                   </div>
                 </div>
+
+                {/* Submit Button for Offline Payment - Only show for renewals */}
+                {purpose !== 'new_registration' && (
+                  <Button
+                    onClick={handleOfflinePayment}
+                    disabled={isProcessingOffline || !offlinePaymentId.trim() || !receiptFile}
+                    className="w-full h-11 sm:h-14 font-black bg-gradient-to-r from-violet-600 via-purple-600 to-fuchsia-600 hover:from-violet-700 hover:via-purple-700 hover:to-fuchsia-700 text-white shadow-xl hover:shadow-2xl transition-all duration-200 mt-2"
+                  >
+                    {isProcessingOffline ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 sm:h-5 sm:w-5 animate-spin" />
+                        SUBMITTING...
+                      </>
+                    ) : (
+                      <>
+                        <CheckCircle className="mr-2 h-4 w-4 sm:h-5 sm:w-5" />
+                        COMPLETE OFFLINE PAYMENT
+                      </>
+                    )}
+                  </Button>
+                )}
               </div>
             )}
 
@@ -824,8 +919,8 @@ export default function PaymentModeSelector({
               <Alert className="border py-2 sm:py-3 border-white/10 bg-white/[0.02]">
                 <div className="flex items-start gap-2 sm:gap-3">
                   <Lock className="h-4 w-4 sm:h-5 sm:w-5 flex-shrink-0 text-gray-400" />
-                  <AlertDescription className="text-[9px] sm:text-sm text-gray-300">
-                    Upload your payment receipt and provide UPI transaction ID. Visit the Bus Office with your enrollment ID to complete verification and activate your bus pass.
+                  <AlertDescription className="text-[10px] sm:text-sm text-gray-300">
+                    Verified Offline Payment • Authorized by Administration
                   </AlertDescription>
                 </div>
               </Alert>
@@ -833,6 +928,132 @@ export default function PaymentModeSelector({
           </>
         )}
       </CardContent>
+
+      {/* --- PREMIUM OFFLINE SUCCESS OVERLAY --- */}
+      <AnimatePresence>
+        {showOfflineSuccess && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[100] flex items-start justify-center p-4 pt-24 md:items-center md:pt-4 bg-[#0a0c10]/95 backdrop-blur-2xl"
+          >
+            <motion.div
+              initial={{ scale: 0.9, y: 20, opacity: 0 }}
+              animate={{ scale: 1, y: 0, opacity: 1 }}
+              transition={{ type: "spring", damping: 25, stiffness: 300 }}
+              className="w-full max-w-[400px] relative"
+            >
+              {/* Outer Glow Effects */}
+              <div className="absolute -inset-1 bg-gradient-to-r from-emerald-600 to-teal-500 rounded-[2.5rem] blur opacity-25 animate-pulse"></div>
+
+              <Card className="relative border-0 shadow-2xl bg-[#161a22] border border-white/10 rounded-[2.5rem] overflow-hidden">
+                <CardContent className="p-8 sm:p-12 flex flex-col items-center text-center">
+
+                  {/* Premium Live Tick Animation */}
+                  <div className="relative mb-10">
+                    <motion.div
+                      initial={{ scale: 0 }}
+                      animate={{ scale: 1 }}
+                      transition={{
+                        type: "spring",
+                        stiffness: 260,
+                        damping: 20,
+                        delay: 0.2
+                      }}
+                      className="w-24 h-24 sm:w-32 sm:h-32 rounded-full border-4 border-emerald-500/20 flex items-center justify-center bg-emerald-500/5 relative"
+                    >
+                      {/* Pulsing Back Glow */}
+                      <motion.div
+                        animate={{ scale: [1, 1.2, 1], opacity: [0.3, 0.1, 0.3] }}
+                        transition={{ duration: 2, repeat: Infinity }}
+                        className="absolute inset-0 rounded-full bg-emerald-500/20 blur-xl"
+                      ></motion.div>
+
+                      <svg
+                        className="w-12 h-12 sm:w-16 sm:h-16 text-emerald-500"
+                        viewBox="0 0 52 52"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="5"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      >
+                        <motion.path
+                          d="M14.1 27.2l7.1 7.2 16.7-16.8"
+                          initial={{ pathLength: 0 }}
+                          animate={{ pathLength: 1 }}
+                          transition={{
+                            duration: 1,
+                            ease: "easeInOut",
+                            delay: 0.5
+                          }}
+                        />
+                        <motion.circle
+                          cx="26"
+                          cy="26"
+                          r="23"
+                          initial={{ pathLength: 0 }}
+                          animate={{ pathLength: 1 }}
+                          transition={{
+                            duration: 1.5,
+                            ease: "easeInOut",
+                            delay: 0
+                          }}
+                        />
+                      </svg>
+                    </motion.div>
+                  </div>
+
+                  <motion.div
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: 1.5 }}
+                  >
+                    <h2 className="text-2xl sm:text-3xl font-black text-white mb-4 uppercase tracking-tight">Request Received</h2>
+                    <div className="space-y-4">
+                      <p className="text-gray-400 text-sm sm:text-base font-medium leading-relaxed max-w-[320px] mx-auto">
+                        We have received your payment request. Our team will verify and confirm your payment within <span className="text-emerald-400 font-bold italic text-nowrap">3-4 business working days</span>.
+                      </p>
+
+                      <div className="pt-6 space-y-3 w-full max-w-[280px] mx-auto">
+                        {purpose === 'new_registration' ? (
+                          // No buttons for new registration in success overlay (if ever shown)
+                          null
+                        ) : (
+                          <>
+                            <Button
+                              onClick={() => {
+                                // Navigate to dashboard as submission is already handled
+                                window.location.href = '/student';
+                              }}
+                              className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-5 rounded-xl shadow-lg shadow-blue-500/20 transform hover:-translate-y-1 transition-all duration-300 text-xs uppercase tracking-wider"
+                            >
+                              Back to Dashboard
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              onClick={() => {
+                                setOfflinePaymentId('');
+                                setReceiptFile(null);
+                                setReceiptPreview('');
+                                setShowOfflineSuccess(false);
+                              }}
+                              className="w-full text-red-500 hover:text-red-600 hover:bg-red-500/10 font-bold py-3 transition-all text-[10px] uppercase tracking-widest"
+                            >
+                              Cancel / Close
+                            </Button>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  </motion.div>
+                </CardContent>
+              </Card>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </Card>
   );
 }

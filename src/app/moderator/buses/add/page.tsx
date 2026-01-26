@@ -14,6 +14,7 @@ import { getAllRoutes, getAllDrivers, getAllBuses } from "@/lib/dataService";
 import { useToast } from "@/contexts/toast-context";
 import { Route, Driver } from "@/lib/types";
 import { signalCollectionRefresh } from "@/hooks/useEventDrivenRefresh";
+import { useDebouncedStorage } from '@/hooks/useDebouncedStorage';
 
 // ... (Types are same)
 type BusFormData = {
@@ -38,13 +39,18 @@ export default function AddBusPage() {
     busId: "",
     busNumber: "",
     color: "",
-    capacity: "55",
+    capacity: "",
     driverUID: "",
     routeId: "",
     shift: "",
     status: "Active",
-    morningLoad: "0",
-    eveningLoad: "0"
+    morningLoad: "",
+    eveningLoad: ""
+  });
+  
+  // Debounced storage to prevent input lag
+  const storage = useDebouncedStorage<BusFormData>('modBusFormData', {
+    debounceMs: 500,
   });
 
   const [loading, setLoading] = useState(false);
@@ -102,19 +108,23 @@ export default function AddBusPage() {
 
   useEffect(() => {
     if (!dataLoading) {
-      localStorage.setItem('modBusFormData', JSON.stringify(busData));
+      storage.save(busData);
     }
-  }, [busData, dataLoading]);
+  }, [busData, dataLoading, storage]);
 
   useEffect(() => {
     if (busData.shift === "Morning") {
-      setBusData(prev => ({ ...prev, eveningLoad: "0" }));
+      setBusData(prev => ({ ...prev, eveningLoad: "" }));
     } else if (busData.shift === "Evening") {
-      setBusData(prev => ({ ...prev, morningLoad: "0" }));
+      setBusData(prev => ({ ...prev, morningLoad: "" }));
     }
   }, [busData.shift]);
 
   const handleInputChange = (field: keyof BusFormData, value: string) => {
+    // Prevent negative numbers
+    if (['capacity', 'morningLoad', 'eveningLoad'].includes(field)) {
+      if (value && parseInt(value) < 0) return;
+    }
     setBusData(prev => ({ ...prev, [field]: value }));
     if (errors[field]) {
       setErrors(prev => {
@@ -192,7 +202,7 @@ export default function AddBusPage() {
       const result = await response.json();
       if (!response.ok || !result.success) throw new Error(result.error || 'Failed');
 
-      localStorage.removeItem('modBusFormData');
+      storage.clear();
       addToast(result.message || "Bus created!", 'success');
       signalCollectionRefresh('buses');
       setTimeout(() => router.push("/moderator/buses"), 1500); // Updated redirect
@@ -209,16 +219,16 @@ export default function AddBusPage() {
       busId: defaultBusIdValue,
       busNumber: "",
       color: "",
-      capacity: "55",
+      capacity: "",
       driverUID: "",
       routeId: "",
       shift: "",
       status: "Active",
-      morningLoad: "0",
-      eveningLoad: "0"
+      morningLoad: "",
+      eveningLoad: ""
     });
     setErrors({});
-    localStorage.removeItem('modBusFormData');
+    storage.clear();
     addToast('Restored', 'info');
   };
 
@@ -255,7 +265,7 @@ export default function AddBusPage() {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-6">
 
               <div>
-                <Label htmlFor="busId" className="mb-2 block text-sm font-semibold text-gray-200">Bus ID (Number) *</Label>
+                <Label htmlFor="busId" className="mb-2 block text-sm font-semibold text-gray-200">Bus ID *</Label>
                 <div className="relative">
                   <Input
                     id="busId"
@@ -268,7 +278,7 @@ export default function AddBusPage() {
                     <button
                       type="button"
                       onClick={handleRestoreBusId}
-                      className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-white transition-colors"
+                      className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-white transition-colors p-1"
                       title="Restore Default ID"
                     >
                       <RotateCcw className="h-4 w-4" />
@@ -293,7 +303,7 @@ export default function AddBusPage() {
               <div>
                 <Label htmlFor="color" className="mb-2 block text-sm font-semibold text-gray-200">Color *</Label>
                 <Select value={busData.color} onValueChange={(val) => handleInputChange('color', val)}>
-                  <SelectTrigger className="bg-gray-800 border-gray-700 focus:border-purple-500 text-white py-6">
+                  <SelectTrigger className="bg-gray-800 border-gray-700 focus:border-purple-500 text-white py-6 cursor-pointer">
                     <SelectValue placeholder="Select Color" />
                   </SelectTrigger>
                   <SelectContent>
@@ -307,7 +317,7 @@ export default function AddBusPage() {
               <div>
                 <Label htmlFor="driverUID" className="mb-2 block text-sm font-semibold text-gray-200">Driver *</Label>
                 <Select value={busData.driverUID} onValueChange={(val) => handleInputChange('driverUID', val)}>
-                  <SelectTrigger className="bg-gray-800 border-gray-700 focus:border-purple-500 text-white py-6">
+                  <SelectTrigger className="bg-gray-800 border-gray-700 focus:border-purple-500 text-white py-6 cursor-pointer">
                     <SelectValue placeholder="Select a driver" />
                   </SelectTrigger>
                   <SelectContent className="max-h-80 bg-gray-900 border-gray-700">
@@ -346,9 +356,16 @@ export default function AddBusPage() {
                 <Input
                   id="capacity"
                   type="number"
+                  min="0"
+                  onKeyDown={(e) => {
+                    if (e.key === '-' || e.key === '+' || e.key === 'e' || e.key === 'E') {
+                      e.preventDefault();
+                    }
+                  }}
                   value={busData.capacity}
                   onChange={(e) => handleInputChange('capacity', e.target.value)}
-                  className="bg-gray-800 border-gray-700 focus:border-purple-500 text-white py-6"
+                  className="bg-gray-800 border-gray-700 focus:border-purple-500 text-white py-6 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                  placeholder="e.g. 55"
                 />
                 {errors.capacity && <p className="text-red-500 text-xs mt-1">{errors.capacity}</p>}
               </div>
@@ -357,7 +374,7 @@ export default function AddBusPage() {
                 <Label htmlFor="routeId" className="mb-2 block text-sm font-semibold text-gray-200">Route *</Label>
                 <div className="relative flex items-center">
                   <Select value={busData.routeId} onValueChange={(val) => handleInputChange('routeId', val)}>
-                    <SelectTrigger className="bg-gray-800 border-gray-700 focus:border-purple-500 text-white py-6 pr-14">
+                    <SelectTrigger className="bg-gray-800 border-gray-700 focus:border-purple-500 text-white py-6 pr-4 cursor-pointer relative">
                       <SelectValue placeholder="Select a route" />
                     </SelectTrigger>
                     <SelectContent className="max-h-60">
@@ -376,7 +393,7 @@ export default function AddBusPage() {
                   </Select>
 
                   {busData.routeId && (
-                    <div className="absolute right-10 top-1/2 -translate-y-1/2 flex items-center">
+                    <div className="absolute right-10 top-1/2 -translate-y-1/2 flex items-center z-10">
                       <Popover>
                         <PopoverTrigger asChild>
                           <button type="button" className="text-gray-400 hover:text-white transition-colors">
@@ -404,7 +421,7 @@ export default function AddBusPage() {
               <div>
                 <Label htmlFor="status" className="mb-2 block text-sm font-semibold text-gray-200">Status *</Label>
                 <Select value={busData.status} onValueChange={(val) => handleInputChange('status', val)}>
-                  <SelectTrigger className="bg-gray-800 border-gray-700 focus:border-purple-500 text-white py-6">
+                  <SelectTrigger className="bg-gray-800 border-gray-700 focus:border-purple-500 text-white py-6 cursor-pointer">
                     <SelectValue placeholder="Active" />
                   </SelectTrigger>
                   <SelectContent className="bg-gray-900 border-gray-700">
@@ -418,7 +435,7 @@ export default function AddBusPage() {
               <div>
                 <Label htmlFor="shift" className="mb-2 block text-sm font-semibold text-gray-200">Shift *</Label>
                 <Select value={busData.shift} onValueChange={(val) => handleInputChange('shift', val)}>
-                  <SelectTrigger className="bg-gray-800 border-gray-700 focus:border-purple-500 text-white py-6">
+                  <SelectTrigger className="bg-gray-800 border-gray-700 focus:border-purple-500 text-white py-6 cursor-pointer">
                     <SelectValue placeholder="Select the shift" />
                   </SelectTrigger>
                   <SelectContent>
@@ -439,10 +456,17 @@ export default function AddBusPage() {
                 <Input
                   id="morningLoad"
                   type="number"
+                  min="0"
+                  onKeyDown={(e) => {
+                    if (e.key === '-' || e.key === '+' || e.key === 'e' || e.key === 'E') {
+                      e.preventDefault();
+                    }
+                  }}
                   value={busData.morningLoad}
+                  placeholder="0"
                   onChange={(e) => handleInputChange('morningLoad', e.target.value)}
                   disabled={!busData.shift || busData.shift === "Evening"}
-                  className={`bg-gray-800 border-gray-700 focus:border-purple-500 text-white py-6 ${(!busData.shift || busData.shift === "Evening") ? 'opacity-50 cursor-not-allowed' : ''}`}
+                  className={`bg-gray-800 border-gray-700 focus:border-purple-500 text-white py-6 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none ${(!busData.shift || busData.shift === "Evening") ? 'opacity-50 cursor-not-allowed' : ''}`}
                 />
               </div>
               <div className="flex-1">
@@ -450,10 +474,17 @@ export default function AddBusPage() {
                 <Input
                   id="eveningLoad"
                   type="number"
+                  min="0"
+                  onKeyDown={(e) => {
+                    if (e.key === '-' || e.key === '+' || e.key === 'e' || e.key === 'E') {
+                      e.preventDefault();
+                    }
+                  }}
                   value={busData.eveningLoad}
+                  placeholder="0"
                   onChange={(e) => handleInputChange('eveningLoad', e.target.value)}
                   disabled={!busData.shift || busData.shift === "Morning"}
-                  className={`bg-gray-800 border-gray-700 focus:border-purple-500 text-white py-6 ${(!busData.shift || busData.shift === "Morning") ? 'opacity-50 cursor-not-allowed' : ''}`}
+                  className={`bg-gray-800 border-gray-700 focus:border-purple-500 text-white py-6 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none ${(!busData.shift || busData.shift === "Morning") ? 'opacity-50 cursor-not-allowed' : ''}`}
                 />
               </div>
             </div>

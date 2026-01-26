@@ -66,7 +66,7 @@ export async function POST(request: NextRequest) {
       .get();
 
     const batch = adminDb.batch();
-    existingCodesQuery.docs.forEach(doc => {
+    existingCodesQuery.docs.forEach((doc: any) => {
       batch.update(doc.ref, { used: true, invalidatedAt: new Date().toISOString() });
     });
     await batch.commit();
@@ -101,6 +101,7 @@ export async function POST(request: NextRequest) {
       enrollmentId: formData.enrollmentId || '',
       amount: formData.paymentInfo?.amountPaid || 0,
       paymentMode: formData.paymentInfo?.paymentMode || '',
+      paymentReference: formData.paymentInfo?.paymentReference || '',
       shift: formData.shift || ''
     };
 
@@ -114,7 +115,7 @@ export async function POST(request: NextRequest) {
       toRole: 'moderator',
       type: 'VerificationRequested',
       title: 'New Verification Request',
-      body: `${formData.fullName} (${formData.enrollmentId}) has requested payment verification.`,
+      body: `${formData.fullName} (${formData.enrollmentId}) has requested verification for ${formData.paymentInfo?.paymentMode === 'online' ? 'Online' : 'Offline'} payment of ₹${formData.paymentInfo?.amountPaid || 0}. UPI ID: ${formData.paymentInfo?.paymentReference || 'N/A'}`,
       links: {
         verificationCodeId: codeId,
         moderatorPanel: `/moderator/applications` // Will show in Student Verification section

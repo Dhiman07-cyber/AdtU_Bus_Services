@@ -145,7 +145,7 @@ export async function POST(request: Request) {
       created_at: new Date(currentTimestamp).toISOString(),
     };
 
-    // Add optional fields if provided
+    // Add location fields - REQUIRED for driver to see student on map
     // Note: waiting_flags table uses stop_lat/stop_lng for the stop location
     // If specific lat/lng provided (student's exact location), use those
     // Otherwise fallback to stopLat/stopLng from the stop data
@@ -155,7 +155,26 @@ export async function POST(request: Request) {
     } else if (stopLat !== undefined && stopLng !== undefined) {
       flagData.stop_lat = parseFloat(stopLat);
       flagData.stop_lng = parseFloat(stopLng);
+    } else {
+      // Coordinates are required for the driver to see the student on the map
+      console.error('❌ No coordinates provided for waiting flag');
+      return NextResponse.json({
+        error: 'Location is required to raise a waiting flag. Please enable location services and try again.',
+        code: 'LOCATION_REQUIRED'
+      }, { status: 400 });
     }
+
+    // Validate coordinates are valid numbers
+    if (isNaN(flagData.stop_lat) || isNaN(flagData.stop_lng) ||
+      flagData.stop_lat === 0 || flagData.stop_lng === 0) {
+      console.error('❌ Invalid coordinates:', { lat: flagData.stop_lat, lng: flagData.stop_lng });
+      return NextResponse.json({
+        error: 'Invalid location coordinates. Please try again with location services enabled.',
+        code: 'INVALID_COORDINATES'
+      }, { status: 400 });
+    }
+
+    console.log('📍 Waiting flag location:', { lat: flagData.stop_lat, lng: flagData.stop_lng });
 
     if (message !== undefined) {
       flagData.message = message;
@@ -200,15 +219,41 @@ export async function POST(request: Request) {
     // Broadcast waiting flag to driver
     try {
       const channel = supabase.channel(`waiting_flags_${busId}`);
+
+      // IMPORTANT: Must subscribe to channel before sending broadcast
+      // Wait for subscription to be ready
+      await new Promise<void>((resolve, reject) => {
+        const timeout = setTimeout(() => {
+          console.warn('⚠️ Channel subscription timeout - sending anyway');
+          resolve();
+        }, 3000); // 3 second timeout
+
+        channel.subscribe((status) => {
+          if (status === 'SUBSCRIBED') {
+            clearTimeout(timeout);
+            resolve();
+          } else if (status === 'CHANNEL_ERROR') {
+            clearTimeout(timeout);
+            console.warn('⚠️ Channel subscription error');
+            resolve(); // Continue anyway
+          }
+        });
+      });
+
       const broadcastResult = await channel.send({
         type: 'broadcast',
         event: 'waiting_flag_created',
         payload: insertedFlag
       });
 
+      console.log('📢 Broadcast result:', broadcastResult);
+
       if (broadcastResult !== 'ok') {
-        console.warn('Broadcast error (non-critical):', broadcastResult);
+        console.warn('Broadcast returned non-ok result (non-critical):', broadcastResult);
       }
+
+      // Clean up channel after broadcast
+      await supabase.removeChannel(channel);
     } catch (broadcastError) {
       console.warn('Broadcast failed (non-critical):', broadcastError);
     }
@@ -286,6 +331,18 @@ export async function DELETE(request: Request) {
     // Broadcast flag removal
     try {
       const channel = supabase.channel(`waiting_flags_${busId}`);
+
+      // Subscribe before sending
+      await new Promise<void>((resolve) => {
+        const timeout = setTimeout(() => resolve(), 3000);
+        channel.subscribe((status) => {
+          if (status === 'SUBSCRIBED' || status === 'CHANNEL_ERROR') {
+            clearTimeout(timeout);
+            resolve();
+          }
+        });
+      });
+
       const broadcastResult = await channel.send({
         type: 'broadcast',
         event: 'waiting_flag_removed',
@@ -295,6 +352,8 @@ export async function DELETE(request: Request) {
       if (broadcastResult !== 'ok') {
         console.warn('Broadcast error (non-critical):', broadcastResult);
       }
+
+      await supabase.removeChannel(channel);
     } catch (broadcastError) {
       console.warn('Broadcast failed (non-critical):', broadcastError);
     }

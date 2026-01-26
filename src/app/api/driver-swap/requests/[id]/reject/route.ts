@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { auth } from '@/lib/firebase-admin';
-import { DriverSwapService } from '@/lib/driver-swap-service';
+import { DriverSwapSupabaseService } from '@/lib/driver-swap-supabase';
 
 export async function POST(
   request: Request,
@@ -10,8 +10,6 @@ export async function POST(
     // Await params in Next.js 13+ App Router
     const resolvedParams = await params;
     const requestId = resolvedParams.id;
-    const body = await request.json();
-    const { reason } = body;
 
     // Get authentication token
     const authHeader = request.headers.get('authorization');
@@ -26,8 +24,10 @@ export async function POST(
     const decodedToken = await auth.verifyIdToken(token);
     const rejectorUID = decodedToken.uid;
 
-    // Reject the swap request
-    const result = await DriverSwapService.rejectSwapRequest(requestId, rejectorUID, reason);
+    console.log(`📥 Reject swap request: ${requestId} by ${rejectorUID.substring(0, 8)}`);
+
+    // Reject the swap request using Supabase
+    const result = await DriverSwapSupabaseService.rejectSwapRequest(requestId, rejectorUID);
 
     if (!result.success) {
       return NextResponse.json(

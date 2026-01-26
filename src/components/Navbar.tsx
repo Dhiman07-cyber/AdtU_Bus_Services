@@ -15,7 +15,7 @@ import { SignOutButton } from "@/components/signout-button";
 import { CompactConnectionStatus } from '@/components/ConnectionStatusIndicator';
 import { CompactPingIndicator } from '@/components/PingIndicator';
 import { useSystemConfig } from '@/contexts/SystemConfigContext';
-import { useUserNotifications } from '@/hooks/useUserNotifications';
+import { useNotifications } from '@/contexts/NotificationContext';
 import { cn } from "@/lib/utils";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -44,7 +44,7 @@ export default function Navbar({ onMenuToggle, isSidebarOpen = false }: NavbarPr
   const router = useRouter();
   const pathname = usePathname();
   const { appName } = useSystemConfig();
-  const { unreadCount } = useUserNotifications();
+  const { unreadCount } = useNotifications();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isSignOutDialogOpen, setIsSignOutDialogOpen] = useState(false);
 
@@ -100,7 +100,7 @@ export default function Navbar({ onMenuToggle, isSidebarOpen = false }: NavbarPr
         { label: 'Live Tracking', href: '/driver/live-tracking', icon: MapPin, color: 'text-emerald-500' },
         { label: 'Scan Pass', href: '/driver/scan-pass', icon: QrCode, color: 'text-purple-500' },
         { label: 'My Students', href: '/driver/students', icon: GraduationCap, color: 'text-indigo-500' },
-        { label: 'Bus Details', href: '/driver/bus', icon: Bus, color: 'text-amber-500' },
+        { label: 'Driver Swap', href: '/driver/swap-request', icon: RefreshCcw, color: 'text-amber-500' },
         { label: 'Notifications', href: '/driver/notifications', icon: Bell, color: 'text-red-500' },
       ];
     }
@@ -168,7 +168,6 @@ export default function Navbar({ onMenuToggle, isSidebarOpen = false }: NavbarPr
           </div>
 
           <div className="flex items-center space-x-2 sm:space-x-2.5">
-            <CompactConnectionStatus />
             <CompactPingIndicator />
 
             {userData?.role && (
@@ -299,10 +298,10 @@ export default function Navbar({ onMenuToggle, isSidebarOpen = false }: NavbarPr
                 </Button>
               </div>
 
-              <div className="flex items-center gap-5">
-                <div className="relative">
-                  <div className="w-16 h-16 rounded-full bg-gradient-to-br from-blue-600 via-blue-700 to-indigo-800 p-0.5 shadow-lg border border-white/10">
-                    <div className="w-full h-full rounded-full bg-blue-900/50 flex items-center justify-center overflow-hidden">
+              <div className="flex items-center gap-4">
+                <div className="relative flex-shrink-0">
+                  <div className="w-14 h-14 rounded-full bg-gradient-to-br from-blue-600 via-blue-700 to-indigo-800 p-[2px] shadow-lg border border-white/10">
+                    <div className="w-full h-full rounded-full bg-blue-950 flex items-center justify-center overflow-hidden">
                       {userData?.role !== 'admin' && (userData?.profilePhotoUrl || userData?.photoURL) ? (
                         <img
                           src={userData.profilePhotoUrl || userData.photoURL}
@@ -310,27 +309,23 @@ export default function Navbar({ onMenuToggle, isSidebarOpen = false }: NavbarPr
                           className="w-full h-full object-cover"
                         />
                       ) : (
-                        <User className="h-8 w-8 text-blue-100" />
+                        <User className="h-7 w-7 text-blue-100" />
                       )}
                     </div>
                   </div>
                 </div>
-                <div className="flex-1 space-y-1">
-                  <h2 className="text-xl font-extrabold text-white tracking-tight leading-none">
+                <div className="flex-1 min-w-0 flex flex-col gap-0.5">
+                  <h2 className="text-lg font-bold text-white tracking-tight leading-snug truncate">
                     {userData?.fullName || userData?.name || currentUser?.displayName || "User"}
                   </h2>
-                  {userData?.role !== 'student' && (
-                    <>
-                      <p className="text-sm text-gray-400 font-medium opacity-90 break-all">
-                        {userData?.email || currentUser?.email}
-                      </p>
-                      <div className="pt-1">
-                        <span className="inline-flex items-center px-3 py-1 rounded-full text-[10px] font-black bg-blue-600/20 border border-blue-500/30 text-blue-300 uppercase tracking-[0.05em] shadow-sm">
-                          {userData?.role || "Member"}
-                        </span>
-                      </div>
-                    </>
-                  )}
+                  <p className="text-xs text-gray-400 font-medium truncate">
+                    {userData?.email || currentUser?.email}
+                  </p>
+                  <div className="flex pt-0.5">
+                    <span className="inline-flex items-center px-2 py-0.5 rounded-[6px] text-[9px] font-bold bg-blue-500/10 border border-blue-500/20 text-blue-300 uppercase tracking-widest shadow-sm">
+                      {userData?.role || "Member"}
+                    </span>
+                  </div>
                 </div>
               </div>
             </div>

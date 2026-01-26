@@ -4,6 +4,7 @@ import { useAuth } from '@/contexts/auth-context';
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
+import { cn } from "@/lib/utils";
 import {
   Dialog,
   DialogContent,
@@ -271,6 +272,20 @@ export default function AdminDrivers() {
               Driver Reassignment
             </Button>
           </Link>
+          <Button
+            onClick={handleRefresh}
+            disabled={isRefreshing}
+            className={cn(
+              "group h-8 px-4 bg-white hover:bg-gray-50 text-gray-600 hover:text-purple-600 border border-gray-200 hover:border-purple-200 shadow-sm hover:shadow-lg hover:shadow-purple-500/10 font-bold text-[10px] uppercase tracking-widest rounded-lg transition-all duration-300 active:scale-95",
+              isRefreshing && "opacity-70 cursor-not-allowed"
+            )}
+          >
+            <RefreshCw className={cn(
+              "mr-2 h-3.5 w-3.5 transition-transform duration-500",
+              isRefreshing ? "animate-spin text-purple-600" : "group-hover:rotate-180"
+            )} />
+            {isRefreshing ? 'Refreshing...' : 'Refresh'}
+          </Button>
           <ExportButton
             onClick={() => handleExportDrivers()}
             label="Export Drivers"

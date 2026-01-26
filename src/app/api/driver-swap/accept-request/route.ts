@@ -138,19 +138,6 @@ export async function POST(request: Request) {
       console.warn('⚠️ Failed to update bus temp driver:', busUpdateError);
     }
 
-    // Log to assignment history
-    await supabase
-      .from('temporary_assignment_history')
-      .insert({
-        assignment_id: assignment.id,
-        bus_id: swapRequest.bus_id,
-        original_driver_uid: swapRequest.requester_driver_uid,
-        new_driver_uid: candidateUid,
-        action: 'accepted',
-        actor_uid: candidateUid,
-        notes: `Swap request accepted by ${swapRequest.candidate_name}`
-      });
-
     // If applyToActiveTrip, update active trip session
     if (swapRequest.meta?.applyToActiveTrip) {
       try {
@@ -246,7 +233,7 @@ export async function POST(request: Request) {
         .get();
 
       const studentTokens: string[] = [];
-      studentsSnapshot.docs.forEach(doc => {
+      studentsSnapshot.docs.forEach((doc: any) => {
         const token = doc.data().fcmToken;
         if (token) studentTokens.push(token);
       });

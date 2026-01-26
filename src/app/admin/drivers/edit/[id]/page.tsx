@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from 'react';
 import { use } from 'react';
 import { useRouter } from 'next/navigation';
 import { signalCollectionRefresh } from '@/hooks/useEventDrivenRefresh';
+import { useDebouncedStorage } from '@/hooks/useDebouncedStorage';
 import Link from 'next/link';
 import { uploadImage } from '@/lib/upload';
 import { useToast } from '@/contexts/toast-context';
@@ -73,17 +74,21 @@ export default function EditDriverPage({ params }: { params: Promise<{ id: strin
     address: '',
     approvedBy: '',
   });
+
+  // Debounced storage to prevent input lag
+  const storage = useDebouncedStorage<DriverFormData>('driverEditFormData', {
+    debounceMs: 500,
+    excludeFields: ['profilePhoto'],
+  });
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [result, setResult] = useState<{ success?: boolean; error?: string } | null>(null);
 
   // Save form data to localStorage whenever it changes (except sensitive fields)
   useEffect(() => {
     if (typeof window !== 'undefined') {
-      // Create a copy without sensitive data
-      const { profilePhoto, ...dataToSave } = formData;
-      localStorage.setItem('driverEditFormData', JSON.stringify(dataToSave));
+      storage.save(formData);
     }
-  }, [formData]);
+  }, [formData, storage]);
 
   // Fetch driver data and pre-fill form
   useEffect(() => {
@@ -217,8 +222,6 @@ export default function EditDriverPage({ params }: { params: Promise<{ id: strin
 
     if (!formData.name.trim()) {
       newErrors.name = "Full name is required";
-    } else if (/[^a-zA-Z\s]/.test(formData.name)) {
-      newErrors.name = "Name cannot contain special symbols";
     }
 
     if (!formData.phone.trim()) {
@@ -440,8 +443,6 @@ export default function EditDriverPage({ params }: { params: Promise<{ id: strin
         joiningDate: formData.joiningDate,
         employeeId: formData.employeeId,
         address: formData.address,
-        routeId: assignedRouteId,
-        busId: assignedBusId,
         assignedBusId: assignedBusId,
         assignedRouteId: assignedRouteId,
         approvedBy: formData.approvedBy,

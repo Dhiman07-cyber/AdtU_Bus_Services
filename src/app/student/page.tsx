@@ -19,7 +19,7 @@ import {
 import Link from 'next/link';
 import { motion } from "framer-motion";
 import StudentQRDisplay from "@/components/bus-pass/StudentQRDisplay";
-import { useBusStatus, useDriverStatus, getNormalizedBusStatus } from '@/hooks/useBusStatus';
+import { supabase } from '@/lib/supabase-client';
 // SPARK PLAN SAFETY: Migrated to usePaginatedCollection
 
 
@@ -158,13 +158,118 @@ export default function StudentDashboard() {
     fetchAssignedData();
   }, [studentData]);
 
-  // Get real-time bus status
-  const { busStatus: realtimeBusStatus, loading: busStatusLoading } = useBusStatus(studentData?.busId || studentData?.assignedBusId);
-  const { driverStatus, loading: driverStatusLoading } = useDriverStatus(studentData?.busId || studentData?.assignedBusId);
 
-  // Get normalized bus status for display
-  const normalizedStatus = getNormalizedBusStatus(realtimeBusStatus, driverStatus);
 
+  // Direct trip status from Supabase (via API to bypass RLS)
+  const [tripActive, setTripActive] = useState(false);
+  const [tripStatusLoading, setTripStatusLoading] = useState(true);
+
+  // Fetch trip status via API (uses service role key to bypass RLS)
+  useEffect(() => {
+    const busId = studentData?.busId || studentData?.assignedBusId;
+    if (!busId) {
+      setTripStatusLoading(false);
+      return;
+    }
+
+    const checkActiveTrip = async () => {
+      try {
+        console.log('🔍 Checking trip status for bus:', busId);
+
+        // Use API endpoint that bypasses RLS with service role key
+        const response = await fetch(`/api/student/trip-status?busId=${encodeURIComponent(busId)}`);
+
+        // Handle non-OK responses gracefully
+        if (!response.ok) {
+          console.warn('⚠️ Trip status API returned non-OK status:', response.status);
+          setTripActive(false);
+          return;
+        }
+
+        // Get response text first to handle empty responses
+        const text = await response.text();
+        if (!text || text.trim() === '') {
+          console.warn('⚠️ Trip status API returned empty response');
+          setTripActive(false);
+          return;
+        }
+
+        // Parse JSON safely
+        let result;
+        try {
+          result = JSON.parse(text);
+        } catch (parseError) {
+          console.error('❌ Failed to parse trip status response:', parseError);
+          setTripActive(false);
+          return;
+        }
+
+        if (result.tripActive) {
+          console.log('✅ Active trip found via API:', result.tripData);
+          setTripActive(true);
+        } else {
+          console.log('ℹ️ No active trip found via API');
+          setTripActive(false);
+        }
+      } catch (err) {
+        console.error('Error checking trip status:', err);
+        // Keep current state on error
+      } finally {
+        setTripStatusLoading(false);
+      }
+    };
+
+    checkActiveTrip();
+
+    // Subscribe to real-time changes on driver_status table
+    // This still works because Supabase realtime doesn't require the same RLS as queries
+    const channel = supabase
+      .channel(`dashboard_driver_status_${busId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'driver_status',
+          filter: `bus_id=eq.${busId}`
+        },
+        (payload) => {
+          console.log('📡 Real-time driver_status update:', payload);
+          if (payload.eventType === 'DELETE') {
+            setTripActive(false);
+          } else if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
+            const newStatus = (payload.new as any).status;
+            const isActive = newStatus === 'on_trip' || newStatus === 'enroute';
+            setTripActive(isActive);
+          }
+        }
+      )
+      .subscribe((status) => {
+        console.log('📡 Dashboard driver_status channel:', status);
+      });
+
+    // Also listen for trip broadcasts for instant updates
+    const tripChannel = supabase
+      .channel(`trip-status-${busId}`)
+      .on('broadcast', { event: 'trip_started' }, (payload) => {
+        console.log('🚀 Trip started broadcast received!', payload);
+        setTripActive(true);
+      })
+      .on('broadcast', { event: 'trip_ended' }, (payload) => {
+        console.log('🏁 Trip ended broadcast received!', payload);
+        setTripActive(false);
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+      supabase.removeChannel(tripChannel);
+    };
+  }, [studentData?.busId, studentData?.assignedBusId]);
+
+  // NOTE: The "Current Status" card now uses tripActive state directly from Supabase driver_status table
+  // This provides accurate real-time trip status instead of the Firestore bus.status field
+  // (which represents bus condition like Active/Maintenance, not trip status)
 
 
   // Fetch driver data based on bus assignment
@@ -262,7 +367,7 @@ export default function StudentDashboard() {
     }
   }, [studentData?.validUntil]);
 
-  const loading = studentDataLoading || busesLoading || routesLoading || busStatusLoading || driverStatusLoading;
+  const loading = studentDataLoading || busesLoading || routesLoading || tripStatusLoading;
 
   useEffect(() => {
     if (userData && userData.role !== "student") {
@@ -351,7 +456,7 @@ export default function StudentDashboard() {
               <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4 md:gap-6">
                 <div className="space-y-3 md:space-y-4 w-full lg:w-auto">
                   <div className="flex items-start gap-3 md:gap-4">
-                    <div className="relative p-2 md:p-3 rounded-xl md:rounded-2xl bg-gradient-to-br from-purple-500 via-blue-600 to-cyan-500 shadow-lg animate-float flex-shrink-0 mt-1 md:mt-0">
+                    <div className="relative p-2 md:p-3 rounded-xl md:rounded-2xl bg-gradient-to-br from-purple-500 via-blue-600 to-cyan-500 shadow-lg flex-shrink-0 mt-1 md:mt-0">
                       <div className="absolute inset-0 bg-gradient-to-br from-purple-500 via-blue-600 to-cyan-500 rounded-xl md:rounded-2xl blur-md opacity-50" />
                       <GraduationCap className="h-5 w-5 md:h-7 md:w-7 text-white relative z-10" />
                     </div>
@@ -386,7 +491,7 @@ export default function StudentDashboard() {
                     {studentData?.shift && (
                       <Badge variant="outline" className="px-2.5 py-1 md:px-4 md:py-1.5 text-xs md:text-sm bg-white/60 dark:bg-gray-800/60 backdrop-blur-sm border-gray-300 dark:border-gray-700 shadow-sm">
                         <Clock className="h-3 w-3 mr-1 md:mr-1.5" />
-                        {studentData.shift} Shift
+                        {studentData.shift.toString().replace(/\s*Shift\s*$/i, '')} Shift
                       </Badge>
                     )}
                   </div>
@@ -495,10 +600,16 @@ export default function StudentDashboard() {
 
           {/* Enhanced Premium Stats Grid - Mobile Optimized */}
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-6 lg:gap-8 animate-slide-in-up">
-            {/* Current Status Card - Vibrant with Desktop Hover */}
+            {/* Current Status Card - Uses tripActive from Supabase driver_status (dynamic) */}
             <div className="group cursor-pointer h-full">
-              <Card className="relative overflow-hidden border-2 border-white shadow-lg hover:shadow-xl md:hover:shadow-2xl md:hover:shadow-green-500/30 bg-gradient-to-br from-orange-100 via-yellow-50 to-amber-50 dark:from-orange-900/40 dark:via-yellow-950/40 dark:to-amber-950/30 transition-all duration-500 hover:scale-[1.02] h-full">
-                <div className="absolute inset-0 bg-gradient-to-br from-orange-500/5 via-yellow-500/5 to-amber-500/5 md:group-hover:from-orange-500/15 md:group-hover:via-yellow-500/15 md:group-hover:to-amber-500/15 transition-all duration-500 rounded-lg" />
+              <Card className={`relative overflow-hidden border-2 border-white shadow-lg hover:shadow-xl md:hover:shadow-2xl transition-all duration-500 hover:scale-[1.02] h-full ${tripActive
+                ? 'border-green-400/50 shadow-green-500/20 bg-gradient-to-br from-emerald-900/40 via-green-900/40 to-teal-900/40' // Active Green Theme - Trip is running
+                : 'hover:shadow-green-500/30 bg-gradient-to-br from-orange-100 via-yellow-50 to-amber-50 dark:from-orange-900/40 dark:via-yellow-950/40 dark:to-amber-950/30' // Idle Orange Theme - No active trip
+                }`}>
+                <div className={`absolute inset-0 transition-all duration-500 rounded-lg ${tripActive
+                  ? 'bg-gradient-to-br from-green-500/10 via-emerald-500/10 to-teal-500/10 animate-pulse' // Active Glow
+                  : 'bg-gradient-to-br from-orange-500/5 via-yellow-500/5 to-amber-500/5 md:group-hover:from-orange-500/15 md:group-hover:via-yellow-500/15 md:group-hover:to-amber-500/15'
+                  }`} />
 
                 <CardContent className="p-3 md:p-4 lg:p-6 relative z-10 h-full flex flex-col justify-between">
                   <div className="flex items-start justify-between mb-2 md:mb-3">
@@ -506,32 +617,38 @@ export default function StudentDashboard() {
                       <p className="text-[10px] md:text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">
                         Current Status
                       </p>
-                      <p className={`text-lg md:text-2xl lg:text-3xl font-black bg-gradient-to-r from-gray-900 to-gray-700 dark:from-white dark:to-gray-300 md:group-hover:from-orange-600 md:group-hover:to-amber-600 bg-clip-text text-transparent leading-tight transition-all duration-500`}>
-                        {normalizedStatus.label}
+                      <p className={`text-lg md:text-2xl lg:text-3xl font-black bg-clip-text text-transparent leading-tight transition-all duration-500 ${tripActive
+                        ? 'bg-gradient-to-r from-green-400 to-emerald-300 drop-shadow-[0_0_10px_rgba(34,197,94,0.5)]' // Glowing Green Text
+                        : 'bg-gradient-to-r from-gray-900 to-gray-700 dark:from-white dark:to-gray-300 md:group-hover:from-orange-600 md:group-hover:to-amber-600'
+                        }`}>
+                        {tripActive ? 'EnRoute' : 'Idle'}
                       </p>
-                      <p className="text-[10px] md:text-xs text-gray-600 dark:text-gray-400 md:group-hover:text-orange-600 dark:md:group-hover:text-orange-400 transition-colors duration-500">
-                        {normalizedStatus.isActive ? 'Trip in progress' : 'Waiting for trip'}
+                      <p className={`text-[10px] md:text-xs transition-colors duration-500 ${tripActive
+                        ? 'text-green-300 font-medium'
+                        : 'text-gray-600 dark:text-gray-400 md:group-hover:text-orange-600 dark:md:group-hover:text-orange-400'
+                        }`}>
+                        {tripActive ? 'Bus is on the way' : 'No active trip'}
                       </p>
                     </div>
                     <div className="relative ml-2 flex-shrink-0">
-                      <div className={`relative p-2 md:p-2.5 lg:p-3 rounded-xl shadow-lg md:group-hover:shadow-xl md:group-hover:scale-110 transition-all duration-500 ${normalizedStatus.isActive
-                        ? 'bg-gradient-to-br from-orange-500 to-amber-600'
-                        : 'bg-gradient-to-br from-gray-500 to-gray-600'
+                      <div className={`relative p-2 md:p-2.5 lg:p-3 rounded-xl shadow-lg transition-all duration-500 ${tripActive
+                        ? 'bg-gradient-to-br from-green-500 to-emerald-600 shadow-green-500/50 animate-pulse' // Active Green Icon
+                        : 'bg-gradient-to-br from-gray-500 to-gray-600 md:group-hover:shadow-xl md:group-hover:scale-110 md:group-hover:from-orange-500 md:group-hover:to-amber-600'
                         }`}>
-                        {normalizedStatus.isActive ? (
-                          <Bus className="h-5 w-5 md:h-6 md:w-6 lg:h-7 lg:w-7 text-white" />
-                        ) : (
+                        {tripActive ? (
                           <Activity className="h-5 w-5 md:h-6 md:w-6 lg:h-7 lg:w-7 text-white" />
+                        ) : (
+                          <Bus className="h-5 w-5 md:h-6 md:w-6 lg:h-7 lg:w-7 text-white" />
                         )}
                       </div>
                     </div>
                   </div>
 
-                  <div className={`px-2 md:px-3 py-1 rounded-full text-[10px] md:text-xs font-semibold shadow-md text-center md:group-hover:scale-110 transition-all duration-500 ${normalizedStatus.isActive
-                    ? 'bg-gradient-to-r from-orange-100 to-amber-100 text-orange-700 dark:from-orange-900/40 dark:to-amber-900/40 dark:text-orange-400 border border-orange-200 dark:border-orange-800'
-                    : 'bg-gradient-to-r from-gray-100 to-gray-200 text-gray-700 dark:from-gray-800 dark:to-gray-700 dark:text-gray-400 border border-gray-200 dark:border-gray-700'
+                  <div className={`px-2 md:px-3 py-1 rounded-full text-[10px] md:text-xs font-semibold shadow-md text-center transition-all duration-500 ${tripActive
+                    ? 'bg-green-500 text-white shadow-green-500/30' // Active Badge
+                    : 'bg-gradient-to-r from-gray-100 to-gray-200 text-gray-700 dark:from-gray-800 dark:to-gray-700 dark:text-gray-400 border border-gray-200 dark:border-gray-700 md:group-hover:scale-110 md:group-hover:from-orange-100 md:group-hover:to-amber-100 md:group-hover:text-orange-700'
                     }`}>
-                    {normalizedStatus.isActive ? 'Active' : 'Inactive'}
+                    {tripActive ? 'Active' : busData?.status || 'Idle'}
                   </div>
                 </CardContent>
               </Card>
@@ -548,11 +665,11 @@ export default function StudentDashboard() {
                       <p className="text-[10px] md:text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">
                         Shift Timing
                       </p>
-                      <p className="text-lg md:text-2xl lg:text-3xl font-black bg-gradient-to-r from-gray-900 to-gray-700 dark:from-white dark:to-gray-300 md:group-hover:from-purple-600 md:group-hover:to-pink-600 bg-clip-text text-transparent leading-tight truncate transition-all duration-500">
-                        {studentShift}
+                      <p className="text-lg md:text-2xl lg:text-3xl font-black bg-gradient-to-r from-gray-900 to-gray-700 dark:from-white dark:to-gray-300 md:group-hover:from-purple-600 md:group-hover:to-pink-600 bg-clip-text text-transparent leading-tight transition-all duration-500">
+                        {studentShift !== 'Not Set' ? studentShift.toString().replace(/\s*Shift\s*$/i, '') : studentShift}
                       </p>
                       <p className="text-[10px] md:text-xs text-gray-600 dark:text-gray-400 md:group-hover:text-purple-600 dark:md:group-hover:text-purple-400 truncate transition-colors duration-500">
-                        {studentShift === 'Morning' ? '9:00 AM - 4:00 PM' : studentShift === 'Evening' ? '1:00 PM - 7:00 PM' : 'Not scheduled'}
+                        {studentShift.toString().toLowerCase().includes('morning') ? '9:00 AM - 4:00 PM' : studentShift.toString().toLowerCase().includes('evening') ? '1:00 PM - 7:00 PM' : 'Not scheduled'}
                       </p>
                     </div>
                     <div className="relative ml-2 flex-shrink-0">
@@ -745,8 +862,12 @@ export default function StudentDashboard() {
                         <Activity className="h-2.5 w-2.5 sm:h-3 sm:w-3 text-amber-500" />
                         Status
                       </p>
-                      <Badge className={`text-[10px] sm:text-xs font-bold ${normalizedStatus.isActive ? 'bg-green-500 text-white' : 'bg-gray-500 text-white'}`}>
-                        {normalizedStatus.isActive ? 'EnRoute' : 'Idle'}
+                      <Badge className={`text-[10px] sm:text-xs font-bold ${busData?.status === 'Active' ? 'bg-green-500 text-white' :
+                        busData?.status === 'Inactive' ? 'bg-red-500 text-white' :
+                          busData?.status === 'Maintenance' ? 'bg-yellow-500 text-white' :
+                            'bg-gray-500 text-white'
+                        }`}>
+                        {busData?.status || 'N/A'}
                       </Badge>
                     </div>
                   </div>

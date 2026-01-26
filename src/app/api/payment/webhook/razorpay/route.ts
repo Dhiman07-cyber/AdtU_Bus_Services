@@ -13,6 +13,7 @@ import { adminDb, FieldValue } from '@/lib/firebase-admin';
 import { PaymentTransactionService } from '@/lib/payment/payment-transaction.service';
 import { calculateValidUntilDate } from '@/lib/utils/date-utils';
 import { fetchOrderDetails } from '@/lib/payment/razorpay.service';
+import { computeBlockDatesFromValidUntil } from '@/lib/utils/deadline-computation';
 
 export async function POST(request: NextRequest) {
   try {
@@ -191,14 +192,19 @@ export async function POST(request: NextRequest) {
           newSessionEndYear = baseYear + durationYears;
           totalDurationYears = existingDurationYears + durationYears;
 
+          // Compute block dates from the new validUntil
+          const blockDates = computeBlockDatesFromValidUntil(newValidUntil);
+
           console.log('\n✨ NEW CALCULATED VALUES:');
           console.log('New validUntil:', newValidUntil.toISOString());
           console.log('New sessionStartYear:', newSessionStartYear, '(kept original)');
           console.log('New sessionEndYear:', newSessionEndYear);
           console.log('Total durationYears:', totalDurationYears, '(cumulative)');
+          console.log('Soft Block:', blockDates.softBlock);
+          console.log('Hard Block:', blockDates.hardBlock);
           console.log('New status: active');
 
-          // Update student document atomically
+          // Update student document atomically with block dates
           transaction.update(studentRef, {
             validUntil: newValidUntil,
             status: 'active',
@@ -207,6 +213,9 @@ export async function POST(request: NextRequest) {
             paymentAmount: amount / 100,
             lastRenewalDate: FieldValue.serverTimestamp(),
             durationYears: totalDurationYears,
+            // CRITICAL: Always update block dates when validUntil changes
+            softBlock: blockDates.softBlock,
+            hardBlock: blockDates.hardBlock,
             updatedAt: FieldValue.serverTimestamp()
           });
 

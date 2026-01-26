@@ -164,12 +164,12 @@ export function RouteConfirmationModal({
                     exit={{ scale: 0.95, opacity: 0, y: 20 }}
                     className={cn(
                         "relative flex flex-col rounded-2xl shadow-2xl border overflow-hidden",
-                        "w-full max-h-[80vh]"
+                        "w-full max-h-[90vh] max-sm:max-w-[calc(100vw-1rem)]"
                     )}
                     style={{
                         backgroundColor: tokens.modalBg,
                         borderColor: tokens.borderDark,
-                        maxWidth: "min(1200px, 90vw)",
+                        maxWidth: "min(1250px, 95vw)",
                     }}
                 >
                     {/* Close button */}
@@ -183,28 +183,28 @@ export function RouteConfirmationModal({
 
                     {/* Header */}
                     <div
-                        className="px-6 py-4 border-b flex-shrink-0"
+                        className="px-4 sm:px-6 py-3 sm:py-4 border-b flex-shrink-0"
                         style={{
                             background: tokens.gradient,
                             borderColor: tokens.borderDark,
                         }}
                     >
-                        <div className="flex items-center justify-between pr-10">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:pr-10">
                             <div className="flex items-center gap-3">
                                 <div
-                                    className="w-10 h-10 rounded-xl flex items-center justify-center bg-gradient-to-br from-purple-500 to-pink-500"
+                                    className="w-8 h-8 sm:w-10 sm:h-10 rounded-lg sm:rounded-xl flex items-center justify-center bg-gradient-to-br from-purple-500 to-pink-500"
                                 >
-                                    <Shield className="w-5 h-5 text-white" />
+                                    <Shield className="w-4 h-4 sm:w-5 sm:h-5 text-white" />
                                 </div>
                                 <div>
                                     <h2
                                         id="route-confirm-modal-title"
-                                        className="text-xl font-bold bg-gradient-to-r from-purple-400 to-pink-400 bg-clip-text text-transparent"
+                                        className="text-lg sm:text-xl font-bold bg-gradient-to-r from-purple-400 to-pink-400 bg-clip-text text-transparent"
                                     >
-                                        Confirm Route Assignments
+                                        Confirm Route Review
                                     </h2>
-                                    <p className="text-xs mt-0.5" style={{ color: tokens.textMuted }}>
-                                        Review the {confirmationRows.length} net change(s) below before finalizing
+                                    <p className="text-[10px] sm:text-xs mt-0.5" style={{ color: tokens.textMuted }}>
+                                        Review {confirmationRows.length} net change(s) before finalizing
                                     </p>
                                 </div>
                             </div>
@@ -216,9 +216,9 @@ export function RouteConfirmationModal({
                                         variant="ghost"
                                         size="sm"
                                         onClick={handleDownload}
-                                        className="flex items-center gap-2 h-8 px-3 rounded-lg border border-white/10 hover:opacity-90 text-[10px] font-medium transition-all shadow-sm text-white bg-gradient-to-r from-[#FF7A2D] to-[#fb923c]"
+                                        className="flex items-center gap-2 h-7 sm:h-8 px-2 sm:px-3 rounded-lg border border-white/10 hover:opacity-90 text-[9px] sm:text-[10px] font-medium transition-all shadow-sm text-white bg-gradient-to-r from-[#FF7A2D] to-[#fb923c]"
                                     >
-                                        <Download className="w-3.5 h-3.5" />
+                                        <Download className="w-3 sm:w-3.5 h-3 sm:h-3.5" />
                                         <span>Download Report</span>
                                     </Button>
                                 )}
@@ -228,7 +228,7 @@ export function RouteConfirmationModal({
 
                     {/* Summary Alert */}
                     <div
-                        className="mx-6 mt-4 px-4 py-3 rounded-xl border flex-shrink-0"
+                        className="mx-3 sm:mx-6 mt-3 sm:mt-4 px-3 sm:px-4 py-2 sm:py-3 rounded-xl border flex-shrink-0"
                         style={{
                             backgroundColor: hasNoNetChanges ? `${tokens.success}10` : `${tokens.primaryOrange}10`,
                             borderColor: hasNoNetChanges ? `${tokens.success}30` : `${tokens.primaryOrange}30`,
@@ -257,24 +257,24 @@ export function RouteConfirmationModal({
                     </div>
 
                     {/* Confirmation Table */}
-                    <div className="flex-1 min-h-0 px-6 py-4 overflow-hidden">
-                        <ScrollArea className="h-full max-h-[calc(60vh-200px)]">
+                    <div className="flex-1 min-h-0 px-3 sm:px-6 py-3 sm:py-4 overflow-hidden">
+                        <ScrollArea className="h-full max-h-[calc(70vh-200px)]">
                             {confirmationRows.length === 0 ? (
-                                <div className="flex flex-col items-center justify-center py-12 text-center">
-                                    <CheckCircle2 className="w-16 h-16 mb-4" style={{ color: tokens.success }} />
-                                    <h3 className="text-lg font-semibold mb-2" style={{ color: tokens.textPrimary }}>
+                                <div className="flex flex-col items-center justify-center py-8 sm:py-12 text-center">
+                                    <CheckCircle2 className="w-12 h-12 sm:w-16 sm:h-16 mb-3 sm:mb-4" style={{ color: tokens.success }} />
+                                    <h3 className="text-base sm:text-lg font-semibold mb-1 sm:mb-2" style={{ color: tokens.textPrimary }}>
                                         No Net Changes
                                     </h3>
-                                    <p className="text-sm max-w-md" style={{ color: tokens.textMuted }}>
+                                    <p className="text-[10px] sm:text-sm max-w-md" style={{ color: tokens.textMuted }}>
                                         All staged operations resulted in no actual changes.
                                         This can happen when buses are assigned back to their original routes.
                                     </p>
                                     {removedNoOpInfo.length > 0 && (
                                         <div className="mt-4 text-left w-full max-w-md">
-                                            <p className="text-xs font-semibold mb-2" style={{ color: tokens.textMuted }}>
+                                            <p className="text-[10px] font-semibold mb-1" style={{ color: tokens.textMuted }}>
                                                 Eliminated operations:
                                             </p>
-                                            <ul className="text-xs space-y-1">
+                                            <ul className="text-[10px] space-y-1">
                                                 {removedNoOpInfo.map((info, idx) => (
                                                     <li key={idx} style={{ color: tokens.textMuted }}>
                                                         • {info}
@@ -285,181 +285,183 @@ export function RouteConfirmationModal({
                                     )}
                                 </div>
                             ) : (
-                                <Table>
-                                    <TableHeader>
-                                        <TableRow style={{ backgroundColor: '#0D1520' }}>
-                                            <TableHead className="text-[10px] font-semibold w-12" style={{ color: tokens.textMuted }}>
-                                                Sl.
-                                            </TableHead>
-                                            <TableHead className="text-[10px] font-semibold min-w-[140px]" style={{ color: tokens.textMuted }}>
-                                                Bus
-                                            </TableHead>
-                                            <TableHead className="text-[10px] font-semibold min-w-[120px]" style={{ color: tokens.textMuted }}>
-                                                Previous Route
-                                            </TableHead>
-                                            <TableHead className="text-[10px] font-semibold min-w-[120px]" style={{ color: tokens.textMuted }}>
-                                                New Route
-                                            </TableHead>
-                                            <TableHead className="text-[10px] font-semibold w-20" style={{ color: tokens.textMuted }}>
-                                                Stops
-                                            </TableHead>
-                                            <TableHead className="text-[10px] font-semibold min-w-[180px]" style={{ color: tokens.textMuted }}>
-                                                Impact
-                                            </TableHead>
-                                            <TableHead className="text-[10px] font-semibold w-20" style={{ color: tokens.textMuted }}>
-                                                Status
-                                            </TableHead>
-                                            <TableHead className="text-[10px] font-semibold w-12 text-center" style={{ color: tokens.textMuted }}>
-                                                Info
-                                            </TableHead>
-                                        </TableRow>
-                                    </TableHeader>
-                                    <TableBody>
-                                        {confirmationRows.map((row) => (
-                                            <TableRow
-                                                key={row.slNo}
-                                                className={cn(
-                                                    "transition-colors",
-                                                    row.status === "success" && "bg-green-950/20",
-                                                    row.status === "error" && "bg-red-950/20"
-                                                )}
-                                                style={{ borderColor: tokens.borderDark }}
-                                            >
-                                                {/* Sl. */}
-                                                <TableCell className="text-xs font-medium" style={{ color: tokens.textPrimary }}>
-                                                    {row.slNo}
-                                                </TableCell>
-
-                                                {/* Bus */}
-                                                <TableCell>
-                                                    <div className="flex items-center gap-2">
-                                                        <div
-                                                            className="w-6 h-6 rounded-md flex items-center justify-center flex-shrink-0"
-                                                            style={{ backgroundColor: `${tokens.primaryOrange}20` }}
-                                                        >
-                                                            <Bus className="w-3 h-3" style={{ color: tokens.primaryOrange }} />
-                                                        </div>
-                                                        <div>
-                                                            <p className="text-xs font-medium" style={{ color: tokens.textPrimary }}>
-                                                                {row.busAffected}
-                                                            </p>
-                                                            <p className="text-[10px]" style={{ color: tokens.textMuted }}>
-                                                                {row.busCode}
-                                                            </p>
-                                                        </div>
-                                                    </div>
-                                                </TableCell>
-
-                                                {/* Previous Route */}
-                                                <TableCell>
-                                                    <Badge
-                                                        variant="outline"
-                                                        className={cn("text-[10px]", row.previousRoute === "None" ? "opacity-30" : "opacity-60")}
-                                                        style={{
-                                                            borderColor: tokens.textMuted,
-                                                            color: tokens.textMuted
-                                                        }}
-                                                    >
-                                                        <Route className="w-2.5 h-2.5 mr-1" />
-                                                        {row.previousRoute}
-                                                    </Badge>
-                                                </TableCell>
-
-                                                {/* New Route */}
-                                                <TableCell>
-                                                    <Badge
-                                                        className="text-[10px]"
-                                                        style={{
-                                                            backgroundColor: `${tokens.success}20`,
-                                                            color: tokens.success,
-                                                            border: `1px solid ${tokens.success}40`
-                                                        }}
-                                                    >
-                                                        <Route className="w-2.5 h-2.5 mr-1" />
-                                                        {row.newRoute}
-                                                    </Badge>
-                                                </TableCell>
-
-                                                {/* Stops */}
-                                                <TableCell>
-                                                    <Badge
-                                                        className="text-[10px]"
-                                                        style={{
-                                                            backgroundColor: `${tokens.primaryPurple}20`,
-                                                            color: tokens.primaryPurple,
-                                                        }}
-                                                    >
-                                                        <MapPin className="w-2.5 h-2.5 mr-1" />
-                                                        {row.stops}
-                                                    </Badge>
-                                                </TableCell>
-
-
-
-                                                {/* Impact */}
-                                                <TableCell>
-                                                    <p className={cn("text-[10px]", row.impact === "None" && "opacity-40")} style={{ color: tokens.textMuted }}>
-                                                        {row.impact}
-                                                    </p>
-                                                </TableCell>
-
-                                                {/* Status */}
-                                                <TableCell>
-                                                    {row.status === "success" ? (
-                                                        <Badge className="bg-green-500 text-white text-[10px]">
-                                                            <CheckCircle2 className="w-3 h-3 mr-1" />
-                                                            Done
-                                                        </Badge>
-                                                    ) : row.status === "error" ? (
-                                                        <Badge className="bg-red-500 text-white text-[10px]">
-                                                            <XCircle className="w-3 h-3 mr-1" />
-                                                            Failed
-                                                        </Badge>
-                                                    ) : (
-                                                        <Badge
-                                                            className="text-[10px]"
-                                                            style={{ backgroundColor: '#374151', color: tokens.textPrimary }}
-                                                        >
-                                                            <Clock className="w-3 h-3 mr-1" />
-                                                            Pending
-                                                        </Badge>
+                                <div className="min-w-[800px]">
+                                    <Table>
+                                        <TableHeader>
+                                            <TableRow style={{ backgroundColor: '#0D1520' }}>
+                                                <TableHead className="text-[10px] font-semibold w-12" style={{ color: tokens.textMuted }}>
+                                                    Sl.
+                                                </TableHead>
+                                                <TableHead className="text-[10px] font-semibold min-w-[140px]" style={{ color: tokens.textMuted }}>
+                                                    Bus
+                                                </TableHead>
+                                                <TableHead className="text-[10px] font-semibold min-w-[120px]" style={{ color: tokens.textMuted }}>
+                                                    Previous Route
+                                                </TableHead>
+                                                <TableHead className="text-[10px] font-semibold min-w-[120px]" style={{ color: tokens.textMuted }}>
+                                                    New Route
+                                                </TableHead>
+                                                <TableHead className="text-[10px] font-semibold w-20" style={{ color: tokens.textMuted }}>
+                                                    Stops
+                                                </TableHead>
+                                                <TableHead className="text-[10px] font-semibold min-w-[180px]" style={{ color: tokens.textMuted }}>
+                                                    Impact
+                                                </TableHead>
+                                                <TableHead className="text-[10px] font-semibold w-20" style={{ color: tokens.textMuted }}>
+                                                    Status
+                                                </TableHead>
+                                                <TableHead className="text-[10px] font-semibold w-12 text-center" style={{ color: tokens.textMuted }}>
+                                                    Info
+                                                </TableHead>
+                                            </TableRow>
+                                        </TableHeader>
+                                        <TableBody>
+                                            {confirmationRows.map((row) => (
+                                                <TableRow
+                                                    key={row.slNo}
+                                                    className={cn(
+                                                        "transition-colors",
+                                                        row.status === "success" && "bg-green-950/20",
+                                                        row.status === "error" && "bg-red-950/20"
                                                     )}
-                                                </TableCell>
+                                                    style={{ borderColor: tokens.borderDark }}
+                                                >
+                                                    {/* Sl. */}
+                                                    <TableCell className="text-xs font-medium" style={{ color: tokens.textPrimary }}>
+                                                        {row.slNo}
+                                                    </TableCell>
 
-                                                {/* Info */}
-                                                <TableCell className="text-center">
-                                                    <HoverCard openDelay={100} closeDelay={50}>
-                                                        <HoverCardTrigger asChild>
-                                                            <Button
-                                                                variant="ghost"
-                                                                size="sm"
-                                                                className="h-6 w-6 p-0 hover:bg-blue-500/20"
+                                                    {/* Bus */}
+                                                    <TableCell>
+                                                        <div className="flex items-center gap-2">
+                                                            <div
+                                                                className="w-6 h-6 rounded-md flex items-center justify-center flex-shrink-0"
+                                                                style={{ backgroundColor: `${tokens.primaryOrange}20` }}
                                                             >
-                                                                <Info className="w-3.5 h-3.5 text-blue-400" />
-                                                            </Button>
-                                                        </HoverCardTrigger>
-                                                        <HoverCardContent
-                                                            side="left"
-                                                            className="w-80 text-xs"
+                                                                <Bus className="w-3 h-3" style={{ color: tokens.primaryOrange }} />
+                                                            </div>
+                                                            <div>
+                                                                <p className="text-xs font-medium" style={{ color: tokens.textPrimary }}>
+                                                                    {row.busAffected}
+                                                                </p>
+                                                                <p className="text-[10px]" style={{ color: tokens.textMuted }}>
+                                                                    {row.busCode}
+                                                                </p>
+                                                            </div>
+                                                        </div>
+                                                    </TableCell>
+
+                                                    {/* Previous Route */}
+                                                    <TableCell>
+                                                        <Badge
+                                                            variant="outline"
+                                                            className={cn("text-[10px]", row.previousRoute === "None" ? "opacity-30" : "opacity-60")}
                                                             style={{
-                                                                backgroundColor: '#1E293B',
-                                                                color: tokens.textPrimary,
-                                                                borderColor: tokens.borderDark,
+                                                                borderColor: tokens.textMuted,
+                                                                color: tokens.textMuted
                                                             }}
                                                         >
-                                                            <div className="space-y-2">
-                                                                <h4 className="font-semibold text-sm" style={{ color: tokens.primaryPurple }}>
-                                                                    Assignment Details
-                                                                </h4>
-                                                                <p className="leading-relaxed">{row.infoTooltip}</p>
-                                                            </div>
-                                                        </HoverCardContent>
-                                                    </HoverCard>
-                                                </TableCell>
-                                            </TableRow>
-                                        ))}
-                                    </TableBody>
-                                </Table>
+                                                            <Route className="w-2.5 h-2.5 mr-1" />
+                                                            {row.previousRoute}
+                                                        </Badge>
+                                                    </TableCell>
+
+                                                    {/* New Route */}
+                                                    <TableCell>
+                                                        <Badge
+                                                            className="text-[10px]"
+                                                            style={{
+                                                                backgroundColor: `${tokens.success}20`,
+                                                                color: tokens.success,
+                                                                border: `1px solid ${tokens.success}40`
+                                                            }}
+                                                        >
+                                                            <Route className="w-2.5 h-2.5 mr-1" />
+                                                            {row.newRoute}
+                                                        </Badge>
+                                                    </TableCell>
+
+                                                    {/* Stops */}
+                                                    <TableCell>
+                                                        <Badge
+                                                            className="text-[10px]"
+                                                            style={{
+                                                                backgroundColor: `${tokens.primaryPurple}20`,
+                                                                color: tokens.primaryPurple,
+                                                            }}
+                                                        >
+                                                            <MapPin className="w-2.5 h-2.5 mr-1" />
+                                                            {row.stops}
+                                                        </Badge>
+                                                    </TableCell>
+
+
+
+                                                    {/* Impact */}
+                                                    <TableCell>
+                                                        <p className={cn("text-[10px]", row.impact === "None" && "opacity-40")} style={{ color: tokens.textMuted }}>
+                                                            {row.impact}
+                                                        </p>
+                                                    </TableCell>
+
+                                                    {/* Status */}
+                                                    <TableCell>
+                                                        {row.status === "success" ? (
+                                                            <Badge className="bg-green-500 text-white text-[10px]">
+                                                                <CheckCircle2 className="w-3 h-3 mr-1" />
+                                                                Done
+                                                            </Badge>
+                                                        ) : row.status === "error" ? (
+                                                            <Badge className="bg-red-500 text-white text-[10px]">
+                                                                <XCircle className="w-3 h-3 mr-1" />
+                                                                Failed
+                                                            </Badge>
+                                                        ) : (
+                                                            <Badge
+                                                                className="text-[10px]"
+                                                                style={{ backgroundColor: '#374151', color: tokens.textPrimary }}
+                                                            >
+                                                                <Clock className="w-3 h-3 mr-1" />
+                                                                Pending
+                                                            </Badge>
+                                                        )}
+                                                    </TableCell>
+
+                                                    {/* Info */}
+                                                    <TableCell className="text-center">
+                                                        <HoverCard openDelay={100} closeDelay={50}>
+                                                            <HoverCardTrigger asChild>
+                                                                <Button
+                                                                    variant="ghost"
+                                                                    size="sm"
+                                                                    className="h-6 w-6 p-0 hover:bg-blue-500/20"
+                                                                >
+                                                                    <Info className="w-3.5 h-3.5 text-blue-400" />
+                                                                </Button>
+                                                            </HoverCardTrigger>
+                                                            <HoverCardContent
+                                                                side="left"
+                                                                className="w-80 text-xs"
+                                                                style={{
+                                                                    backgroundColor: '#1E293B',
+                                                                    color: tokens.textPrimary,
+                                                                    borderColor: tokens.borderDark,
+                                                                }}
+                                                            >
+                                                                <div className="space-y-2">
+                                                                    <h4 className="font-semibold text-sm" style={{ color: tokens.primaryPurple }}>
+                                                                        Assignment Details
+                                                                    </h4>
+                                                                    <p className="leading-relaxed">{row.infoTooltip}</p>
+                                                                </div>
+                                                            </HoverCardContent>
+                                                        </HoverCard>
+                                                    </TableCell>
+                                                </TableRow>
+                                            ))}
+                                        </TableBody>
+                                    </Table>
+                                </div>
                             )}
                         </ScrollArea>
                     </div>
@@ -467,37 +469,37 @@ export function RouteConfirmationModal({
 
                     {/* Footer */}
                     <div
-                        className="px-6 py-4 border-t flex justify-between items-center flex-shrink-0"
+                        className="px-4 sm:px-6 py-3 sm:py-4 border-t flex flex-col sm:flex-row justify-between items-center flex-shrink-0 gap-4"
                         style={{ borderColor: tokens.borderDark }}
                     >
                         <div className="flex items-center gap-2">
-                            <Shield className="w-4 h-4" style={{ color: tokens.textMuted }} />
-                            <span className="text-xs" style={{ color: tokens.textMuted }}>
+                            <Shield className="w-3.5 sm:w-4 h-3.5 sm:h-4" style={{ color: tokens.textMuted }} />
+                            <span className="text-[10px] sm:text-xs" style={{ color: tokens.textMuted }}>
                                 All changes are atomic and reversible until confirmed
                             </span>
                         </div>
 
-                        <div className="flex gap-3">
+                        <div className="flex gap-2 sm:gap-3 w-full sm:w-auto">
                             <Button
                                 variant="outline"
                                 onClick={handleCancel}
-                                className="min-w-[100px] border-gray-600 text-gray-400 hover:bg-gray-800"
+                                className="flex-1 sm:min-w-[100px] h-9 sm:h-10 border-gray-600 text-gray-400 hover:bg-gray-800 text-[11px] sm:text-xs"
                             >
                                 Cancel
                             </Button>
                             <Button
                                 onClick={handleProceed}
                                 disabled={hasNoNetChanges || confirmationRows.length === 0 || processing}
-                                className="min-w-[180px] text-white bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 text-xs font-bold uppercase tracking-widest shadow-lg shadow-purple-500/20 transition-all active:scale-95"
+                                className="flex-[2] sm:min-w-[180px] h-9 sm:h-10 text-white bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 text-[10px] sm:text-xs font-bold uppercase tracking-wider sm:tracking-widest shadow-lg shadow-purple-500/20 transition-all active:scale-95"
                             >
                                 {processing ? (
                                     <>
-                                        <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
+                                        <RefreshCw className="w-3 sm:w-4 h-3 sm:h-4 mr-1.5 sm:mr-2 animate-spin" />
                                         Committing...
                                     </>
                                 ) : (
                                     <>
-                                        <Sparkles className="w-4 h-4 mr-2" />
+                                        <Sparkles className="w-3 sm:w-4 h-3 sm:h-4 mr-1.5 sm:mr-2" />
                                         Proceed to Finalize
                                     </>
                                 )}

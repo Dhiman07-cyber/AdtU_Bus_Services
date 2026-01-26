@@ -14,6 +14,8 @@ import { getAllRoutes, getAllDrivers, getAllBuses } from "@/lib/dataService";
 import { useToast } from "@/contexts/toast-context";
 import { Route, Driver } from "@/lib/types";
 import { signalCollectionRefresh } from '@/hooks/useEventDrivenRefresh';
+import { useDebouncedStorage } from '@/hooks/useDebouncedStorage';
+import { OptimizedInput, OptimizedSelect } from '@/components/forms';
 
 type BusFormData = {
   busId: string;
@@ -37,13 +39,18 @@ export default function AddBusPage() {
     busId: "",
     busNumber: "",
     color: "",
-    capacity: "55",
+    capacity: "",
     driverUID: "",
     routeId: "",
     shift: "", // No default shift
     status: "Active",
-    morningLoad: "0",
-    eveningLoad: "0"
+    morningLoad: "",
+    eveningLoad: ""
+  });
+  
+  // Debounced storage to prevent input lag
+  const storage = useDebouncedStorage<BusFormData>('busFormData', {
+    debounceMs: 500,
   });
 
   const [loading, setLoading] = useState(false);
@@ -104,20 +111,24 @@ export default function AddBusPage() {
 
   useEffect(() => {
     if (!dataLoading) {
-      localStorage.setItem('busFormData', JSON.stringify(busData));
+      storage.save(busData);
     }
-  }, [busData, dataLoading]);
+  }, [busData, dataLoading]); // Removed storage from deps - it's stable
 
   // Handle Load Reset based on Shift
   useEffect(() => {
     if (busData.shift === "Morning") {
-      setBusData(prev => ({ ...prev, eveningLoad: "0" }));
+      setBusData(prev => ({ ...prev, eveningLoad: "" }));
     } else if (busData.shift === "Evening") {
-      setBusData(prev => ({ ...prev, morningLoad: "0" }));
+      setBusData(prev => ({ ...prev, morningLoad: "" }));
     }
   }, [busData.shift]);
 
   const handleInputChange = (field: keyof BusFormData, value: string) => {
+    // Prevent negative numbers for capacity and loads
+    if (['capacity', 'morningLoad', 'eveningLoad'].includes(field)) {
+      if (value && parseInt(value) < 0) return;
+    }
     setBusData(prev => ({ ...prev, [field]: value }));
 
     // Clear error
@@ -212,7 +223,7 @@ export default function AddBusPage() {
       const result = await response.json();
       if (!response.ok || !result.success) throw new Error(result.error || 'Failed');
 
-      localStorage.removeItem('busFormData');
+      storage.clear();
 
       // Signal the buses list page to refresh when it's rendered
       signalCollectionRefresh('buses');
@@ -232,16 +243,16 @@ export default function AddBusPage() {
       busId: defaultBusIdValue,
       busNumber: "",
       color: "",
-      capacity: "55",
+      capacity: "",
       driverUID: "",
       routeId: "",
       shift: "",
       status: "Active",
-      morningLoad: "0",
-      eveningLoad: "0"
+      morningLoad: "",
+      eveningLoad: ""
     });
     setErrors({});
-    localStorage.removeItem('busFormData');
+    storage.clear();
     addToast('Restored', 'info');
   };
 
@@ -279,12 +290,12 @@ export default function AddBusPage() {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-6">
 
               <div>
-                <Label htmlFor="busId" className="mb-1 block text-sm font-semibold text-gray-200">Bus ID (Number) *</Label>
+                <Label htmlFor="busId" className="mb-1 block text-sm font-semibold text-gray-200">Bus ID *</Label>
                 <div className="relative">
-                  <Input
+                  <OptimizedInput
                     id="busId"
                     value={busData.busId}
-                    onChange={(e) => handleInputChange('busId', e.target.value)}
+                    onChange={(value) => setBusData(prev => ({ ...prev, busId: value }))}
                     className="bg-gray-800 border-gray-700 focus:border-purple-500 text-white py-6 pr-10"
                     placeholder="e.g. 13"
                   />
@@ -293,7 +304,7 @@ export default function AddBusPage() {
                     <button
                       type="button"
                       onClick={handleRestoreBusId}
-                      className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-white transition-colors"
+                      className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-white transition-colors p-1"
                       title="Restore Default ID"
                     >
                       <RotateCcw className="h-4 w-4" />
@@ -304,39 +315,45 @@ export default function AddBusPage() {
               </div>
 
               <div>
-                <Label htmlFor="busNumber" className="mb-1 block text-sm font-semibold text-gray-200">Bus Number *</Label>
-                <Input
+                <OptimizedInput
                   id="busNumber"
+                  label="Bus Number"
                   value={busData.busNumber}
-                  onChange={(e) => handleInputChange('busNumber', e.target.value)}
+                  onChange={(value) => setBusData(prev => ({ ...prev, busNumber: value }))}
                   className="bg-gray-800 border-gray-700 focus:border-purple-500 text-white py-6"
                   placeholder="e.g. AS-01-QC-1234"
+                  required
                 />
                 {errors.busNumber && <p className="text-red-500 text-xs mt-1">{errors.busNumber}</p>}
               </div>
 
               <div>
-                <Label htmlFor="color" className="mb-1 block text-sm font-semibold text-gray-200">Color *</Label>
-                <Select value={busData.color} onValueChange={(val) => handleInputChange('color', val)}>
-                  <SelectTrigger className="bg-gray-800 border-gray-700 focus:border-purple-500 text-white py-6">
-                    <SelectValue placeholder="Select Color" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="White">White</SelectItem>
-                    <SelectItem value="Yellow">Yellow</SelectItem>
-                  </SelectContent>
-                </Select>
+                <OptimizedSelect
+                  id="color"
+                  label="Color"
+                  value={busData.color}
+                  onChange={(value) => setBusData(prev => ({ ...prev, color: value }))}
+                  placeholder="Select Color"
+                  className="bg-gray-800 border-gray-700 focus:border-purple-500 text-white py-6 cursor-pointer"
+                  required
+                >
+                  <SelectItem value="White">White</SelectItem>
+                  <SelectItem value="Yellow">Yellow</SelectItem>
+                </OptimizedSelect>
                 {errors.color && <p className="text-red-500 text-xs mt-1">{errors.color}</p>}
               </div>
 
               <div>
-                <Label htmlFor="driverUID" className="mb-1 block text-sm font-semibold text-gray-200">Driver *</Label>
-                <Select value={busData.driverUID} onValueChange={(val) => handleInputChange('driverUID', val)}>
-                  <SelectTrigger className="bg-gray-800 border-gray-700 focus:border-purple-500 text-white py-6">
-                    <SelectValue placeholder="Select a driver" />
-                  </SelectTrigger>
-                  <SelectContent className="max-h-80 bg-gray-900 border-gray-700">
-                    <div className="px-2 py-1.5 text-xs font-bold text-yellow-500 uppercase tracking-wider bg-gray-800/50">
+                <OptimizedSelect
+                  id="driverUID"
+                  label="Driver"
+                  value={busData.driverUID}
+                  onChange={(value) => setBusData(prev => ({ ...prev, driverUID: value }))}
+                  placeholder="Select a driver"
+                  className="bg-gray-800 border-gray-700 focus:border-purple-500 text-white py-6 cursor-pointer"
+                  required
+                >
+                  <div className="px-2 py-1.5 text-xs font-bold text-yellow-500 uppercase tracking-wider bg-gray-800/50">
                       Reserved (Category-1)
                     </div>
                     {drivers
@@ -367,13 +384,15 @@ export default function AddBusPage() {
               </div>
 
               <div>
-                <Label htmlFor="capacity" className="mb-1 block text-sm font-semibold text-gray-200">Total Capacity *</Label>
-                <Input
+                <OptimizedInput
                   id="capacity"
+                  label="Total Capacity"
                   type="number"
                   value={busData.capacity}
-                  onChange={(e) => handleInputChange('capacity', e.target.value)}
-                  className="bg-gray-800 border-gray-700 focus:border-purple-500 text-white py-6"
+                  onChange={(value) => setBusData(prev => ({ ...prev, capacity: value }))}
+                  className="bg-gray-800 border-gray-700 focus:border-purple-500 text-white py-6 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                  placeholder="e.g. 55"
+                  required
                 />
                 {errors.capacity && <p className="text-red-500 text-xs mt-1">{errors.capacity}</p>}
               </div>
@@ -382,7 +401,7 @@ export default function AddBusPage() {
                 <Label htmlFor="routeId" className="mb-1 block text-sm font-semibold text-gray-200">Route *</Label>
                 <div className="relative flex items-center">
                   <Select value={busData.routeId} onValueChange={(val) => handleInputChange('routeId', val)}>
-                    <SelectTrigger className="bg-gray-800 border-gray-700 focus:border-purple-500 text-white py-6 pr-14">
+                    <SelectTrigger className="bg-gray-800 border-gray-700 focus:border-purple-500 text-white py-6 pr-4 cursor-pointer relative">
                       <SelectValue placeholder="Select a route" />
                     </SelectTrigger>
                     <SelectContent className="max-h-60">
@@ -401,7 +420,7 @@ export default function AddBusPage() {
                   </Select>
 
                   {busData.routeId && (
-                    <div className="absolute right-10 top-1/2 -translate-y-1/2 flex items-center">
+                    <div className="absolute right-10 top-1/2 -translate-y-1/2 flex items-center z-10">
                       <Popover>
                         <PopoverTrigger asChild>
                           <button type="button" className="text-gray-400 hover:text-white transition-colors">
@@ -428,31 +447,35 @@ export default function AddBusPage() {
 
 
               <div>
-                <Label htmlFor="status" className="mb-1 block text-sm font-semibold text-gray-200">Status *</Label>
-                <Select value={busData.status} onValueChange={(val) => handleInputChange('status', val)}>
-                  <SelectTrigger className="bg-gray-800 border-gray-700 focus:border-purple-500 text-white py-6">
-                    <SelectValue placeholder="Active" />
-                  </SelectTrigger>
-                  <SelectContent className="bg-gray-900 border-gray-700">
-                    <SelectItem value="Active">Active</SelectItem>
-                    <SelectItem value="Inactive">Inactive</SelectItem>
-                    <SelectItem value="Maintenance">Maintenance</SelectItem>
-                  </SelectContent>
-                </Select>
+                <OptimizedSelect
+                  id="status"
+                  label="Status"
+                  value={busData.status}
+                  onChange={(value) => setBusData(prev => ({ ...prev, status: value }))}
+                  placeholder="Active"
+                  className="bg-gray-800 border-gray-700 focus:border-purple-500 text-white py-6 cursor-pointer"
+                  required
+                >
+                  <SelectItem value="Active">Active</SelectItem>
+                  <SelectItem value="Inactive">Inactive</SelectItem>
+                  <SelectItem value="Maintenance">Maintenance</SelectItem>
+                </OptimizedSelect>
               </div>
 
               <div>
-                <Label htmlFor="shift" className="mb-1 block text-sm font-semibold text-gray-200">Shift *</Label>
-                <Select value={busData.shift} onValueChange={(val) => handleInputChange('shift', val)}>
-                  <SelectTrigger className="bg-gray-800 border-gray-700 focus:border-purple-500 text-white py-6">
-                    <SelectValue placeholder="Select the shift" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="Morning">Morning</SelectItem>
-                    <SelectItem value="Evening">Evening</SelectItem>
-                    <SelectItem value="Both">Both</SelectItem>
-                  </SelectContent>
-                </Select>
+                <OptimizedSelect
+                  id="shift"
+                  label="Shift"
+                  value={busData.shift}
+                  onChange={(value) => setBusData(prev => ({ ...prev, shift: value }))}
+                  placeholder="Select the shift"
+                  className="bg-gray-800 border-gray-700 focus:border-purple-500 text-white py-6 cursor-pointer"
+                  required
+                >
+                  <SelectItem value="Morning">Morning</SelectItem>
+                  <SelectItem value="Evening">Evening</SelectItem>
+                  <SelectItem value="Both">Both</SelectItem>
+                </OptimizedSelect>
                 {errors.shift && <p className="text-red-500 text-xs mt-1">{errors.shift}</p>}
               </div>
 
@@ -466,25 +489,35 @@ export default function AddBusPage() {
             {/* Separate Load Row */}
             <div className="flex gap-4">
               <div className="flex-1">
-                <Label htmlFor="morningLoad" className="mb-1 block text-sm font-semibold text-gray-200 text-nowrap">Morning Load</Label>
-                <Input
+                <OptimizedInput
                   id="morningLoad"
+                  label="Morning Load"
                   type="number"
                   value={busData.morningLoad}
-                  onChange={(e) => handleInputChange('morningLoad', e.target.value)}
+                  onChange={(value) => setBusData(prev => ({ ...prev, morningLoad: value }))}
+                  placeholder="0"
                   disabled={!busData.shift || busData.shift === "Evening"}
-                  className={`bg-gray-800 border-gray-700 focus:border-purple-500 text-white py-6 ${(!busData.shift || busData.shift === "Evening") ? 'opacity-50 cursor-not-allowed' : ''}`}
+                  className={`bg-gray-800 border-gray-700 focus:border-purple-500 text-white py-6 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none ${(!busData.shift || busData.shift === "Evening") ? 'opacity-50 cursor-not-allowed' : ''}`}
                 />
               </div>
               <div className="flex-1">
-                <Label htmlFor="eveningLoad" className="mb-2 block text-sm font-semibold text-gray-200 text-nowrap">Evening Load</Label>
-                <Input
+                <OptimizedInput
                   id="eveningLoad"
+                  label="Evening Load"
                   type="number"
+                  value={busData.eveningLoad}
+                  onChange={(value) => setBusData(prev => ({ ...prev, eveningLoad: value }))}
+                  placeholder="0"
+                  disabled={!busData.shift || busData.shift === "Morning"}
+                  className={`bg-gray-800 border-gray-700 focus:border-purple-500 text-white py-6 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none ${(!busData.shift || busData.shift === "Morning") ? 'opacity-50 cursor-not-allowed' : ''}`}
+                />
+              </div>
+            </div>
+                  placeholder="0"
                   value={busData.eveningLoad}
                   onChange={(e) => handleInputChange('eveningLoad', e.target.value)}
                   disabled={!busData.shift || busData.shift === "Morning"}
-                  className={`bg-gray-800 border-gray-700 focus:border-purple-500 text-white py-6 ${(!busData.shift || busData.shift === "Morning") ? 'opacity-50 cursor-not-allowed' : ''}`}
+                  className={`bg-gray-800 border-gray-700 focus:border-purple-500 text-white py-6 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none ${(!busData.shift || busData.shift === "Morning") ? 'opacity-50 cursor-not-allowed' : ''}`}
                 />
               </div>
             </div>

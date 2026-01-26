@@ -1,66 +1,82 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import Lenis from "lenis";
 
 export default function SmoothScrollProvider({ children }: { children: React.ReactNode }) {
+    const lenisRef = useRef<Lenis | null>(null);
+    const rafIdRef = useRef<number | null>(null);
+
     useEffect(() => {
+        // Create Lenis instance with optimized settings
         const lenis = new Lenis({
             duration: 1.2,
             easing: (t) => Math.min(1, 1.001 - Math.pow(2, -10 * t)),
-            // orientation: 'vertical', // default
-            // gestureOrientation: 'vertical', // default
-            // smoothWheel: true, // default
-            // wheelMultiplier: 1, // default
-            // touchMultiplier: 2, // default
-            // infinite: false, // default
+            smoothWheel: true,
+            wheelMultiplier: 1,
+            touchMultiplier: 2,
         });
+
+        lenisRef.current = lenis;
+
+        // Cache for scrollable elements to avoid repeated DOM queries
+        const scrollableCache = new WeakSet<Element>();
 
         const isScrollable = (element: Element): boolean => {
             if (!(element instanceof HTMLElement)) return false;
 
+            // Check cache first
+            if (scrollableCache.has(element)) return true;
+
             const style = window.getComputedStyle(element);
             const isOverflow = ['auto', 'scroll'].includes(style.overflowY) || ['auto', 'scroll'].includes(style.overflow);
+            const result = isOverflow && element.scrollHeight > element.clientHeight;
 
-            return isOverflow && element.scrollHeight > element.clientHeight;
+            if (result) scrollableCache.add(element);
+            return result;
         };
 
         const preventLenisScroll = (e: Event) => {
-            let target = e.target as HTMLElement;
+            let target = e.target as HTMLElement | null;
 
             // Traverse up to find if we're inside a scrollable element
             while (target && target !== document.body && target !== document.documentElement) {
-                if (isScrollable(target)) {
-                    // Check if the element has data-lenis-prevent attribute
-                    if (target.hasAttribute('data-lenis-prevent')) {
-                        return; // Already handled by Lenis
-                    }
+                if (target.hasAttribute('data-lenis-prevent')) {
+                    return; // Already handled
+                }
 
-                    // Add data-lenis-prevent dynamically if it's scrollable
-                    // This is the "global fix" - treating all scrollable containers as separate from Lenis
+                if (isScrollable(target)) {
                     target.setAttribute('data-lenis-prevent', 'true');
                     return;
                 }
-                target = target.parentElement as HTMLElement;
+                target = target.parentElement;
             }
         };
 
-        // Add listeners to intercept interactions with scrollable elements
-        window.addEventListener('wheel', preventLenisScroll, { passive: false, capture: true });
-        window.addEventListener('touchstart', preventLenisScroll, { passive: false, capture: true });
-        window.addEventListener('keydown', preventLenisScroll, { passive: false, capture: true }); // For keyboard navigation if needed
+        // Use passive listeners with capture for better performance
+        const options = { passive: true, capture: true };
+        window.addEventListener('wheel', preventLenisScroll, options);
+        window.addEventListener('touchstart', preventLenisScroll, options);
 
+        // Optimized RAF loop with proper cleanup
+        let lastTime = 0;
         function raf(time: number) {
-            lenis.raf(time);
-            requestAnimationFrame(raf);
+            // Throttle to ~60fps max, skip if less than 16ms passed
+            if (time - lastTime >= 16) {
+                lenis.raf(time);
+                lastTime = time;
+            }
+            rafIdRef.current = requestAnimationFrame(raf);
         }
 
-        requestAnimationFrame(raf);
+        rafIdRef.current = requestAnimationFrame(raf);
 
         return () => {
-            window.removeEventListener('wheel', preventLenisScroll, { capture: true });
-            window.removeEventListener('touchstart', preventLenisScroll, { capture: true });
-            window.removeEventListener('keydown', preventLenisScroll, { capture: true });
+            window.removeEventListener('wheel', preventLenisScroll, options as EventListenerOptions);
+            window.removeEventListener('touchstart', preventLenisScroll, options as EventListenerOptions);
+            if (rafIdRef.current) {
+                cancelAnimationFrame(rafIdRef.current);
+            }
             lenis.destroy();
         };
     }, []);

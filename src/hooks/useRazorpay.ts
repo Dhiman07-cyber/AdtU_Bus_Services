@@ -83,77 +83,36 @@ export function useRazorpay() {
 
   // Load Razorpay script with mobile-specific handling and zombie script recovery
   useEffect(() => {
-    let timeoutId: NodeJS.Timeout;
-    let checkIntervalId: NodeJS.Timeout;
-
     const loadScript = () => {
-      console.log('🔄 Loading new Razorpay script...');
+      // Check if already in document
+      if (document.querySelector('script[src="https://checkout.razorpay.com/v1/checkout.js"]')) {
+        console.log('⏳ Razorpay script already present in DOM');
+        return;
+      }
+
+      console.log('🔄 Loading Razorpay script...');
       const script = document.createElement('script');
       script.src = 'https://checkout.razorpay.com/v1/checkout.js';
       script.async = true;
-      script.crossOrigin = 'anonymous'; // Mobile compatibility
 
       script.onload = () => {
-        console.log('✅ Razorpay script loaded successfully');
+        console.log('✅ Razorpay script loaded');
         setIsScriptLoaded(true);
-        setError(null);
       };
 
-      script.onerror = (e) => {
-        console.error('❌ Failed to load Razorpay script:', e);
+      script.onerror = () => {
+        console.error('❌ Razorpay script failed');
         setError('Failed to load payment gateway');
-        toast.error('Payment gateway failed to load. Please check your connection and refresh.');
       };
 
       document.body.appendChild(script);
-
-      // Timeout for the new script logic
-      timeoutId = setTimeout(() => {
-        if (!window.Razorpay) {
-          console.error('❌ Razorpay script load timeout (new script)');
-          setError('Payment gateway timeout');
-          // Don't show toast immediately, user might still be on slow connection
-        }
-      }, 20000); // 20s timeout for new script
     };
 
-    // Check if script is already fully loaded
     if (window.Razorpay) {
-      console.log('✅ Razorpay already available on window');
       setIsScriptLoaded(true);
-      return;
-    }
-
-    // Check for existing script tag (zombie check)
-    const existingScript = document.querySelector('script[src*="checkout.razorpay.com"]');
-
-    if (existingScript) {
-      console.log('⏳ Found existing Razorpay script tag, checking status...');
-
-      // Wait briefly to see if it's just finishing loading
-      let attempts = 0;
-      checkIntervalId = setInterval(() => {
-        attempts++;
-        if (window.Razorpay) {
-          clearInterval(checkIntervalId);
-          console.log('✅ Razorpay loaded from existing script');
-          setIsScriptLoaded(true);
-        } else if (attempts >= 20) { // ~2 seconds wait
-          clearInterval(checkIntervalId);
-          console.warn('⚠️ Existing script tag unresponsive, forcing reload...');
-          existingScript.remove(); // Kill the zombie script
-          loadScript(); // Load a fresh one
-        }
-      }, 100);
     } else {
       loadScript();
     }
-
-    return () => {
-      clearTimeout(timeoutId);
-      clearInterval(checkIntervalId);
-      // We purposefully don't remove the script on unmount to allow caching across navs
-    };
   }, []);
 
   /**
@@ -393,7 +352,45 @@ export function useRazorpay() {
           },
         };
 
-        // Create Razorpay instance with error handling
+        // --- MOBILE BACK BUTTON PROTECTION ---
+        // Set up history state and handlers BEFORE creating Razorpay instance
+        const historyState = { isRazorpayOpen: true, orderId: orderData.order.id };
+        let historyCleanedUp = false;
+
+        const cleanupHistory = () => {
+          if (historyCleanedUp) return;
+          historyCleanedUp = true;
+          window.removeEventListener("popstate", handlePopState);
+          // If we're still on the state we pushed, go back to clean it up
+          if (window.history.state?.isRazorpayOpen && window.history.state?.orderId === orderData.order.id) {
+            window.history.back();
+          }
+        };
+
+        const handlePopState = (event: PopStateEvent) => {
+          console.log("🔙 System back button detected while Razorpay open");
+          cleanupHistory();
+        };
+        // --------------------------------------
+
+        // Wrap the success handler to include history cleanup BEFORE creating Razorpay instance
+        const originalHandler = options.handler;
+        options.handler = async (response: RazorpayResponse) => {
+          console.log('💳 Payment handler triggered with response:', response);
+          cleanupHistory();
+          await originalHandler(response);
+        };
+
+        // Wrap ondismiss to include history cleanup BEFORE creating Razorpay instance
+        const originalOnDismiss = options.modal?.ondismiss;
+        if (options.modal) {
+          options.modal.ondismiss = () => {
+            cleanupHistory();
+            if (originalOnDismiss) originalOnDismiss();
+          };
+        }
+
+        // Create Razorpay instance with error handling (now with wrapped handlers)
         let razorpay;
         try {
           razorpay = new window.Razorpay(options);
@@ -410,37 +407,61 @@ export function useRazorpay() {
 
         // Handle payment failures
         razorpay.on('payment.failed', (response: any) => {
-          console.error('❌ Payment failed:', response.error);
+          console.error('❌ Payment failed response:', response);
+          cleanupHistory();
 
           // Dismiss any loading toasts first
           toast.dismiss();
 
           // Get user-friendly error message based on error code
           let errorMsg = 'Payment failed. Please try again.';
+          let errorDesc = 'The transaction was declined by the bank.';
 
           if (response.error) {
-            const errorCode = response.error.code;
-            const errorReason = response.error.reason;
+            const errorMetadata = response.error.metadata || {};
+            const paymentId = errorMetadata.payment_id || response.error.payment_id;
 
-            // Handle specific error cases
-            if (errorReason === 'payment_cancelled') {
-              errorMsg = 'Payment was cancelled. You can try again when ready.';
-            } else if (errorCode === 'BAD_REQUEST_ERROR') {
-              errorMsg = response.error.description || 'Invalid payment request. Please try again.';
-            } else if (errorCode === 'GATEWAY_ERROR') {
-              errorMsg = 'Payment gateway error. Please try again after some time.';
-            } else if (errorCode === 'NETWORK_ERROR') {
-              errorMsg = 'Network error. Please check your connection and try again.';
-            } else if (errorCode === 'SERVER_ERROR') {
-              errorMsg = 'Server error. Please try again after some time.';
-            } else if (response.error.description) {
+            // Log full details for debugging
+            console.error('❌ Razorpay Error Details:', {
+              code: response.error.code,
+              description: response.error.description,
+              source: response.error.source,
+              step: response.error.step,
+              reason: response.error.reason,
+              metadata: response.error.metadata
+            });
+
+            if (response.error.description) {
               errorMsg = response.error.description;
+            } else if (response.error.reason) {
+              // Fallback for when description is missing but reason exists
+              errorMsg = `Payment failed: ${response.error.reason.replace(/_/g, ' ')}`;
+            }
+
+            // Refine description based on reason
+            if (response.error.reason === 'payment_cancelled') {
+              errorDesc = 'You cancelled the payment process.';
+            } else if (response.error.reason === 'payment_failed') {
+              errorDesc = 'Your card or bank declined the transaction.';
+            } else if (response.error.source === 'customer') {
+              errorDesc = 'There was an issue with the customer details or authentication.';
             }
           }
 
           setError(errorMsg);
           setIsProcessing(false);
-          toast.error(errorMsg, { duration: 5000 });
+
+          // Use red background as requested
+          toast.error(errorMsg, {
+            description: errorDesc,
+            duration: 6000,
+            style: {
+              backgroundColor: '#FEF2F2', // Red-50
+              border: '1px solid #F87171', // Red-400
+              color: '#991B1B', // Red-800
+            },
+            className: 'error-toast', // fallback if style doesn't fully apply depending on sonner config
+          });
 
           resolve({
             success: false,
@@ -452,9 +473,14 @@ export function useRazorpay() {
 
         // Open checkout with error handling
         try {
+          // Push history state for back button protection
+          window.history.pushState(historyState, "");
+          window.addEventListener("popstate", handlePopState);
+
           razorpay.open();
         } catch (err: any) {
           console.error('❌ Failed to open Razorpay checkout:', err);
+          cleanupHistory();
           const errorMsg = err.message || 'Failed to open payment checkout. Please try again.';
           setError(errorMsg);
           setIsProcessing(false);

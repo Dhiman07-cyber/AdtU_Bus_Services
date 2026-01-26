@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { auth } from '@/lib/firebase-admin';
-import { DriverSwapService } from '@/lib/driver-swap-service';
+import { DriverSwapSupabaseService } from '@/lib/driver-swap-supabase';
 
 export async function POST(
   request: Request,
@@ -33,8 +33,10 @@ export async function POST(
     const decodedToken = await auth.verifyIdToken(token);
     const acceptorUID = decodedToken.uid;
 
-    // Accept the swap request
-    const result = await DriverSwapService.acceptSwapRequest(requestId, acceptorUID);
+    console.log(`📥 Accept swap request: ${requestId} by ${acceptorUID.substring(0, 8)}`);
+
+    // Accept the swap request using Supabase
+    const result = await DriverSwapSupabaseService.acceptSwapRequest(requestId, acceptorUID);
 
     if (!result.success) {
       return NextResponse.json(

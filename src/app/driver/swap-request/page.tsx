@@ -1,9 +1,9 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
 import { useAuth } from '@/contexts/auth-context';
 import { useToast } from '@/contexts/toast-context';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -123,10 +123,12 @@ const formatBusDisplay = (busId: string | undefined, busNumber: string | undefin
   return formattedId || plate || 'Unknown';
 };
 
-export default function SwapRequestPage() {
+function SwapRequestPageContent() {
   const { currentUser, userData, loading: authLoading } = useAuth();
   const { addToast } = useToast();
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const [activeTab, setActiveTab] = useState("create");
 
   // State for incoming requests
   const [incomingRequests, setIncomingRequests] = useState<SwapRequest[]>([]);
@@ -155,6 +157,16 @@ export default function SwapRequestPage() {
   // Filters for drivers
   const [driverFilter, setDriverFilter] = useState<'all' | 'same_shift' | 'reserved'>('all');
   const [searchQuery, setSearchQuery] = useState('');
+
+  // Sync tab with URL and state
+  useEffect(() => {
+    const tab = searchParams.get('tab');
+    if (tab) {
+      setActiveTab(tab);
+    } else if (hasActiveSwap) {
+      setActiveTab("my-requests");
+    }
+  }, [searchParams, hasActiveSwap]);
 
   // 🚨 DEVELOPMENT: Clear any cached data on mount for fresh state
   useEffect(() => {
@@ -939,7 +951,7 @@ export default function SwapRequestPage() {
         </div>
 
         {/* Tab Navigation */}
-        <Tabs defaultValue={hasActiveSwap ? "my-requests" : "create"} className="space-y-6">
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6" defaultValue={''} children={undefined}>
           <TabsList className="bg-gray-200 dark:bg-[#1a1d24] w-full grid grid-cols-3 p-1 rounded-xl h-auto">
             <TabsTrigger
               value="create"
@@ -961,6 +973,7 @@ export default function SwapRequestPage() {
               My Sent ({outgoingRequests.length})
             </TabsTrigger>
           </TabsList>
+
 
           <TabsContent value="create" className="animate-in fade-in duration-300">
             {busLoading || outgoingLoading ? (
@@ -1555,6 +1568,18 @@ export default function SwapRequestPage() {
         </Dialog>
       </div>
     </div >
+  );
+}
+
+export default function SwapRequestPage() {
+  return (
+    <Suspense fallback={
+      <div className="flex items-center justify-center min-h-[400px]">
+        <RefreshCw className="h-8 w-8 animate-spin text-blue-500" />
+      </div>
+    }>
+      <SwapRequestPageContent />
+    </Suspense>
   );
 }
 

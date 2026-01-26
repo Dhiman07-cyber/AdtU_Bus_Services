@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useAuth } from '@/contexts/auth-context';
 import { useRouter } from 'next/navigation';
+import { cn } from "@/lib/utils";
 import {
     MessageSquare,
     User,
@@ -84,6 +85,8 @@ interface FeedbackEntry {
     faculty?: string;
     department?: string;
     forwarded?: boolean;
+    bus_id?: string;
+    bus_plate?: string;
 }
 
 interface ModeratorOption {
@@ -364,7 +367,11 @@ export default function AdminFeedbackPage() {
                     feedbackId: forwardingFeedback.id,
                     feedbackSenderName: forwardingFeedback.name,
                     feedbackSenderRole: forwardingFeedback.role,
-                    forwardedBy: currentUser.uid
+                    feedbackBusId: forwardingFeedback.bus_id,
+                    feedbackBusPlate: forwardingFeedback.bus_plate,
+                    forwardedBy: currentUser.uid,
+                    originalFeedback: forwardingFeedback.message,
+                    adminNote: adminMessage
                 }
             );
 
@@ -408,10 +415,16 @@ export default function AdminFeedbackPage() {
                     <Button
                         onClick={fetchFeedback}
                         disabled={refreshing}
-                        className="bg-indigo-600 hover:bg-indigo-700 text-white border border-indigo-700 transition-all duration-200 hover:scale-105 hover:shadow-lg rounded-md px-3 py-1.5 text-xs h-8 sm:h-9 flex-shrink-0"
+                        className={cn(
+                            "group h-8 px-4 bg-white hover:bg-gray-50 text-gray-600 hover:text-purple-600 border border-gray-200 hover:border-purple-200 shadow-sm hover:shadow-lg hover:shadow-purple-500/10 font-bold text-[10px] uppercase tracking-widest rounded-lg transition-all duration-300 active:scale-95",
+                            refreshing && "opacity-70 cursor-not-allowed"
+                        )}
                     >
-                        <RefreshCw className={`h-3.5 w-3.5 ${refreshing ? 'animate-spin' : 'mr-1.5'}`} />
-                        <span>Refresh</span>
+                        <RefreshCw className={cn(
+                            "mr-2 h-3.5 w-3.5 transition-transform duration-500",
+                            refreshing ? "animate-spin text-purple-600" : "group-hover:rotate-180"
+                        )} />
+                        {refreshing ? 'Refreshing...' : 'Refresh'}
                     </Button>
                 </div>
                 <p className="text-gray-600 dark:text-gray-400 mt-1 text-xs sm:text-sm">Manage and action user feedback submissions</p>
@@ -564,10 +577,8 @@ export default function AdminFeedbackPage() {
                                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
                                         {/* Enrollment ID for students, Employee ID for drivers */}
                                         <div className="flex items-center gap-2.5 bg-[#0d1117] border border-gray-700/50 rounded-xl px-4 py-3">
-                                            {item.role === 'student' ? (
+                                            {item.role === 'student' && (
                                                 <GraduationCap className="h-4 w-4 text-indigo-400" />
-                                            ) : (
-                                                <Truck className="h-4 w-4 text-amber-400" />
                                             )}
                                             <div>
                                                 <p className="text-[10px] text-gray-500 uppercase tracking-wider font-medium">
@@ -589,7 +600,7 @@ export default function AdminFeedbackPage() {
 
                                     {/* Message Preview */}
                                     <div className="mb-4">
-                                        <p className="text-sm text-gray-400 leading-relaxed italic">
+                                        <p className="text-sm text-gray-400 leading-relaxed italic break-all line-clamp-2">
                                             "{truncateMessage(item.message)}"
                                         </p>
                                     </div>

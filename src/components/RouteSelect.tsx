@@ -25,6 +25,7 @@ interface RouteSelectProps {
     value: string;
     onChange: (value: string) => void;
     isLoading?: boolean;
+    allowReserved?: boolean;
 }
 
 export default function RouteSelect({
@@ -32,6 +33,7 @@ export default function RouteSelect({
     value,
     onChange,
     isLoading = false,
+    allowReserved = false,
 }: RouteSelectProps) {
     const [open, setOpen] = React.useState(false);
     const [searchQuery, setSearchQuery] = React.useState("");
@@ -68,7 +70,7 @@ export default function RouteSelect({
                             role="combobox"
                             aria-expanded={open}
                             className={cn(
-                                "w-full justify-between h-9 px-3 bg-white dark:bg-gray-800 border-2 border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700/50 text-left font-normal transition-all duration-200 rounded-md shadow-sm",
+                                "w-full justify-between h-9 px-3 bg-white dark:bg-gray-800 border-2 border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700/50 text-left font-normal transition-all duration-200 rounded-md shadow-sm cursor-pointer",
                                 "focus-visible:border-blue-500 dark:focus-visible:border-blue-400 focus-visible:ring-2 focus-visible:ring-blue-500/20",
                                 !value && "text-muted-foreground/60"
                             )}
@@ -106,30 +108,38 @@ export default function RouteSelect({
                                     No routes found.
                                 </CommandEmpty>
 
-                                <CommandGroup heading={<span className="text-[9px] font-bold uppercase tracking-wider text-gray-400 px-2 mb-1 block">Special Assignments</span>}>
-                                    <CommandItem
-                                        value="reserved"
-                                        onSelect={() => {
-                                            onChange("reserved");
-                                            setOpen(false);
-                                        }}
-                                        className="mx-1 rounded-md aria-selected:bg-green-500/10 aria-selected:text-green-600 dark:aria-selected:text-green-400 cursor-pointer"
-                                    >
-                                        <div className="flex items-center gap-3 w-full py-1">
-                                            <Sparkles className="h-4 w-4 text-green-500" />
-                                            <div className="flex flex-col">
-                                                <span className="font-medium">Reserved</span>
-                                                <span className="text-[10px] opacity-60">No specific route assigned</span>
-                                            </div>
-                                            <Check
-                                                className={cn(
-                                                    "ml-auto h-4 w-4",
-                                                    isReserved ? "opacity-100" : "opacity-0"
-                                                )}
-                                            />
-                                        </div>
+                                {isLoading ? (
+                                    <CommandItem value="loading" disabled className="justify-center py-4 text-xs text-muted-foreground">
+                                        Loading routes...
                                     </CommandItem>
-                                </CommandGroup>
+                                ) : null}
+
+                                {allowReserved && (
+                                    <CommandGroup heading={<span className="text-[9px] font-bold uppercase tracking-wider text-gray-400 px-2 mb-1 block">Special Assignments</span>}>
+                                        <CommandItem
+                                            value="reserved"
+                                            onSelect={() => {
+                                                onChange("reserved");
+                                                setOpen(false);
+                                            }}
+                                            className="mx-1 rounded-md aria-selected:bg-green-500/10 aria-selected:text-green-600 dark:aria-selected:text-green-400 cursor-pointer"
+                                        >
+                                            <div className="flex items-center gap-3 w-full py-1">
+                                                <Sparkles className="h-4 w-4 text-green-500" />
+                                                <div className="flex flex-col">
+                                                    <span className="font-medium">Reserved</span>
+                                                    <span className="text-[10px] opacity-60">No specific route assigned</span>
+                                                </div>
+                                                <Check
+                                                    className={cn(
+                                                        "ml-auto h-4 w-4",
+                                                        isReserved ? "opacity-100" : "opacity-0"
+                                                    )}
+                                                />
+                                            </div>
+                                        </CommandItem>
+                                    </CommandGroup>
+                                )}
 
                                 <CommandGroup heading={<span className="text-[9px] font-bold uppercase tracking-wider text-gray-400 px-2 mt-1.5 mb-1 block">Available Routes</span>}>
                                     {sortedRoutes.map((route) => (

@@ -211,7 +211,7 @@ export default function BusPassScannerModal({ isOpen, onClose, onScanSuccess }: 
         verifyStudent(data);
     };
 
-    const verifyStudent = async (studentUid: string) => {
+    const verifyStudent = async (scannedData: string) => {
         setIsVerifying(true);
         try {
             if (!currentUser?.uid) throw new Error('Not authenticated');
@@ -227,17 +227,42 @@ export default function BusPassScannerModal({ isOpen, onClose, onScanSuccess }: 
 
             if (!scannerBusId) throw new Error('No bus assigned to driver');
 
-            const response = await fetch('/api/bus-pass/verify-student', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${token}`
-                },
-                body: JSON.stringify({
-                    studentUid,
-                    scannerBusId
-                }),
-            });
+            // Detect if the scanned data is an encrypted token or a plain UID
+            // Encrypted tokens are base64url encoded and typically > 100 chars
+            // Plain UIDs are Firebase UIDs (28 chars, alphanumeric with possible dashes)
+            const isEncryptedToken = scannedData.length > 60 && /^[A-Za-z0-9_-]+$/.test(scannedData);
+
+            let response;
+
+            if (isEncryptedToken) {
+                // Use secure QR verification endpoint for encrypted tokens
+                console.log('🔐 Detected encrypted QR token, using secure verification...');
+                response = await fetch('/api/bus-pass/verify-secure-qr', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`
+                    },
+                    body: JSON.stringify({
+                        secureToken: scannedData,
+                        scannerBusId
+                    }),
+                });
+            } else {
+                // Use standard verification for plain UIDs (backward compatibility)
+                console.log('🆔 Detected plain UID, using standard verification...');
+                response = await fetch('/api/bus-pass/verify-student', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`
+                    },
+                    body: JSON.stringify({
+                        studentUid: scannedData,
+                        scannerBusId
+                    }),
+                });
+            }
 
             const result = await response.json();
             setScanResult(result);

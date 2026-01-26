@@ -25,6 +25,7 @@ import { StatusBadge } from '@/components/application/status-badge';
 import { cn } from '@/lib/utils';
 import { downloadFile } from '@/lib/download-utils';
 import { PremiumPageLoader } from '@/components/LoadingSpinner';
+import { invalidateCollectionCache } from '@/hooks/usePaginatedCollection';
 
 export default function ModeratorApplicationDetailPage() {
   const { currentUser, userData, loading } = useAuth();
@@ -37,6 +38,7 @@ export default function ModeratorApplicationDetailPage() {
   const [loadingApp, setLoadingApp] = useState(true);
   const [processing, setProcessing] = useState(false);
   const [rejectDialogOpen, setRejectDialogOpen] = useState(false);
+  const [rejectionReason, setRejectionReason] = useState("");
   const [receiptModalOpen, setReceiptModalOpen] = useState(false);
   const [copied, setCopied] = useState(false);
   const [busData, setBusData] = useState<any>(null);
@@ -256,6 +258,7 @@ export default function ModeratorApplicationDetailPage() {
 
       if (response.ok) {
         showToast('Application approved successfully! Student can now access their account.', 'success');
+        invalidateCollectionCache('applications');
         router.push('/moderator/applications');
       } else {
         const errorData = await response.json();
@@ -269,9 +272,13 @@ export default function ModeratorApplicationDetailPage() {
     }
   };
 
-  const handleReject = async () => {
-    if (!userData) return;
-    if (!confirm("Are you sure you want to reject this application? This will permanently delete the application.")) return;
+  const handleReject = () => {
+    setRejectionReason("");
+    setRejectDialogOpen(true);
+  };
+
+  const confirmReject = async () => {
+    if (!userData || !rejectionReason.trim()) return;
 
     setProcessing(true);
     try {
@@ -284,12 +291,14 @@ export default function ModeratorApplicationDetailPage() {
         },
         body: JSON.stringify({
           studentUid: applicationId,
-          reason: 'Application rejected and deleted by moderator'
+          reason: rejectionReason
         })
       });
 
       if (response.ok) {
         showToast('Application rejected and deleted successfully', 'success');
+        setRejectDialogOpen(false);
+        invalidateCollectionCache('applications');
         router.push('/moderator/applications');
       } else {
         const errorData = await response.json();
@@ -534,7 +543,7 @@ export default function ModeratorApplicationDetailPage() {
                 <InfoRow
                   label="Bus Stop"
                   value={(() => {
-                    const stopId = application.formData?.stopId;
+                    const stopId = application.formData?.stopId || (application.formData as any)?.pickupPoint;
                     if (!stopId) return '—';
                     let stopName = stopId;
                     if (routeData?.stops) {
@@ -762,6 +771,45 @@ export default function ModeratorApplicationDetailPage() {
 
 
       </div>
+
+      {/* Rejection Dialog */}
+      <Dialog open={rejectDialogOpen} onOpenChange={setRejectDialogOpen}>
+        <DialogContent className="sm:max-w-[425px] bg-[#12131A] text-white border-white/10">
+          <DialogHeader>
+            <DialogTitle>Reject Application</DialogTitle>
+            <DialogDescription className="text-zinc-400">
+              Please provide a reason for rejecting this student application.
+              The student will be notified via email.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
+            <div className="grid gap-2">
+              <Label htmlFor="reason" className="text-zinc-300">Rejection Reason</Label>
+              <Textarea
+                id="reason"
+                className="bg-zinc-900/50 border-white/10 focus:border-red-500/50 min-h-[100px] text-zinc-200 resize-none"
+                placeholder="e.g., Incorrect profile photo, Payment proof unclear, Invalid enrollment ID..."
+                value={rejectionReason}
+                onChange={(e) => setRejectionReason(e.target.value)}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRejectDialogOpen(false)} className="border-white/10 text-zinc-300 hover:bg-white/5 hover:text-white">
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={confirmReject}
+              disabled={!rejectionReason.trim() || processing}
+              className="bg-red-600 hover:bg-red-700 font-bold"
+            >
+              {processing ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+              Confirm Rejection
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

@@ -390,32 +390,51 @@ export default function SmartAllocationPage() {
           selectedBus.busNumber,
         );
 
-        // Query students with BOTH busId and assignedBusId fields
-        // Firestore doesn't support OR queries easily, so we'll do two queries
-        const queries = [
-          getDocs(
-            query(
-              collection(db, "students"),
-              where("busId", "==", selectedBus.id),
-              where("status", "==", "active"),
-            ),
-          ),
-          getDocs(
-            query(
-              collection(db, "students"),
-              where("assignedBusId", "==", selectedBus.id),
-              where("status", "==", "active"),
-            ),
-          ),
-        ];
+        // Query students with multiple possible field values
+        // Students may have busId stored as document ID (bus_6), busNumber (AS-01-SC-1392), or just a number
+        // Firestore doesn't support OR queries easily, so we'll do multiple queries
+        const possibleBusIds = [
+          selectedBus.id,           // Firestore document ID (e.g., "bus_6")
+          selectedBus.busNumber,    // Vehicle registration (e.g., "AS-01-SC-1392")
+        ].filter(Boolean);
 
-        const [busIdSnapshot, assignedBusIdSnapshot] =
-          await Promise.all(queries);
+        console.log("📋 Searching with bus identifiers:", possibleBusIds);
+
+        const queries = [];
+
+        // Query by busId field with all possible values
+        for (const busId of possibleBusIds) {
+          queries.push(
+            getDocs(
+              query(
+                collection(db, "students"),
+                where("busId", "==", busId),
+                where("status", "==", "active"),
+              ),
+            ),
+          );
+          // Also query by assignedBusId
+          queries.push(
+            getDocs(
+              query(
+                collection(db, "students"),
+                where("assignedBusId", "==", busId),
+                where("status", "==", "active"),
+              ),
+            ),
+          );
+        }
+
+
+        const queryResults = await Promise.all(queries);
         const studentData: StudentData[] = [];
         const processedIds = new Set<string>();
 
-        // Process both query results and deduplicate
-        [busIdSnapshot, assignedBusIdSnapshot].forEach((snapshot) => {
+        console.log(`📊 Got ${queryResults.length} query result sets`);
+
+        // Process ALL query results and deduplicate
+        queryResults.forEach((snapshot, index) => {
+          console.log(`📋 Query ${index + 1}: ${snapshot.docs.length} students found`);
           snapshot.forEach((doc) => {
             if (processedIds.has(doc.id)) return; // Skip duplicates
             processedIds.add(doc.id);
@@ -455,9 +474,37 @@ export default function SmartAllocationPage() {
 
         setStudents(studentData);
 
+        // Update the bus's load counts with actual student counts
+        // This ensures the bus card shows the correct count
+        // Use includes() to handle variations like "Morning", "Evening Shift", etc.
+        const morningStudents = studentData.filter(
+          (s) => (s.shift || "morning").toLowerCase().includes("morning")
+        ).length;
+        const eveningStudents = studentData.filter(
+          (s) => (s.shift || "").toLowerCase().includes("evening")
+        ).length;
+
+        // Update the buses state to reflect actual counts
+        setBuses((prevBuses) =>
+          prevBuses.map((b) =>
+            b.id === selectedBus.id
+              ? {
+                ...b,
+                load: {
+                  morningCount: morningStudents,
+                  eveningCount: eveningStudents,
+                },
+                currentMembers: studentData.length,
+              }
+              : b
+          )
+        );
+
+        console.log(`📊 Updated bus ${selectedBus.busNumber} counts: Morning=${morningStudents}, Evening=${eveningStudents}`);
+
         // Detect which shift is overloaded
         const overloadShift = detectOverloadedShift(
-          { capacity: selectedBus.capacity, load: selectedBus.load },
+          { capacity: selectedBus.capacity, load: { morningCount: morningStudents, eveningCount: eveningStudents } },
           100, // 100% threshold to detect actual overload
         );
         setOverloadedShift(overloadShift);
@@ -476,29 +523,20 @@ export default function SmartAllocationPage() {
     loadStudents();
   }, [selectedBus]);
 
-  // Filter students by the selected shift tab (Morning/Evening)
-  // This ensures admins only see students matching the current shift filter
+  // Display ALL students for the selected bus
+  // NOTE: The shift tab filters the BUS LIST only, not the students within a selected bus
+  // All students assigned to a bus should be visible regardless of shift tab
+  // Each student's shift is shown as a badge in the StudentRoster component
   const displayStudents = useMemo(() => {
     if (!students || students.length === 0) return [];
 
-    // Filter by shift tab selection
-    const shiftFiltered = students.filter((student) => {
-      const studentShift = (student.shift || "Morning").toLowerCase().trim();
-      if (shiftFilter === "morning") {
-        return studentShift === "morning";
-      } else if (shiftFilter === "evening") {
-        return studentShift === "evening";
-      }
-      return true;
-    });
+    // Return all students - don't filter by shift tab
+    // The shift filter only applies to which BUSES are shown, not which students
+    // Students with different shifts can coexist on the same bus view
+    console.log(`📊 Display students: ${students.length} total for selected bus`);
 
-    // Additionally filter by overloaded shift if detected
-    if (overloadedShift) {
-      return filterStudentsByOverloadedShift(shiftFiltered, overloadedShift);
-    }
-
-    return shiftFiltered;
-  }, [students, shiftFilter, overloadedShift]);
+    return students;
+  }, [students]);
 
   // Show buses filtered by shift tab and threshold
   const allBusesByLoad = useMemo(() => {
@@ -579,26 +617,16 @@ export default function SmartAllocationPage() {
 
   // Select/Deselect Students by Stop (TOGGLE behavior)
   // Uses case-insensitive stopId matching for consistency
-  // IMPORTANT: Uses `students` array (not displayStudents) to ensure all students at stop are counted
+  // Selects ALL students at this stop regardless of shift (matching displayStudents behavior)
   const selectByStop = (stopId: string, limit?: number) => {
     const normalizedStopId = (stopId || "").toLowerCase().trim();
 
-    // Get students at this stop, respecting the current shift filter
+    // Get all students at this stop (no shift filter - show all students on selected bus)
     const stopStudents = students
       .filter((s) => {
         const matchesStop =
           (s.stopId || "").toLowerCase().trim() === normalizedStopId;
-
-        // Filter by shift (Morning/Evening) to match Route visualization
-        const studentShift = (s.shift || "Morning").toLowerCase().trim();
-        const matchesShift =
-          shiftFilter === "morning"
-            ? studentShift === "morning"
-            : shiftFilter === "evening"
-              ? studentShift === "evening"
-              : true;
-
-        return matchesStop && matchesShift;
+        return matchesStop;
       })
       .slice(0, limit || undefined);
 
@@ -704,7 +732,7 @@ export default function SmartAllocationPage() {
   }
 
   return (
-    <div className="mt-10 space-y-6 overflow-x-hidden max-w-full">
+    <div className="mt-20 sm:mt-10 space-y-6 overflow-x-hidden max-w-full px-2 sm:px-0">
       {/* Header */}
       <div className="flex flex-col md:flex-row md:justify-between md:items-center gap-4">
         <div className="flex items-center gap-2.5">
@@ -725,56 +753,149 @@ export default function SmartAllocationPage() {
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-3">
-          <div className="flex items-center gap-2 px-3 py-1.5 border rounded-lg bg-white dark:bg-zinc-900 shadow-sm hover:shadow-purple-500/20 hover:border-purple-400/50 transition-all duration-300 group">
-            <Label className="text-xs font-medium whitespace-nowrap">
-              Threshold:
-            </Label>
-            <div className="w-24 relative">
-              <div className="absolute inset-0 bg-purple-500/10 blur-lg opacity-0 group-hover:opacity-100 transition-opacity duration-300 rounded-lg" />
-              <Slider
-                value={[overloadThreshold]}
-                onValueChange={([value]) => setOverloadThreshold(value)}
-                min={0}
-                max={100}
-                step={5}
-                className="cursor-pointer relative z-10"
-              />
+          {/* Desktop Layout (Hidden on Mobile) */}
+          <div className="hidden sm:flex flex-wrap items-center gap-3">
+            <div className="flex items-center gap-2 px-3 py-1.5 border rounded-lg bg-white dark:bg-zinc-900 shadow-sm hover:shadow-purple-500/20 hover:border-purple-400/50 transition-all duration-300 group">
+              <Label className="text-xs font-medium whitespace-nowrap">
+                Threshold:
+              </Label>
+              <div className="w-24 relative">
+                <div className="absolute inset-0 bg-purple-500/10 blur-lg opacity-0 group-hover:opacity-100 transition-opacity duration-300 rounded-lg" />
+                <Slider
+                  value={[overloadThreshold]}
+                  onValueChange={([value]) => setOverloadThreshold(value)}
+                  min={0}
+                  max={100}
+                  step={5}
+                  className="cursor-pointer relative z-10"
+                />
+              </div>
+              <span className="text-xs font-mono font-bold min-w-[2.5rem] text-right bg-gradient-to-r from-purple-600 to-pink-600 bg-clip-text text-transparent">
+                {overloadThreshold}%
+              </span>
             </div>
-            <span className="text-xs font-mono font-bold min-w-[2.5rem] text-right bg-gradient-to-r from-purple-600 to-pink-600 bg-clip-text text-transparent">
-              {overloadThreshold}%
-            </span>
+
+            <Button
+              size="default"
+              className="bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 h-9 text-sm shadow-lg"
+              onClick={openReassignmentPanel}
+              disabled={selectedStudents.size === 0}
+              title="Get AI-powered reassignment suggestions"
+            >
+              <ArrowRightLeft className="w-4 h-4 mr-2" />
+              Reassign
+            </Button>
+
+            <Button
+              variant="outline"
+              size="default"
+              className="h-9 text-sm"
+              onClick={exportToCSV}
+            >
+              <Download className="w-4 h-4 mr-2" />
+              Export
+            </Button>
+
+            <Button
+              variant="outline"
+              size="default"
+              className="h-9 text-sm bg-white dark:bg-zinc-800 border-zinc-300 dark:border-zinc-700 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-700 shadow-sm"
+              onClick={() => setShowHistoryModal(true)}
+            >
+              <History className="w-4 h-4 mr-2" />
+              View History
+            </Button>
           </div>
 
-          <Button
-            size="default"
-            className="bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 h-9 text-sm shadow-lg"
-            onClick={openReassignmentPanel}
-            disabled={selectedStudents.size === 0}
-            title="Get AI-powered reassignment suggestions"
-          >
-            <ArrowRightLeft className="w-4 h-4 mr-2" />
-            Reassign
-          </Button>
-
-          <Button
-            variant="outline"
-            size="default"
-            className="h-9 text-sm"
-            onClick={exportToCSV}
-          >
-            <Download className="w-4 h-4 mr-2" />
-            Export
-          </Button>
-
-          <Button
-            variant="outline"
-            size="default"
-            className="h-9 text-sm bg-white dark:bg-zinc-800 border-zinc-300 dark:border-zinc-700 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-700 shadow-sm"
-            onClick={() => setShowHistoryModal(true)}
-          >
-            <History className="w-4 h-4 mr-2" />
-            View History
-          </Button>
+          {/* Mobile Layout (Hidden on Desktop) */}
+          <div className="flex sm:hidden flex-col w-full gap-3">
+            {userData?.role === 'moderator' ? (
+              /* Moderator Mobile Layout: Threshold | Reassign | Export Icon */
+              <div className="flex items-center justify-between gap-2 w-full">
+                <div className="flex flex-1 items-center gap-2 px-2 py-1.5 border rounded-lg bg-white dark:bg-zinc-900 shadow-sm">
+                  <span className="text-[10px] font-mono font-bold bg-gradient-to-r from-purple-600 to-pink-600 bg-clip-text text-transparent">
+                    {overloadThreshold}%
+                  </span>
+                  <div className="flex-1">
+                    <Slider
+                      value={[overloadThreshold]}
+                      onValueChange={([value]) => setOverloadThreshold(value)}
+                      min={0}
+                      max={100}
+                      step={5}
+                      className="cursor-pointer"
+                    />
+                  </div>
+                </div>
+                <Button
+                  size="sm"
+                  className="bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 h-9 text-xs px-2"
+                  onClick={openReassignmentPanel}
+                  disabled={selectedStudents.size === 0}
+                >
+                  Reassign
+                </Button>
+                <Button
+                  variant="outline"
+                  size="icon"
+                  className="h-9 w-9 shrink-0"
+                  onClick={exportToCSV}
+                >
+                  <Download className="w-4 h-4" />
+                </Button>
+              </div>
+            ) : (
+              /* Admin Mobile Layout: Row 1: Threshold | Reassign, Row 2: Export | View History */
+              <div className="flex flex-col gap-2 w-full">
+                <div className="flex items-center gap-2 w-full">
+                  <div className="flex-1 flex items-center gap-2 px-2 py-1.5 border rounded-lg bg-white dark:bg-zinc-900 shadow-sm">
+                    <span className="text-[10px] font-mono font-bold bg-gradient-to-r from-purple-600 to-pink-600 bg-clip-text text-transparent">
+                      {overloadThreshold}%
+                    </span>
+                    <div className="flex-1">
+                      <Slider
+                        value={[overloadThreshold]}
+                        onValueChange={([value]) => setOverloadThreshold(value)}
+                        min={0}
+                        max={100}
+                        step={5}
+                        className="cursor-pointer"
+                      />
+                    </div>
+                  </div>
+                  <Button
+                    size="sm"
+                    className="bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 h-9 text-xs"
+                    onClick={openReassignmentPanel}
+                    disabled={selectedStudents.size === 0}
+                  >
+                    <ArrowRightLeft className="w-3.5 h-3.5 mr-1" />
+                    Reassign
+                  </Button>
+                </div>
+                <div className="flex items-center gap-2 w-full">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="flex-1 h-9 text-xs"
+                    onClick={exportToCSV}
+                  >
+                    <Download className="w-3.5 h-3.5 mr-1.5" />
+                    Export
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="flex-1 h-9 text-xs"
+                    onClick={() => setShowHistoryModal(true)}
+                  >
+                    <History className="w-3.5 h-3.5 mr-1.5" />
+                    View History
+                  </Button>
+                </div>
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
@@ -990,10 +1111,11 @@ export default function SmartAllocationPage() {
                       <CardTitle className="text-base font-bold flex items-center gap-2">
                         Route Visualization
                         <Badge variant="outline" className="text-xs font-mono">
-                          {selectedBus.busNumber}
+                          <span className="hidden sm:inline">{selectedBus.busNumber}</span>
+                          <span className="sm:hidden">{selectedBus.routeName}</span>
                         </Badge>
                       </CardTitle>
-                      <CardDescription className="text-xs mt-0.5">
+                      <CardDescription className="text-xs mt-0.5 hidden sm:block">
                         Click on stops to select students
                       </CardDescription>
                     </div>
@@ -1083,7 +1205,7 @@ export default function SmartAllocationPage() {
                             selected
                           </>
                         ) : (
-                          <>
+                          <span className="hidden sm:inline">
                             Total: {students.length} students
                             {overloadedShift && (
                               <>
@@ -1094,25 +1216,25 @@ export default function SmartAllocationPage() {
                                 </span>
                               </>
                             )}
-                          </>
+                          </span>
                         )}
                       </CardDescription>
                     </div>
                   </div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center justify-start gap-2">
                     <Button
                       size="sm"
                       onClick={() =>
                         setSelectedStudents(new Set(students.map((s) => s.id)))
                       }
-                      className="text-sm h-9 bg-blue-600 hover:bg-blue-700 text-white"
+                      className="text-xs sm:text-sm h-8 sm:h-9 bg-blue-600 hover:bg-blue-700 text-white"
                     >
                       Select All
                     </Button>
                     <Button
                       size="sm"
                       onClick={() => setSelectedStudents(new Set())}
-                      className="text-sm h-9 bg-red-600 hover:bg-red-700 text-white"
+                      className="text-xs sm:text-sm h-8 sm:h-9 bg-red-600 hover:bg-red-700 text-white"
                       disabled={selectedStudents.size === 0}
                     >
                       Clear

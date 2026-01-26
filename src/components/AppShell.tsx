@@ -123,8 +123,8 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
                   style={{
                     display: 'grid',
                     gridTemplateColumns: sidebarCollapsed
-                      ? 'var(--sidebar-width-collapsed) 1fr'
-                      : 'var(--sidebar-width-expanded) 1fr',
+                      ? 'var(--sidebar-width-collapsed) minmax(0, 1fr)'
+                      : 'var(--sidebar-width-expanded) minmax(0, 1fr)',
                     gridTemplateRows: '1fr auto',
                     minHeight: 'calc(100vh - 48px)', // Subtract navbar height
                     transition: 'grid-template-columns 300ms cubic-bezier(0.2, 0.8, 0.2, 1)'

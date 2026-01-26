@@ -175,8 +175,8 @@ export default function AdminDrivers() {
         // Find assigned bus - use CORRECT Firestore field names
         // Check: 1) Driver has busId/assignedBusId, 2) Bus has this driver as activeDriverId/assignedDriverId
         const assignedBus = buses.find(b =>
-          b.id === driver.busId ||
           b.id === driver.assignedBusId ||
+          b.id === driver.busId ||
           b.busId === driver.assignedBusId ||
           b.activeDriverId === driver.id ||
           b.assignedDriverId === driver.id
@@ -277,6 +277,15 @@ export default function AdminDrivers() {
             label="Export Drivers"
             className="bg-white hover:bg-gray-100 !text-black border border-gray-300 transition-all duration-200 hover:scale-105 hover:shadow-lg rounded-md px-2.5 py-1.5 text-xs h-8"
           />
+          <Button
+            size="sm"
+            onClick={handleRefresh}
+            disabled={isRefreshing}
+            className="group h-8 px-4 bg-white hover:bg-gray-50 text-gray-600 hover:text-purple-600 border border-gray-200 hover:border-purple-200 shadow-sm hover:shadow-lg hover:shadow-purple-500/10 font-bold text-[10px] uppercase tracking-widest rounded-lg transition-all duration-300 active:scale-95"
+          >
+            <RefreshCw className={`mr-2 h-3.5 w-3.5 transition-transform duration-500 ${isRefreshing ? 'animate-spin' : 'group-hover:rotate-180'}`} />
+            Refresh
+          </Button>
         </div>
       </div>
 

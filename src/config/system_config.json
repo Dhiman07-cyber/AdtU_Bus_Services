@@ -1,7 +1,17 @@
 {
   "appName": "AdtU Bus Services",
   "busFee": {
-    "amount": 5000
+    "amount": 10000,
+    "updatedAt": "2026-01-24T09:09:57.056Z",
+    "updatedBy": "ieGHGC2wj7NFCkpa6t0lMlD7PYE2",
+    "version": 1,
+    "history": [
+      {
+        "amount": 0,
+        "updatedAt": "2026-01-24T09:09:57.057Z",
+        "updatedBy": "system"
+      }
+    ]
   },
   "paymentExport": {
     "startYear": 2027,
@@ -12,7 +22,7 @@
   "renewalDeadline": "2026-07-01",
   "softBlock": "2026-07-31",
   "hardBlock": "2026-08-31",
-  "version": "v2.4.0",
-  "lastUpdated": "2026-01-07T13:00:00.000Z",
-  "updatedBy": "current-user"
+  "version": "v1.0.0",
+  "lastUpdated": "2026-01-24T09:09:57.056Z",
+  "updatedBy": "ieGHGC2wj7NFCkpa6t0lMlD7PYE2"
 }

@@ -5,6 +5,17 @@ import { PaymentTransactionService } from '@/lib/payment/payment-transaction.ser
 import { calculateValidUntilDate } from '@/lib/utils/date-utils';
 import { v4 as uuidv4 } from 'uuid';
 import { generateOfflinePaymentId } from '@/lib/types/payment';
+import { computeBlockDatesFromValidUntil } from '@/lib/utils/deadline-computation';
+import { v2 as cloudinary } from 'cloudinary';
+
+// Configure Cloudinary
+if (process.env.CLOUDINARY_API_KEY && process.env.CLOUDINARY_API_SECRET && process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME) {
+  cloudinary.config({
+    cloud_name: process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME,
+    api_key: process.env.CLOUDINARY_API_KEY,
+    api_secret: process.env.CLOUDINARY_API_SECRET,
+  });
+}
 
 export async function POST(request: NextRequest) {
   try {
@@ -51,7 +62,8 @@ export async function POST(request: NextRequest) {
       studentName,
       durationYears,
       totalFee,
-      transactionId
+      transactionId,
+      receiptImageUrl
     } = requestData;
 
     // Generate payment ID for offline approval with timestamp
@@ -84,6 +96,7 @@ export async function POST(request: NextRequest) {
     let previousValidUntilISO: string | null = null;
     let existingSessionEndYear: number = new Date().getFullYear();
     let existingDurationYears: number = 0;
+    let savedStudentData: any = null;
 
     try {
       await adminDb.runTransaction(async (transaction: any) => {
@@ -94,6 +107,7 @@ export async function POST(request: NextRequest) {
         }
 
         const studentData = studentDoc.data();
+        savedStudentData = studentData;
 
         // Get existing values
         const existingSessionStartYear = studentData?.sessionStartYear || new Date().getFullYear();
@@ -130,6 +144,9 @@ export async function POST(request: NextRequest) {
           paymentAmount: totalFee
         });
 
+        // Compute block dates from the new validUntil date
+        const blockDates = computeBlockDatesFromValidUntil(newValidUntil);
+
         // Update student document atomically with ALL required fields
         transaction.update(studentRef, {
           validUntil: newValidUntil,
@@ -138,6 +155,9 @@ export async function POST(request: NextRequest) {
           sessionEndYear: newSessionEndYear, // Based on new validity
           durationYears: totalDurationYears, // Cumulative duration
           paymentAmount: totalFee,
+          // CRITICAL: Update block dates to align with new validUntil
+          softBlock: blockDates.softBlock,
+          hardBlock: blockDates.hardBlock,
           lastRenewalDate: FieldValue.serverTimestamp(),
           updatedAt: FieldValue.serverTimestamp()
         });
@@ -204,7 +224,11 @@ export async function POST(request: NextRequest) {
 
       await PaymentTransactionService.saveTransaction(transactionRecord);
 
-      // Create notification for student
+      // Create notification for student (with 1-day expiry)
+      const notifExpiryDate = new Date();
+      notifExpiryDate.setDate(notifExpiryDate.getDate() + 1);
+      notifExpiryDate.setHours(23, 59, 59, 999);
+
       await adminDb.collection('notifications').add({
         title: '✅ Renewal Request Approved',
         content: `Your offline renewal request for ${durationYears} year(s) has been approved. Your service is now active until ${newValidUntil.toLocaleDateString()}.`,
@@ -219,9 +243,39 @@ export async function POST(request: NextRequest) {
         },
         recipientIds: [studentId],
         createdAt: FieldValue.serverTimestamp(),
+        expiresAt: notifExpiryDate.toISOString(),
         isRead: false,
         isDeletedGlobally: false
       });
+
+      // Send Approval Email via Service
+      const finalStudentEmail = requestData.studentEmail || savedStudentData?.email;
+      if (finalStudentEmail) {
+        try {
+          const { sendApplicationApprovedNotification } = await import('@/lib/services/admin-email.service');
+
+          console.log(`📧 Notification: Queuing renewal approval email for ${studentName} (${finalStudentEmail})`);
+
+          await sendApplicationApprovedNotification({
+            studentName: studentName || 'Student',
+            studentEmail: finalStudentEmail,
+            // Format existing bus info or fallback
+            busNumber: savedStudentData?.busId ? savedStudentData.busId.replace('bus_', 'Bus-') : 'Assigned Bus',
+            routeName: 'Service Renewal', // Context specific
+            shift: savedStudentData?.shift || 'Assigned Shift',
+            validUntil: newValidUntil.toLocaleDateString('en-IN', {
+              day: '2-digit',
+              month: 'short',
+              year: 'numeric'
+            })
+          });
+
+          console.log(`📧 Approval email sent to ${finalStudentEmail}`);
+        } catch (emailError) {
+          console.error('❌ Failed to send approval email:', emailError);
+          // Non-critical error
+        }
+      }
 
       // Log activity
       await adminDb.collection('activity_logs').add({
@@ -239,6 +293,36 @@ export async function POST(request: NextRequest) {
         },
         timestamp: FieldValue.serverTimestamp()
       });
+
+      // Delete receipt image from Cloudinary after successful approval (cleanup)
+      if (receiptImageUrl && cloudinary.config().api_key) {
+        try {
+          console.log('\n🗑️ CLEANING UP PAYMENT PROOF FROM CLOUDINARY (post-approval)');
+          const url = new URL(receiptImageUrl);
+          const pathParts = url.pathname.split('/');
+
+          // Find the part after 'upload' to get the full path
+          const uploadIndex = pathParts.findIndex(part => part === 'upload');
+          if (uploadIndex !== -1) {
+            const afterUpload = pathParts.slice(uploadIndex + 1);
+            const fileName = afterUpload[afterUpload.length - 1];
+
+            if (fileName) {
+              const publicIdParts = afterUpload.filter(part => !part.startsWith('v') || isNaN(Number(part.substring(1))));
+              const lastPart = publicIdParts[publicIdParts.length - 1];
+              const nameWithoutExtension = lastPart.split('.').slice(0, -1).join('.');
+              publicIdParts[publicIdParts.length - 1] = nameWithoutExtension;
+              const publicId = publicIdParts.join('/');
+
+              await cloudinary.uploader.destroy(publicId);
+              console.log(`✅ Deleted payment proof from Cloudinary: ${publicId}`);
+            }
+          }
+        } catch (cloudinaryError) {
+          console.error('⚠️ Error deleting payment proof from Cloudinary (non-fatal):', cloudinaryError);
+          // Don't fail approval if cleanup fails
+        }
+      }
 
       return NextResponse.json({
         success: true,

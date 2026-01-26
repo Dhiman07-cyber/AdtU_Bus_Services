@@ -5,6 +5,17 @@ import { v2 as cloudinary } from 'cloudinary';
 import { checkBusCapacity, incrementBusCapacity, validateAndSuggestBus } from '@/lib/busCapacityService';
 import { calculateRenewalDate } from '@/lib/utils/renewal-utils';
 import { generateOfflinePaymentId, OfflinePaymentDocument } from '@/lib/types/payment';
+import { computeBlockDatesFromValidUntil } from '@/lib/utils/deadline-computation';
+
+// Helper function to normalize shift values (remove "Shift" word, standardize to "Morning"/"Evening")
+function normalizeShift(shift: string | undefined): string {
+  if (!shift) return 'Morning';
+  const normalized = shift.toLowerCase().trim();
+  if (normalized.includes('evening')) return 'Evening';
+  if (normalized.includes('morning')) return 'Morning';
+  if (normalized === 'both') return 'Both';
+  return 'Morning'; // Default
+}
 
 // Configure Cloudinary
 if (process.env.CLOUDINARY_API_KEY && process.env.CLOUDINARY_API_SECRET && process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME) {
@@ -95,9 +106,12 @@ export async function POST(request: NextRequest) {
     // Auto-derive busId from routeId and validate capacity
     const busId = formData.routeId ? formData.routeId.replace('route_', 'bus_') : null;
 
-    if (!busId || !formData.routeId || !formData.stopId || !formData.shift) {
+    // Normalize stopId/pickupPoint
+    const finalStopId = formData.stopId || (formData as any).pickupPoint;
+
+    if (!busId || !formData.routeId || !finalStopId || !formData.shift) {
       return NextResponse.json({
-        error: 'Invalid route information in application'
+        error: 'Invalid route information in application (Missing stop or shift)'
       }, { status: 400 });
     }
 
@@ -167,6 +181,9 @@ export async function POST(request: NextRequest) {
     const sessionEndYear = validUntilDate.getFullYear();
 
     // Create STUDENTS collection document with EXACT field structure as specified
+    // Compute block dates from validUntil date
+    const blockDates = computeBlockDatesFromValidUntil(validUntil);
+
     const studentDoc = {
       // Required fields only - as per specification
       address: formData.address,
@@ -194,12 +211,15 @@ export async function POST(request: NextRequest) {
       semester: formData.semester,
       sessionEndYear: sessionEndYear,
       sessionStartYear: formData.sessionInfo.sessionStartYear,
-      shift: formData.shift,
+      shift: normalizeShift(formData.shift),
       status: 'active',
-      stopId: formData.stopId || '',
+      stopId: finalStopId || '',
       uid: appData.applicantUid,
       updatedAt: approvedAt,
       validUntil: validUntil,
+      // Block dates computed from sessionEndYear
+      softBlock: blockDates.softBlock,
+      hardBlock: blockDates.hardBlock,
       // Payment information from application form
       paymentAmount: formData.paymentInfo?.amountPaid || 0,
       paid_on: approvedAt // Set paid_on to approval date
@@ -242,6 +262,7 @@ export async function POST(request: NextRequest) {
                 sessionEndYear: sessionEndYear,
                 durationYears: onlinePayment.duration_years,
                 validUntil: new Date(validUntil),
+                stopId: finalStopId,
                 razorpayPaymentId: onlinePayment.razorpay_payment_id,
                 razorpayOrderId: onlinePayment.razorpay_order_id,
               });
@@ -265,6 +286,7 @@ export async function POST(request: NextRequest) {
             amount: paymentAmount,
             method: 'Offline',
             status: 'Completed',
+            stopId: finalStopId,
             sessionStartYear: formData.sessionInfo.sessionStartYear,
             sessionEndYear: sessionEndYear,
             durationYears: formData.sessionInfo.durationYears,

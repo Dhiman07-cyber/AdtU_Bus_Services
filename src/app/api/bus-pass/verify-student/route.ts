@@ -59,15 +59,18 @@ export async function POST(request: NextRequest) {
 
         const driverUid = decodedToken.uid;
 
-        // SECURITY: Verify caller is a driver
-        const driverDoc = await adminDb.collection('drivers').doc(driverUid).get();
-        if (!driverDoc.exists) {
-            // Also check users collection for driver role
-            const userDoc = await adminDb.collection('users').doc(driverUid).get();
-            if (!userDoc.exists || userDoc.data()?.role !== 'driver') {
-                console.warn(`Non-driver attempted to verify student: ${driverUid}`);
+        // SECURITY: Verify caller is a driver, admin, or moderator
+        const userDoc = await adminDb.collection('users').doc(driverUid).get();
+        const userData = userDoc.data();
+        const allowedRoles = ['driver', 'admin', 'moderator'];
+
+        if (!userData || !allowedRoles.includes(userData.role)) {
+            // Check legacy drivers collection if not found in users or role mismatch
+            const driverDoc = await adminDb.collection('drivers').doc(driverUid).get();
+            if (!driverDoc.exists) {
+                console.warn(`Unauthorized user attempted to verify student: ${driverUid}`);
                 return NextResponse.json(
-                    { status: 'invalid', message: 'Only drivers can verify students' },
+                    { status: 'invalid', message: 'Only authorized personnel can verify students' },
                     { status: 403 }
                 );
             }

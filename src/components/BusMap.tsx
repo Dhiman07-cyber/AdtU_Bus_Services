@@ -50,20 +50,24 @@ interface WaitingFlag {
 interface RouteStop {
   name: string;
   time?: string;
+  lat?: number;
+  lng?: number;
+  latitude?: number;
+  longitude?: number;
 }
 
-export default function BusMap({ 
+export default function BusMap({
   routeId,
   role,
   journeyActive = false
-}: { 
-  routeId: string; 
+}: {
+  routeId: string;
   role: string;
   journeyActive?: boolean;
 }) {
   const { currentLocation: busLocation, history, loading: busLoading, error: busError, getInterpolatedPosition } = useBusLocation(routeId);
   const { flags: waitingFlags, loading: flagsLoading, error: flagsError } = useWaitingFlags(routeId);
-  
+
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [routeStops, setRouteStops] = useState<RouteStop[]>([]);
@@ -74,26 +78,26 @@ export default function BusMap({
   useEffect(() => {
     const fetchRouteData = async () => {
       if (!routeId) return;
-      
+
       try {
         // Fetch route details
         const route = await getRouteById(routeId);
         if (route && route.stops) {
           setRouteStops(route.stops);
-          
+
           // Set map center to first stop if available
           if (route.stops.length > 0) {
             setMapCenter([0, 0]); // Default center
           }
-          
+
           // Fetch route geometry if we have enough stops
           if (route.stops.length >= 2) {
-            // Use default coordinates for route geometry
-            const coordinates = route.stops.map((stop: any, index: number) => ({
-              lat: 0 + (index * 0.001),
-              lng: 0 + (index * 0.001)
+            // Use actual coordinates for route geometry
+            const coordinates = route.stops.map((stop: any) => ({
+              lat: stop.lat || stop.latitude,
+              lng: stop.lng || stop.longitude
             }));
-            
+
             try {
               const geometry = await fetchRouteGeometryViaProxy(coordinates);
               if (geometry) {
@@ -101,16 +105,14 @@ export default function BusMap({
                 const leafletCoords = geometry.coordinates.map(coord => [coord[1], coord[0]] as [number, number]);
                 setRoutePolyline(leafletCoords);
               } else {
-                // If ORS fails, fall back to simple polyline connecting stops
-                console.warn('Using simple polyline fallback');
-                const simplePolyline = route.stops.map((stop: any, index: number) => [0 + (index * 0.001), 0 + (index * 0.001)] as [number, number]);
-                setRoutePolyline(simplePolyline);
+                // If ORS fails/returns null, hide the polyline
+                console.warn('ORS unavailable, hiding route line');
+                setRoutePolyline([]);
               }
             } catch (orsError) {
-              console.warn('ORS error, using simple polyline:', orsError);
-              // Fallback: create simple polyline by connecting stops directly
-              const simplePolyline = route.stops.map((stop: any, index: number) => [0 + (index * 0.001), 0 + (index * 0.001)] as [number, number]);
-              setRoutePolyline(simplePolyline);
+              console.warn('ORS error or credits exhausted, hiding route line:', orsError);
+              // Fallback: hide the polyline completely to avoid ugly jagged lines
+              setRoutePolyline([]);
             }
           }
         }
@@ -149,9 +151,9 @@ export default function BusMap({
 
   return (
     <div className="relative">
-      <MapContainer 
-        center={mapCenter} 
-        zoom={13} 
+      <MapContainer
+        center={mapCenter}
+        zoom={13}
         style={{ height: '400px', width: '100%' }}
         className="rounded-lg"
         zoomControl={true}
@@ -166,7 +168,7 @@ export default function BusMap({
           url={process.env.NEXT_PUBLIC_MAP_TILE_PROVIDER_URL || "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"}
           attribution={process.env.NEXT_PUBLIC_MAP_TILE_PROVIDER_ATTRIBUTION || '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'}
         />
-        
+
         {/* Route polyline */}
         {routePolyline.length > 0 && (
           <Polyline
@@ -176,12 +178,12 @@ export default function BusMap({
             opacity={0.7}
           />
         )}
-        
+
         {/* Route stops */}
         {routeStops.map((stop, index) => (
           <Marker
             key={`stop-${index}`}
-            position={[0 + (index * 0.001), 0 + (index * 0.001)]}
+            position={[stop.lat || stop.latitude || 0, stop.lng || stop.longitude || 0]}
           >
             <Popup>
               <div className="font-bold">{stop.name}</div>
@@ -189,7 +191,7 @@ export default function BusMap({
             </Popup>
           </Marker>
         ))}
-        
+
         {/* Bus marker - Only show when journey is active */}
         {journeyActive && busLocation && (
           <Marker
@@ -218,7 +220,7 @@ export default function BusMap({
           </Marker>
         ))}
       </MapContainer>
-      
+
       {routeId && !journeyActive && (
         <div className="absolute top-2 left-2 right-2 bg-blue-50 border border-blue-200 text-blue-800 px-4 py-3 rounded-lg shadow-sm z-10">
           <div className="flex items-center">
@@ -226,7 +228,7 @@ export default function BusMap({
             <div>
               <p className="font-medium">Journey Not Active</p>
               <p className="text-sm">
-                {role === 'driver' 
+                {role === 'driver'
                   ? 'Start your journey to show bus location and student waiting flags on the map.'
                   : 'Driver has not started the journey yet. Waiting flags will appear when the journey begins.'
                 }
@@ -235,19 +237,19 @@ export default function BusMap({
           </div>
         </div>
       )}
-      
+
       {loading && (
         <div className="absolute inset-0 flex items-center justify-center bg-white bg-opacity-70">
           <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-blue-500"></div>
         </div>
       )}
-      
+
       {error && (
         <div className="absolute top-2 left-2 right-2 bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded">
           {error}
         </div>
       )}
-      
+
       <div className="absolute bottom-2 left-2 bg-white bg-opacity-90 px-3 py-2 rounded text-sm">
         <div>Bus Location: {busLocation ? 'Active' : 'Inactive'}</div>
         <div>Student Flags: {waitingFlags.length}</div>

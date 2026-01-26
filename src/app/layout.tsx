@@ -2,6 +2,7 @@ import './globals.css';
 import type { Metadata } from 'next';
 import { Inter } from 'next/font/google';
 import { AuthProvider } from '@/contexts/auth-context';
+import { NotificationProvider } from '@/contexts/NotificationContext';
 import { ToastProvider } from '@/contexts/toast-context';
 import { ThemeProvider } from '@/components/theme-provider';
 import { suppressConsoleWarnings } from '@/lib/console-suppress';
@@ -45,6 +46,11 @@ export async function generateMetadata(): Promise<Metadata> {
       statusBarStyle: 'default',
       title: appName,
     },
+    icons: {
+      icon: '/favicon.ico',
+      shortcut: '/favicon.ico',
+      apple: '/icons/icon-192x192.png',
+    },
   };
 }
 
@@ -85,11 +91,13 @@ export default function RootLayout({
           <ThemeProvider>
             <ToastProvider>
               <AuthProvider>
-                <SmoothScrollProvider>
-                  <AppShell>
-                    {children}
-                  </AppShell>
-                </SmoothScrollProvider>
+                <NotificationProvider>
+                  <SmoothScrollProvider>
+                    <AppShell>
+                      {children}
+                    </AppShell>
+                  </SmoothScrollProvider>
+                </NotificationProvider>
               </AuthProvider>
             </ToastProvider>
           </ThemeProvider>

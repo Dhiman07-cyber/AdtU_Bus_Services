@@ -8,6 +8,8 @@ const nextConfig: NextConfig = {
   },
 
   // Performance optimizations
+  serverExternalPackages: ['cloudinary'],
+
   experimental: {
     optimizePackageImports: [
       'lucide-react',
@@ -16,22 +18,44 @@ const nextConfig: NextConfig = {
       '@radix-ui/react-dialog',
       '@radix-ui/react-dropdown-menu',
       '@radix-ui/react-select',
+      '@radix-ui/react-popover',
+      '@radix-ui/react-tooltip',
+      '@radix-ui/react-tabs',
+      '@radix-ui/react-scroll-area',
+      '@radix-ui/react-avatar',
+      '@radix-ui/react-checkbox',
+      '@radix-ui/react-switch',
+      '@radix-ui/react-label',
+      '@radix-ui/react-separator',
+      '@radix-ui/react-slot',
+      '@supabase/supabase-js',
       'qrcode.react',
-      'jsqr'
+      'jsqr',
+      'date-fns',
+      'firebase',
+      'firebase/firestore',
+      'firebase/auth',
     ],
     // Faster builds in development
     serverActions: {
-      bodySizeLimit: '2mb',
+      bodySizeLimit: '10mb',
+      allowedOrigins: [
+        '8g4fmnb9-3000.inc1.devtunnels.ms',
+        'https://8g4fmnb9-3000.inc1.devtunnels.ms',
+        'localhost:3000',
+        'http://localhost:3000'
+      ]
     },
-    // Enable faster refresh
-    optimizeCss: true,
+
+    // Note: optimizeCss can cause issues with Turbopack, disable for dev
+    // optimizeCss: true,
     // Optimize font loading
     optimizeServerReact: true,
   },
 
   // Turbopack configuration (moved from experimental.turbo)
   turbopack: {
-    root: process.cwd(), // Use absolute path
+    root: __dirname, // Explicitly set the project root to fix multiple lockfile warning
     rules: {
       '*.svg': {
         loaders: ['@svgr/webpack'],
@@ -55,12 +79,11 @@ const nextConfig: NextConfig = {
         removeEmptyChunks: false,
         splitChunks: false,
       };
-      // Reduce memory usage in development
+      // Enable filesystem caching for faster incremental builds
       config.cache = {
         type: 'filesystem',
-        buildDependencies: {
-          config: [__filename],
-        },
+        version: '1.0.0',
+        cacheDirectory: require('path').resolve('.next/cache/webpack'),
       };
     } else if (!isServer) {
       // Production optimizations
@@ -109,12 +132,19 @@ const nextConfig: NextConfig = {
     qualities: [25, 50, 75, 90, 100],
   },
 
-  // Add headers for mobile compatibility and Razorpay
+  // Add headers for security, mobile compatibility, and Razorpay
   async headers() {
+    const isProduction = process.env.NODE_ENV === 'production';
+
     return [
       {
         source: '/:path*',
         headers: [
+          // HSTS: Force HTTPS in production
+          ...(isProduction ? [{
+            key: 'Strict-Transport-Security',
+            value: 'max-age=31536000; includeSubDomains; preload',
+          }] : []),
           // COOP header set to allow Firebase Auth popups
           {
             key: 'Cross-Origin-Opener-Policy',
@@ -125,11 +155,12 @@ const nextConfig: NextConfig = {
             value: 'unsafe-none',
           },
           // CSP headers for Firebase Auth, Razorpay, and mobile compatibility
+          // Note: 'unsafe-inline' and 'unsafe-eval' required by Firebase/Razorpay SDKs
           {
             key: 'Content-Security-Policy',
             value: [
               "default-src 'self'",
-              // Scripts: Firebase, Razorpay, Google APIs
+              // Scripts: Firebase, Razorpay, Google APIs - unsafe-eval required by these SDKs
               "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://checkout.razorpay.com https://*.razorpay.com https://apis.google.com https://www.gstatic.com",
               // Styles: Allow all for Firebase UI
               "style-src 'self' 'unsafe-inline' https://checkout.razorpay.com https://fonts.googleapis.com",
@@ -137,27 +168,42 @@ const nextConfig: NextConfig = {
               "img-src 'self' data: blob: https: https://res.cloudinary.com https://lh3.googleusercontent.com https://api.dicebear.com https://checkout.razorpay.com https://www.google.com",
               // Fonts: Google Fonts, Razorpay
               "font-src 'self' data: https://checkout.razorpay.com https://fonts.gstatic.com",
-              // Connect: Firebase, Razorpay, Supabase, Google (for ping), Localhost (for Firebase Emulator)
-              "connect-src 'self' http://localhost:* http://127.0.0.1:* https://*.razorpay.com https://api.razorpay.com wss://*.supabase.co https://*.supabase.co https://firestore.googleapis.com https://securetoken.googleapis.com https://identitytoolkit.googleapis.com https://*.googleapis.com https://apis.google.com https://accounts.google.com https://www.google.com",
+              // Connect: Firebase, Razorpay, Supabase, Google, Cloudinary - restrict to specific domains in production
+              isProduction
+                ? "connect-src 'self' https://*.razorpay.com https://api.razorpay.com wss://*.supabase.co https://*.supabase.co https://firestore.googleapis.com https://securetoken.googleapis.com https://identitytoolkit.googleapis.com https://*.googleapis.com https://apis.google.com https://accounts.google.com https://www.google.com https://api.cloudinary.com https://*.cloudinary.com"
+                : "connect-src 'self' http://localhost:* http://127.0.0.1:* https://*.razorpay.com https://api.razorpay.com wss://*.supabase.co https://*.supabase.co https://firestore.googleapis.com https://securetoken.googleapis.com https://identitytoolkit.googleapis.com https://*.googleapis.com https://apis.google.com https://accounts.google.com https://www.google.com https://api.cloudinary.com https://*.cloudinary.com",
               // Frames: Google OAuth, Razorpay checkout
               "frame-src 'self' https://api.razorpay.com https://checkout.razorpay.com https://accounts.google.com https://*.firebaseapp.com",
               "base-uri 'self'",
               // Form action: Allow Google OAuth and Razorpay
               "form-action 'self' https://api.razorpay.com https://accounts.google.com",
+              // Block object embedding
+              "object-src 'none'",
+              // Upgrade insecure requests in production
+              ...(isProduction ? ["upgrade-insecure-requests"] : []),
             ].join('; '),
           },
-          // Mobile-specific headers
+          // Security headers
           {
             key: 'X-Content-Type-Options',
             value: 'nosniff',
           },
           {
             key: 'X-Frame-Options',
-            value: 'SAMEORIGIN',
+            value: 'DENY',
+          },
+          {
+            key: 'X-XSS-Protection',
+            value: '1; mode=block',
           },
           {
             key: 'Referrer-Policy',
             value: 'strict-origin-when-cross-origin',
+          },
+          // Permissions Policy - restrict browser features
+          {
+            key: 'Permissions-Policy',
+            value: 'camera=(self), microphone=(), geolocation=(self), payment=(self)',
           },
         ],
       },

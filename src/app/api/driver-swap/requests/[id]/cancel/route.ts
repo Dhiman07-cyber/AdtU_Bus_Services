@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
-import { auth, db, FieldValue } from '@/lib/firebase-admin';
+import { auth } from '@/lib/firebase-admin';
+import { DriverSwapSupabaseService } from '@/lib/driver-swap-supabase';
 
 export async function POST(
   request: Request,
@@ -23,52 +24,17 @@ export async function POST(
     const decodedToken = await auth.verifyIdToken(token);
     const userUID = decodedToken.uid;
 
-    // Get the request document
-    const requestDoc = await db.collection('driver_swap_requests').doc(requestId).get();
-    if (!requestDoc.exists) {
+    console.log(`📥 Cancel swap request: ${requestId} by ${userUID.substring(0, 8)}`);
+
+    // Cancel the swap request using Supabase
+    const result = await DriverSwapSupabaseService.cancelSwapRequest(requestId, userUID);
+
+    if (!result.success) {
       return NextResponse.json(
-        { error: 'Request not found' },
-        { status: 404 }
-      );
-    }
-
-    const requestData = requestDoc.data();
-
-    // Check if user is authorized to cancel (must be the requester or admin)
-    const isRequester = requestData?.fromDriverUID === userUID;
-    const isAdmin = await db.collection('admins').doc(userUID).get().then((doc: any) => doc.exists);
-
-    if (!isRequester && !isAdmin) {
-      return NextResponse.json(
-        { error: 'You are not authorized to cancel this request' },
-        { status: 403 }
-      );
-    }
-
-    // Check if request can be cancelled
-    if (requestData?.status !== 'pending') {
-      return NextResponse.json(
-        { error: `Cannot cancel request with status: ${requestData?.status}` },
+        { error: result.error || 'Failed to cancel swap request' },
         { status: 400 }
       );
     }
-
-    // DELETE the swap request document immediately
-    await requestDoc.ref.delete();
-    console.log(`🗑️ Deleted cancelled swap request: ${requestId}`);
-
-    // Send notification to the other driver
-    const notifyUID = isRequester ? requestData.toDriverUID : requestData.fromDriverUID;
-    await db.collection('notifications').add({
-      title: 'Swap Request Cancelled',
-      message: `The swap request for Bus ${requestData.busNumber || requestData.busId} has been cancelled.`,
-      type: 'info',
-      category: 'general',
-      audience: [notifyUID],
-      status: 'sent',
-      createdBy: 'system',
-      createdAt: FieldValue.serverTimestamp()
-    });
 
     return NextResponse.json({
       success: true,

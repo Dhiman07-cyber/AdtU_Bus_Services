@@ -1346,7 +1346,7 @@ html.lenis body {
   }
 
   /* Compact action buttons */
-  .students-scroll-wrapper table button {
+  .students-scroll-wrapper table button:not(.w-auto) {
     width: 28px !important;
     height: 28px !important;
     padding: 0 !important;
