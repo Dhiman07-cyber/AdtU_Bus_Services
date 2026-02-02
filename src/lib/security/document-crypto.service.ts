@@ -31,7 +31,13 @@ import * as crypto from 'crypto';
 // Environment-based key loading with fallback generation
 const PRIVATE_KEY_PEM = process.env.DOCUMENT_PRIVATE_KEY || '';
 const PUBLIC_KEY_PEM = process.env.DOCUMENT_PUBLIC_KEY || '';
-const KEY_SECRET = process.env.DOCUMENT_SIGNING_SECRET || process.env.ENCRYPTION_SECRET_KEY || 'adtu-document-signing-secret-key-2024';
+// SECURITY: Never use hardcoded secrets. Generate cryptographically secure fallback.
+// In production, DOCUMENT_SIGNING_SECRET or ENCRYPTION_SECRET_KEY MUST be set.
+const KEY_SECRET = process.env.DOCUMENT_SIGNING_SECRET || process.env.ENCRYPTION_SECRET_KEY || (() => {
+    const generated = crypto.randomBytes(32).toString('hex');
+    console.warn('⚠️ SECURITY WARNING: Using generated document signing secret. Set DOCUMENT_SIGNING_SECRET env var for production.');
+    return generated;
+})();
 
 // Cached key pair
 let cachedKeyPair: { privateKey: string; publicKey: string } | null = null;
