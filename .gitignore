@@ -46,3 +46,5 @@ logs/
 Plan.txt
 
 public/landing_video/
+
+test_results_*.json
