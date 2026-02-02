@@ -57,10 +57,12 @@ The system is built on **four core invariants**:
 
 4.  **Daily Commute**: Tracks live bus location, sees ETA, and raises "Waiting" flags if the bus is late.
 
-5.  **Renewal**: System notifies before session expiry. Pays specifically for the next session cycle.
+5.  **Missed Bus Recovery**: If the assigned bus is missed, requests pickup from nearby candidate buses (subject to proximity and availability checks).
+
+6.  **Renewal**: System notifies before session expiry. Pays specifically for the next session cycle.
 
 ### 🚗 Driver Flow
-1.  **Trip Management**: "Start Trip" broadcasts live GPS to Supabase (5s intervals). "End Trip" archives the journey.
+1.  **Trip Management**: "Start Trip" acquires an **exclusive system lock** preventing concurrent operations. Broadcasts live GPS to Supabase (5s intervals). "End Trip" archives the journey.
 
 2.  **Swap System (Mobile-Centric)**:
     *   Request a swap with another driver for a specific time window.
@@ -125,6 +127,16 @@ iii. Bus reassignment for route changes.
 *   **Ephemeral**: Swaps are temporary states that auto-expire.
 *   **Atomic**: Updates both drivers and the bus document in a single transaction to prevent "driver-less" buses.
 
+### 5. Missed Bus Recovery
+*   **Proximity-Aware**: Intelligently distinguishes between "waiting for approaching bus" vs "genuinely missed bus" (100m threshold).
+*   **Driver-Driven**: Requests are broadcast to nearby candidate buses on the same route; first driver to accept wins.
+*   **Lightweight**: Uses ephemeral location sharing and minimal DB state (single table, server-only writes) without expensive administrative overrides.
+
+### 6. Multi-Driver Lock System
+*   **Exclusive Operation**: Distributed Firestore locks ensure only one driver operates a bus at a specific time.
+*   **Auto-Recovery**: Heartbeat-based monitoring automatically releases locks if a driver app crashes or disconnects (>60s).
+*   **Zero-Admin**: Fully autonomous system requiring no manual intervention or force-release tools.
+
 ---
 
 ## 🔒 Security & Cryptography
@@ -137,8 +149,6 @@ iii. Bus reassignment for route changes.
 ---
 
 ## 🚧 Operational Safety
-
-*   **Realtime Kill-Switch**: A config in Firestore can instantly disable all realtime listeners app-wide if quota limits are approached.
 *   **Idempotency**: All critical actions (payments, reassignments) use unique `operation_id` keys to prevent double-processing.
 *   **CI/CD Gates**: Code is scanned for secrets and unsafe query patterns before deployment.
 

@@ -6,6 +6,7 @@ import { checkBusCapacity, incrementBusCapacity, validateAndSuggestBus } from '@
 import { calculateRenewalDate } from '@/lib/utils/renewal-utils';
 import { generateOfflinePaymentId, OfflinePaymentDocument } from '@/lib/types/payment';
 import { computeBlockDatesFromValidUntil } from '@/lib/utils/deadline-computation';
+import { createUpdatedByEntry } from '@/lib/utils/updatedBy';
 
 // Helper function to normalize shift values (remove "Shift" word, standardize to "Morning"/"Evening")
 function normalizeShift(shift: string | undefined): string {
@@ -222,7 +223,9 @@ export async function POST(request: NextRequest) {
       hardBlock: blockDates.hardBlock,
       // Payment information from application form
       paymentAmount: formData.paymentInfo?.amountPaid || 0,
-      paid_on: approvedAt // Set paid_on to approval date
+      paid_on: approvedAt, // Set paid_on to approval date
+      // Audit trail - who created/updated this document
+      updatedBy: [createUpdatedByEntry(name, adminDoc.exists ? 'Admin' : empId)]
     };
 
     console.log('📝 Creating STUDENTS collection document for:', appData.applicantUid);

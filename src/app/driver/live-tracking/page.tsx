@@ -11,6 +11,7 @@ import { Bus, MapPin, Clock, Users, Flag, PlayCircle, StopCircle, AlertCircle, N
 import { supabase } from "@/lib/supabase-client";
 import { getDriverById, getBusById, getRouteById } from "@/lib/dataService";
 import { useToast } from "@/contexts/toast-context";
+import { PremiumPageLoader } from "@/components/LoadingSpinner";
 import {
   checkDeviceSession,
   registerDeviceSession,
@@ -121,6 +122,15 @@ export default function DriverLiveTrackingPage() {
   const currentDeviceId = useRef<string>('');
   const [isChannelReady, setIsChannelReady] = useState(false);
 
+  // Multi-driver lock state - blocks UI when another driver is operating the bus
+  const [busLockedByOther, setBusLockedByOther] = useState(false);
+  const [lockInfo, setLockInfo] = useState<{
+    lockedByDriver?: string;
+    tripId?: string;
+    since?: string;
+  } | null>(null);
+  const lastValidLocationRef = useRef<{ lat: number; lng: number } | null>(null);
+
   // Start location tracking with better error handling and fallback
   const startLocationTracking = useCallback(() => {
     if (!navigator.geolocation) {
@@ -170,10 +180,10 @@ export default function DriverLiveTrackingPage() {
               console.log("📍 Location update:", { latitude, longitude, gpsSpeed, gpsAccuracy });
             },
             (error) => {
-              console.warn("⚠️ Watch error (lower accuracy):", error.message);
+              console.warn("⚠️ Watch error (lower accuracy):", error.code, error.message);
             },
             {
-              enableHighAccuracy: true,
+              enableHighAccuracy: false,
               maximumAge: 0, // Always get fresh location
               timeout: 15000, // Increased timeout for better accuracy
             }
@@ -225,20 +235,28 @@ export default function DriverLiveTrackingPage() {
             console.log("📍 Location update:", { latitude, longitude, gpsSpeed, gpsAccuracy });
           },
           (error) => {
-            console.error("❌ Geolocation watch error:", error);
+            console.error("❌ Geolocation watch error:", { code: error.code, message: error.message });
 
-            let userMessage = "GPS tracking error";
-            if (error.code === error.PERMISSION_DENIED) {
-              userMessage = "Location permission denied. Please enable location access in your browser settings.";
-            } else if (error.code === error.POSITION_UNAVAILABLE) {
-              userMessage = "Location unavailable. Trying network location...";
-              // Don't show as error, will try fallback
-            } else if (error.code === error.TIMEOUT) {
-              userMessage = "Location request timed out. Trying again...";
+            // Handle specific errors
+            if (error.code === 1) { // PERMISSION_DENIED
+              addToast("Location permission denied. Please allow location access.", "error");
             }
+            else if (error.code === 2 || error.code === 3) { // POSITION_UNAVAILABLE or TIMEOUT
+              console.log("⚠️ High accuracy watch failed, switching to lower accuracy...");
 
-            if (error.code !== error.POSITION_UNAVAILABLE) {
-              addToast(userMessage, error.code === error.PERMISSION_DENIED ? "error" : "warning");
+              // Clear the failing watch
+              if (watchIdRef.current !== null) {
+                navigator.geolocation.clearWatch(watchIdRef.current);
+                watchIdRef.current = null;
+              }
+
+              // Try fallback
+              tryLowerAccuracy();
+
+              // Notify user if it's a persistent issue (optional, maybe skip to avoid spam)
+              // addToast("GPS signal weak, switching to network location...", "warning");
+            } else {
+              addToast("GPS tracking error: " + error.message, "warning");
             }
           },
           {
@@ -302,14 +320,7 @@ export default function DriverLiveTrackingPage() {
   }, [stopLocationTracking]);
 
 
-  // 🚨 DEVELOPMENT: Clear any cached data on mount for fresh state
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      console.log('🧹 DEV MODE: Clearing localStorage cache for fresh data');
-      localStorage.removeItem('adtu_bus_user_data');
-      localStorage.removeItem('adtu_bus_cache_expiry');
-    }
-  }, []);
+  // NOTE: Cache clearing removed for production - caching is now enabled
 
   // Check for active (ACCEPTED) swap requests - only blocks BEFORE the swap period starts
   useEffect(() => {
@@ -592,6 +603,30 @@ export default function DriverLiveTrackingPage() {
         const result = await response.json();
         console.log("📊 Active trip check result:", result);
 
+        // =====================================================
+        // MULTI-DRIVER LOCK CHECK
+        // If bus is locked by another driver, block this driver
+        // =====================================================
+        if (result.busLockedByOther) {
+          console.log("🔒 Bus is locked by another driver!", result.lockInfo);
+          setBusLockedByOther(true);
+          setLockInfo(result.lockInfo || null);
+          // Don't set tripActive for this driver - they shouldn't operate
+          if (tripActive) {
+            setTripActive(false);
+            setTripId(null);
+            stopLocationTracking();
+          }
+          return; // Don't continue with trip check
+        } else {
+          // Clear lock state if previously locked
+          if (busLockedByOther) {
+            console.log("🔓 Bus lock released, driver can now operate");
+            setBusLockedByOther(false);
+            setLockInfo(null);
+          }
+        }
+
         if (result.hasActiveTrip) {
           // Only update if state changed
           if (!tripActive || tripId !== result.tripData?.tripId) {
@@ -643,6 +678,13 @@ export default function DriverLiveTrackingPage() {
   // ==========================================
   // This prevents location sharing confusion when the same driver account
   // is accessed from multiple devices simultaneously.
+  // Track tripActive in a ref for cleanup access without triggering re-renders
+  const tripActiveRef = useRef(tripActive);
+  useEffect(() => {
+    tripActiveRef.current = tripActive;
+  }, [tripActive]);
+
+  // Check for existing sessions when page loads
   useEffect(() => {
     if (!currentUser?.uid) return;
 
@@ -650,8 +692,10 @@ export default function DriverLiveTrackingPage() {
     currentDeviceId.current = getOrCreateDeviceId();
     console.log('📱 Current device ID:', currentDeviceId.current.substring(0, 8) + '...');
 
-    // Check for existing sessions when page loads
     const checkExistingSession = async () => {
+      // Don't check if we already have an active trip locally (prevent self-conflict)
+      if (tripActiveRef.current) return;
+
       const sessionCheck = await checkDeviceSession(currentUser.uid, 'driver_location_share');
       console.log('🔍 Device session check:', sessionCheck);
 
@@ -673,7 +717,8 @@ export default function DriverLiveTrackingPage() {
     // Cleanup on unmount
     return () => {
       // If this device was broadcasting, release the session
-      if (tripActive) {
+      // Use ref here to get latest value without re-running effect
+      if (tripActiveRef.current) {
         console.log('🧹 Releasing device session on unmount...');
         releaseDeviceSession(currentUser.uid, 'driver_location_share');
       }
@@ -682,7 +727,7 @@ export default function DriverLiveTrackingPage() {
         deviceSessionHeartbeatRef.current = null;
       }
     };
-  }, [currentUser?.uid, tripActive]);
+  }, [currentUser?.uid]); // Removed tripActive dependency to prevent re-runs on trip start/end
 
   // Start/Stop device session heartbeat when trip is active
   useEffect(() => {
@@ -698,13 +743,13 @@ export default function DriverLiveTrackingPage() {
           }
         });
 
-      // Start heartbeat every 10 seconds to keep session alive
+      // Start heartbeat every 1 minute to keep session alive
       deviceSessionHeartbeatRef.current = setInterval(async () => {
         const success = await heartbeatDeviceSession(currentUser.uid, 'driver_location_share');
         if (!success) {
           console.warn('⚠️ Device session heartbeat failed');
         }
-      }, 10000);
+      }, 60000);
     } else {
       // Trip ended - release session
       if (deviceSessionHeartbeatRef.current) {
@@ -1311,12 +1356,24 @@ export default function DriverLiveTrackingPage() {
       if (!response.ok) {
         // Try to parse error message if possible, otherwise use status text
         let errorMessage;
+        let errorCode;
         try {
           const errorData = await response.json();
           errorMessage = errorData.error || errorData.message;
+          errorCode = errorData.errorCode;
         } catch (e) {
           errorMessage = `Server error (${response.status}: ${response.statusText})`;
         }
+
+        // Handle 409 conflict - bus is locked by another driver
+        if (response.status === 409 || errorCode === 'LOCKED_BY_OTHER') {
+          console.log("🔒 Bus is locked by another driver - cannot start trip");
+          setBusLockedByOther(true);
+          stopLocationTracking();
+          addToast("This bus is currently being operated by another driver.", "error");
+          return; // Exit early - blocking UI will be shown
+        }
+
         throw new Error(errorMessage || "Failed to start trip");
       }
 
@@ -1542,117 +1599,13 @@ export default function DriverLiveTrackingPage() {
   };
 
 
-  if (loading) {
+  if (loading || swapRequestLoading) {
     return (
-      <div className="flex flex-col items-center justify-center min-h-screen bg-[#020817] text-white">
-        {/* Single flex container - column aligned, center everything */}
-        <div className="flex flex-col items-center justify-center gap-8">
-          {/* Main Icon Container - centered */}
-          <div className="relative flex items-center justify-center w-24 h-24">
-            {/* Continuous rotating ring spinner */}
-            <div
-              className="absolute inset-0 rounded-full border-4 border-transparent animate-[spin_1.5s_linear_infinite]"
-              style={{
-                borderTopColor: '#22c55e',
-                borderRightColor: 'transparent',
-                borderBottomColor: '#10b981',
-                borderLeftColor: 'transparent',
-              }}
-            />
-
-            {/* Secondary ring with offset timing */}
-            <div
-              className="absolute inset-1 rounded-full border-2 border-transparent animate-[spin_2s_linear_infinite_reverse]"
-              style={{
-                borderTopColor: 'transparent',
-                borderRightColor: '#34d399',
-                borderBottomColor: 'transparent',
-                borderLeftColor: '#34d399',
-                opacity: 0.5,
-              }}
-            />
-
-            {/* Inner Circle with Navigation Icon - centered */}
-            <div className="relative h-16 w-16 rounded-full bg-[#0f172a] border-2 border-green-500/50 flex items-center justify-center shadow-[0_0_20px_rgba(34,197,94,0.4)]">
-              <Navigation className="h-7 w-7 text-green-400" strokeWidth={2.5} />
-            </div>
-          </div>
-
-          {/* Text Content - centered */}
-          <div className="text-center space-y-3">
-            <h2 className="text-2xl font-bold tracking-tight bg-gradient-to-r from-green-400 to-emerald-500 bg-clip-text text-transparent">
-              Loading Live Tracking
-            </h2>
-            <p className="text-slate-400 text-sm font-medium">
-              Connecting to GPS and route services...
-            </p>
-          </div>
-
-          {/* Sequential Pulse Dots - centered with sequential animation */}
-          <div className="flex items-center gap-2">
-            <div className="w-2.5 h-2.5 rounded-full bg-green-500 animate-pulse-dot" style={{ animationDelay: '0s' }} />
-            <div className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse-dot" style={{ animationDelay: '0.4s' }} />
-            <div className="w-2.5 h-2.5 rounded-full bg-teal-500 animate-pulse-dot" style={{ animationDelay: '0.8s' }} />
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  // Show loading state while checking swap requests
-  if (swapRequestLoading) {
-    return (
-      <div className="flex flex-col items-center justify-center min-h-screen bg-[#020817] text-white">
-        {/* Single flex container - column aligned, center everything */}
-        <div className="flex flex-col items-center justify-center gap-8">
-          {/* Main Icon Container - centered */}
-          <div className="relative flex items-center justify-center w-24 h-24">
-            {/* Continuous rotating ring spinner */}
-            <div
-              className="absolute inset-0 rounded-full border-4 border-transparent animate-[spin_1.5s_linear_infinite]"
-              style={{
-                borderTopColor: '#22c55e',
-                borderRightColor: 'transparent',
-                borderBottomColor: '#10b981',
-                borderLeftColor: 'transparent',
-              }}
-            />
-
-            {/* Secondary ring with offset timing */}
-            <div
-              className="absolute inset-1 rounded-full border-2 border-transparent animate-[spin_2s_linear_infinite_reverse]"
-              style={{
-                borderTopColor: 'transparent',
-                borderRightColor: '#34d399',
-                borderBottomColor: 'transparent',
-                borderLeftColor: '#34d399',
-                opacity: 0.5,
-              }}
-            />
-
-            {/* Inner Circle with Navigation Icon - centered */}
-            <div className="relative h-16 w-16 rounded-full bg-[#0f172a] border-2 border-green-500/50 flex items-center justify-center shadow-[0_0_20px_rgba(34,197,94,0.4)]">
-              <Navigation className="h-7 w-7 text-green-400" strokeWidth={2.5} />
-            </div>
-          </div>
-
-          {/* Text Content - centered */}
-          <div className="text-center space-y-3">
-            <h2 className="text-2xl font-bold tracking-tight bg-gradient-to-r from-green-400 to-emerald-500 bg-clip-text text-transparent">
-              Loading Live Tracking
-            </h2>
-            <p className="text-slate-400 text-sm font-medium">
-              Connecting to GPS and route services...
-            </p>
-          </div>
-
-          {/* Sequential Pulse Dots - centered with sequential animation */}
-          <div className="flex items-center gap-2">
-            <div className="w-2.5 h-2.5 rounded-full bg-green-500 animate-pulse-dot" style={{ animationDelay: '0s' }} />
-            <div className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse-dot" style={{ animationDelay: '0.4s' }} />
-            <div className="w-2.5 h-2.5 rounded-full bg-teal-500 animate-pulse-dot" style={{ animationDelay: '0.8s' }} />
-          </div>
-        </div>
+      <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-[#020817]">
+        <PremiumPageLoader
+          message="Initiating Real-time Tracking..."
+          subMessage="Connecting to GPS and route services..."
+        />
       </div>
     );
   }
@@ -1833,6 +1786,98 @@ export default function DriverLiveTrackingPage() {
                   } text-white`}
               >
                 View Swap Details
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  // =====================================================
+  // MULTI-DRIVER LOCK BLOCKING UI
+  // Show blocking message if bus is locked by another driver
+  // =====================================================
+  if (busLockedByOther) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-red-50 via-orange-50 to-amber-50 dark:from-gray-950 dark:via-red-950/30 dark:to-orange-950/20 flex items-center justify-center p-4">
+        <Card className="max-w-lg w-full border-0 shadow-2xl bg-white/90 dark:bg-gray-900/90 backdrop-blur-xl rounded-3xl overflow-hidden pt-0">
+          {/* Header with gradient */}
+          <div className="relative p-6 pb-8 bg-gradient-to-r from-red-500 via-orange-500 to-amber-500">
+            <div className="absolute inset-0 bg-[url('/noise.png')] opacity-10" />
+            <div className="relative flex flex-col items-center text-center">
+              {/* Icon */}
+              <div className="mb-4 p-4 bg-white/20 backdrop-blur-md rounded-2xl border border-white/30 shadow-lg">
+                <AlertCircle className="w-10 h-10 text-white" />
+              </div>
+              <h1 className="text-2xl font-bold text-white tracking-tight">
+                Bus Currently In Use
+              </h1>
+              <p className="text-sm mt-1 font-medium text-red-100">
+                Another driver is operating this bus
+              </p>
+            </div>
+          </div>
+
+          <CardContent className="p-6 -mt-4">
+            {/* Main Info Card */}
+            <div className="rounded-2xl p-5 border shadow-sm bg-gradient-to-br from-red-50 to-orange-50 dark:from-gray-800 dark:to-red-900/20 border-red-200 dark:border-red-800/50">
+              <div className="text-center mb-4">
+                <p className="text-gray-600 dark:text-gray-400 text-sm">
+                  This bus is currently being operated by another driver assigned to the same bus.
+                  Please wait until they complete their trip.
+                </p>
+              </div>
+
+              <div className="flex items-center justify-center gap-4 py-4 border-t border-red-200 dark:border-red-800/50">
+                <div className="text-center">
+                  <Bus className="w-12 h-12 mx-auto text-red-500 mb-2" />
+                  <p className="text-lg font-bold text-red-600 dark:text-red-400">
+                    {busData?.busNumber || busData?.busId || 'Bus'}
+                  </p>
+                  <p className="text-xs text-gray-500">Currently Active</p>
+                </div>
+              </div>
+
+              {lockInfo?.since && (
+                <div className="text-center mt-4 p-3 bg-red-100 dark:bg-red-900/30 rounded-xl">
+                  <p className="text-xs text-red-600 dark:text-red-400">
+                    Trip started at: {new Date(lockInfo.since).toLocaleString('en-IN', {
+                      hour: '2-digit',
+                      minute: '2-digit',
+                      hour12: true,
+                      day: 'numeric',
+                      month: 'short'
+                    })}
+                  </p>
+                </div>
+              )}
+            </div>
+
+            {/* Info Box */}
+            <div className="mt-4 p-4 bg-amber-50 dark:bg-amber-900/20 rounded-xl border border-amber-200 dark:border-amber-800/50">
+              <div className="flex items-start gap-3">
+                <Clock className="w-5 h-5 text-amber-500 mt-0.5 flex-shrink-0" />
+                <div>
+                  <p className="text-sm font-medium text-amber-700 dark:text-amber-300">
+                    Auto-Refresh Enabled
+                  </p>
+                  <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">
+                    This page will automatically check every 10 seconds. Once the other driver ends their trip,
+                    you&apos;ll be able to start yours.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* Action Button */}
+            <div className="mt-6">
+              <Button
+                onClick={() => router.push('/driver')}
+                variant="outline"
+                className="w-full h-12 font-bold rounded-xl border-2 border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-800"
+              >
+                Go Back to Dashboard
               </Button>
             </div>
           </CardContent>

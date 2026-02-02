@@ -2,15 +2,15 @@
  * Runtime Configuration for Firestore Safety
  * 
  * This module provides runtime configuration for controlling Firestore realtime listeners.
- * It includes both environment-based and Firestore-based kill switches for emergency control.
+ * It relies on environment variables for control.
  * 
  * @module config/runtime
  * @version 1.0.0
  * @since 2026-01-02
+ * @updated 2026-01-31
  */
 
-// NOTE: Firebase imports are done lazily in fetchRuntimeRealtimeConfig() to prevent
-// blocking compilation when this module is imported for constants only.
+
 
 // ============================================================================
 // CORE CONFIGURATION FLAGS
@@ -70,87 +70,12 @@ export const VISIBILITY_DEBOUNCE_MS = 3_000; // 3 seconds
  */
 export const UPDATE_DEBOUNCE_MS = 2_000; // 2 seconds
 
-// ============================================================================
-// RUNTIME CONFIG CACHE
-// ============================================================================
-
-interface RuntimeConfig {
-    firestoreRealtimeEnabled: boolean;
-    maxQueryLimit: number;
-    lastFetched: number;
-}
-
-let cachedRuntimeConfig: RuntimeConfig | null = null;
-const RUNTIME_CONFIG_CACHE_TTL_MS = 60_000; // 1 minute cache
-
-/**
- * Fetches runtime configuration from Firestore config/runtime/firestoreRealtime doc.
- * This allows ops to disable realtime listeners without deployment.
- * 
- * @returns Promise<boolean> - Whether realtime is enabled (env && Firestore doc)
- */
-export async function fetchRuntimeRealtimeConfig(): Promise<boolean> {
-    // If env flag is false, skip Firestore check entirely
-    if (!ENABLE_FIRESTORE_REALTIME) {
-        return false;
-    }
-
-    // Check cache validity
-    const now = Date.now();
-    if (cachedRuntimeConfig && (now - cachedRuntimeConfig.lastFetched) < RUNTIME_CONFIG_CACHE_TTL_MS) {
-        return cachedRuntimeConfig.firestoreRealtimeEnabled;
-    }
-
-    try {
-        // Lazy import firebase to avoid blocking module load
-        const { doc, getDoc } = await import('firebase/firestore');
-        const { db } = await import('@/lib/firebase');
-
-        const configRef = doc(db, 'config', 'runtime');
-        const configSnap = await getDoc(configRef);
-
-        if (configSnap.exists()) {
-            const data = configSnap.data();
-            const enabled = data?.firestoreRealtimeEnabled !== false; // Default true if not set
-
-            cachedRuntimeConfig = {
-                firestoreRealtimeEnabled: enabled,
-                maxQueryLimit: data?.maxQueryLimit || MAX_QUERY_LIMIT,
-                lastFetched: now,
-            };
-
-            return enabled;
-        }
-
-        // If doc doesn't exist, respect env flag
-        cachedRuntimeConfig = {
-            firestoreRealtimeEnabled: true,
-            maxQueryLimit: MAX_QUERY_LIMIT,
-            lastFetched: now,
-        };
-
-        return true;
-    } catch (error) {
-        console.warn('[RuntimeConfig] Failed to fetch runtime config, using env defaults:', error);
-        return ENABLE_FIRESTORE_REALTIME;
-    }
-}
-
 /**
  * Synchronous check for realtime enabled status.
  * Uses cached value if available, otherwise returns env flag.
  */
 export function isRealtimeEnabledSync(): boolean {
-    if (!ENABLE_FIRESTORE_REALTIME) return false;
-    if (cachedRuntimeConfig) return cachedRuntimeConfig.firestoreRealtimeEnabled;
     return ENABLE_FIRESTORE_REALTIME;
-}
-
-/**
- * Invalidates the runtime config cache, forcing a fresh fetch on next call.
- */
-export function invalidateRuntimeConfigCache(): void {
-    cachedRuntimeConfig = null;
 }
 
 // ============================================================================

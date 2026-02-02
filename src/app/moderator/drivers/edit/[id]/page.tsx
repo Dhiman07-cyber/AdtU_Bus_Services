@@ -205,7 +205,6 @@ export default function EditDriverPage({ params }: { params: Promise<{ id: strin
   const validateForm = () => {
     const newErrors: Record<string, string> = {};
     if (!formData.name.trim()) newErrors.name = "Full name is required";
-    else if (/[^a-zA-Z\s]/.test(formData.name)) newErrors.name = "Names cannot contain symbols";
     if (!formData.phone.trim()) newErrors.phone = "Phone number is required";
     else if (!/^\d{10,}$/.test(formData.phone)) newErrors.phone = "Phone number must be at least 10 digits";
     if (!formData.licenseNumber.trim()) newErrors.licenseNumber = "License number is required";

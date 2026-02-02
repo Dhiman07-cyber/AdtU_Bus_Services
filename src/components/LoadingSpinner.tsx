@@ -108,7 +108,7 @@ export function PremiumPageLoader({
   subMessage?: string;
 }) {
   return (
-    <div className="flex flex-col items-center justify-center min-h-[400px] gap-6 p-6 text-center animate-in fade-in duration-300">
+    <div className="flex flex-col items-center justify-center min-h-[400px] gap-6 p-6 text-center animate-in fade-in duration-300 -translate-y-10 md:translate-y-0">
       <div className="pink-purple-spinner bg-dark-blue shadow-2xl shadow-purple-500/20"></div>
 
       <div className="space-y-2">

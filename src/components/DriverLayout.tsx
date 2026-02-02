@@ -37,7 +37,12 @@ export default function DriverLayout({ children }: DriverLayoutProps) {
           <div className="flex justify-around items-center px-2 py-2">
             {navItems.map((item) => {
               const Icon = item.icon;
-              const isActive = pathname === item.href || (item.href !== "/driver" && pathname?.startsWith(item.href));
+              const allNavHrefs = navItems.map(i => i.href);
+              const isActive = pathname === item.href || (
+                item.href !== "/driver" &&
+                pathname?.startsWith(item.href) &&
+                !allNavHrefs.some(h => h !== item.href && h.startsWith(item.href) && pathname?.startsWith(h))
+              );
 
               return (
                 <Link

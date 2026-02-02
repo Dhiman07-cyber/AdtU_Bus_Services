@@ -2,13 +2,13 @@
   "crons": [
     {
       "path": "/api/cron/expiry-check?type=main",
-      "schedule": "0 0 23 10 *",
-      "comment": "Main expiry check on October 23 (notification day)"
+      "schedule": "0 0 1 6 *",
+      "comment": "Main expiry check on June 1st (Configured in deadline-config.json)"
     },
     {
       "path": "/api/cron/expiry-check?type=mid-june",
-      "schedule": "0 0 15 10 *",
-      "comment": "Mid-month expiry check on October 15"
+      "schedule": "0 0 15 6 *",
+      "comment": "Mid-month reminder on June 15th"
     },
     {
       "path": "/api/cron/cleanup-notifications",
@@ -22,13 +22,23 @@
     },
     {
       "path": "/api/cron/cleanup-swaps",
-      "schedule": "0 0 * * *",
-      "comment": "Daily cleanup: expire old swap requests and delete documents older than 7 days"
+      "schedule": "30 22 * * 6",
+      "comment": "Weekly cleanup: expire old swap requests (Sundays at 4:00 AM IST)"
     },
     {
       "path": "/api/cron/annual-export",
       "schedule": "30 3 30 6 *",
       "comment": "Annual payment export on June 30 at 9:00 AM IST (3:30 UTC) - academic year end date from deadline-config.json"
+    },
+    {
+      "path": "/api/cron/cleanup-stale-locks",
+      "schedule": "* * * * *",
+      "comment": "Every minute: cleanup stale trip locks and pending intents for multi-driver system"
+    },
+    {
+      "path": "/api/cron/cleanup-missed-bus",
+      "schedule": "* * * * *",
+      "comment": "Every minute: expire pending missed-bus requests that exceeded TTL"
     }
   ]
 }

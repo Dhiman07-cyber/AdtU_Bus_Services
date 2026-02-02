@@ -802,10 +802,222 @@ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_publication_tables WHERE pubname = 'supabase_realtime' AND tablename = 'temporary_assignments') THEN
     ALTER PUBLICATION supabase_realtime ADD TABLE temporary_assignments;
   END IF;
+  
+  -- Active Trips: Enable realtime for multi-driver lock system
+  IF NOT EXISTS (SELECT 1 FROM pg_publication_tables WHERE pubname = 'supabase_realtime' AND tablename = 'active_trips') THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE active_trips;
+  END IF;
 END $$;
 
 -- =====================================================
--- SECTION 9: DOCUMENTATION
+-- SECTION 9: MULTI-DRIVER LOCK SYSTEM
+-- Exclusive bus operation with automatic heartbeat recovery
+-- =====================================================
+
+-- active_trips table (live trip records for lock management)
+CREATE TABLE IF NOT EXISTS public.active_trips (
+  trip_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  bus_id TEXT NOT NULL,
+  driver_id TEXT NOT NULL,
+  route_id TEXT NOT NULL,
+  shift TEXT NOT NULL CHECK (shift IN ('morning', 'evening', 'both')),
+  status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'ended')),
+  start_time TIMESTAMPTZ DEFAULT NOW(),
+  end_time TIMESTAMPTZ,
+  last_heartbeat TIMESTAMPTZ DEFAULT NOW(),
+  metadata JSONB DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_active_trips_bus_id ON public.active_trips(bus_id);
+CREATE INDEX IF NOT EXISTS idx_active_trips_driver_id ON public.active_trips(driver_id);
+CREATE INDEX IF NOT EXISTS idx_active_trips_status ON public.active_trips(status);
+CREATE INDEX IF NOT EXISTS idx_active_trips_status_bus ON public.active_trips(bus_id, status) WHERE status = 'active';
+CREATE INDEX IF NOT EXISTS idx_active_trips_heartbeat ON public.active_trips(last_heartbeat) WHERE status = 'active';
+CREATE INDEX IF NOT EXISTS idx_active_trips_start_time ON public.active_trips(start_time DESC);
+
+-- Trigger for active_trips updated_at
+DROP TRIGGER IF EXISTS active_trips_updated_at ON public.active_trips;
+CREATE TRIGGER active_trips_updated_at
+  BEFORE UPDATE ON public.active_trips
+  FOR EACH ROW
+  EXECUTE FUNCTION update_updated_at_column();
+
+-- Enable RLS for active_trips
+ALTER TABLE public.active_trips ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "active_trips_select_authenticated" ON public.active_trips;
+CREATE POLICY "active_trips_select_authenticated" ON public.active_trips
+  FOR SELECT TO authenticated USING (true);
+
+DROP POLICY IF EXISTS "active_trips_insert_service" ON public.active_trips;
+CREATE POLICY "active_trips_insert_service" ON public.active_trips
+  FOR INSERT WITH CHECK (auth.role() = 'service_role');
+
+DROP POLICY IF EXISTS "active_trips_update_service" ON public.active_trips;
+CREATE POLICY "active_trips_update_service" ON public.active_trips
+  FOR UPDATE USING (auth.role() = 'service_role');
+
+DROP POLICY IF EXISTS "active_trips_delete_service" ON public.active_trips;
+CREATE POLICY "active_trips_delete_service" ON public.active_trips
+  FOR DELETE USING (auth.role() = 'service_role');
+
+GRANT SELECT ON public.active_trips TO authenticated;
+
+-- Function to check if a bus is locked
+CREATE OR REPLACE FUNCTION check_bus_lock(p_bus_id TEXT)
+RETURNS TABLE(
+  is_locked BOOLEAN,
+  locked_by TEXT,
+  trip_id UUID,
+  locked_since TIMESTAMPTZ,
+  last_heartbeat TIMESTAMPTZ
+) AS $$
+BEGIN
+  RETURN QUERY
+  SELECT 
+    TRUE AS is_locked,
+    at.driver_id AS locked_by,
+    at.trip_id,
+    at.start_time AS locked_since,
+    at.last_heartbeat
+  FROM public.active_trips at
+  WHERE at.bus_id = p_bus_id
+    AND at.status = 'active'
+  LIMIT 1;
+  
+  IF NOT FOUND THEN
+    RETURN QUERY SELECT FALSE, NULL::TEXT, NULL::UUID, NULL::TIMESTAMPTZ, NULL::TIMESTAMPTZ;
+  END IF;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- Function to get stale locks
+CREATE OR REPLACE FUNCTION get_stale_locks(p_heartbeat_timeout_seconds INTEGER DEFAULT 60)
+RETURNS TABLE(
+  trip_id UUID,
+  bus_id TEXT,
+  driver_id TEXT,
+  last_heartbeat TIMESTAMPTZ,
+  stale_duration INTERVAL
+) AS $$
+BEGIN
+  RETURN QUERY
+  SELECT 
+    at.trip_id,
+    at.bus_id,
+    at.driver_id,
+    at.last_heartbeat,
+    NOW() - at.last_heartbeat AS stale_duration
+  FROM public.active_trips at
+  WHERE at.status = 'active'
+    AND at.last_heartbeat < NOW() - (p_heartbeat_timeout_seconds || ' seconds')::INTERVAL;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- Function to clean up stale locks
+CREATE OR REPLACE FUNCTION cleanup_stale_locks(p_heartbeat_timeout_seconds INTEGER DEFAULT 60)
+RETURNS TABLE(
+  cleaned_trip_id UUID,
+  cleaned_bus_id TEXT,
+  cleaned_driver_id TEXT
+) AS $$
+DECLARE
+  v_trip RECORD;
+BEGIN
+  FOR v_trip IN
+    SELECT at.trip_id, at.bus_id, at.driver_id
+    FROM public.active_trips at
+    WHERE at.status = 'active'
+      AND at.last_heartbeat < NOW() - (p_heartbeat_timeout_seconds || ' seconds')::INTERVAL
+  LOOP
+    UPDATE public.active_trips
+    SET status = 'ended', end_time = NOW()
+    WHERE active_trips.trip_id = v_trip.trip_id;
+    
+    RETURN QUERY SELECT v_trip.trip_id, v_trip.bus_id, v_trip.driver_id;
+  END LOOP;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- =====================================================
+-- SECTION 10: MISSED BUS REQUESTS (Student Pickup Requests)
+-- =====================================================
+
+-- missed_bus_requests table (student pickup requests for alternate buses)
+CREATE TABLE IF NOT EXISTS public.missed_bus_requests (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  op_id TEXT,                      -- client-provided idempotency key
+  student_id TEXT NOT NULL,
+  route_id TEXT NOT NULL,
+  stop_id TEXT NOT NULL,
+  student_sequence INT NULL,       -- cached resolve of stop sequence
+  candidate_trip_id UUID NULL,     -- when driver accepts, set the trip id
+  trip_candidates JSONB NULL,      -- list of candidate trip IDs & raw ETA
+  status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'rejected', 'expired', 'cancelled')),
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  expires_at TIMESTAMPTZ,
+  responded_by TEXT NULL,
+  responded_at TIMESTAMPTZ NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_missed_bus_requests_student_id ON public.missed_bus_requests(student_id);
+CREATE INDEX IF NOT EXISTS idx_missed_bus_requests_op_id ON public.missed_bus_requests(op_id);
+CREATE INDEX IF NOT EXISTS idx_missed_bus_requests_candidate_trip_id ON public.missed_bus_requests(candidate_trip_id);
+CREATE INDEX IF NOT EXISTS idx_missed_bus_requests_status ON public.missed_bus_requests(status);
+CREATE INDEX IF NOT EXISTS idx_missed_bus_requests_expires_at ON public.missed_bus_requests(expires_at) WHERE status = 'pending';
+CREATE INDEX IF NOT EXISTS idx_missed_bus_requests_route_stop ON public.missed_bus_requests(route_id, stop_id);
+CREATE INDEX IF NOT EXISTS idx_missed_bus_requests_trip_candidates ON public.missed_bus_requests USING GIN (trip_candidates);
+
+-- Enable RLS for missed_bus_requests
+ALTER TABLE public.missed_bus_requests ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "missed_bus_requests_select_own" ON public.missed_bus_requests;
+CREATE POLICY "missed_bus_requests_select_own" ON public.missed_bus_requests
+  FOR SELECT TO authenticated
+  USING (student_id = auth.uid()::text OR auth.role() = 'service_role');
+
+DROP POLICY IF EXISTS "missed_bus_requests_insert_service" ON public.missed_bus_requests;
+CREATE POLICY "missed_bus_requests_insert_service" ON public.missed_bus_requests
+  FOR INSERT WITH CHECK (auth.role() = 'service_role');
+
+DROP POLICY IF EXISTS "missed_bus_requests_update_service" ON public.missed_bus_requests;
+CREATE POLICY "missed_bus_requests_update_service" ON public.missed_bus_requests
+  FOR UPDATE USING (auth.role() = 'service_role');
+
+DROP POLICY IF EXISTS "missed_bus_requests_delete_service" ON public.missed_bus_requests;
+CREATE POLICY "missed_bus_requests_delete_service" ON public.missed_bus_requests
+  FOR DELETE USING (auth.role() = 'service_role');
+
+GRANT SELECT ON public.missed_bus_requests TO authenticated;
+
+-- Enable realtime for missed_bus_requests
+DO $$ 
+BEGIN 
+  IF NOT EXISTS (SELECT 1 FROM pg_publication_tables WHERE pubname = 'supabase_realtime' AND tablename = 'missed_bus_requests') THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE missed_bus_requests;
+  END IF;
+END $$;
+
+-- Function to expire stale missed bus requests
+CREATE OR REPLACE FUNCTION expire_missed_bus_requests()
+RETURNS INTEGER AS $$
+DECLARE
+  expired_count INTEGER := 0;
+BEGIN
+  UPDATE public.missed_bus_requests
+  SET status = 'expired'
+  WHERE status = 'pending'
+    AND expires_at < NOW();
+  GET DIAGNOSTICS expired_count = ROW_COUNT;
+  RETURN expired_count;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+
+-- =====================================================
+-- SECTION 11: DOCUMENTATION
 -- =====================================================
 
 COMMENT ON TABLE bus_locations IS 'Real-time GPS coordinates of buses during active trips';
@@ -816,6 +1028,8 @@ COMMENT ON TABLE route_cache IS 'Cached route geometries from OpenRouteService';
 COMMENT ON TABLE public.reassignment_logs IS 'Audit logs for driver/student/route reassignment operations';
 COMMENT ON TABLE public.payments IS 'IMMUTABLE FINANCIAL LEDGER - Payment records are permanent and cannot be deleted. Single source of truth for all payments.';
 COMMENT ON TABLE public.payment_exports IS 'Annual payment export tracking';
+COMMENT ON TABLE public.active_trips IS 'Multi-driver lock system - Live trip records with heartbeat for exclusive bus operation';
+COMMENT ON TABLE public.missed_bus_requests IS 'Student missed-bus pickup requests - allows students to request alternate bus pickup when they miss their assigned bus.';
 
 -- =====================================================
 -- COMPLETION MESSAGE
@@ -824,11 +1038,12 @@ COMMENT ON TABLE public.payment_exports IS 'Annual payment export tracking';
 DO $$
 BEGIN
   RAISE NOTICE '✅ ADTU Bus XQ System - Complete Database Setup Done!';
-  RAISE NOTICE '📋 All 10 tables created';
+  RAISE NOTICE '📋 All 12 tables created (including active_trips for multi-driver lock, missed_bus_requests for pickup requests)';
   RAISE NOTICE '🔒 Security-hardened RLS policies applied';
   RAISE NOTICE '⚡ All indexes created for performance';
   RAISE NOTICE '🔄 Helper functions and triggers added';
   RAISE NOTICE '📡 Realtime enabled for key tables';
+  RAISE NOTICE '🚌 Multi-driver lock system ready';
   RAISE NOTICE '🚀 Ready for production!';
 END $$;
 

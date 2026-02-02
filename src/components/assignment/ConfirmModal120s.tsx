@@ -100,9 +100,10 @@ export function ConfirmModal120s({
         const interval = setInterval(() => {
             setTimeRemaining((prev) => {
                 if (prev <= 1) {
-                    // Timer expired - auto revert
+                    // Timer expired - auto CONFIRM (User Request)
                     setIsTimerActive(false);
-                    onRevert();
+                    // We must call the async confirm function
+                    onConfirm().catch(err => console.error("Auto-confirm failed:", err));
                     return 0;
                 }
                 return prev - 1;
@@ -110,7 +111,7 @@ export function ConfirmModal120s({
         }, 1000);
 
         return () => clearInterval(interval);
-    }, [isTimerActive, timeRemaining, onRevert]);
+    }, [isTimerActive, timeRemaining, onConfirm]);
 
     // Format time display
     const formatTime = (seconds: number) => {
@@ -358,7 +359,7 @@ export function ConfirmModal120s({
                                 >
                                     <AlertTriangle className="w-5 h-5 text-red-400" />
                                     <p className="text-sm text-red-400">
-                                        <strong>Warning:</strong> Action will automatically revert in {timeRemaining} seconds if not confirmed.
+                                        <strong>Warning:</strong> Action will automatically CONFIRM in {timeRemaining} seconds if not cancelled.
                                     </p>
                                 </div>
                             </motion.div>

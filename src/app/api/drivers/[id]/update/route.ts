@@ -1,8 +1,9 @@
 import { NextResponse } from 'next/server';
 import { getApps, initializeApp } from 'firebase-admin/app';
-import { getFirestore } from 'firebase-admin/firestore';
+import { getFirestore, FieldValue } from 'firebase-admin/firestore';
 import fs from 'fs';
 import path from 'path';
+import { createUpdatedByEntry } from '@/lib/utils/updatedBy';
 
 // Get the data directory path
 const dataDirectory = path.join(process.cwd(), 'src', 'data');
@@ -56,19 +57,19 @@ export async function PUT(request: Request, { params }: { params: Promise<{ id: 
   try {
     const { id } = await params;
     const updatedDriverData = await request.json();
-    
+
     // Log the incoming data for debugging
     console.log(`Updating driver with ID ${id}:`, updatedDriverData);
-    
+
     let firebaseSuccess = false;
     let updatedDriver: any = null;
-    
+
     // Try to update in Firebase first
     if (db) {
       try {
         // Update in the drivers collection (not users collection)
         const driverDocRef = db.doc(`drivers/${id}`);
-        
+
         // Validate profile photo URL if provided
         if (updatedDriverData.profilePhotoUrl !== undefined) {
           if (typeof updatedDriverData.profilePhotoUrl !== 'string') {
@@ -79,10 +80,14 @@ export async function PUT(request: Request, { params }: { params: Promise<{ id: 
             updatedDriverData.profilePhotoUrl = null;
           }
         }
-        
+
+        // Add audit trail entry
+        updatedDriverData.updatedBy = FieldValue.arrayUnion(createUpdatedByEntry('Admin', 'Admin'));
+        updatedDriverData.updatedAt = new Date().toISOString();
+
         await driverDocRef.update(updatedDriverData);
         console.log(`Driver with ID ${id} updated in Firestore (drivers collection)`);
-        
+
         // Try to get the updated driver data
         try {
           const driverDoc = await driverDocRef.get();
@@ -114,12 +119,12 @@ export async function PUT(request: Request, { params }: { params: Promise<{ id: 
         // Continue with JSON file update even if Firebase fails
       }
     }
-    
+
     // Also update in JSON file for backward compatibility
     try {
       const drivers = readJsonFile('Drivers.json');
       const index = drivers.findIndex((driver: any) => driver.id === id);
-      
+
       if (index !== -1) {
         // Driver found in JSON file, update it
         // Ensure profile photo URL is handled correctly in JSON
@@ -130,11 +135,16 @@ export async function PUT(request: Request, { params }: { params: Promise<{ id: 
             drivers[index].profilePhotoUrl = updatedDriverData.profilePhotoUrl;
           }
         }
-        
+
         drivers[index] = { ...drivers[index], ...updatedDriverData };
+        // Add updatedBy for JSON file
+        if (!drivers[index].updatedBy) {
+          drivers[index].updatedBy = [];
+        }
+        drivers[index].updatedBy.push(createUpdatedByEntry('Admin', 'Admin'));
         writeJsonFile('Drivers.json', drivers);
         console.log(`Driver with ID ${id} updated in JSON file`);
-        
+
         // If Firebase update failed, return the JSON file data
         if (!firebaseSuccess) {
           return NextResponse.json(drivers[index]);
@@ -144,12 +154,12 @@ export async function PUT(request: Request, { params }: { params: Promise<{ id: 
       console.error('Error updating driver in JSON file:', jsonError);
       // Continue even if JSON update fails
     }
-    
+
     // Return the updated driver data
     if (firebaseSuccess && updatedDriver) {
       return NextResponse.json(updatedDriver);
     }
-    
+
     // If we get here, the driver was not found in either Firebase or JSON
     return NextResponse.json({ error: 'Driver not found' }, { status: 404 });
   } catch (error: any) {

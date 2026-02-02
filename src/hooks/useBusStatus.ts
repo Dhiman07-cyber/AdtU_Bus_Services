@@ -5,7 +5,7 @@
  * This is ALLOWED under Spark plan safety rules because:
  * - It only listens to exactly 1 document (buses/{busId})
  * - It includes visibility guards to prevent wasted reads
- * - It respects the ENABLE_FIRESTORE_REALTIME kill switch
+ * - It respects the ENABLE_FIRESTORE_REALTIME env flag
  * - It debounces rapid updates to coalesce callbacks
  * 
  * @module hooks/useBusStatus
@@ -62,7 +62,7 @@ export interface UseBusStatusResult {
  * SAFETY FEATURES:
  * - Only listens to exactly 1 document (bounded)
  * - Respects visibility state (pauses when tab hidden)
- * - Respects ENABLE_FIRESTORE_REALTIME kill switch
+ * - Respects ENABLE_FIRESTORE_REALTIME env flag
  * - Debounces rapid updates (<2s) to prevent flapping
  * - Falls back to polling if realtime is disabled
  * 

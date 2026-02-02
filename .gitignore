@@ -43,3 +43,6 @@ secrets/
 # Debug
 *.log
 logs/
+Plan.txt
+
+public/landing_video/

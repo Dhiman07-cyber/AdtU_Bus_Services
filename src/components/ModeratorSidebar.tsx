@@ -180,7 +180,12 @@ export default function ModeratorSidebar() {
             )}>
               {group.items.map((item) => {
                 const Icon = item.icon;
-                const isActive = pathname === item.href || (item.href !== '/moderator' && pathname?.startsWith(item.href));
+                const allHrefs = moderatorNavGroups.flatMap(group => group.items.map(i => i.href));
+                const isActive = pathname === item.href || (
+                  item.href !== '/moderator' &&
+                  pathname?.startsWith(item.href) &&
+                  !allHrefs.some(h => h !== item.href && h.startsWith(item.href) && pathname?.startsWith(h))
+                );
 
                 return (
                   <Tooltip key={`${item.href}-${collapsed ? 'collapsed' : 'expanded'}`}>

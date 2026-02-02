@@ -15,6 +15,7 @@ import {
 import { generateReceiptPdf } from '@/lib/services/receipt.service';
 import path from 'path';
 import fs from 'fs';
+import { createUpdatedByEntry } from '@/lib/utils/updatedBy';
 
 // Helper function to read bus fee from system_config.json
 function getBusFeeFromConfig(): number {
@@ -315,7 +316,9 @@ export async function POST(request: Request) {
         hardBlock: blockDates.hardBlock,
         // Payment information
         paymentAmount: 0, // Will update below
-        paid_on: now
+        paid_on: now,
+        // Audit trail - who created/updated this document
+        updatedBy: [createUpdatedByEntry(currentUserName, currentUserEmployeeId)]
       };
 
       // Create Payment Record logic
@@ -495,7 +498,9 @@ export async function POST(request: Request) {
         dob: dob || '',
         status: 'active',
         createdAt: now,
-        updatedAt: now
+        updatedAt: now,
+        // Audit trail - who created/updated this document
+        updatedBy: [createUpdatedByEntry(currentUserName, currentUserEmployeeId)]
       };
 
       await adminDb.collection('drivers').doc(uid).set(driverDocData);
@@ -546,7 +551,9 @@ export async function POST(request: Request) {
         address: address || '',
         status: status || 'active',
         createdAt: now,
-        updatedAt: now
+        updatedAt: now,
+        // Audit trail - who created/updated this document
+        updatedBy: [createUpdatedByEntry(currentUserName, currentUserEmployeeId)]
       };
 
       await adminDb.collection('moderators').doc(uid).set(moderatorDocData);

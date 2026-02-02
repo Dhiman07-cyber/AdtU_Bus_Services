@@ -75,6 +75,60 @@ const CHART_COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#e
 import { ActiveTripsCard } from '@/components/dashboard/ActiveTripsCard';
 import { useSystemConfig } from '@/contexts/SystemConfigContext';
 
+// ============================================================================
+// DASHBOARD CACHING UTILITIES
+// ============================================================================
+const DASHBOARD_CACHE_KEY = 'adtu_admin_dashboard_cache';
+const DASHBOARD_CACHE_EXPIRY_KEY = 'adtu_admin_dashboard_expiry';
+const DASHBOARD_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
+interface DashboardCache {
+  realCounts: {
+    totalStudents: number;
+    activeStudents: number;
+    totalDrivers: number;
+    totalBuses: number;
+    activeBuses: number;
+    morningStudents: number;
+    eveningStudents: number;
+    pendingApplications: number;
+    pendingVerifications: number;
+    renewalRequests: number;
+    totalRevenue: number;
+  };
+  paymentTrends: { days: any[]; months: any[] };
+  allBuses: any[];
+  allRoutes: any[];
+}
+
+function getCachedDashboard(): DashboardCache | null {
+  try {
+    if (typeof window === 'undefined') return null;
+    const cached = localStorage.getItem(DASHBOARD_CACHE_KEY);
+    const expiry = localStorage.getItem(DASHBOARD_CACHE_EXPIRY_KEY);
+    if (!cached || !expiry) return null;
+    if (Date.now() > parseInt(expiry)) {
+      localStorage.removeItem(DASHBOARD_CACHE_KEY);
+      localStorage.removeItem(DASHBOARD_CACHE_EXPIRY_KEY);
+      return null;
+    }
+    return JSON.parse(cached);
+  } catch (error) {
+    console.warn('Failed to read dashboard cache:', error);
+    return null;
+  }
+}
+
+function setCachedDashboard(data: DashboardCache): void {
+  try {
+    if (typeof window === 'undefined') return;
+    localStorage.setItem(DASHBOARD_CACHE_KEY, JSON.stringify(data));
+    localStorage.setItem(DASHBOARD_CACHE_EXPIRY_KEY, (Date.now() + DASHBOARD_CACHE_TTL).toString());
+  } catch (error) {
+    console.warn('Failed to cache dashboard:', error);
+  }
+}
+
 export default function EnhancedAdminDashboard() {
   const { currentUser, userData, loading: authLoading } = useAuth();
   const { config: systemConfig, appName, loading: configLoading, refreshConfig } = useSystemConfig();
@@ -86,11 +140,17 @@ export default function EnhancedAdminDashboard() {
   const [searchQuery, setSearchQuery] = useState('');
   const [lastUpdated, setLastUpdated] = useState(new Date());
   const [isRefreshing, setIsRefreshing] = useState(false);
-  const [paymentTrend, setPaymentTrend] = useState<any[]>([]);
+
+  // Initialize from cache if available for instant display
+  const cachedData = typeof window !== 'undefined' ? getCachedDashboard() : null;
+
+  const [paymentTrends, setPaymentTrends] = useState<{ days: any[], months: any[] }>(
+    cachedData?.paymentTrends || { days: [], months: [] }
+  );
   const [trendMode, setTrendMode] = useState<'days' | 'months'>('days');
 
-  // Accurate Counts State
-  const [realCounts, setRealCounts] = useState({
+  // Accurate Counts State - Initialize from cache for instant display
+  const [realCounts, setRealCounts] = useState(cachedData?.realCounts || {
     totalStudents: 0,
     activeStudents: 0,
     totalDrivers: 0,
@@ -105,8 +165,8 @@ export default function EnhancedAdminDashboard() {
     totalRevenue: 0
   });
 
-  const [allBuses, setAllBuses] = useState<any[]>([]);
-  const [allRoutes, setAllRoutes] = useState<any[]>([]);
+  const [allBuses, setAllBuses] = useState<any[]>(cachedData?.allBuses || []);
+  const [allRoutes, setAllRoutes] = useState<any[]>(cachedData?.allRoutes || []);
 
   // Paginated data fetching (on-demand refresh)
   const { data: students, loading: loadingStudents, refresh: refreshStudents } = usePaginatedCollection('students', {
@@ -125,21 +185,22 @@ export default function EnhancedAdminDashboard() {
     pageSize: 50, orderByField: 'createdAt', orderDirection: 'desc', autoRefresh: false,
   });
 
-  // Fetch Accurate Counts
-  const fetchRealTotalCounts = async () => {
+  // Fetch Accurate Counts - Memoized to prevent unnecessary re-renders
+  const fetchRealTotalCounts = useCallback(async (modeOverride?: 'days' | 'months') => {
+    // Determine which mode to use: passed parameter or current state
+    const currentMode = modeOverride || trendMode;
+
     try {
       const { getCountFromServer, collection, query, where, getDocs } = await import('firebase/firestore');
       const { db, auth } = await import('@/lib/firebase');
 
-      // 1. Students
       // 1. Students - Aggregation for Total, Manual Filter for Active
       const studentsColl = collection(db, 'students');
       const totalStudentsSnap = await getCountFromServer(studentsColl);
 
-      // Fetch all 'active' students to apply complex filters (Soft Block check, Google Login check)
+      // Fetch all 'active' students to apply complex filters
       const activeStudentsQuery = query(studentsColl, where('status', '==', 'active'));
       const activeStudentsSnapDoc = await getDocs(activeStudentsQuery);
-
       const activeStudentsFiltered = activeStudentsSnapDoc.docs.map(doc => doc.data());
 
       const activeCount = activeStudentsFiltered.length;
@@ -170,29 +231,42 @@ export default function EnhancedAdminDashboard() {
       const renewalQuery = query(renewalColl, where('status', '==', 'pending'));
       const renewalRequestsSnap = await getCountFromServer(renewalQuery);
 
-      // 5. Total Revenue & Payment Trend
+      // 5. Total Revenue & Payment Trends (Fetch both for instant toggle)
       let totalRevenue = 0;
-      let trend: any[] = [];
+      let newTrends = { days: [] as any[], months: [] as any[] };
       try {
         if (currentUser) {
           const token = await currentUser.getIdToken();
-          const response = await fetch(`/api/payment/analytics?mode=${trendMode}`, {
-            headers: {
-              'Authorization': `Bearer ${token}`
-            }
-          });
-          const data = await response.json();
-          if (data.success && data.data) {
-            totalRevenue = data.data.totalRevenue;
-            trend = data.data.trend || [];
-            setPaymentTrend(trend);
+
+          // Fetch both modes in parallel for instant toggling
+          const [resDays, resMonths] = await Promise.all([
+            fetch(`/api/payment/analytics?mode=days`, { headers: { 'Authorization': `Bearer ${token}` } }),
+            fetch(`/api/payment/analytics?mode=months`, { headers: { 'Authorization': `Bearer ${token}` } })
+          ]);
+
+          const [dataDays, dataMonths] = await Promise.all([
+            resDays.json(),
+            resMonths.json()
+          ]);
+
+
+          if (dataDays.success && dataDays.data) {
+            totalRevenue = dataDays.data.totalRevenue; // Both contain same total revenue
+            newTrends.days = dataDays.data.trend || [];
           }
+
+          if (dataMonths.success && dataMonths.data) {
+            newTrends.months = dataMonths.data.trend || [];
+          }
+
+          setPaymentTrends(newTrends);
         }
       } catch (e) {
         console.error("Revenue fetch error", e);
+        setPaymentTrends({ days: [], months: [] });
       }
 
-      // 6. Fetch ALL Buses and Routes for Charts (Simulate full fetch for analytics)
+      // 6. Fetch ALL Buses and Routes
       const allBusesSnap = await getDocs(collection(db, 'buses'));
       const allBusesData = allBusesSnap.docs.map(d => ({ ...d.data(), id: d.id, busId: d.id }));
       setAllBuses(allBusesData);
@@ -201,7 +275,7 @@ export default function EnhancedAdminDashboard() {
       const allRoutesData = allRoutesSnap.docs.map(d => ({ ...d.data(), id: d.id, routeId: d.id }));
       setAllRoutes(allRoutesData);
 
-      setRealCounts({
+      const newRealCounts = {
         totalStudents: totalStudentsSnap.data().count,
         activeStudents: activeCount,
         totalDrivers: totalDriversSnap.data().count,
@@ -212,17 +286,30 @@ export default function EnhancedAdminDashboard() {
         pendingApplications: pendingAppsSnap.data().count,
         pendingVerifications: verificationSnap.data().count,
         renewalRequests: renewalRequestsSnap.data().count,
-        totalRevenue: totalRevenue // using calculated revenue
+        totalRevenue: totalRevenue
+      };
+
+      setRealCounts(newRealCounts);
+
+      // Cache the dashboard data for instant loading on next visit
+      setCachedDashboard({
+        realCounts: newRealCounts,
+        paymentTrends: newTrends,
+        allBuses: allBusesData,
+        allRoutes: allRoutesData
       });
+
+      console.log('✅ Dashboard data cached for instant loading');
 
     } catch (error) {
       console.error("Error fetching real counts:", error);
     }
-  };
+  }, [currentUser]);
 
   useEffect(() => {
+    // Fetch both modes on mount
     fetchRealTotalCounts();
-  }, [trendMode]);
+  }, [fetchRealTotalCounts]);
 
   // Extract routes from buses data (since routes are nested in buses) - memoized
   const routes = useMemo(() => {
@@ -889,18 +976,18 @@ export default function EnhancedAdminDashboard() {
                 <div className="flex items-center gap-1 bg-slate-800/50 rounded-lg p-0.5 border border-slate-700/50">
                   <button
                     onClick={(e) => { e.stopPropagation(); setTrendMode('days'); }}
-                    className={`px-2 py-0.5 rounded-md text-[9px] font-semibold transition-all duration-200 ${trendMode === 'days'
-                        ? 'bg-indigo-600 text-white shadow-md'
-                        : 'text-gray-400 hover:text-white hover:bg-slate-700/50'
+                    className={`px-2 py-0.5 rounded-md text-[9px] font-semibold transition-all duration-200 cursor-pointer ${trendMode === 'days'
+                      ? 'bg-indigo-600 text-white shadow-md'
+                      : 'text-gray-400 hover:text-white hover:bg-slate-700/50'
                       }`}
                   >
                     DAYS
                   </button>
                   <button
                     onClick={(e) => { e.stopPropagation(); setTrendMode('months'); }}
-                    className={`px-2 py-0.5 rounded-md text-[9px] font-semibold transition-all duration-200 ${trendMode === 'months'
-                        ? 'bg-indigo-600 text-white shadow-md'
-                        : 'text-gray-400 hover:text-white hover:bg-slate-700/50'
+                    className={`px-2 py-0.5 rounded-md text-[9px] font-semibold transition-all duration-200 cursor-pointer ${trendMode === 'months'
+                      ? 'bg-indigo-600 text-white shadow-md'
+                      : 'text-gray-400 hover:text-white hover:bg-slate-700/50'
                       }`}
                   >
                     MONTHS
@@ -912,7 +999,7 @@ export default function EnhancedAdminDashboard() {
             <CardContent className="px-2.5 h-[160px] flex flex-col justify-center" style={{ minWidth: 0 }}>
               {/* Visual Representation */}
               <ResponsiveContainer width="100%" height={160}>
-                <AreaChart data={paymentTrend}>
+                <AreaChart key={trendMode} data={paymentTrends[trendMode]}>
                   <defs>
                     <linearGradient id="colorTrans" x1="0" y1="0" x2="0" y2="1">
                       <stop offset="5%" stopColor="#6366f1" stopOpacity={0.8} />

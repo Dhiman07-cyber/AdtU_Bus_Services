@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { auth, db as adminDb } from '@/lib/firebase-admin';
 import { createClient } from '@supabase/supabase-js';
-import { FieldValue } from 'firebase-admin/firestore';
+import { FieldValue, Timestamp } from 'firebase-admin/firestore';
 import { snapStops, type SnapResult } from '@/lib/coordinate-snapping';
 import { getRobustRoute } from '@/lib/ors-robust-client';
 import { resolveStopCoordinate } from '@/lib/geocoding-service';
@@ -119,21 +119,99 @@ export async function POST(request: Request) {
       busClaimsDriver
     });
 
-    // Check if trip already active for this bus (using 'buses' collection per new requirement)
-    const activeBusDoc = await adminDb.collection('buses').doc(busId).get();
-    const activeBusData = activeBusDoc.data();
+    // =====================================================
+    // MULTI-DRIVER LOCK CHECK & ACQUISITION
+    // Prevents multiple drivers from operating the same bus
+    // =====================================================
+    const now = new Date();
+    const tripId = `trip_${busId}_${now.getTime()}`;
+    const LOCK_TTL_SECONDS = 300;
+    const expiresAt = new Date(now.getTime() + LOCK_TTL_SECONDS * 1000);
 
-    if (activeBusData?.status === 'enroute' && activeBusData?.activeTripId) {
-      console.log(`ℹ️ Trip already active for bus ${busId}: ${activeBusData.activeTripId}`);
-      return NextResponse.json({
-        success: true,
-        message: 'Trip already active',
-        tripId: activeBusData.activeTripId,
-        // We don't have geometry stored in Firestore anymore per request
-        routeGeometry: null,
-        snappedStops: [],
-        routeGeometrySource: 'existing_state'
+    const busRef = adminDb.collection('buses').doc(busId);
+
+    try {
+      await adminDb.runTransaction(async (transaction: any) => {
+        const busDocSnap = await transaction.get(busRef);
+
+        if (!busDocSnap.exists) {
+          throw new Error('Bus not found');
+        }
+
+        const currentBusData = busDocSnap.data();
+        const lock = currentBusData?.activeTripLock;
+
+        // Check if lock has expired (stale lock recovery)
+        let isLockExpired = false;
+        if (lock?.expiresAt) {
+          const expiryTime = lock.expiresAt.toMillis
+            ? lock.expiresAt.toMillis()
+            : new Date(lock.expiresAt).getTime();
+          isLockExpired = Date.now() > expiryTime;
+
+          if (isLockExpired) {
+            console.log(`⏰ Lock for bus ${busId} has expired (was held by ${lock.driverId}), allowing takeover`);
+          }
+        }
+
+        // Check if bus is locked by another driver (only if NOT expired)
+        if (lock?.active && lock.driverId && lock.driverId !== driverUid && !isLockExpired) {
+          console.log(`🔒 Bus ${busId} is locked by driver ${lock.driverId}, rejecting ${driverUid}`);
+          throw new Error('LOCKED_BY_OTHER_DRIVER');
+        }
+
+        // Check if this driver already has an active trip (idempotent) - only if NOT expired
+        if (lock?.active && lock.driverId === driverUid && lock.tripId && !isLockExpired) {
+          console.log(`ℹ️ Trip already active for this driver on bus ${busId}: ${lock.tripId}`);
+          throw new Error(`ALREADY_ACTIVE:${lock.tripId}`);
+        }
+
+        // Acquire the lock
+        console.log(`🔐 Acquiring lock on bus ${busId} for driver ${driverUid}`);
+        transaction.update(busRef, {
+          activeTripLock: {
+            active: true,
+            tripId: tripId,
+            driverId: driverUid,
+            shift: 'both', // Default shift
+            since: FieldValue.serverTimestamp(),
+            expiresAt: Timestamp.fromDate(expiresAt)
+          },
+          activeDriverId: driverUid,
+          activeTripId: tripId
+        });
       });
+
+      console.log(`✅ Lock acquired for bus ${busId} by driver ${driverUid}`);
+    } catch (txError: any) {
+      if (txError.message === 'LOCKED_BY_OTHER_DRIVER') {
+        return NextResponse.json(
+          {
+            success: false,
+            error: 'This bus is currently being operated by another driver. Please wait or try again later.',
+            errorCode: 'LOCKED_BY_OTHER'
+          },
+          { status: 409 }
+        );
+      }
+
+      if (txError.message.startsWith('ALREADY_ACTIVE:')) {
+        const existingTripId = txError.message.split(':')[1];
+        return NextResponse.json({
+          success: true,
+          message: 'Trip already active',
+          tripId: existingTripId,
+          routeGeometry: null,
+          snappedStops: [],
+          routeGeometrySource: 'existing_state'
+        });
+      }
+
+      console.error('❌ Lock acquisition failed:', txError);
+      return NextResponse.json(
+        { error: `Failed to acquire bus lock: ${txError.message}` },
+        { status: 500 }
+      );
     }
 
     // Fetch route data from bus document (route is nested inside bus)
@@ -179,16 +257,9 @@ export async function POST(request: Request) {
 
     console.log(`📍 Route has ${stops.length} stops`);
 
-    // STEP 1: UPDATE BUS STATUS IMMEDIATELY
-    // We skip creating trip_sessions document per user request.
-    console.log(`\n⚡ STEP 1: Updating bus status immediately...`);
-
-    const now = new Date();
-    const tripId = `trip_${busId}_${now.getTime()}`;
-
-    // STEP 1: SKIPPED UPDATE BUS STATUS IN FIRESTORE PER USER REQUEST
-    // We are no longer updating the 'buses' collection in Firestore to avoid writes.
-    console.log(`\n⚡ STEP 1: Skipped updating bus status in Firestore per user request.`);
+    // STEP 1: Bus lock already acquired above via transaction
+    // tripId and now already defined above
+    console.log(`\n⚡ STEP 1: Bus lock acquired successfully.`);
 
     // Initialize Supabase client
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;

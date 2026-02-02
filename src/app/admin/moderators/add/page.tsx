@@ -78,7 +78,7 @@ export default function AddModeratorPage() {
   };
 
   const [formData, setFormData] = useState<ModeratorFormData>(getInitialFormData());
-  
+
   // Debounced storage to prevent input lag
   const storage = useDebouncedStorage<ModeratorFormData>('moderatorFormData', {
     debounceMs: 500,
@@ -611,7 +611,7 @@ export default function AddModeratorPage() {
                     id="status"
                     label="Status"
                     value={formData.status}
-                    onChange={(value: 'active' | 'inactive') => setFormData(prev => ({ ...prev, status: value as 'active' | 'inactive' }))}
+                    onChange={(value: string) => setFormData(prev => ({ ...prev, status: value as 'active' | 'inactive' }))}
                     placeholder="Select status"
                     required
                   >

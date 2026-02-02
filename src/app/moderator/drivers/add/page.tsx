@@ -241,9 +241,8 @@ export default function AddDriver() {
 
     if (!formData.name.trim()) {
       newErrors.name = "Full name is required";
-    } else if (/[^a-zA-Z\s]/.test(formData.name)) {
-      newErrors.name = "Name cannot contain special symbols";
     }
+    // Name cannot contain symbols check removed
 
     if (!formData.email.trim()) {
       newErrors.email = "Email is required";

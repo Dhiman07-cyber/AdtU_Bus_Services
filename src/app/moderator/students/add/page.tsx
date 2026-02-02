@@ -69,7 +69,7 @@ export default function AddStudentForm() {
   const getInitialFormData = (): StudentFormData => {
     const currentYear = new Date().getFullYear();
     const defaultValidUntil = calculateValidUntilDate(currentYear, 1).toISOString();
-    
+
     const defaultData: StudentFormData = {
       name: '',
       email: '',
@@ -124,7 +124,7 @@ export default function AddStudentForm() {
   };
 
   const [formData, setFormData] = useState<StudentFormData>(getInitialFormData);
-  
+
   // Debounced storage to prevent input lag
   const storage = useDebouncedStorage<StudentFormData>('moderatorStudentFormData', {
     debounceMs: 500,
@@ -515,11 +515,9 @@ export default function AddStudentForm() {
   const validateForm = () => {
     const newErrors: Record<string, string> = {};
 
-    // Name validation - no special symbols except spaces
+    // Name validation - no special symbols check removed
     if (!formData.name.trim()) {
       newErrors.name = "Full name is required";
-    } else if (/[^a-zA-Z\s]/.test(formData.name)) {
-      newErrors.name = "Name cannot contain special symbols";
     }
 
     // Email validation
@@ -570,11 +568,9 @@ export default function AddStudentForm() {
       newErrors.semester = "Semester is required";
     }
 
-    // Parent name validation - no special symbols except spaces
+    // Parent name validation - no special symbols check removed
     if (!formData.parentName.trim()) {
       newErrors.parentName = "Parent name is required";
-    } else if (/[^a-zA-Z\s]/.test(formData.parentName)) {
-      newErrors.parentName = "Parent name cannot contain special symbols";
     }
 
     // Parent phone validation - minimum 10 digits, only numbers

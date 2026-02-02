@@ -203,14 +203,31 @@ service cloud.firestore {
     
     // ============================================================================
     // BUSES COLLECTION
+    // SECURITY: activeTripLock field can ONLY be modified by Admin SDK (server)
+    // FIX: Allow Admins/Moderators to modify these fields for reassignments
     // ============================================================================
 
     match /buses/{busId} {
+      // Read: All authenticated users can read bus info
       allow read: if request.auth != null;
+      
+      // Write: Moderators and admins can write bus configuration
+      // CRITICAL: activeTripLock, activeDriverId, activeTripId can only be modified by trusted roles
       allow write: if request.auth != null && (isModerator(request.auth.uid) || isAdmin(request.auth.uid)) &&
         // Validate shift field for buses
         (!request.resource.data.keys().hasAll(['shift']) ||
-         request.resource.data.shift in ['Morning', 'Evening', 'Both']);
+         request.resource.data.shift in ['Morning', 'Evening', 'Both']) &&
+        // SECURITY: Block client writes to lock-related fields UNLESS user is Admin/Moderator
+        // This allows client-side transactions for reassignments while protecting against other roles
+        (
+          !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+            'activeTripLock', 
+            'activeDriverId', 
+            'activeTripId'
+          ]) ||
+          (isModerator(request.auth.uid) || isAdmin(request.auth.uid))
+        );
+      
       allow delete: if request.auth != null && (isModerator(request.auth.uid) || isAdmin(request.auth.uid));
     }
     
@@ -256,8 +273,9 @@ service cloud.firestore {
         // Only admin, moderator, or driver can create notifications (students cannot)
         (isAdmin(request.auth.uid) || isModerator(request.auth.uid) || isDriver(request.auth.uid)) &&
         
-        // Validate sender info matches authenticated user
-        request.resource.data.sender.userId == request.auth.uid &&
+        // Validate sender info matches authenticated user (or is 'system' for reassignments)
+        (request.resource.data.sender.userId == request.auth.uid || 
+         (request.resource.data.sender.userId == 'system' && (isAdmin(request.auth.uid) || isModerator(request.auth.uid)))) &&
         
         // Driver can only target students (route_based or specific_users)
         (!isDriver(request.auth.uid) || 
@@ -270,7 +288,7 @@ service cloud.firestore {
         // Ensure required fields are present
         request.resource.data.keys().hasAll([
           'title', 'content', 'sender', 'target', 'createdAt',
-          'recipientIds', 'autoInjectedRecipientIds', 'hiddenForUserIds',
+          'recipientIds', 'autoInjectedRecipientIds',
           'readByUserIds', 'isEdited', 'isDeletedGlobally'
         ]) &&
         
@@ -282,8 +300,8 @@ service cloud.firestore {
         request.resource.data.recipientIds.size() <= 1000 &&
         
         // Validate sender.userRole matches actual role
-        ((isAdmin(request.auth.uid) && request.resource.data.sender.userRole == 'admin') ||
-         (isModerator(request.auth.uid) && request.resource.data.sender.userRole == 'moderator') ||
+        ((isAdmin(request.auth.uid) && (request.resource.data.sender.userRole in ['admin', 'system'])) ||
+         (isModerator(request.auth.uid) && (request.resource.data.sender.userRole in ['moderator', 'system'])) ||
          (isDriver(request.auth.uid) && request.resource.data.sender.userRole == 'driver'))
       );
       
@@ -291,7 +309,7 @@ service cloud.firestore {
       allow update: if request.auth != null && (
         // Edit content (only by sender who is admin, moderator or driver, not if deleted)
         (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['content', 'isEdited', 'updatedAt', 'editHistory', 'title', 'metadata', 'readByUserIds']) &&
-         resource.data.sender.userId == request.auth.uid &&
+         (resource.data.sender.userId == request.auth.uid || (resource.data.sender.userId == 'system' && (isAdmin(request.auth.uid) || isModerator(request.auth.uid)))) &&
          !resource.data.isDeletedGlobally &&
          (isAdmin(request.auth.uid) || isModerator(request.auth.uid) || isDriver(request.auth.uid))) ||
         
@@ -621,8 +639,30 @@ service cloud.firestore {
         isModerator(request.auth.uid)
       );
       
-      // Only server-side writes (via Admin SDK)
-      allow write: if false;
+      // Allow admins and moderators to create activity logs
+      allow create: if request.auth != null && (
+        isAdmin(request.auth.uid) ||
+        isModerator(request.auth.uid)
+      );
+      
+      allow update, delete: if false;
+    }
+
+    // ============================================================================
+    // ADMIN ACTIONS COLLECTION
+    // ============================================================================
+    
+    match /adminActions/{actionId} {
+      // Only admins can read admin action logs
+      allow read: if request.auth != null && isAdmin(request.auth.uid);
+      
+      // Allow admins and moderators to create action logs
+      allow create: if request.auth != null && (
+        isAdmin(request.auth.uid) ||
+        isModerator(request.auth.uid)
+      );
+      
+      allow update, delete: if false;
     }
     
     // ============================================================================

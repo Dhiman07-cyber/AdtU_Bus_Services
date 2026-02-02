@@ -617,11 +617,11 @@ class PaymentsSupabaseService {
         if (!this.isReady()) return [];
 
         try {
-            // Generate last 6 months
+            // Generate last 6 months - Set date to 1st first to avoid overflow when setting month
             const last6Months = Array.from({ length: 6 }, (_, i) => {
                 const d = new Date();
+                d.setDate(1); // Set to 1st first to avoid month-end overflow
                 d.setMonth(d.getMonth() - (5 - i));
-                d.setDate(1);
                 d.setHours(0, 0, 0, 0);
                 return d;
             });
@@ -644,6 +644,7 @@ class PaymentsSupabaseService {
 
             return last6Months.map(month => {
                 const dateStr = month.toLocaleDateString('en-US', { month: 'short', year: '2-digit' });
+                // Use local year and month for consistent filtering with the way last6Months was generated
                 const monthYear = `${month.getFullYear()}-${String(month.getMonth() + 1).padStart(2, '0')}`;
 
                 const monthTotal = payments

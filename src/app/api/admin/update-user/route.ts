@@ -2,6 +2,7 @@
 import { headers } from 'next/headers';
 import { adminAuth, adminDb } from '@/lib/firebase-admin';
 import { FieldValue, Transaction, DocumentSnapshot, DocumentReference } from 'firebase-admin/firestore';
+import { createUpdatedByEntry } from '@/lib/utils/updatedBy';
 
 export async function POST(request: Request) {
     try {
@@ -76,8 +77,9 @@ export async function POST(request: Request) {
                 return acc;
             }, {} as any);
 
-            // Add audit trail (optional, but good practice)
+            // Add audit trail
             cleanedUpdateData.updatedAt = new Date().toISOString();
+            cleanedUpdateData.updatedBy = FieldValue.arrayUnion(createUpdatedByEntry(currentUserName, currentUserEmployeeId));
 
             // Check if Bus or Shift changed
             const busChanged = oldBusId !== newBusId;

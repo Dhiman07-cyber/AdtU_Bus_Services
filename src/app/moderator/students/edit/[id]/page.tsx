@@ -289,9 +289,8 @@ export default function EditStudentPage({ params }: { params: Promise<{ id: stri
 
     if (!formData.name.trim()) {
       newErrors.name = "Full name is required";
-    } else if (/[^a-zA-Z\s]/.test(formData.name)) {
-      newErrors.name = "Name cannot contain special symbols";
     }
+    // Name cannot contain symbols check removed
 
     if (!formData.phone.trim()) {
       newErrors.phone = "Phone number is required";

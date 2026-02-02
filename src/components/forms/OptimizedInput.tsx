@@ -17,6 +17,7 @@ interface OptimizedInputProps {
   onChange: (value: string) => void;
   placeholder?: string;
   required?: boolean;
+  disabled?: boolean;
   className?: string;
   transform?: (value: string) => string;
 }
@@ -29,6 +30,7 @@ export const OptimizedInput = memo(function OptimizedInput({
   onChange,
   placeholder,
   required,
+  disabled,
   className,
   transform
 }: OptimizedInputProps) {
@@ -69,6 +71,7 @@ export const OptimizedInput = memo(function OptimizedInput({
         onBlur={handleBlur}
         placeholder={placeholder}
         required={required}
+        disabled={disabled}
         className={className || "text-xs h-9"}
       />
     </div>

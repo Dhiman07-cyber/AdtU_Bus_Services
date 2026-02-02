@@ -1,0 +1,98 @@
+﻿{
+    "summary":  {
+                    "failed":  2,
+                    "skipped":  4,
+                    "warnings":  2,
+                    "total":  17,
+                    "passed":  9
+                },
+    "baseUrl":  "http://localhost:3000",
+    "timestamp":  "2026-02-01T14:48:46.4432094+05:30",
+    "tests":  [
+                  {
+                      "Status":  "WARN",
+                      "Name":  "Main health endpoint responds",
+                      "Details":  "503 - Some services unhealthy (expected in dev)"
+                  },
+                  {
+                      "Status":  "PASS",
+                      "Name":  "DB health endpoint exists",
+                      "Details":  "Responds with 503"
+                  },
+                  {
+                      "Status":  "SKIP",
+                      "Name":  "Admin Students API requires auth",
+                      "Details":  "Endpoint not found"
+                  },
+                  {
+                      "Status":  "SKIP",
+                      "Name":  "Admin Dashboard API requires auth",
+                      "Details":  "Endpoint not found"
+                  },
+                  {
+                      "Status":  "SKIP",
+                      "Name":  "Moderator Students API requires auth",
+                      "Details":  "Endpoint not found"
+                  },
+                  {
+                      "Status":  "SKIP",
+                      "Name":  "Driver Location API requires auth",
+                      "Details":  "Endpoint not found"
+                  },
+                  {
+                      "Status":  "FAIL",
+                      "Name":  "XSS in query params handled safely",
+                      "Details":  "Server error: 503"
+                  },
+                  {
+                      "Status":  "FAIL",
+                      "Name":  "SQL injection handled safely",
+                      "Details":  "Server error: 503"
+                  },
+                  {
+                      "Status":  "PASS",
+                      "Name":  "X-Frame-Options header",
+                      "Details":  "DENY"
+                  },
+                  {
+                      "Status":  "PASS",
+                      "Name":  "X-Content-Type-Options header",
+                      "Details":  ""
+                  },
+                  {
+                      "Status":  "PASS",
+                      "Name":  "Content-Security-Policy header",
+                      "Details":  ""
+                  },
+                  {
+                      "Status":  "PASS",
+                      "Name":  ".env exists",
+                      "Details":  "Using .env file"
+                  },
+                  {
+                      "Status":  "PASS",
+                      "Name":  ".env files in .gitignore",
+                      "Details":  "Secrets protected"
+                  },
+                  {
+                      "Status":  "PASS",
+                      "Name":  "No API keys in next.config.ts",
+                      "Details":  ""
+                  },
+                  {
+                      "Status":  "WARN",
+                      "Name":  "Rate limiting active",
+                      "Details":  "No limit after 0 req (may need config)"
+                  },
+                  {
+                      "Status":  "PASS",
+                      "Name":  "Build output exists (.next)",
+                      "Details":  ""
+                  },
+                  {
+                      "Status":  "PASS",
+                      "Name":  "package-lock.json exists",
+                      "Details":  "Dependencies locked"
+                  }
+              ]
+}

@@ -96,6 +96,47 @@ export async function POST(request: Request) {
       );
     }
 
+    // =====================================================
+    // MULTI-DRIVER LOCK CHECK
+    // Check if bus is locked by another driver
+    // =====================================================
+    const busDoc = await adminDb.collection('buses').doc(busId).get();
+    if (!busDoc.exists) {
+      return NextResponse.json({ error: 'Bus not found' }, { status: 404 });
+    }
+
+    const busData = busDoc.data();
+    const lock = busData?.activeTripLock;
+
+    // Check if lock has expired (stale lock recovery)
+    let isLockExpired = false;
+    if (lock?.expiresAt) {
+      const expiryTime = lock.expiresAt._seconds
+        ? lock.expiresAt._seconds * 1000
+        : new Date(lock.expiresAt).getTime();
+      isLockExpired = Date.now() > expiryTime;
+
+      if (isLockExpired) {
+        console.log(`⏰ Lock for bus ${busId} has expired (was held by ${lock.driverId}), allowing new operations`);
+      }
+    }
+
+    // If another driver has an active, NON-EXPIRED lock on this bus
+    if (lock?.active && lock.driverId && lock.driverId !== driverUid && !isLockExpired) {
+      console.log(`🔒 Bus ${busId} is locked by driver ${lock.driverId}, current driver is ${driverUid}`);
+      return NextResponse.json({
+        hasActiveTrip: false,
+        tripData: null,
+        busLockedByOther: true,
+        lockInfo: {
+          lockedByDriver: lock.driverId,
+          tripId: lock.tripId,
+          since: lock.since?._seconds ? new Date(lock.since._seconds * 1000).toISOString() : null
+        },
+        reason: 'This bus is currently being operated by another driver. Please wait or try again later.'
+      });
+    }
+
     // Check for active trip using Supabase (matching start-journey-v2 logic)
     console.log('🔍 Querying Supabase driver_status for active trip:', { busId });
 

@@ -1,8 +1,9 @@
 import { NextResponse } from 'next/server';
 import { getApps, initializeApp } from 'firebase-admin/app';
-import { getFirestore } from 'firebase-admin/firestore';
+import { getFirestore, FieldValue } from 'firebase-admin/firestore';
 import fs from 'fs';
 import path from 'path';
+import { createUpdatedByEntry, getUpdaterInfo } from '@/lib/utils/updatedBy';
 
 // Get the data directory path
 const dataDirectory = path.join(process.cwd(), 'src', 'data');
@@ -56,19 +57,19 @@ export async function PUT(request: Request, { params }: { params: Promise<{ id: 
   try {
     const { id } = await params;
     const updatedModeratorData = await request.json();
-    
+
     // Log the incoming data for debugging
     console.log(`Updating moderator with ID ${id}:`, updatedModeratorData);
-    
+
     let firebaseSuccess = false;
     let updatedModerator: any = null;
-    
+
     // Try to update in Firebase first
     if (db) {
       try {
         // Update in the moderators collection (not users collection)
         const moderatorDocRef = db.doc(`moderators/${id}`);
-        
+
         // Validate profile photo URL if provided
         if (updatedModeratorData.profilePhotoUrl !== undefined) {
           if (typeof updatedModeratorData.profilePhotoUrl !== 'string') {
@@ -79,10 +80,14 @@ export async function PUT(request: Request, { params }: { params: Promise<{ id: 
             updatedModeratorData.profilePhotoUrl = null;
           }
         }
-        
+
+        // Add audit trail entry
+        updatedModeratorData.updatedBy = FieldValue.arrayUnion(createUpdatedByEntry('Admin', 'Admin'));
+        updatedModeratorData.updatedAt = new Date().toISOString();
+
         await moderatorDocRef.update(updatedModeratorData);
         console.log(`Moderator with ID ${id} updated in Firestore (moderators collection)`);
-        
+
         // Try to get the updated moderator data
         try {
           const moderatorDoc = await moderatorDocRef.get();
@@ -113,12 +118,12 @@ export async function PUT(request: Request, { params }: { params: Promise<{ id: 
         // Continue with JSON file update even if Firebase fails
       }
     }
-    
+
     // Also update in JSON file for backward compatibility
     try {
       const moderators = readJsonFile('Moderators.json');
       const index = moderators.findIndex((moderator: any) => moderator.id === id);
-      
+
       if (index !== -1) {
         // Moderator found in JSON file, update it
         // Ensure profile photo URL is handled correctly in JSON
@@ -129,11 +134,16 @@ export async function PUT(request: Request, { params }: { params: Promise<{ id: 
             moderators[index].profilePhotoUrl = updatedModeratorData.profilePhotoUrl;
           }
         }
-        
+
         moderators[index] = { ...moderators[index], ...updatedModeratorData };
+        // Add updatedBy for JSON file (as simple string entry since FieldValue doesn't work here)
+        if (!moderators[index].updatedBy) {
+          moderators[index].updatedBy = [];
+        }
+        moderators[index].updatedBy.push(createUpdatedByEntry('Admin', 'Admin'));
         writeJsonFile('Moderators.json', moderators);
         console.log(`Moderator with ID ${id} updated in JSON file`);
-        
+
         // If Firebase update failed, return the JSON file data
         if (!firebaseSuccess) {
           return NextResponse.json(moderators[index]);
@@ -143,12 +153,12 @@ export async function PUT(request: Request, { params }: { params: Promise<{ id: 
       console.error('Error updating moderator in JSON file:', jsonError);
       // Continue even if JSON update fails
     }
-    
+
     // Return the updated moderator data
     if (firebaseSuccess && updatedModerator) {
       return NextResponse.json(updatedModerator);
     }
-    
+
     // If we get here, the moderator was not found in either Firebase or JSON
     return NextResponse.json({ error: 'Moderator not found' }, { status: 404 });
   } catch (error: any) {

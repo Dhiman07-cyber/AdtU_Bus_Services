@@ -1,27 +1,73 @@
 /**
  * Export Helper Functions
  * Convert Firestore data to Excel with accurate formatting
+ * 
+ * SECURITY: Migrated from 'xlsx' (vulnerable) to 'exceljs' (secure)
+ * The xlsx package had unpatched Prototype Pollution and ReDoS vulnerabilities.
  */
 
-import * as XLSX from 'xlsx';
+import ExcelJS from 'exceljs';
 
 /**
- * Export data to Excel file
+ * Export data to Excel file (client-side download)
  */
 export async function exportToExcel(data: any[], filename: string, sheetName: string = 'Sheet1') {
   try {
     // Create workbook and worksheet
-    const wb = XLSX.utils.book_new();
-    const ws = XLSX.utils.json_to_sheet(data);
+    const workbook = new ExcelJS.Workbook();
+    workbook.creator = 'ADTU Bus Services';
+    workbook.created = new Date();
 
-    // Add worksheet to workbook
-    XLSX.utils.book_append_sheet(wb, ws, sheetName);
+    const worksheet = workbook.addWorksheet(sheetName);
 
-    // Generate Excel file and trigger download
-    XLSX.writeFile(wb, `${filename}.xlsx`);
+    // If data is empty, just add headers
+    if (data.length === 0) {
+      console.log('No data to export');
+      return false;
+    }
 
-    // Wait a brief moment for file to save
-    await new Promise(resolve => setTimeout(resolve, 100));
+    // Get headers from first object
+    const headers = Object.keys(data[0]);
+
+    // Add header row with styling
+    worksheet.addRow(headers);
+    const headerRow = worksheet.getRow(1);
+    headerRow.font = { bold: true };
+    headerRow.fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: 'FF4472C4' }
+    };
+    headerRow.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+
+    // Add data rows
+    data.forEach(item => {
+      const row = headers.map(header => item[header]);
+      worksheet.addRow(row);
+    });
+
+    // Auto-fit columns
+    worksheet.columns.forEach(column => {
+      let maxLength = 0;
+      column.eachCell?.({ includeEmpty: true }, cell => {
+        const cellValue = cell.value?.toString() || '';
+        maxLength = Math.max(maxLength, cellValue.length);
+      });
+      column.width = Math.min(Math.max(maxLength + 2, 10), 50);
+    });
+
+    // Generate and download file
+    const buffer = await workbook.xlsx.writeBuffer();
+    const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    const url = URL.createObjectURL(blob);
+
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `${filename}.xlsx`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
 
     console.log(`✅ Exported ${data.length} rows to ${filename}.xlsx`);
     return true;
@@ -232,50 +278,56 @@ export async function exportAllData(
   applications: any[] = []
 ) {
   try {
-    const wb = XLSX.utils.book_new();
+    const workbook = new ExcelJS.Workbook();
+    workbook.creator = 'ADTU Bus Services';
+    workbook.created = new Date();
 
     // Students sheet
     const studentsData = formatStudentsForExport(students, buses);
-    const wsStudents = XLSX.utils.json_to_sheet(studentsData);
-    XLSX.utils.book_append_sheet(wb, wsStudents, 'Students');
+    addDataToWorksheet(workbook, 'Students', studentsData);
 
     // Drivers sheet
     const driversData = formatDriversForExport(drivers, buses);
-    const wsDrivers = XLSX.utils.json_to_sheet(driversData);
-    XLSX.utils.book_append_sheet(wb, wsDrivers, 'Drivers');
+    addDataToWorksheet(workbook, 'Drivers', driversData);
 
     // Moderators sheet
     const moderatorsData = formatModeratorsForExport(moderators);
-    const wsModerators = XLSX.utils.json_to_sheet(moderatorsData);
-    XLSX.utils.book_append_sheet(wb, wsModerators, 'Moderators');
+    addDataToWorksheet(workbook, 'Moderators', moderatorsData);
 
     // Buses sheet
     const busesData = formatBusesForExport(buses, routes);
-    const wsBuses = XLSX.utils.json_to_sheet(busesData);
-    XLSX.utils.book_append_sheet(wb, wsBuses, 'Buses');
+    addDataToWorksheet(workbook, 'Buses', busesData);
 
-    // Routes sheet (with comma-separated stops)
+    // Routes sheet
     const routesData = formatRoutesForExport(routes);
-    const wsRoutes = XLSX.utils.json_to_sheet(routesData);
-    XLSX.utils.book_append_sheet(wb, wsRoutes, 'Routes');
+    addDataToWorksheet(workbook, 'Routes', routesData);
 
     // Applications sheet
     if (applications && applications.length > 0) {
       const applicationsData = formatApplicationsForExport(applications);
-      const wsApplications = XLSX.utils.json_to_sheet(applicationsData);
-      XLSX.utils.book_append_sheet(wb, wsApplications, 'Applications');
+      addDataToWorksheet(workbook, 'Applications', applicationsData);
     }
 
     // Notifications sheet
     const notifsData = formatNotificationsForExport(notifications, [...students, ...drivers, ...moderators]);
-    const wsNotifs = XLSX.utils.json_to_sheet(notifsData);
-    XLSX.utils.book_append_sheet(wb, wsNotifs, 'Notifications');
+    addDataToWorksheet(workbook, 'Notifications', notifsData);
 
     // Generate filename with timestamp
     const timestamp = new Date().toISOString().split('T')[0];
     const filename = `Bus_System_Complete_Export_${timestamp}`;
 
-    XLSX.writeFile(wb, `${filename}.xlsx`);
+    // Generate and download
+    const buffer = await workbook.xlsx.writeBuffer();
+    const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    const url = URL.createObjectURL(blob);
+
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `${filename}.xlsx`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
 
     console.log(`✅ Exported all data to ${filename}.xlsx`);
     return true;
@@ -286,45 +338,97 @@ export async function exportAllData(
 }
 
 /**
+ * Helper function to add data to a worksheet with styling
+ */
+function addDataToWorksheet(workbook: ExcelJS.Workbook, sheetName: string, data: any[]) {
+  const worksheet = workbook.addWorksheet(sheetName);
+
+  if (data.length === 0) {
+    worksheet.addRow(['No data']);
+    return;
+  }
+
+  // Get headers from first object
+  const headers = Object.keys(data[0]);
+
+  // Add header row with styling
+  worksheet.addRow(headers);
+  const headerRow = worksheet.getRow(1);
+  headerRow.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+  headerRow.fill = {
+    type: 'pattern',
+    pattern: 'solid',
+    fgColor: { argb: 'FF4472C4' }
+  };
+
+  // Add data rows
+  data.forEach(item => {
+    const row = headers.map(header => item[header]);
+    worksheet.addRow(row);
+  });
+
+  // Auto-fit columns
+  worksheet.columns.forEach(column => {
+    let maxLength = 0;
+    column.eachCell?.({ includeEmpty: true }, cell => {
+      const cellValue = cell.value?.toString() || '';
+      maxLength = Math.max(maxLength, cellValue.length);
+    });
+    column.width = Math.min(Math.max(maxLength + 2, 10), 50);
+  });
+}
+
+/**
  * Generate comprehensive bus services report in single sheet format
  */
 export async function generateBusServicesReport(
   students: any[], drivers: any[], moderators: any[], buses: any[], routes: any[], notifications: unknown) {
   try {
-    // Create workbook and worksheet
-    const wb = XLSX.utils.book_new();
+    const workbook = new ExcelJS.Workbook();
+    workbook.creator = 'ADTU Bus Services';
+    workbook.created = new Date();
+
+    const worksheet = workbook.addWorksheet('ADTU Bus Report');
 
     // Generate report data with proper formatting
     const reportData = await generateReportData(students, drivers, moderators, buses, routes);
 
-    // Convert to worksheet
-    const ws = XLSX.utils.aoa_to_sheet(reportData);
+    // Add rows from report data
+    reportData.forEach(row => {
+      worksheet.addRow(row);
+    });
 
     // Set column widths for better readability
-    const colWidths = [
-      { wch: 5 },   // Sl No
-      { wch: 20 },  // Name columns
-      { wch: 25 },  // Email columns
-      { wch: 15 },  // Phone columns
-      { wch: 20 },  // Faculty/Department columns
-      { wch: 15 },  // ID columns
-      { wch: 20 },  // Assignment columns
-      { wch: 10 },  // Shift columns
-      { wch: 12 },  // Date columns
-      { wch: 12 },  // Status columns
+    worksheet.columns = [
+      { width: 8 },   // Sl No
+      { width: 22 },  // Name columns
+      { width: 28 },  // Email columns
+      { width: 15 },  // Phone columns
+      { width: 22 },  // Faculty/Department columns
+      { width: 18 },  // ID columns
+      { width: 22 },  // Assignment columns
+      { width: 12 },  // Shift columns
+      { width: 14 },  // Date columns
+      { width: 14 },  // Status columns
     ];
-
-    ws['!cols'] = colWidths;
-
-    // Add worksheet to workbook
-    XLSX.utils.book_append_sheet(wb, ws, 'ADTU Bus Report');
 
     // Generate filename with current date
     const currentDate = new Date();
-    const dateStr = currentDate.toISOString().split('T')[0].replace(/-/g, '-');
+    const dateStr = currentDate.toISOString().split('T')[0];
     const filename = `ADTU_Bus_Report_${dateStr}`;
 
-    XLSX.writeFile(wb, `${filename}.xlsx`);
+    // Generate and download
+    const buffer = await workbook.xlsx.writeBuffer();
+    const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    const url = URL.createObjectURL(blob);
+
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `${filename}.xlsx`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
 
     console.log(`✅ Generated comprehensive bus services report: ${filename}.xlsx`);
     return true;
@@ -389,10 +493,7 @@ async function generateReportData(
         b.id === student.assignedBusId || b.busId === student.assignedBusId
       );
 
-      // Use actual status field from Firestore (not calculated)
       const status = student.status || 'N/A';
-
-      // Use correct field name: durationYears (not sessionDuration)
       const yearsAvailed = student.durationYears ? `${student.durationYears} year${student.durationYears > 1 ? 's' : ''}` : 'N/A';
 
       data.push([
@@ -414,14 +515,13 @@ async function generateReportData(
     data.push(['No student records found']);
   }
 
-  data.push([]); // Section separator
+  data.push([]);
   data.push([]);
 
   // DRIVERS Section
   data.push(['ALL DRIVERS']);
   data.push([]);
 
-  // Driver headers
   const driverHeaders = [
     'Sl No',
     'Name',
@@ -434,7 +534,6 @@ async function generateReportData(
   ];
   data.push(driverHeaders);
 
-  // Driver data
   if (drivers.length > 0) {
     drivers.forEach((driver, index) => {
       const assignedBus = buses.find(b =>
@@ -443,7 +542,6 @@ async function generateReportData(
         b.activeDriverId === driver.id || b.assignedDriverId === driver.id
       );
 
-      // Show "Reserved" for drivers without bus, "Active" for drivers with bus
       const busAssignment = assignedBus ? `Bus-${extractNumber(assignedBus.busId || assignedBus.id)}` : 'Reserved';
       const status = assignedBus ? 'Active' : 'Reserved';
 
@@ -462,14 +560,13 @@ async function generateReportData(
     data.push(['No driver records found']);
   }
 
-  data.push([]); // Section separator
+  data.push([]);
   data.push([]);
 
   // MODERATORS Section
   data.push(['ALL MODERATORS']);
   data.push([]);
 
-  // Moderator headers
   const moderatorHeaders = [
     'Sl No',
     'Name',
@@ -481,7 +578,6 @@ async function generateReportData(
   ];
   data.push(moderatorHeaders);
 
-  // Moderator data
   if (moderators.length > 0) {
     const sortedModerators = [...moderators].sort((a, b) => {
       const nameA = (a.fullName || a.name || '').toLowerCase();
@@ -504,14 +600,13 @@ async function generateReportData(
     data.push(['No moderator records found']);
   }
 
-  data.push([]); // Section separator
+  data.push([]);
   data.push([]);
 
   // BUSES Section
   data.push(['ALL BUSES']);
   data.push([]);
 
-  // Bus headers
   const busHeaders = [
     'Sl No',
     'Bus Number',
@@ -523,9 +618,7 @@ async function generateReportData(
   ];
   data.push(busHeaders);
 
-  // Bus data - sort buses by number in ascending order
   if (buses.length > 0) {
-    // Sort buses by extracting numbers and ordering them
     const sortedBuses = [...buses].sort((a, b) => {
       const numA = extractNumber(a.busId || a.id || '');
       const numB = extractNumber(b.busId || b.id || '');
@@ -533,8 +626,6 @@ async function generateReportData(
     });
 
     sortedBuses.forEach((bus, index) => {
-      // Buses have complete route object nested in them (bus.route)
-      // First try bus.route, then lookup from routes collection
       let routeInfo = bus.route;
       if (!routeInfo) {
         routeInfo = routes.find(r =>
@@ -543,10 +634,8 @@ async function generateReportData(
         );
       }
 
-      // Get route name
       const routeName = routeInfo?.routeName || routeInfo?.route || 'Not Assigned';
 
-      // Get stops from route (bus.route.stops or route collection)
       let stops = 'N/A';
       if (routeInfo && routeInfo.stops) {
         if (Array.isArray(routeInfo.stops)) {
@@ -556,8 +645,6 @@ async function generateReportData(
         }
       }
 
-      // Find assigned driver - use CORRECT Firestore fields
-      // Firestore stores: activeDriverId (current) and assignedDriverId (permanent)
       const driverIdToFind = bus.activeDriverId || bus.assignedDriverId;
       const assignedDriver = driverIdToFind ? drivers.find(d => d.id === driverIdToFind) : null;
 
@@ -584,7 +671,7 @@ async function generateReportData(
     data.push(['No bus records found']);
   }
 
-  data.push([]); // Section separator
+  data.push([]);
   data.push([]);
 
   return data;
@@ -614,5 +701,3 @@ function extractNumber(str: string): string {
   const match = str.match(/\d+/);
   return match ? match[0] : '?';
 }
-
-

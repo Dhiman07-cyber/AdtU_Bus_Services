@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { headers } from 'next/headers';
 import { adminDb, adminAuth } from '@/lib/firebase-admin';
 import { FieldValue } from 'firebase-admin/firestore';
+import { getUpdaterInfo, createUpdatedByEntry } from '@/lib/utils/updatedBy';
 
 /**
  * Create Bus API - Updated for Final Design Consistency
@@ -150,7 +151,13 @@ export async function POST(request: Request) {
 
       // Timestamps
       createdAt: FieldValue.serverTimestamp(),
-      updatedAt: FieldValue.serverTimestamp()
+      updatedAt: FieldValue.serverTimestamp(),
+
+      // Audit trail - who created/updated this document
+      updatedBy: await (async () => {
+        const updaterInfo = await getUpdaterInfo(adminDb, decodedToken.uid);
+        return [createUpdatedByEntry(updaterInfo.name, updaterInfo.roleOrEmployeeId)];
+      })()
     };
 
     // Create bus document

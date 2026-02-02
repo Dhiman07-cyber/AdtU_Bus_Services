@@ -71,7 +71,7 @@ export default function AddStudentForm() {
   const getInitialFormData = (): StudentFormData => {
     const currentYear = new Date().getFullYear();
     const defaultValidUntil = calculateValidUntilDate(currentYear, 1).toISOString();
-    
+
     const defaultData: StudentFormData = {
       name: '',
       email: '',
@@ -127,7 +127,7 @@ export default function AddStudentForm() {
   };
 
   const [formData, setFormData] = useState<StudentFormData>(getInitialFormData);
-  
+
   // Debounced storage to prevent input lag
   const storage = useDebouncedStorage<StudentFormData>('adminStudentFormData', {
     debounceMs: 500,
@@ -901,7 +901,6 @@ export default function AddStudentForm() {
                           </SelectItem>
                         );
                       })}
-                      </SelectContent>
                     </OptimizedSelect>
                     {errors.semester && <p className="text-red-500 text-[10px]">{errors.semester}</p>}
                   </div>

@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { headers } from 'next/headers';
 import { adminDb, adminAuth } from '@/lib/firebase-admin';
 import { FieldValue } from 'firebase-admin/firestore';
+import { getUpdaterInfo, createUpdatedByEntry } from '@/lib/utils/updatedBy';
 
 export async function PUT(request: Request) {
     try {
@@ -152,6 +153,10 @@ export async function PUT(request: Request) {
             updates.load = { morningCount: inputMorning, eveningCount: inputEvening };
             updates.currentMembers = newCurrentMembers;
             updates.updatedAt = FieldValue.serverTimestamp();
+
+            // Append to audit trail
+            const updaterInfo = await getUpdaterInfo(adminDb, decodedToken.uid);
+            updates.updatedBy = FieldValue.arrayUnion(createUpdatedByEntry(updaterInfo.name, updaterInfo.roleOrEmployeeId));
 
             // Commit Bus Update
             t.update(busRef, updates);

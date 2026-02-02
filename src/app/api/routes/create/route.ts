@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { headers } from 'next/headers';
 import { adminDb, adminAuth } from '@/lib/firebase-admin';
 import { FieldValue } from 'firebase-admin/firestore';
+import { getUpdaterInfo, createUpdatedByEntry } from '@/lib/utils/updatedBy';
 
 /**
  * Create Route API
@@ -70,6 +71,9 @@ export async function POST(request: Request) {
       stopId: stop.stopId
     }));
 
+    // Get updater info for audit trail
+    const updaterInfo = await getUpdaterInfo(adminDb, decodedToken.uid);
+
     // Build complete route document
     const routeDocument: any = {
       routeId,
@@ -84,7 +88,10 @@ export async function POST(request: Request) {
       defaultBusId: null,
 
       createdAt: FieldValue.serverTimestamp(),
-      updatedAt: FieldValue.serverTimestamp()
+      updatedAt: FieldValue.serverTimestamp(),
+
+      // Audit trail - who created/updated this document
+      updatedBy: [createUpdatedByEntry(updaterInfo.name, updaterInfo.roleOrEmployeeId)]
     };
 
     // Create route document

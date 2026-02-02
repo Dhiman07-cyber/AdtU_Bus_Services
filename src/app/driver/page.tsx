@@ -18,6 +18,8 @@ import {
 import { collection, query, where, onSnapshot, doc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import "@/styles/animations.css";
+import { PremiumPageLoader } from "@/components/LoadingSpinner";
+import { supabase } from "@/lib/supabase-client";
 
 export default function DriverDashboard() {
   const { userData, currentUser } = useAuth();
@@ -35,14 +37,7 @@ export default function DriverDashboard() {
   const [routesLoading, setRoutesLoading] = useState(true);
   const [studentsLoading, setStudentsLoading] = useState(true);
 
-  // 🚨 DEVELOPMENT: Clear any cached data on mount for fresh state
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      console.log('🧹 DEV MODE: Clearing localStorage cache for fresh data');
-      localStorage.removeItem('adtu_bus_user_data');
-      localStorage.removeItem('adtu_bus_cache_expiry');
-    }
-  }, []);
+  // NOTE: Cache clearing removed for production - caching is now enabled
 
   // Check for expired swaps on mount
   useEffect(() => {
@@ -321,20 +316,80 @@ export default function DriverDashboard() {
     return null;
   }, [driverData, buses, currentUser, assignedBusData]);
 
-  // Sync hasActiveTrip with bus status from DB
+  // Sync hasActiveTrip with API and Realtime (Same as Student Dashboard)
   useEffect(() => {
-    if (busData) {
-      // Check for various status indicators that might be used in the DB
-      const isTripActive =
-        busData.status === 'enroute' ||
-        busData.status === 'active' ||
-        busData.isLive === true ||
-        busData.isTripActive === true;
-
-      console.log('🔄 Syncing active trip state:', isTripActive, 'Current status:', busData.status);
-      setHasActiveTrip(!!isTripActive);
+    // Get distinct bus ID
+    const busId = busData?.id || busData?.busId;
+    if (!busId) {
+      console.log('❌ No bus ID available for trip status check');
+      return;
     }
-  }, [busData]);
+
+    console.log('🔄 Setting up robust trip status matching Student Dashboard for bus:', busId);
+
+    // 1. Initial Check using API (Bypassing RLS)
+    const checkActiveTrip = async () => {
+      try {
+        console.log('🔍 Checking trip status via API for bus:', busId);
+        // Use the student API as it's a generic "is this bus active?" check that bypasses RLS
+        const response = await fetch(`/api/student/trip-status?busId=${encodeURIComponent(busId)}`);
+
+        if (response.ok) {
+          const result = await response.json();
+          console.log('✅ Trip status API result:', result);
+          setHasActiveTrip(!!result.tripActive);
+        } else {
+          console.warn('⚠️ Trip status API failed');
+        }
+      } catch (err) {
+        console.error('❌ Error hitting trip status API:', err);
+      }
+    };
+
+    checkActiveTrip();
+
+    // 2. Real-time Database Changes (driver_status)
+    const channel = supabase
+      .channel(`driver_dashboard_status_db_${busId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'driver_status',
+          filter: `bus_id=eq.${busId}`
+        },
+        (payload) => {
+          console.log('📡 Real-time driver_status update:', payload);
+          if (payload.eventType === 'DELETE') {
+            setHasActiveTrip(false);
+          } else if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
+            const newStatus = (payload.new as any).status;
+            const isActive = newStatus === 'on_trip' || newStatus === 'enroute';
+            setHasActiveTrip(isActive);
+          }
+        }
+      )
+      .subscribe();
+
+    // 3. BroadCast Events (Immediate updates from driver actions)
+    const tripChannel = supabase
+      .channel(`trip-status-${busId}`)
+      .on('broadcast', { event: 'trip_started' }, (payload) => {
+        console.log('🚀 Trip started broadcast received!', payload);
+        setHasActiveTrip(true);
+      })
+      .on('broadcast', { event: 'trip_ended' }, (payload) => {
+        console.log('🏁 Trip ended broadcast received!', payload);
+        setHasActiveTrip(false);
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+      supabase.removeChannel(tripChannel);
+    };
+  }, [busData?.id, busData?.busId]);
 
   const routeData = useMemo(() => {
     // First try to use directly fetched assigned route data
@@ -463,44 +518,11 @@ export default function DriverDashboard() {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-900 dark:bg-gray-950 relative overflow-hidden">
-        {/* Animated background gradient orbs */}
-        <div className="absolute inset-0 overflow-hidden">
-          <div className="absolute -top-40 -right-40 w-80 h-80 bg-blue-400 rounded-full mix-blend-multiply filter blur-3xl opacity-20 animate-blob"></div>
-          <div className="absolute -bottom-40 -left-40 w-80 h-80 bg-purple-400 rounded-full mix-blend-multiply filter blur-3xl opacity-20 animate-blob animation-delay-2000"></div>
-          <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-80 h-80 bg-pink-400 rounded-full mix-blend-multiply filter blur-3xl opacity-20 animate-blob animation-delay-4000"></div>
-        </div>
-
-        <div className="text-center space-y-12 relative z-10 -mt-24">
-          {/* Premium spinner with gradient ring */}
-          <div className="relative flex items-center justify-center">
-            {/* Gradient ring structure */}
-            <div className="absolute w-22 h-22 rounded-full bg-gradient-to-r from-blue-500 via-purple-500 to-blue-500 animate-spin"></div>
-            <div className="absolute w-20 h-20 rounded-full bg-gray-900 dark:bg-gray-950"></div>
-
-            {/* Center icon with pulse effect */}
-            <div className="relative animate-pulse">
-              <Bus className="h-8 w-8 text-blue-500 dark:text-blue-400" />
-            </div>
-          </div>
-
-          {/* Loading text with gradient */}
-          <div className="space-y-3">
-            <h3 className="text-2xl font-bold bg-gradient-to-r from-blue-600 via-purple-600 to-pink-600 bg-clip-text text-transparent animate-pulse">
-              Loading Dashboard
-            </h3>
-            <p className="text-sm font-medium text-gray-600 dark:text-gray-400">
-              Preparing your driver interface...
-            </p>
-
-            {/* Loading dots animation */}
-            <div className="flex items-center justify-center gap-2">
-              <div className="w-2 h-2 bg-blue-500 rounded-full animate-bounce"></div>
-              <div className="w-2 h-2 bg-purple-500 rounded-full animate-bounce" style={{ animationDelay: '0.1s' }}></div>
-              <div className="w-2 h-2 bg-pink-500 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
-            </div>
-          </div>
-        </div>
+      <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-[#020817]">
+        <PremiumPageLoader
+          message="Loading Driver Dashboard..."
+          subMessage="Preparing your driver interface..."
+        />
       </div>
     );
   }
@@ -663,7 +685,6 @@ export default function DriverDashboard() {
                 <div className="hidden md:block">
                   <div className="flex items-center gap-1">
                     <div className="w-2 h-2 rounded-full bg-green-500 animate-ping" />
-                    <div className="w-2 h-2 rounded-full bg-green-500" />
                   </div>
                 </div>
               </div>
@@ -923,8 +944,13 @@ export default function DriverDashboard() {
                           <Activity className="h-2.5 w-2.5 sm:h-3 sm:w-3 text-amber-500" />
                           Status
                         </p>
-                        <Badge className={`text-[10px] sm:text-xs font-bold ${hasActiveTrip ? 'bg-green-500 text-white' : 'bg-gray-500 text-white'}`}>
-                          {hasActiveTrip ? 'EnRoute' : 'Idle'}
+                        <Badge className={`text-[10px] sm:text-xs font-bold ${(busData?.status?.toLowerCase() === 'active' || busData?.status?.toLowerCase() === 'enroute')
+                          ? 'bg-green-500 text-white'
+                          : busData?.status?.toLowerCase() === 'maintenance'
+                            ? 'bg-orange-500 text-white'
+                            : 'bg-gray-500 text-white'
+                          }`}>
+                          {busData?.status || 'Unknown'}
                         </Badge>
                       </div>
                     </div>
@@ -1279,7 +1305,7 @@ export default function DriverDashboard() {
                       </div>
                       <p className="text-[10px] sm:text-xs font-bold text-purple-900 dark:text-purple-100 uppercase tracking-wider">License ID</p>
                     </div>
-                    <p className="text-lg sm:text-xl font-black text-purple-700 dark:text-purple-400 mt-2 tracking-tight break-all" title={licenseNumber}>
+                    <p className="text-sm sm:text-xl font-black text-purple-700 dark:text-purple-400 mt-2 tracking-tight break-all" title={licenseNumber}>
                       {licenseNumber}
                     </p>
                   </div>
@@ -1309,7 +1335,7 @@ export default function DriverDashboard() {
                         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1.5 sm:gap-2 w-full pt-1">
                           {(busData?.shift === 'Morning' || busData?.shift === 'Both' || busData?.shift === 'Morning & Evening Shift' || !busData?.shift) && (
                             <div className="flex items-center justify-between sm:justify-start gap-1.5 text-xs sm:text-[11px] lg:text-xs">
-                              <span className="text-amber-700 dark:text-amber-300/80 font-medium">Morn:</span>
+                              <span className="text-amber-700 dark:text-amber-300/80 font-medium">Morning:</span>
                               <span className="font-black text-amber-700 dark:text-amber-400 text-sm">
                                 {Math.max(0, (busData?.capacity || 50) - (busData?.load?.morningCount || 0))}
                               </span>
@@ -1320,7 +1346,7 @@ export default function DriverDashboard() {
 
                           {(busData?.shift === 'Evening' || busData?.shift === 'Both' || busData?.shift === 'Morning & Evening Shift') ? (
                             <div className="flex items-center justify-between sm:justify-start gap-1.5 text-xs sm:text-[11px] lg:text-xs">
-                              <span className="text-amber-700 dark:text-amber-300/80 font-medium">Eve:</span>
+                              <span className="text-amber-700 dark:text-amber-300/80 font-medium">Evening:</span>
                               <span className="font-black text-amber-700 dark:text-amber-400 text-sm">
                                 {Math.max(0, (busData?.capacity || 50) - (busData?.load?.eveningCount || 0))}
                               </span>

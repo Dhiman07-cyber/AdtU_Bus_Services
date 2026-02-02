@@ -217,14 +217,44 @@ export async function POST(request: Request) {
     const busData = busDoc.data();
     const busNumber = busData?.busNumber || busId;
 
-    // Remove trip_sessions update (not using collection anymore)
+    // =====================================================
+    // MULTI-DRIVER LOCK VERIFICATION
+    // Only the driver who holds the lock can end the trip
+    // =====================================================
+    const lock = busData?.activeTripLock;
 
+    if (lock?.active && lock.driverId && lock.driverId !== driverUid) {
+      console.error(`🔒 Lock mismatch: Driver ${driverUid} trying to end trip owned by ${lock.driverId}`);
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'You cannot end this trip. Another driver is currently operating this bus.',
+          errorCode: 'NOT_LOCK_HOLDER'
+        },
+        { status: 403 }
+      );
+    }
 
-    // Clear trip-related fields from bus document
+    // If no active lock, allow the end (might be cleanup or expired lock)
+    if (!lock?.active) {
+      console.warn(`⚠️ No active lock found for bus ${busId}, proceeding with cleanup anyway`);
+    } else {
+      console.log(`✅ Lock verification passed: Driver ${driverUid} is the lock holder`);
+    }
+
+    // Clear trip-related fields from bus document including the lock
     // NOTE: We do NOT update the 'status' field here because it represents
     // the bus condition (maintenance, active, etc.) - NOT trip status.
     // Trip status is tracked in Supabase 'driver_status' table.
     await adminDb.collection('buses').doc(busId).update({
+      activeTripLock: {
+        active: false,
+        tripId: null,
+        driverId: null,
+        shift: null,
+        since: null,
+        expiresAt: null
+      },
       activeTripId: null,
       activeDriverId: null,
       lastEndedAt: FieldValue.serverTimestamp()

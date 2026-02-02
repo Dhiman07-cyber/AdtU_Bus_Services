@@ -234,7 +234,7 @@ export default function Navbar({ onMenuToggle, isSidebarOpen = false }: NavbarPr
                       </div>
                       <div className="flex-1 min-w-0 space-y-0.5">
                         <p className="text-sm font-semibold text-theme-text truncate leading-none">
-                          {userData?.name || currentUser?.displayName || "User"}
+                          {userData?.fullName || userData?.name || currentUser?.displayName || "User"}
                         </p>
                         <p className="text-[10px] text-theme-text-secondary truncate font-medium">
                           {userData?.email || currentUser?.email}
@@ -283,7 +283,7 @@ export default function Navbar({ onMenuToggle, isSidebarOpen = false }: NavbarPr
               duration: 0.6,
               ease: [0.19, 1, 0.22, 1]
             }}
-            className="md:hidden fixed inset-0 z-[10000] overflow-y-auto no-scrollbar bg-[#09090b] flex flex-col shadow-2xl"
+            className="md:hidden fixed inset-0 z-[10000] overflow-hidden bg-[#09090b] flex flex-col shadow-2xl"
           >
             {/* Profile Section - Dark Premium SaaS style */}
             <div className="px-6 py-8 border-b border-white/10 bg-white/[0.03] relative">
@@ -331,9 +331,14 @@ export default function Navbar({ onMenuToggle, isSidebarOpen = false }: NavbarPr
             </div>
 
             {/* Navigation Grid/List - Dark Mode with Separators */}
-            <div className="flex-1 px-0 py-2">
+            <div className="flex-1 px-0 py-2 overflow-y-auto no-scrollbar">
               {mobileRoutes.map((route, idx) => {
-                const isActive = pathname === route.href || (route.href !== `/${userData?.role}` && pathname?.startsWith(route.href));
+                const allMobileHrefs = mobileRoutes.map(r => r.href);
+                const isActive = pathname === route.href || (
+                  route.href !== `/${userData?.role}` &&
+                  pathname?.startsWith(route.href) &&
+                  !allMobileHrefs.some(h => h !== route.href && h.startsWith(route.href) && pathname?.startsWith(h))
+                );
                 const isLast = idx === mobileRoutes.length - 1;
 
                 return (

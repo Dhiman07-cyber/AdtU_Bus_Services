@@ -1,0 +1,428 @@
+name: CI/CD Pipeline - ADTU Smart Bus Management System
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      skip_tests:
+        description: 'Skip tests (emergency deploy only)'
+        required: false
+        type: boolean
+        default: false
+      target_environment:
+        description: 'Target environment for manual deploy'
+        required: false
+        type: choice
+        options:
+          - staging
+          - canary
+          - production
+        default: staging
+
+env:
+  NODE_VERSION: '20'
+  # Rollback criteria thresholds
+  ERROR_RATE_THRESHOLD: '0.05'
+  P95_LATENCY_THRESHOLD: '500'
+
+jobs:
+  # ============================================
+  # Stage 1: Build and Test
+  # ============================================
+  build-and-test:
+    name: Build & Test
+    runs-on: ubuntu-latest
+    outputs:
+      build_sha: ${{ github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+      
+      - name: Install dependencies
+        run: npm ci
+      
+      - name: Run linter
+        run: npm run lint
+        continue-on-error: true
+      
+      - name: Run unit tests
+        run: npm test -- --passWithNoTests --coverage
+        if: ${{ !inputs.skip_tests }}
+      
+      - name: Build application
+        run: npm run build
+        env:
+          NEXT_PUBLIC_FIREBASE_PROJECT_ID: ${{ secrets.NEXT_PUBLIC_FIREBASE_PROJECT_ID }}
+          NEXT_PUBLIC_FIREBASE_API_KEY: ${{ secrets.NEXT_PUBLIC_FIREBASE_API_KEY }}
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+      
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-${{ github.sha }}
+          path: .next/
+          retention-days: 7
+
+  # ============================================
+  # Stage 2: SAST with Semgrep
+  # ============================================
+  sast-semgrep:
+    name: SAST (Semgrep)
+    runs-on: ubuntu-latest
+    if: ${{ !inputs.skip_tests }}
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Run Semgrep SAST
+        uses: returntocorp/semgrep-action@v1
+        with:
+          config: >-
+            p/default
+            p/security-audit
+            p/secrets
+            p/owasp-top-ten
+            p/typescript
+            p/react
+          generateSarif: true
+        env:
+          SEMGREP_APP_TOKEN: ${{ secrets.SEMGREP_APP_TOKEN }}
+      
+      - name: Upload SARIF
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: semgrep.sarif
+        if: always()
+
+  # ============================================
+  # Stage 3: SCA (Dependency Scanning)
+  # ============================================
+  security-scan:
+    name: SCA (Dependency Scan)
+    runs-on: ubuntu-latest
+    needs: build-and-test
+    if: ${{ !inputs.skip_tests }}
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+      
+      - name: Install dependencies
+        run: npm ci
+      
+      - name: Run npm audit (high/critical)
+        run: |
+          npm audit --audit-level=high --json > npm-audit.json || true
+          CRITICAL=$(cat npm-audit.json | jq '.metadata.vulnerabilities.critical // 0')
+          HIGH=$(cat npm-audit.json | jq '.metadata.vulnerabilities.high // 0')
+          echo "Critical: $CRITICAL, High: $HIGH"
+          if [ "$CRITICAL" -gt 0 ]; then
+            echo "❌ Critical vulnerabilities found!"
+            cat npm-audit.json | jq '.vulnerabilities | to_entries | .[] | select(.value.severity == "critical")'
+            exit 1
+          fi
+      
+      - name: Run Snyk security scan
+        uses: snyk/actions/node@master
+        continue-on-error: true
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        with:
+          args: --severity-threshold=high --json-file-output=snyk-results.json
+      
+      - name: Upload SCA results
+        uses: actions/upload-artifact@v4
+        with:
+          name: sca-results-${{ github.sha }}
+          path: |
+            npm-audit.json
+            snyk-results.json
+        if: always()
+
+  # ============================================
+  # Stage 4: Firestore Rules Validation
+  # ============================================
+  validate-firestore-rules:
+    name: Validate Firestore Rules
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Check Firestore rules syntax
+        run: |
+          echo "🔍 Validating Firestore security rules..."
+          if [ -f "firestore.rules" ]; then
+            echo "✓ firestore.rules found"
+            
+            # Check for overly permissive rules
+            if grep -q "allow read, write: if true" firestore.rules; then
+              echo "❌ ERROR: Overly permissive rules detected (allow all)!"
+              exit 1
+            fi
+            
+            # Check for missing authentication
+            if grep -qE "allow read.*:.*if.*true" firestore.rules; then
+              echo "⚠️  WARNING: Potentially permissive read rules detected"
+            fi
+            
+            # Check that admin collections have proper restrictions
+            if grep -q "collection('admins')" firestore.rules; then
+              if ! grep -qA5 "collection('admins')" firestore.rules | grep -q "isAdmin"; then
+                echo "⚠️  WARNING: Admin collection may lack proper role checks"
+              fi
+            fi
+            
+            echo "✓ Basic security rule validation passed"
+          else
+            echo "❌ firestore.rules not found!"
+            exit 1
+          fi
+
+  # ============================================
+  # Stage 5: Deploy Preview (PRs only)
+  # ============================================
+  deploy-preview:
+    name: Deploy Preview
+    runs-on: ubuntu-latest
+    needs: [build-and-test, sast-semgrep, security-scan]
+    if: github.event_name == 'pull_request'
+    outputs:
+      preview_url: ${{ steps.deploy.outputs.preview-url }}
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Deploy to Vercel Preview
+        id: deploy
+        uses: amondnet/vercel-action@v25
+        with:
+          vercel-token: ${{ secrets.VERCEL_TOKEN }}
+          vercel-org-id: ${{ secrets.VERCEL_ORG_ID }}
+          vercel-project-id: ${{ secrets.VERCEL_PROJECT_ID }}
+      
+      - name: Comment PR with preview URL
+        uses: actions/github-script@v7
+        with:
+          script: |
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: `🚀 **Preview deployed!**\n\nURL: ${{ steps.deploy.outputs.preview-url }}\n\nCommit: \`${{ github.sha }}\``
+            })
+
+  # ============================================
+  # Stage 6: API & Integration Tests (Preview)
+  # ============================================
+  api-tests:
+    name: API Integration Tests
+    runs-on: ubuntu-latest
+    needs: deploy-preview
+    if: github.event_name == 'pull_request' && !inputs.skip_tests
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Wait for deployment
+        run: sleep 30
+      
+      - name: Run API test suite
+        run: |
+          chmod +x scripts/tests/api_test_suite.sh
+          STAGING_URL="${{ needs.deploy-preview.outputs.preview_url }}" \
+          ./scripts/tests/api_test_suite.sh || true
+        env:
+          STAGING_URL: ${{ needs.deploy-preview.outputs.preview_url }}
+          RAZORPAY_WEBHOOK_SECRET: ${{ secrets.RAZORPAY_WEBHOOK_SECRET }}
+      
+      - name: Upload test results
+        uses: actions/upload-artifact@v4
+        with:
+          name: api-test-results-${{ github.sha }}
+          path: api_test_results.json
+        if: always()
+
+  # ============================================
+  # Stage 7: Deploy Canary 5% (main branch)
+  # ============================================
+  deploy-canary-5:
+    name: Deploy Canary (5%)
+    runs-on: ubuntu-latest
+    needs: [build-and-test, sast-semgrep, security-scan, validate-firestore-rules]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    environment: canary
+    outputs:
+      canary_url: ${{ steps.deploy.outputs.preview-url }}
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+      
+      - name: Install dependencies
+        run: npm ci
+      
+      - name: Build
+        run: npm run build
+        env:
+          NEXT_PUBLIC_FIREBASE_PROJECT_ID: ${{ secrets.NEXT_PUBLIC_FIREBASE_PROJECT_ID }}
+          NEXT_PUBLIC_FIREBASE_API_KEY: ${{ secrets.NEXT_PUBLIC_FIREBASE_API_KEY }}
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+      
+      - name: Deploy to Vercel (Canary 5%)
+        id: deploy
+        uses: amondnet/vercel-action@v25
+        with:
+          vercel-token: ${{ secrets.VERCEL_TOKEN }}
+          vercel-org-id: ${{ secrets.VERCEL_ORG_ID }}
+          vercel-project-id: ${{ secrets.VERCEL_PROJECT_ID }}
+      
+      - name: Run health checks
+        run: |
+          echo "🏥 Running health checks on ${{ steps.deploy.outputs.preview-url }}"
+          sleep 30
+          
+          for i in {1..5}; do
+            HEALTH_STATUS=$(curl -s -o /dev/null -w "%{http_code}" "${{ steps.deploy.outputs.preview-url }}/api/health")
+            if [ "$HEALTH_STATUS" == "200" ]; then
+              echo "✅ Health check $i/5 passed"
+            else
+              echo "❌ Health check $i/5 failed with status: $HEALTH_STATUS"
+              exit 1
+            fi
+            sleep 10
+          done
+          
+          echo "✅ All health checks passed"
+      
+      - name: Run smoke load test
+        run: |
+          if command -v k6 &> /dev/null; then
+            k6 run --env SCENARIO=smoke --env STAGING_URL="${{ steps.deploy.outputs.preview-url }}" scripts/tests/k6_gps_load_test.js
+          else
+            echo "⚠️  k6 not installed, skipping load test"
+          fi
+        continue-on-error: true
+
+  # ============================================
+  # Stage 8: Canary Monitoring & Approval (25%)
+  # ============================================
+  canary-25-approval:
+    name: Canary 25% (Manual Approval)
+    runs-on: ubuntu-latest
+    needs: deploy-canary-5
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    environment: canary-25
+    steps:
+      - name: Canary 25% Checkpoint
+        run: |
+          echo "=============================================="
+          echo " CANARY 25% APPROVAL CHECKPOINT"
+          echo "=============================================="
+          echo ""
+          echo "Canary 5% URL: ${{ needs.deploy-canary-5.outputs.canary_url }}"
+          echo ""
+          echo "Before approving, verify:"
+          echo "  ☐ Error rate < 3× baseline"
+          echo "  ☐ Payment success rate > 99.5%"
+          echo "  ☐ API p95 latency < 500ms"
+          echo "  ☐ No critical alerts in monitoring"
+          echo "  ☐ 30-minute observation period complete"
+          echo ""
+          echo "Approval granted - proceeding to 25% traffic"
+
+  # ============================================
+  # Stage 9: Deploy Production (100%)
+  # ============================================
+  deploy-production:
+    name: Deploy Production (100%)
+    runs-on: ubuntu-latest
+    needs: canary-25-approval
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Production Deployment Confirmation
+        run: |
+          echo "=============================================="
+          echo " PRODUCTION DEPLOYMENT"
+          echo "=============================================="
+          echo ""
+          echo "Commit: ${{ github.sha }}"
+          echo "Actor: ${{ github.actor }}"
+          echo "Time: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          echo ""
+      
+      - name: Deploy to Vercel Production
+        id: deploy-prod
+        uses: amondnet/vercel-action@v25
+        with:
+          vercel-token: ${{ secrets.VERCEL_TOKEN }}
+          vercel-org-id: ${{ secrets.VERCEL_ORG_ID }}
+          vercel-project-id: ${{ secrets.VERCEL_PROJECT_ID }}
+          vercel-args: '--prod'
+      
+      - name: Post-deployment health check
+        run: |
+          echo "Running production health checks..."
+          sleep 30
+          
+          PROD_URL="${{ secrets.PRODUCTION_URL || 'https://adtu-bus.vercel.app' }}"
+          
+          for i in {1..10}; do
+            HEALTH_STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$PROD_URL/api/health")
+            if [ "$HEALTH_STATUS" == "200" ]; then
+              echo "✅ Production health check $i/10 passed"
+            else
+              echo "❌ Production health check $i/10 failed: $HEALTH_STATUS"
+              echo "⚠️  Consider rollback if issues persist"
+            fi
+            sleep 30
+          done
+      
+      - name: Log deployment
+        run: |
+          echo "{\"type\": \"production\", \"commit\": \"${{ github.sha }}\", \"actor\": \"${{ github.actor }}\", \"timestamp\": \"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"}" >> deployment_log.txt
+          echo "✅ Production deployment complete"
+
+  # ============================================
+  # Rollback Job (Manual Trigger)
+  # ============================================
+  rollback:
+    name: Emergency Rollback
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch' && inputs.target_environment == 'production'
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      
+      - name: Get previous commit
+        id: prev
+        run: echo "sha=$(git rev-parse HEAD~1)" >> $GITHUB_OUTPUT
+      
+      - name: Rollback notification
+        run: |
+          echo "🚨 EMERGENCY ROLLBACK INITIATED"
+          echo "Rolling back from: ${{ github.sha }}"
+          echo "Rolling back to: ${{ steps.prev.outputs.sha }}"
+          echo ""
+          echo "Manual steps required:"
+          echo "1. Verify rollback target in Vercel dashboard"
+          echo "2. Promote previous deployment to production"
+          echo "3. Run reconciliation: npm run cron:reconcile -- --force"

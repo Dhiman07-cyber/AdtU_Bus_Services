@@ -155,7 +155,7 @@ function SwapRequestPageContent() {
   const [outgoingLoading, setOutgoingLoading] = useState(true);
 
   // Filters for drivers
-  const [driverFilter, setDriverFilter] = useState<'all' | 'same_shift' | 'reserved'>('all');
+  const [driverFilter, setDriverFilter] = useState<'all' | 'same_shift' | 'reserved' | 'same_bus'>('all');
   const [searchQuery, setSearchQuery] = useState('');
 
   // Sync tab with URL and state
@@ -168,14 +168,7 @@ function SwapRequestPageContent() {
     }
   }, [searchParams, hasActiveSwap]);
 
-  // 🚨 DEVELOPMENT: Clear any cached data on mount for fresh state
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      console.log('🧹 DEV MODE: Clearing localStorage cache for fresh data');
-      localStorage.removeItem('adtu_bus_user_data');
-      localStorage.removeItem('adtu_bus_cache_expiry');
-    }
-  }, []);
+  // NOTE: Cache clearing removed for production - caching is now enabled
 
   useEffect(() => {
     // Wait for auth to finish loading before checking auth state
@@ -475,6 +468,9 @@ function SwapRequestPageContent() {
     } else if (driverFilter === 'reserved') {
       // Filter for reserved drivers (no bus assigned or busId is 'reserved')
       filtered = filtered.filter(d => !d.busId || d.busId === 'reserved');
+    } else if (driverFilter === 'same_bus' && myBusData?.busId) {
+      // Filter for drivers assigned to the same bus
+      filtered = filtered.filter(d => d.busId === myBusData.busId);
     }
 
     // Filter by search query
@@ -1153,6 +1149,7 @@ function SwapRequestPageContent() {
                           <SelectContent className="bg-[#1a1d24] border-white/10 rounded-xl text-white shadow-xl" position="popper" side="bottom" align="start">
                             <SelectItem value="all">All</SelectItem>
                             <SelectItem value="same_shift">Same Shift</SelectItem>
+                            <SelectItem value="same_bus">Same Bus</SelectItem>
                             <SelectItem value="reserved">Reserved Pool</SelectItem>
                           </SelectContent>
                         </Select>

@@ -47,7 +47,7 @@ export default function AddBusPage() {
     morningLoad: "",
     eveningLoad: ""
   });
-  
+
   // Debounced storage to prevent input lag
   const storage = useDebouncedStorage<BusFormData>('busFormData', {
     debounceMs: 500,
@@ -354,32 +354,31 @@ export default function AddBusPage() {
                   required
                 >
                   <div className="px-2 py-1.5 text-xs font-bold text-yellow-500 uppercase tracking-wider bg-gray-800/50">
-                      Reserved (Category-1)
-                    </div>
-                    {drivers
-                      .filter(d => !d.assignedBusId && !d.busId && !d.busAssigned)
-                      .map(driver => (
-                        <SelectItem key={driver.uid} value={driver.uid || driver.id}>
-                          {driver.fullName || driver.name || 'Unknown'}
-                        </SelectItem>
-                      ))}
+                    Reserved (Category-1)
+                  </div>
+                  {drivers
+                    .filter(d => !d.assignedBusId && !d.busId && !d.busAssigned)
+                    .map(driver => (
+                      <SelectItem key={driver.uid} value={driver.uid || driver.id}>
+                        {driver.fullName || driver.name || 'Unknown'}
+                      </SelectItem>
+                    ))}
 
-                    <div className="px-2 py-1.5 text-xs font-bold text-yellow-500 uppercase tracking-wider bg-gray-800/50 mt-2">
-                      Assigned (Category-2)
-                    </div>
-                    {drivers
-                      .filter(d => d.assignedBusId || d.busId || d.busAssigned)
-                      .map(driver => {
-                        const busId = driver.assignedBusId || driver.busId || driver.busAssigned;
-                        const bus = buses.find(b => b.busId === busId || b.id === busId);
-                        return (
-                          <SelectItem key={driver.uid} value={driver.uid || driver.id} disabled>
-                            {driver.fullName || driver.name || 'Unknown'} ({bus?.busNumber || busId})
-                          </SelectItem>
-                        );
-                      })}
-                  </SelectContent>
-                </Select>
+                  <div className="px-2 py-1.5 text-xs font-bold text-yellow-500 uppercase tracking-wider bg-gray-800/50 mt-2">
+                    Assigned (Category-2)
+                  </div>
+                  {drivers
+                    .filter(d => d.assignedBusId || d.busId || d.busAssigned)
+                    .map(driver => {
+                      const busId = driver.assignedBusId || driver.busId || driver.busAssigned;
+                      const bus = buses.find(b => b.busId === busId || b.id === busId);
+                      return (
+                        <SelectItem key={driver.uid} value={driver.uid || driver.id} disabled>
+                          {driver.fullName || driver.name || 'Unknown'} ({bus?.busNumber || busId})
+                        </SelectItem>
+                      );
+                    })}
+                </OptimizedSelect>
                 {errors.driverUID && <p className="text-red-500 text-xs mt-1">{errors.driverUID}</p>}
               </div>
 
@@ -508,14 +507,6 @@ export default function AddBusPage() {
                   value={busData.eveningLoad}
                   onChange={(value) => setBusData(prev => ({ ...prev, eveningLoad: value }))}
                   placeholder="0"
-                  disabled={!busData.shift || busData.shift === "Morning"}
-                  className={`bg-gray-800 border-gray-700 focus:border-purple-500 text-white py-6 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none ${(!busData.shift || busData.shift === "Morning") ? 'opacity-50 cursor-not-allowed' : ''}`}
-                />
-              </div>
-            </div>
-                  placeholder="0"
-                  value={busData.eveningLoad}
-                  onChange={(e) => handleInputChange('eveningLoad', e.target.value)}
                   disabled={!busData.shift || busData.shift === "Morning"}
                   className={`bg-gray-800 border-gray-700 focus:border-purple-500 text-white py-6 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none ${(!busData.shift || busData.shift === "Morning") ? 'opacity-50 cursor-not-allowed' : ''}`}
                 />

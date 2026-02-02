@@ -16,6 +16,7 @@ interface OptimizedTextareaProps {
   onChange: (value: string) => void;
   placeholder?: string;
   required?: boolean;
+  disabled?: boolean;
   className?: string;
   rows?: number;
 }
@@ -27,6 +28,7 @@ export const OptimizedTextarea = memo(function OptimizedTextarea({
   onChange,
   placeholder,
   required,
+  disabled,
   className,
   rows = 3
 }: OptimizedTextareaProps) {
@@ -62,6 +64,7 @@ export const OptimizedTextarea = memo(function OptimizedTextarea({
         onBlur={handleBlur}
         placeholder={placeholder}
         required={required}
+        disabled={disabled}
         rows={rows}
         className={className || "resize-none text-xs"}
       />

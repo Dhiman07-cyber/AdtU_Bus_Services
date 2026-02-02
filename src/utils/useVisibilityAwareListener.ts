@@ -17,7 +17,6 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import {
     ENABLE_FIRESTORE_REALTIME,
     VISIBILITY_DEBOUNCE_MS,
-    fetchRuntimeRealtimeConfig,
     isRealtimeEnabledSync
 } from '@/config/runtime';
 
@@ -35,8 +34,6 @@ export interface VisibilityState {
 export interface UseVisibilityAwareListenerOptions {
     /** Custom debounce time for visibility changes (default: 3000ms) */
     debounceMs?: number;
-    /** Whether to check runtime config from Firestore (default: true) */
-    checkRuntimeConfig?: boolean;
     /** Callback when visibility state changes */
     onVisibilityChange?: (visible: boolean) => void;
 }
@@ -90,7 +87,6 @@ if (typeof window !== 'undefined') {
  * - Page is visible (document.visibilityState === 'visible')
  * - User is online (navigator.onLine === true)
  * - ENABLE_FIRESTORE_REALTIME env flag is true
- * - Runtime config from Firestore allows realtime
  * 
  * Includes debouncing to prevent flapping on rapid visibility changes.
  * 
@@ -110,7 +106,6 @@ export function useVisibilityAwareListener(
 ): VisibilityState {
     const {
         debounceMs = VISIBILITY_DEBOUNCE_MS,
-        checkRuntimeConfig = true,
         onVisibilityChange,
     } = options;
 
@@ -124,24 +119,13 @@ export function useVisibilityAwareListener(
     const debounceTimeoutRef = useRef<NodeJS.Timeout | null>(null);
     const lastVisibleRef = useRef(globalVisibilityState.isVisible);
 
-    // Check runtime config on mount and periodically
+    // Initial check on mount to set correct state
     useEffect(() => {
-        if (!checkRuntimeConfig || !ENABLE_FIRESTORE_REALTIME) return;
-
-        const checkConfig = async () => {
-            const enabled = await fetchRuntimeRealtimeConfig();
-            setState(prev => ({
-                ...prev,
-                realtimeEnabled: enabled,
-                shouldMountListener: prev.isVisible && prev.isOnline && enabled,
-            }));
-        };
-
-        checkConfig();
-        const interval = setInterval(checkConfig, 60_000); // Re-check every minute
-
-        return () => clearInterval(interval);
-    }, [checkRuntimeConfig]);
+        setState(prev => ({
+            ...prev,
+            shouldMountListener: prev.isVisible && prev.isOnline && prev.realtimeEnabled
+        }));
+    }, []);
 
     // Subscribe to global visibility changes
     useEffect(() => {

@@ -76,6 +76,24 @@ const checkClientAuth = (): boolean => {
   return true;
 };
 
+// Helper function to create an updatedBy entry with current user's name
+// Simplified version - uses email to avoid async database lookups during updates
+// Note: Client-side updates use 'Client' as identifier. Server-side updates have proper Admin/Employee-ID
+const createUpdatedByEntryClient = (): string => {
+  try {
+    const auth = getAuth();
+    const currentUser = auth.currentUser;
+    if (!currentUser) return `Unknown ( Client : ${new Date().toISOString()} )`;
+
+    // Use displayName if available, otherwise email
+    const name = currentUser.displayName || currentUser.email || 'Unknown';
+    return `${name} ( Client : ${new Date().toISOString()} )`;
+  } catch (error) {
+    console.error('Error getting user name for updatedBy:', error);
+    return `Unknown ( Client : ${new Date().toISOString()} )`;
+  }
+};
+
 // Get all unique stops from all routes
 export const getAllStops = async (): Promise<string[]> => {
   const routes = await getAllRoutes();
@@ -659,7 +677,12 @@ export const deleteDriver = async (id: string): Promise<boolean> => {
 export const updateDriver = async (id: string, data: Partial<Driver>): Promise<boolean> => {
   try {
     const db = await getDatabase();
-    await updateDoc(doc(db as Firestore, 'drivers', id), data as any);
+    const updatedByEntry = createUpdatedByEntryClient();
+    await updateDoc(doc(db as Firestore, 'drivers', id), {
+      ...data,
+      updatedAt: new Date().toISOString(),
+      updatedBy: arrayUnion(updatedByEntry)
+    } as any);
     return true;
   } catch (error) {
     console.error('Error updating driver:', error);
@@ -753,7 +776,12 @@ export const deleteModerator = async (id: string): Promise<boolean> => {
 export const updateModerator = async (id: string, data: Partial<Moderator>): Promise<boolean> => {
   try {
     const db = await getDatabase();
-    await updateDoc(doc(db as Firestore, 'moderators', id), data as any);
+    const updatedByEntry = await createUpdatedByEntryClient();
+    await updateDoc(doc(db as Firestore, 'moderators', id), {
+      ...data,
+      updatedAt: new Date().toISOString(),
+      updatedBy: arrayUnion(updatedByEntry)
+    } as any);
     return true;
   } catch (error) {
     console.error('Error updating moderator:', error);
@@ -815,7 +843,12 @@ export const deleteBus = async (id: string): Promise<boolean> => {
 export const updateBus = async (id: string, data: Partial<Bus>): Promise<boolean> => {
   try {
     const db = await getDatabase();
-    await updateDoc(doc(db as Firestore, 'buses', id), data as any);
+    const updatedByEntry = await createUpdatedByEntryClient();
+    await updateDoc(doc(db as Firestore, 'buses', id), {
+      ...data,
+      updatedAt: new Date().toISOString(),
+      updatedBy: arrayUnion(updatedByEntry)
+    } as any);
     return true;
   } catch (error) {
     console.error('Error updating bus:', error);
@@ -876,7 +909,12 @@ export const deleteRoute = async (id: string): Promise<boolean> => {
 export const updateRoute = async (id: string, data: Partial<Route>): Promise<boolean> => {
   try {
     const db = await getDatabase();
-    await updateDoc(doc(db as Firestore, 'routes', id), data as any);
+    const updatedByEntry = await createUpdatedByEntryClient();
+    await updateDoc(doc(db as Firestore, 'routes', id), {
+      ...data,
+      updatedAt: new Date().toISOString(),
+      updatedBy: arrayUnion(updatedByEntry)
+    } as any);
     return true;
   } catch (error) {
     console.error('Error updating route:', error);

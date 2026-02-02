@@ -6,6 +6,7 @@ import { getAuth } from 'firebase-admin/auth';
 import { cert } from 'firebase-admin/app';
 
 import { computeBlockDatesForStudent } from '@/lib/utils/deadline-computation';
+import { createUpdatedByEntry } from '@/lib/utils/updatedBy';
 
 let adminApp: any;
 let auth: any;
@@ -57,20 +58,46 @@ export async function POST(request: Request) {
 
     const token = authHeader.substring(7); // Remove 'Bearer ' prefix
 
+    // Track current user info for audit trail
+    let currentUserRole: string = '';
+    let currentUserEmployeeId: string = 'MOD';
+    let currentUserName: string = 'System';
+
     // Verify the token with Firebase Admin SDK
     if (useAdminSDK && auth) {
       try {
         const decodedToken = await auth.verifyIdToken(token);
-        // Check if the user is a moderator or admin
-        const userDoc = await db.collection('users').doc(decodedToken.uid).get();
-        if (!userDoc.exists || (userDoc.data().role !== 'moderator' && userDoc.data().role !== 'admin')) {
-          return new Response(JSON.stringify({
-            success: false,
-            error: 'Forbidden: User is not a moderator or admin'
-          }), {
-            status: 403,
-            headers: { 'Content-Type': 'application/json' },
-          });
+        const currentUserUid = decodedToken.uid;
+
+        // Check if the user is admin first
+        const adminDoc = await db.collection('admins').doc(currentUserUid).get();
+        if (adminDoc.exists) {
+          currentUserRole = 'admin';
+          currentUserName = adminDoc.data()?.name || adminDoc.data()?.fullName || 'Admin';
+          currentUserEmployeeId = 'Admin';
+        } else {
+          // Check if user is moderator
+          const modDoc = await db.collection('moderators').doc(currentUserUid).get();
+          if (modDoc.exists) {
+            currentUserRole = 'moderator';
+            currentUserName = modDoc.data()?.fullName || modDoc.data()?.name || 'Moderator';
+            currentUserEmployeeId = modDoc.data()?.employeeId || modDoc.data()?.staffId || 'MOD';
+          } else {
+            // Fallback to users collection
+            const userDoc = await db.collection('users').doc(currentUserUid).get();
+            if (!userDoc.exists || (userDoc.data().role !== 'moderator' && userDoc.data().role !== 'admin')) {
+              return new Response(JSON.stringify({
+                success: false,
+                error: 'Forbidden: User is not a moderator or admin'
+              }), {
+                status: 403,
+                headers: { 'Content-Type': 'application/json' },
+              });
+            }
+            currentUserRole = userDoc.data().role;
+            currentUserName = userDoc.data()?.fullName || userDoc.data()?.name || 'System';
+            currentUserEmployeeId = userDoc.data().role === 'admin' ? 'Admin' : (userDoc.data()?.employeeId || 'MOD');
+          }
         }
       } catch (error) {
         console.error('Error verifying token:', error);
@@ -228,7 +255,9 @@ export async function POST(request: Request) {
             boardedFlag: false,
             feesStatus: 'draft',
             createdAt: new Date().toISOString(),
-            updatedAt: new Date().toISOString()
+            updatedAt: new Date().toISOString(),
+            // Audit trail - who created/updated this document
+            updatedBy: [createUpdatedByEntry(currentUserName, currentUserEmployeeId)]
           };
 
           await db.collection('students').doc(uid).set(studentDocData);
@@ -252,7 +281,9 @@ export async function POST(request: Request) {
             dob: dob || '',
             status: 'active',
             createdAt: new Date().toISOString(),
-            updatedAt: new Date().toISOString()
+            updatedAt: new Date().toISOString(),
+            // Audit trail - who created/updated this document
+            updatedBy: [createUpdatedByEntry(currentUserName, currentUserEmployeeId)]
           };
 
           await db.collection('drivers').doc(uid).set(driverDocData);
@@ -351,7 +382,9 @@ export async function POST(request: Request) {
           waitingFlag: false,
           boardedFlag: false,
           feesStatus: 'draft',
-          createdAt: Timestamp.now()
+          createdAt: Timestamp.now(),
+          // Audit trail - who created/updated this document
+          updatedBy: [createUpdatedByEntry(currentUserName, currentUserEmployeeId)]
         };
 
         const studentDocRef = doc(db, 'students', userDocId);
@@ -375,7 +408,9 @@ export async function POST(request: Request) {
           approvedBy: approvedBy || 'System (AUTO_MIGRATION)',
           dob: dob || '',
           status: 'active',
-          createdAt: Timestamp.now()
+          createdAt: Timestamp.now(),
+          // Audit trail - who created/updated this document
+          updatedBy: [createUpdatedByEntry(currentUserName, currentUserEmployeeId)]
         };
 
         const driverDocRef = doc(db, 'drivers', userDocId);

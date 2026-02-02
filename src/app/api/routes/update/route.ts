@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { headers } from 'next/headers';
 import { adminDb, adminAuth } from '@/lib/firebase-admin';
 import { FieldValue } from 'firebase-admin/firestore';
+import { getUpdaterInfo, createUpdatedByEntry } from '@/lib/utils/updatedBy';
 
 export async function PUT(request: Request) {
     try {
@@ -34,12 +35,17 @@ export async function PUT(request: Request) {
             stopId: stop.stopId
         }));
 
+        // Get updater info for audit trail
+        const updaterInfo = await getUpdaterInfo(adminDb, decodedToken.uid);
+
         const updates: any = {
             routeName,
             status,
             stops: formattedStops,
             totalStops: formattedStops.length,
-            updatedAt: FieldValue.serverTimestamp()
+            updatedAt: FieldValue.serverTimestamp(),
+            // Append to audit trail
+            updatedBy: FieldValue.arrayUnion(createUpdatedByEntry(updaterInfo.name, updaterInfo.roleOrEmployeeId))
         };
 
         // Update or Create Route Master (Maintenance of the central route definition)

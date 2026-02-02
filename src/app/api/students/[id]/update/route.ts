@@ -1,8 +1,9 @@
 import { NextResponse } from 'next/server';
 import { getApps, initializeApp } from 'firebase-admin/app';
-import { getFirestore } from 'firebase-admin/firestore';
+import { getFirestore, FieldValue } from 'firebase-admin/firestore';
 import fs from 'fs';
 import path from 'path';
+import { createUpdatedByEntry } from '@/lib/utils/updatedBy';
 
 // Get the data directory path
 const dataDirectory = path.join(process.cwd(), 'src', 'data');
@@ -56,19 +57,19 @@ export async function PUT(request: Request, { params }: { params: Promise<{ id: 
   try {
     const { id } = await params;
     const updatedStudentData = await request.json();
-    
+
     // Log the incoming data for debugging
     console.log(`Updating student with ID ${id}:`, updatedStudentData);
-    
+
     let firebaseSuccess = false;
     let updatedStudent: any = null;
-    
+
     // Try to update in Firebase first
     if (db) {
       try {
         // Update in the students collection (not users collection)
         const studentDocRef = db.doc(`students/${id}`);
-        
+
         // Validate profile photo URL if provided
         if (updatedStudentData.profilePhotoUrl !== undefined) {
           if (typeof updatedStudentData.profilePhotoUrl !== 'string') {
@@ -79,19 +80,21 @@ export async function PUT(request: Request, { params }: { params: Promise<{ id: 
             updatedStudentData.profilePhotoUrl = null;
           }
         }
-        
+
         // Add unified field structure for consistency
         const unifiedUpdateData = {
           ...updatedStudentData,
           // Ensure both field names exist for consistency
           assignedBusId: updatedStudentData.busId || updatedStudentData.assignedBusId,
           assignedRouteId: updatedStudentData.routeId || updatedStudentData.assignedRouteId,
-          updatedAt: new Date().toISOString()
+          updatedAt: new Date().toISOString(),
+          // Append to audit trail
+          updatedBy: FieldValue.arrayUnion(createUpdatedByEntry('Admin', 'Admin'))
         };
-        
+
         await studentDocRef.update(unifiedUpdateData);
         console.log(`Student with ID ${id} updated in Firestore (students collection)`);
-        
+
         // Try to get the updated student data
         try {
           const studentDoc = await studentDocRef.get();
@@ -127,12 +130,12 @@ export async function PUT(request: Request, { params }: { params: Promise<{ id: 
         // Continue with JSON file update even if Firebase fails
       }
     }
-    
+
     // Also update in JSON file for backward compatibility
     try {
       const students = readJsonFile('Students.json');
       const index = students.findIndex((student: any) => student.id === id);
-      
+
       if (index !== -1) {
         // Student found in JSON file, update it
         // Ensure profile photo URL is handled correctly in JSON
@@ -143,11 +146,16 @@ export async function PUT(request: Request, { params }: { params: Promise<{ id: 
             students[index].profilePhotoUrl = updatedStudentData.profilePhotoUrl;
           }
         }
-        
+
         students[index] = { ...students[index], ...updatedStudentData };
+        // Add updatedBy for JSON file
+        if (!students[index].updatedBy) {
+          students[index].updatedBy = [];
+        }
+        students[index].updatedBy.push(createUpdatedByEntry('Admin', 'Admin'));
         writeJsonFile('Students.json', students);
         console.log(`Student with ID ${id} updated in JSON file`);
-        
+
         // If Firebase update failed, return the JSON file data
         if (!firebaseSuccess) {
           return NextResponse.json(students[index]);
@@ -157,12 +165,12 @@ export async function PUT(request: Request, { params }: { params: Promise<{ id: 
       console.error('Error updating student in JSON file:', jsonError);
       // Continue even if JSON update fails
     }
-    
+
     // Return the updated student data
     if (firebaseSuccess && updatedStudent) {
       return NextResponse.json(updatedStudent);
     }
-    
+
     // If we get here, the student was not found in either Firebase or JSON
     return NextResponse.json({ error: 'Student not found' }, { status: 404 });
   } catch (error: any) {

@@ -16,7 +16,9 @@ import {
   XCircle,
   AlertCircle,
   Clock,
-  X
+  X,
+  AlertTriangle,
+  CheckCircle
 } from "lucide-react";
 import {
   getStudentByUid,
@@ -26,6 +28,7 @@ import {
 import { supabase } from "@/lib/supabase-client";
 import { useToast } from "@/contexts/toast-context";
 import dynamic from "next/dynamic";
+import { useMissedBus, generateOpId, MISSED_BUS_MESSAGES } from "@/hooks/useMissedBus";
 import StudentAccessBlockScreen from "@/components/StudentAccessBlockScreen";
 import { shouldBlockAccess } from "@/lib/utils/renewal-utils";
 
@@ -66,6 +69,10 @@ export default function StudentTrackBusPage() {
   const [distanceToBus, setDistanceToBus] = useState<number | null>(null);
   const [tripActive, setTripActive] = useState(false);
 
+  // Missed bus feature state
+  const [missedBusModalOpen, setMissedBusModalOpen] = useState(false);
+  const [missedBusModalMessage, setMissedBusModalMessage] = useState<string | null>(null);
+
   const [showManualLocation, setShowManualLocation] = useState(false);
   const [isFullScreenMap, setIsFullScreenMap] = useState(false);
   const [showQrCode, setShowQrCode] = useState(false); // Show student's QR code
@@ -98,6 +105,86 @@ export default function StudentTrackBusPage() {
     };
   }, [pendingRaise, countdown]);
 
+  // Initialize missed bus hook
+  const getIdToken = useCallback(async () => {
+    return currentUser?.getIdToken() || null;
+  }, [currentUser]);
+
+  const {
+    loading: missedBusLoading,
+    error: missedBusError,
+    activeRequest: missedBusActiveRequest,
+    raiseRequest: raiseMissedBusRequest,
+    cancelRequest: cancelMissedBusRequest,
+    refreshStatus: refreshMissedBusStatus,
+    clearError: clearMissedBusError
+  } = useMissedBus(getIdToken, currentUser?.uid || null);
+
+  // Handle raising missed bus request
+  const handleRaiseMissedBusRequest = async () => {
+    if (!currentUser || !routeData || !studentData) {
+      addToast("Unable to raise missed bus request - missing data", "error");
+      return;
+    }
+
+    // Check if student already has a pending waiting flag
+    if (isWaiting) {
+      addToast("Please cancel your waiting flag first before requesting missed bus pickup.", "error");
+      return;
+    }
+
+    // Check if there's already an active missed bus request
+    if (missedBusActiveRequest) {
+      setMissedBusModalMessage(MISSED_BUS_MESSAGES.ALREADY_HAS_PENDING);
+      setMissedBusModalOpen(true);
+      return;
+    }
+
+    const result = await raiseMissedBusRequest({
+      opId: generateOpId(),
+      routeId: routeData.routeId || studentData.routeId,
+      stopId: studentData.stopId || studentData.assignedStop,
+      assignedBusId: studentData.busId || studentData.assignedBusId // Pass student's assigned bus
+    });
+
+    if (result.success) {
+      addToast(MISSED_BUS_MESSAGES.REQUEST_PENDING, "success");
+    } else {
+      // Handle different failure stages
+      if (result.stage === 'maintenance') {
+        addToast(MISSED_BUS_MESSAGES.MAINTENANCE_TOAST, "error");
+      } else if (result.stage === 'no_candidates') {
+        setMissedBusModalMessage(MISSED_BUS_MESSAGES.NO_CANDIDATES_MODAL);
+        setMissedBusModalOpen(true);
+      } else if (result.stage === 'assigned_nearby') {
+        // Bus is within 100m - show friendly message to wait
+        setMissedBusModalMessage(MISSED_BUS_MESSAGES.ASSIGNED_NEARBY);
+        setMissedBusModalOpen(true);
+      } else if (result.stage === 'assigned_on_way') {
+        setMissedBusModalMessage(MISSED_BUS_MESSAGES.ASSIGNED_BUS_ON_WAY);
+        setMissedBusModalOpen(true);
+      } else if (result.stage === 'rate_limited') {
+        addToast(MISSED_BUS_MESSAGES.RATE_LIMITED, "error");
+      } else if (result.stage === 'already_pending') {
+        setMissedBusModalMessage(MISSED_BUS_MESSAGES.ALREADY_HAS_PENDING);
+        setMissedBusModalOpen(true);
+      } else {
+        addToast(result.message || "Failed to raise missed bus request", "error");
+      }
+    }
+  };
+
+  // Handle cancelling missed bus request
+  const handleCancelMissedBusRequest = async () => {
+    if (!missedBusActiveRequest) return;
+
+    const success = await cancelMissedBusRequest(missedBusActiveRequest.id);
+    if (success) {
+      addToast("Missed bus request cancelled", "success");
+    } else {
+      addToast("Failed to cancel missed bus request", "error");
+    }
+  };
 
   const locationWatchIdRef = useRef<number | null>(null);
   const hasShownLocationErrorRef = useRef(false);
@@ -1325,30 +1412,27 @@ export default function StudentTrackBusPage() {
                       </p>
                     </div>
                   </div>
-
-
-                  {/* Optimized Action Button */}
+                  {/* Action Button - Raise Waiting Flag */}
                   <div className="pt-2">
                     <Button
                       onClick={handleToggleWaitingFlag}
                       className={`
-                        relative w-full py-7 text-base font-bold shadow-lg overflow-hidden
+                        relative w-full py-6 md:py-7 text-sm md:text-base font-bold shadow-lg overflow-hidden
                         transition-shadow duration-200 active:scale-[0.98]
                         disabled:opacity-70 disabled:cursor-not-allowed
                         ${isWaiting
-                          ? 'bg-gray-500 text-white cursor-not-allowed' // Disabled style for Raised
+                          ? 'bg-gray-500 text-white cursor-not-allowed'
                           : pendingRaise
-                            ? 'bg-gradient-to-r from-red-500 via-pink-500 to-red-500 text-white shadow-red-500/50' // Cancel style
+                            ? 'bg-gradient-to-r from-red-500 via-pink-500 to-red-500 text-white shadow-red-500/50'
                             : tripActive
-                              ? 'bg-gradient-to-r from-orange-500 via-pink-500 to-orange-500 text-white shadow-orange-500/50' // Raise style
+                              ? 'bg-gradient-to-r from-orange-500 via-pink-500 to-orange-500 text-white shadow-orange-500/50'
                               : 'bg-gray-400 text-gray-700'
                         }
                       `}
                       size="lg"
-                      // Disable if: submitting, no trip, OR if flag is already raised (isWaiting)
                       disabled={submittingFlag || (!tripActive && !isWaiting) || (isWaiting && !pendingRaise)}
                     >
-                      <span className="relative z-10 flex items-center justify-center gap-3">
+                      <span className="relative z-10 flex items-center justify-center gap-2">
                         {submittingFlag ? (
                           <>
                             <div className="h-5 w-5 animate-spin rounded-full border-3 border-current border-t-transparent"></div>
@@ -1356,22 +1440,22 @@ export default function StudentTrackBusPage() {
                           </>
                         ) : isWaiting ? (
                           <>
-                            <Flag className="h-6 w-6" />
-                            <span>Waiting Flag Raised</span>
+                            <Flag className="h-5 w-5" />
+                            <span>Flag Raised</span>
                           </>
                         ) : pendingRaise ? (
                           <>
-                            <XCircle className="h-6 w-6" />
-                            <span>Cancel Waiting Flag ({countdown}s)</span>
+                            <XCircle className="h-5 w-5" />
+                            <span>Cancel ({countdown}s)</span>
                           </>
                         ) : !tripActive ? (
                           <>
-                            <AlertCircle className="h-6 w-6" />
-                            <span>No Active Trip</span>
+                            <AlertCircle className="h-5 w-5" />
+                            <span>No Trip</span>
                           </>
                         ) : (
                           <>
-                            <Flag className="h-6 w-6 animate-pulse" />
+                            <Flag className="h-5 w-5 animate-pulse" />
                             <span>🚩 Raise Waiting Flag</span>
                           </>
                         )}
@@ -1381,9 +1465,241 @@ export default function StudentTrackBusPage() {
                 </CardContent>
               </Card>
             </div>
+
+            {/* Missed Bus Request Card - Separate Card with Enhanced UI */}
+            <div className="group relative overflow-hidden rounded-2xl p-[1px] bg-gradient-to-br from-amber-400 via-yellow-400 to-orange-400 shadow-lg hover:scale-[1.02] transition-transform duration-300">
+
+              <Card className="relative bg-white/95 dark:bg-gray-900/95 backdrop-blur-sm border-0">
+                <CardHeader className="pb-4">
+                  <CardTitle className="flex items-center gap-3">
+                    <div className="p-2.5 rounded-xl bg-gradient-to-br from-amber-500 to-orange-500 shadow-lg transition-transform duration-200">
+                      <AlertTriangle className="h-5 w-5 text-white" />
+                    </div>
+                    <span className="bg-gradient-to-r from-amber-600 to-orange-600 dark:from-amber-400 dark:to-orange-400 bg-clip-text text-transparent font-bold">
+                      Missed Bus Request
+                    </span>
+                  </CardTitle>
+                </CardHeader>
+
+                <CardContent className="space-y-4">
+                  {/* Active Missed Bus Request Status */}
+                  {missedBusActiveRequest ? (
+                    <div className="relative overflow-hidden rounded-xl">
+                      {/* Animated background */}
+                      <div className={`absolute inset-0 ${missedBusActiveRequest.status === 'pending'
+                        ? 'bg-gradient-to-br from-amber-100 via-yellow-50 to-amber-100 dark:from-amber-950/50 dark:via-yellow-950/30 dark:to-amber-950/50'
+                        : missedBusActiveRequest.status === 'approved'
+                          ? 'bg-gradient-to-br from-green-100 via-emerald-50 to-green-100 dark:from-green-950/50 dark:via-emerald-950/30 dark:to-green-950/50'
+                          : 'bg-gradient-to-br from-gray-100 to-gray-50 dark:from-gray-800/50 dark:to-gray-900/50'
+                        }`} />
+
+                      <div className={`relative border-2 rounded-xl p-5 ${missedBusActiveRequest.status === 'pending'
+                        ? 'border-amber-300 dark:border-amber-700'
+                        : missedBusActiveRequest.status === 'approved'
+                          ? 'border-green-300 dark:border-green-700'
+                          : 'border-gray-300 dark:border-gray-700'
+                        }`}>
+                        <div className="space-y-4">
+                          {/* Header with status icon and badge */}
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-3">
+                              <div className={`p-2 rounded-xl ${missedBusActiveRequest.status === 'pending'
+                                ? 'bg-amber-500 animate-pulse'
+                                : missedBusActiveRequest.status === 'approved'
+                                  ? 'bg-green-500'
+                                  : 'bg-gray-500'
+                                }`}>
+                                {missedBusActiveRequest.status === 'pending' ? (
+                                  <Clock className="h-5 w-5 text-white" />
+                                ) : missedBusActiveRequest.status === 'approved' ? (
+                                  <CheckCircle className="h-5 w-5 text-white" />
+                                ) : (
+                                  <XCircle className="h-5 w-5 text-white" />
+                                )}
+                              </div>
+                              <span className={`font-bold text-lg ${missedBusActiveRequest.status === 'pending'
+                                ? 'text-amber-800 dark:text-amber-300'
+                                : missedBusActiveRequest.status === 'approved'
+                                  ? 'text-green-800 dark:text-green-300'
+                                  : 'text-gray-800 dark:text-gray-300'
+                                }`}>
+                                {missedBusActiveRequest.status === 'pending' ? 'Request Pending' :
+                                  missedBusActiveRequest.status === 'approved' ? 'Request Accepted!' :
+                                    'Request ' + missedBusActiveRequest.status}
+                              </span>
+                            </div>
+                            <Badge className={`text-xs font-semibold px-3 py-1 ${missedBusActiveRequest.status === 'pending'
+                              ? 'bg-amber-500/20 text-amber-700 dark:text-amber-300 border border-amber-500/30'
+                              : missedBusActiveRequest.status === 'approved'
+                                ? 'bg-green-500/20 text-green-700 dark:text-green-300 border border-green-500/30'
+                                : 'bg-gray-500/20 text-gray-700 dark:text-gray-300 border border-gray-500/30'
+                              }`}>
+                              {missedBusActiveRequest.status === 'pending' ? '⏳ Waiting' :
+                                missedBusActiveRequest.status === 'approved' ? '✅ Confirmed' :
+                                  missedBusActiveRequest.status}
+                            </Badge>
+                          </div>
+
+                          {/* Status message */}
+                          <p className={`text-sm font-medium ${missedBusActiveRequest.status === 'pending'
+                            ? 'text-amber-700 dark:text-amber-400'
+                            : missedBusActiveRequest.status === 'approved'
+                              ? 'text-green-700 dark:text-green-400'
+                              : 'text-gray-700 dark:text-gray-400'
+                            }`}>
+                            {missedBusActiveRequest.status === 'pending'
+                              ? "🔄 Searching for nearby drivers... Please wait at your stop."
+                              : missedBusActiveRequest.status === 'approved'
+                                ? "🎉 A driver has accepted your request! Please wait at your stop."
+                                : `Status: ${missedBusActiveRequest.status}`}
+                          </p>
+
+                          {/* Cancel button for pending requests */}
+                          {missedBusActiveRequest.status === 'pending' && (
+                            <Button
+                              onClick={handleCancelMissedBusRequest}
+                              variant="outline"
+                              size="sm"
+                              className="w-full mt-2 border-amber-500 text-amber-700 dark:text-amber-300 hover:bg-amber-100 dark:hover:bg-amber-900/30 font-semibold"
+                              disabled={missedBusLoading}
+                            >
+                              {missedBusLoading ? (
+                                <>
+                                  <div className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent mr-2"></div>
+                                  Cancelling...
+                                </>
+                              ) : (
+                                <>
+                                  <XCircle className="h-4 w-4 mr-2" />
+                                  Cancel Request
+                                </>
+                              )}
+                            </Button>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <>
+                      {/* How it works section when no active request */}
+                      <div className="relative overflow-hidden bg-gradient-to-br from-amber-50 via-yellow-50 to-orange-50 dark:from-amber-950/30 dark:via-yellow-950/20 dark:to-orange-950/30 rounded-xl p-5 border border-amber-100 dark:border-amber-900">
+                        <h4 className="text-sm font-bold text-gray-900 dark:text-white mb-3 flex items-center gap-2">
+                          <div className="p-1.5 rounded-lg bg-gradient-to-br from-amber-500 to-orange-500">
+                            <AlertCircle className="h-4 w-4 text-white" />
+                          </div>
+                          When to use this
+                        </h4>
+                        <div className="space-y-2 text-sm text-gray-700 dark:text-gray-300 font-medium">
+                          <p className="flex items-start gap-2">
+                            <span className="text-amber-600 dark:text-amber-400 mt-0.5">🚌</span>
+                            <span>Your assigned bus has already passed your stop</span>
+                          </p>
+                          <p className="flex items-start gap-2">
+                            <span className="text-amber-600 dark:text-amber-400 mt-0.5">📍</span>
+                            <span>Request pickup from another bus on your route</span>
+                          </p>
+                          <p className="flex items-start gap-2">
+                            <span className="text-amber-600 dark:text-amber-400 mt-0.5">⏱️</span>
+                            <span>Limited to 3 requests per day</span>
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* Raise Missed Bus Request Button */}
+                      <Button
+                        onClick={handleRaiseMissedBusRequest}
+                        className={`
+                          relative w-full py-6 md:py-7 text-sm md:text-base font-bold shadow-lg overflow-hidden
+                          transition-all duration-300 active:scale-[0.98]
+                          bg-gradient-to-r from-amber-500 via-yellow-500 to-orange-500 text-white 
+                          shadow-amber-500/40 hover:shadow-amber-500/60 hover:scale-[1.02]
+                          disabled:opacity-60 disabled:cursor-not-allowed disabled:hover:scale-100
+                        `}
+                        size="lg"
+                        disabled={missedBusLoading || isWaiting || !tripActive}
+                      >
+                        <span className="relative z-10 flex items-center justify-center gap-2">
+                          {missedBusLoading ? (
+                            <>
+                              <div className="h-5 w-5 animate-spin rounded-full border-3 border-current border-t-transparent"></div>
+                              <span>Processing...</span>
+                            </>
+                          ) : isWaiting ? (
+                            <>
+                              <AlertTriangle className="h-5 w-5" />
+                              <span>Cancel Waiting Flag First</span>
+                            </>
+                          ) : !tripActive ? (
+                            <>
+                              <AlertCircle className="h-5 w-5" />
+                              <span>No Active Trip</span>
+                            </>
+                          ) : (
+                            <>
+                              <AlertTriangle className="h-5 w-5" />
+                              <span>🚌 I Missed My Bus</span>
+                            </>
+                          )}
+                        </span>
+                      </Button>
+                    </>
+                  )}
+                </CardContent>
+              </Card>
+            </div>
           </div>
         </div>
       </div>
+
+      {/* Missed Bus Modal */}
+      {missedBusModalOpen && missedBusModalMessage && (
+        <>
+          <div
+            className="fixed inset-0 z-[10001] bg-black/60 backdrop-blur-sm"
+            onClick={() => {
+              setMissedBusModalOpen(false);
+              setMissedBusModalMessage(null);
+            }}
+          />
+          <div className="fixed inset-0 z-[10002] flex items-center justify-center p-4 pointer-events-none">
+            <div className="pointer-events-auto w-full max-w-md bg-white dark:bg-gray-900 rounded-2xl overflow-hidden shadow-2xl border border-gray-200 dark:border-gray-700 animate-in zoom-in-95 fade-in duration-200">
+              <div className="relative px-6 py-5 bg-gradient-to-r from-amber-500 to-orange-500">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 rounded-xl bg-white/20">
+                    <AlertTriangle className="h-6 w-6 text-white" />
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-bold text-white">Missed Bus Request</h3>
+                  </div>
+                </div>
+                <button
+                  onClick={() => {
+                    setMissedBusModalOpen(false);
+                    setMissedBusModalMessage(null);
+                  }}
+                  className="absolute top-4 right-4 w-8 h-8 bg-white/20 hover:bg-white/30 rounded-full flex items-center justify-center text-white transition-all"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+              <div className="p-6">
+                <p className="text-gray-700 dark:text-gray-300 text-center font-medium">
+                  {missedBusModalMessage}
+                </p>
+                <Button
+                  onClick={() => {
+                    setMissedBusModalOpen(false);
+                    setMissedBusModalMessage(null);
+                  }}
+                  className="w-full mt-6 bg-gradient-to-r from-amber-500 to-orange-500 text-white font-semibold py-3"
+                >
+                  Got it
+                </Button>
+              </div>
+            </div>
+          </div>
+        </>
+      )}
 
       {/* Fullscreen QR Code Overlay - Shows on map when QR button is clicked */}
       {showQrCode && isFullScreenMap && studentData && (

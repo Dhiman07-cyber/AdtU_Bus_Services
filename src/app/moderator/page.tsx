@@ -74,6 +74,59 @@ const CHART_COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#e
 import { ActiveTripsCard } from '@/components/dashboard/ActiveTripsCard';
 import { useSystemConfig } from '@/contexts/SystemConfigContext';
 
+// ============================================================================
+// DASHBOARD CACHING UTILITIES (Moderator)
+// ============================================================================
+const MOD_CACHE_KEY = 'adtu_moderator_dashboard_cache';
+const MOD_CACHE_EXPIRY_KEY = 'adtu_moderator_dashboard_expiry';
+const MOD_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
+interface ModDashboardCache {
+  realCounts: {
+    totalStudents: number;
+    activeStudents: number;
+    totalDrivers: number;
+    totalBuses: number;
+    activeBuses: number;
+    morningStudents: number;
+    eveningStudents: number;
+    pendingApplications: number;
+    pendingVerifications: number;
+    renewalRequests: number;
+    last30DaysPayments: number;
+  };
+  allBuses: any[];
+  allRoutes: any[];
+}
+
+function getCachedModDashboard(): ModDashboardCache | null {
+  try {
+    if (typeof window === 'undefined') return null;
+    const cached = localStorage.getItem(MOD_CACHE_KEY);
+    const expiry = localStorage.getItem(MOD_CACHE_EXPIRY_KEY);
+    if (!cached || !expiry) return null;
+    if (Date.now() > parseInt(expiry)) {
+      localStorage.removeItem(MOD_CACHE_KEY);
+      localStorage.removeItem(MOD_CACHE_EXPIRY_KEY);
+      return null;
+    }
+    return JSON.parse(cached);
+  } catch (error) {
+    console.warn('Failed to read moderator dashboard cache:', error);
+    return null;
+  }
+}
+
+function setCachedModDashboard(data: ModDashboardCache): void {
+  try {
+    if (typeof window === 'undefined') return;
+    localStorage.setItem(MOD_CACHE_KEY, JSON.stringify(data));
+    localStorage.setItem(MOD_CACHE_EXPIRY_KEY, (Date.now() + MOD_CACHE_TTL).toString());
+  } catch (error) {
+    console.warn('Failed to cache moderator dashboard:', error);
+  }
+}
+
 export default function EnhancedModeratorDashboard() {
   const { currentUser, userData, loading: authLoading } = useAuth();
   const { config: systemConfig, appName, loading: configLoading, refreshConfig } = useSystemConfig();
@@ -86,10 +139,11 @@ export default function EnhancedModeratorDashboard() {
   const [lastUpdated, setLastUpdated] = useState(new Date());
   const [isRefreshing, setIsRefreshing] = useState(false);
 
+  // Initialize from cache if available for instant display
+  const cachedModData = typeof window !== 'undefined' ? getCachedModDashboard() : null;
 
-
-  // Accurate Counts State
-  const [realCounts, setRealCounts] = useState({
+  // Accurate Counts State - Initialize from cache for instant display
+  const [realCounts, setRealCounts] = useState(cachedModData?.realCounts || {
     totalStudents: 0,
     activeStudents: 0,
     totalDrivers: 0,
@@ -183,7 +237,7 @@ export default function EnhancedModeratorDashboard() {
         console.error("Payment analytics fetch error", e);
       }
 
-      setRealCounts({
+      const newRealCounts = {
         totalStudents: totalStudentsSnap.data().count,
         activeStudents: activeCount,
         totalDrivers: totalDriversSnap.data().count,
@@ -195,7 +249,9 @@ export default function EnhancedModeratorDashboard() {
         pendingVerifications: verificationSnap.data().count,
         renewalRequests: renewalRequestsSnap.data().count,
         last30DaysPayments
-      });
+      };
+
+      setRealCounts(newRealCounts);
 
     } catch (error) {
       console.error("Error fetching real counts:", error);
@@ -222,6 +278,8 @@ export default function EnhancedModeratorDashboard() {
     };
     fetchFullChartData();
   }, []);
+
+  // Note: Caching useEffect moved below allBuses/allRoutes state declarations
 
   // Extract routes from buses data (since routes are nested in buses) - memoized
   // We can now rely on allRoutes for more accuracy but keep legacy detailed mapper if needed?
@@ -273,8 +331,21 @@ export default function EnhancedModeratorDashboard() {
     eveningStudents: 0
   });
 
-  const [allBuses, setAllBuses] = useState<any[]>([]);
-  const [allRoutes, setAllRoutes] = useState<any[]>([]);
+  const [allBuses, setAllBuses] = useState<any[]>(cachedModData?.allBuses || []);
+  const [allRoutes, setAllRoutes] = useState<any[]>(cachedModData?.allRoutes || []);
+
+  // Cache dashboard data when all pieces are available (after initial fetch)
+  useEffect(() => {
+    // Only cache if we have real data (not default zeros)
+    if (realCounts.totalStudents > 0 && allBuses.length > 0) {
+      setCachedModDashboard({
+        realCounts,
+        allBuses,
+        allRoutes
+      });
+      console.log('✅ Moderator dashboard data cached for instant loading');
+    }
+  }, [realCounts, allBuses, allRoutes]);
 
   // Manual refresh handler
   const handleRefreshAll = async () => {
