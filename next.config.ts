@@ -39,12 +39,12 @@ const nextConfig: NextConfig = {
     // Faster builds in development
     serverActions: {
       bodySizeLimit: '10mb',
-      allowedOrigins: [
-        '8g4fmnb9-3000.inc1.devtunnels.ms',
-        'https://8g4fmnb9-3000.inc1.devtunnels.ms',
-        'localhost:3000',
-        'http://localhost:3000'
-      ]
+      // allowedOrigins: [
+      //   '8g4fmnb9-3000.inc1.devtunnels.ms',
+      //   'https://8g4fmnb9-3000.inc1.devtunnels.ms',
+      //   'localhost:3000',
+      //   'http://localhost:3000'
+      // ]
     },
 
     // Note: optimizeCss can cause issues with Turbopack, disable for dev

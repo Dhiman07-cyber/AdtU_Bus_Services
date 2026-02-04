@@ -32,13 +32,13 @@
     },
     {
       "path": "/api/cron/cleanup-stale-locks",
-      "schedule": "* * * * *",
-      "comment": "Every minute: cleanup stale trip locks and pending intents for multi-driver system"
+      "schedule": "0 4 * * *",
+      "comment": "Daily at 4 AM: cleanup stale trip locks (Modified for Vercel Hobby Plan)"
     },
     {
       "path": "/api/cron/cleanup-missed-bus",
-      "schedule": "* * * * *",
-      "comment": "Every minute: expire pending missed-bus requests that exceeded TTL"
+      "schedule": "5 4 * * *",
+      "comment": "Daily at 4:05 AM: expire pending missed-bus requests (Modified for Vercel Hobby Plan)"
     }
   ]
 }
