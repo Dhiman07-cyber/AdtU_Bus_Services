@@ -239,44 +239,6 @@ export function useMissedBus(
         };
     }, [activeRequest?.id, activeRequest?.status]);
 
-    // Client-side expiry detection for real-time feel
-    // This ensures users see "expired" immediately without waiting for server cleanup
-    useEffect(() => {
-        if (!activeRequest || activeRequest.status !== 'pending') return;
-
-        const expiresAt = new Date(activeRequest.expiresAt).getTime();
-        const now = Date.now();
-        const timeUntilExpiry = expiresAt - now;
-
-        // If already expired, mark as expired immediately
-        if (timeUntilExpiry <= 0) {
-            setActiveRequest(prev => prev ? {
-                ...prev,
-                status: 'expired',
-                message: MISSED_BUS_MESSAGES.REQUEST_EXPIRED
-            } : null);
-            return;
-        }
-
-        // Set a timer to mark as expired when the time comes
-        const expiryTimer = setTimeout(() => {
-            setActiveRequest(prev => {
-                if (prev && prev.status === 'pending') {
-                    return {
-                        ...prev,
-                        status: 'expired',
-                        message: MISSED_BUS_MESSAGES.REQUEST_EXPIRED
-                    };
-                }
-                return prev;
-            });
-        }, timeUntilExpiry);
-
-        return () => {
-            clearTimeout(expiryTimer);
-        };
-    }, [activeRequest?.id, activeRequest?.status, activeRequest?.expiresAt]);
-
     // Initial status fetch
     useEffect(() => {
         if (studentId) {

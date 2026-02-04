@@ -61,10 +61,6 @@ export async function POST(request: Request) {
             );
         }
 
-        // Opportunistically clean up stale locks (5% chance)
-        // This works around Vercel Hobby plan's cron limitations
-        await tripLockService.maybeCleanupStaleLocks();
-
         return NextResponse.json({
             success: true,
             timestamp: new Date().toISOString()

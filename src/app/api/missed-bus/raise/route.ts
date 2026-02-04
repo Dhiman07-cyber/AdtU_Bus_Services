@@ -37,9 +37,6 @@ export async function POST(request: Request) {
         const decodedToken = await auth.verifyIdToken(idToken);
         const studentId = decodedToken.uid;
 
-        // Perform eager cleanup to expire stale requests (works around Vercel Hobby cron limits)
-        await missedBusService.performEagerCleanup();
-
         // Call the service
         const result = await missedBusService.raiseRequest({
             opId,
