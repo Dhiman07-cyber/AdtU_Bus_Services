@@ -12,14 +12,35 @@ import {
 
 function LandingVideo() {
   const videoRef = useRef<HTMLVideoElement>(null);
+  const [currentVideoIndex, setCurrentVideoIndex] = useState(0);
+  const [isTransitioning, setIsTransitioning] = useState(false);
 
-  // Video looping logic for 3:07 cutoff
-  const handleTimeUpdate = () => {
-    if (videoRef.current && videoRef.current.currentTime >= 187) {
-      videoRef.current.currentTime = 0;
-      videoRef.current.play();
-    }
+  // Video files in rotation order
+  const videos = [
+    "/landing_video/Welcome_1.mp4",
+    "/landing_video/Welcome_2.mp4"
+  ];
+
+  // Handle video end - switch to next video
+  const handleVideoEnd = () => {
+    setIsTransitioning(true);
+    
+    // Short delay for fade transition
+    setTimeout(() => {
+      setCurrentVideoIndex((prev) => (prev + 1) % videos.length);
+      setIsTransitioning(false);
+    }, 300);
   };
+
+  // Auto-play when video source changes
+  useEffect(() => {
+    if (videoRef.current && !isTransitioning) {
+      videoRef.current.load();
+      videoRef.current.play().catch(() => {
+        // Autoplay might be blocked, that's okay
+      });
+    }
+  }, [currentVideoIndex, isTransitioning]);
 
   return (
     <div className="relative aspect-video w-full max-w-2xl sm:max-w-3xl lg:max-w-none mx-auto">
@@ -30,21 +51,37 @@ function LandingVideo() {
       <div className="absolute inset-3 sm:inset-4 lg:inset-3 rounded-xl sm:rounded-2xl overflow-hidden shadow-inner bg-[#0F1117] border border-white/10">
         <video
           ref={videoRef}
-          src="/landing_video/Welcome_Video.mp4"
+          key={currentVideoIndex}
+          src={videos[currentVideoIndex]}
           autoPlay
           muted
           playsInline
-          onTimeUpdate={handleTimeUpdate}
-          className="w-full h-full object-cover"
+          onEnded={handleVideoEnd}
+          className={`w-full h-full object-cover transition-opacity duration-300 ${isTransitioning ? 'opacity-0' : 'opacity-100'}`}
         />
 
         {/* Decorative overlay to maintain premium feel */}
         <div className="absolute inset-0 bg-gradient-to-t from-black/40 via-transparent to-transparent pointer-events-none"></div>
         <div className="absolute inset-0 ring-1 ring-inset ring-white/10 rounded-xl sm:rounded-2xl pointer-events-none"></div>
+
+        {/* Video indicator dots */}
+        <div className="absolute bottom-3 left-1/2 transform -translate-x-1/2 flex gap-2 z-10">
+          {videos.map((_, idx) => (
+            <div
+              key={idx}
+              className={`w-2 h-2 rounded-full transition-all duration-300 ${
+                idx === currentVideoIndex 
+                  ? 'bg-white scale-110' 
+                  : 'bg-white/40'
+              }`}
+            />
+          ))}
+        </div>
       </div>
     </div>
   );
 }
+
 
 export default function PremiumLanding() {
   const { currentUser, userData, loading, needsApplication, signInWithGoogle } = useAuth();

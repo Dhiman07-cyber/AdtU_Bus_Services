@@ -1,8 +1,14 @@
 /**
- * Stale Lock Cleanup Worker
+ * Stale Lock Cleanup Worker (Daily Fallback)
  * 
  * Cron job endpoint that cleans up stale locks automatically.
- * Should be called every minute via Vercel Cron.
+ * 
+ * NOTE: Since Vercel Hobby plan only supports daily cron jobs,
+ * primary lock cleanup now happens opportunistically during heartbeat calls
+ * (see trip-lock-service.ts maybeCleanupStaleLocks).
+ * 
+ * This daily cron job serves as a fallback to catch any locks that
+ * slipped through the opportunistic cleanup.
  * 
  * Actions:
  * 1. Clean stale active trips (no heartbeat > HEARTBEAT_TIMEOUT)
@@ -12,11 +18,9 @@
  */
 
 import { NextResponse } from 'next/server';
+import { tripLockService } from '@/lib/services/trip-lock-service';
 import { createClient } from '@supabase/supabase-js';
 import { db as adminDb, FieldValue } from '@/lib/firebase-admin';
-
-// Configuration
-const HEARTBEAT_TIMEOUT_SECONDS = 300;
 
 // Verify cron secret to prevent unauthorized execution
 function verifyCronAuth(request: Request): boolean {
@@ -45,101 +49,57 @@ export async function GET(request: Request) {
     };
 
     try {
-        // Initialize Supabase
-        const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-        const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+        console.log('🔄 Running daily stale lock cleanup (fallback)...');
+        console.log('ℹ️  Primary cleanup happens opportunistically during driver heartbeats');
 
-        if (!supabaseUrl || !supabaseKey) {
-            return NextResponse.json(
-                { error: 'Missing Supabase configuration' },
-                { status: 500 }
-            );
-        }
-
-        const supabase = createClient(supabaseUrl, supabaseKey);
-
-        console.log('🔄 Running stale lock cleanup...');
-
-        // STEP 1: Clean stale active trips using database function
+        // STEP 1: Clean stale locks using the service
         try {
-            const { data: cleanedLocks, error: cleanError } = await supabase
-                .rpc('cleanup_stale_locks', { p_heartbeat_timeout_seconds: HEARTBEAT_TIMEOUT_SECONDS });
-
-            if (cleanError) {
-                console.error('Error cleaning stale locks:', cleanError);
-                stats.errors.push(`stale_locks: ${cleanError.message}`);
-            } else if (cleanedLocks && cleanedLocks.length > 0) {
-                stats.staleLocksCleaned = cleanedLocks.length;
-
-                // For each cleaned lock, also release Firestore lock
-                for (const lock of cleanedLocks) {
-                    try {
-                        await releaseFirestoreLock(lock.cleaned_bus_id);
-                        stats.firestoreLocksReleased++;
-
-                        // Broadcast lock release
-                        const channel = supabase.channel(`trip-status-${lock.cleaned_bus_id}`);
-                        await channel.send({
-                            type: 'broadcast',
-                            event: 'trip_ended',
-                            payload: {
-                                busId: lock.cleaned_bus_id,
-                                tripId: lock.cleaned_trip_id,
-                                reason: 'heartbeat_timeout',
-                                timestamp: new Date().toISOString()
-                            }
-                        });
-
-                        // Also cleanup driver_status
-                        await supabase
-                            .from('driver_status')
-                            .delete()
-                            .eq('bus_id', lock.cleaned_bus_id);
-
-                    } catch (err: any) {
-                        console.error(`Error releasing Firestore lock for ${lock.cleaned_bus_id}:`, err);
-                        stats.errors.push(`firestore_${lock.cleaned_bus_id}: ${err.message}`);
-                    }
-                }
-
-                console.log(`✅ Cleaned ${stats.staleLocksCleaned} stale locks`);
-            }
+            const cleanedCount = await tripLockService.cleanupStaleLocks();
+            stats.staleLocksCleaned = cleanedCount;
+            stats.firestoreLocksReleased = cleanedCount;
         } catch (err: any) {
             console.error('Error in stale lock cleanup:', err);
-            stats.errors.push(`stale_locks_general: ${err.message}`);
+            stats.errors.push(`stale_locks: ${err.message}`);
         }
 
-        // STEP 2: Reconcile Firestore locks with Supabase
-        // Find Firestore locks that have no corresponding active trip in Supabase
+        // STEP 2: Reconcile orphaned Firestore locks with Supabase
+        // (This is a safety net for locks that may have been orphaned)
         try {
             if (adminDb) {
-                const busesSnapshot = await adminDb.collection('buses')
-                    .where('activeTripLock.active', '==', true)
-                    .get();
+                const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+                const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-                for (const busDoc of busesSnapshot.docs) {
-                    const busData = busDoc.data();
-                    const tripId = busData.activeTripLock?.tripId;
+                if (supabaseUrl && supabaseKey) {
+                    const supabase = createClient(supabaseUrl, supabaseKey);
 
-                    if (tripId) {
-                        // Check if trip exists in Supabase
-                        const { data: activeTrip, error } = await supabase
-                            .from('active_trips')
-                            .select('trip_id, status')
-                            .eq('trip_id', tripId)
-                            .maybeSingle();
+                    const busesSnapshot = await adminDb.collection('buses')
+                        .where('activeTripLock.active', '==', true)
+                        .get();
 
-                        if (!error && (!activeTrip || activeTrip.status !== 'active')) {
-                            // Orphaned Firestore lock - release it
-                            console.log(`⚠️ Found orphaned Firestore lock for bus ${busDoc.id}, releasing...`);
-                            await releaseFirestoreLock(busDoc.id);
-                            stats.firestoreLocksReleased++;
+                    for (const busDoc of busesSnapshot.docs) {
+                        const busData = busDoc.data();
+                        const tripId = busData.activeTripLock?.tripId;
 
-                            // Cleanup driver_status
-                            await supabase
-                                .from('driver_status')
-                                .delete()
-                                .eq('bus_id', busDoc.id);
+                        if (tripId) {
+                            // Check if trip exists in Supabase
+                            const { data: activeTrip, error } = await supabase
+                                .from('active_trips')
+                                .select('trip_id, status')
+                                .eq('trip_id', tripId)
+                                .maybeSingle();
+
+                            if (!error && (!activeTrip || activeTrip.status !== 'active')) {
+                                // Orphaned Firestore lock - release it
+                                console.log(`⚠️ Found orphaned Firestore lock for bus ${busDoc.id}, releasing...`);
+                                await releaseFirestoreLock(busDoc.id);
+                                stats.firestoreLocksReleased++;
+
+                                // Cleanup driver_status
+                                await supabase
+                                    .from('driver_status')
+                                    .delete()
+                                    .eq('bus_id', busDoc.id);
+                            }
                         }
                     }
                 }
@@ -152,14 +112,17 @@ export async function GET(request: Request) {
         const elapsed = Date.now() - startTime;
 
         if (stats.staleLocksCleaned > 0 || stats.firestoreLocksReleased > 0) {
-            console.log(`✅ Cleanup completed in ${elapsed}ms:`, stats);
+            console.log(`✅ Daily cleanup completed in ${elapsed}ms:`, stats);
+        } else {
+            console.log(`✅ Daily cleanup completed in ${elapsed}ms: No stale locks found`);
         }
 
         return NextResponse.json({
             success: true,
             stats,
             elapsedMs: elapsed,
-            timestamp: new Date().toISOString()
+            timestamp: new Date().toISOString(),
+            note: 'This is a daily fallback - primary cleanup happens during heartbeats'
         });
 
     } catch (error: any) {

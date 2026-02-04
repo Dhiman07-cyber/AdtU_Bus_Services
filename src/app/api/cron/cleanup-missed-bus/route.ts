@@ -1,12 +1,19 @@
 /**
- * Missed Bus Requests Cleanup Worker
+ * Missed Bus Requests Cleanup Worker (Daily Fallback)
  * 
  * Cron job endpoint that expires stale missed-bus requests.
- * Should be called every 30 seconds via Vercel Cron or integrated
- * into the main cleanup worker.
+ * 
+ * NOTE: Since Vercel Hobby plan only supports daily cron jobs,
+ * primary cleanup now happens during API calls via eager cleanup:
+ * - /api/missed-bus/raise - calls performEagerCleanup()
+ * - /api/missed-bus/status - uses getStudentRequestStatus() which includes cleanup
+ * - /api/missed-bus/driver-requests - uses getPendingRequestsForDriver() which includes cleanup
+ * 
+ * This daily cron job serves as a fallback to catch any requests that
+ * slipped through the eager cleanup.
  * 
  * Actions:
- * 1. Expire pending requests that have passed their TTL
+ * 1. Expire pending requests that have passed their TTL (15 minutes)
  * 2. No admin intervention - fully automatic
  */
 

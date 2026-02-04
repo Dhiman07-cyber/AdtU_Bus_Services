@@ -12,7 +12,7 @@ Enable a student who missed their assigned bus to request pickup from nearby bus
 * 100 m proximity threshold for assigned-bus wait logic.
 * Driver-wait lifecycle with lightweight monitoring.
 * Temporary, cheap location sharing via `student_location` JSON on the request row.
-* Workers process small batches and early-exit for free-tier friendliness.
+* **Event-triggered cleanup** for Vercel Hobby plan compatibility (see Deployment section).
 
 ---
 
@@ -124,6 +124,10 @@ Only executed if assigned bus has clearly passed or is not approaching:
 
 - Returns student's current active request (if any).
 
+### GET `/api/missed-bus/driver-requests`
+
+- Returns pending pickup requests for a driver's active trip.
+
 ---
 
 ## UI Messages (Exact Text)
@@ -166,12 +170,91 @@ Only executed if assigned bus has clearly passed or is not approaching:
 
 ---
 
+## Deployment: Vercel Hobby Plan (Event-Triggered Cleanup)
+
+### The Challenge
+
+Vercel's **Hobby (free) plan** only supports cron jobs with a **minimum interval of 1 day**. However, this feature requires frequent cleanup:
+- **Request Expiration**: Pending requests have a 15-minute TTL
+- **Lock Cleanup**: Stale driver locks need prompt release (5-minute heartbeat timeout)
+
+### Solution: Event-Triggered Cleanup
+
+Instead of relying on frequent cron jobs, cleanup runs **during normal API operations**:
+
+#### Missed Bus Request Cleanup (Eager Cleanup)
+
+Cleanup runs at the start of every relevant API call:
+
+| Endpoint | Method Called | Effect |
+|----------|--------------|--------|
+| `POST /api/missed-bus/raise` | `performEagerCleanup()` | Expires stale requests before creating new ones |
+| `GET /api/missed-bus/status` | `getStudentRequestStatus()` | Includes cleanup before returning status |
+| `GET /api/missed-bus/driver-requests` | `getPendingRequestsForDriver()` | Includes cleanup before returning requests |
+
+**How it works:**
+1. Before processing any missed-bus request, the service calls `expirePendingRequests()`
+2. This finds all requests where `status = 'pending'` AND `expires_at < now()`
+3. Updates them to `status = 'expired'` and clears `student_location`
+
+**Result:** Expired requests are cleaned up **immediately** when users interact with the feature - providing near real-time cleanup.
+
+#### Stale Lock Cleanup (Probabilistic Cleanup)
+
+Lock cleanup runs opportunistically during driver heartbeats:
+
+| Endpoint | Method Called | Probability |
+|----------|--------------|-------------|
+| `POST /api/driver/heartbeat` | `maybeCleanupStaleLocks()` | **5%** per call |
+
+**How it works:**
+1. Heartbeats are sent every 5 seconds during active trips
+2. 5% of the time, `cleanupStaleLocks()` is called
+3. This finds active_trips with `last_heartbeat` older than 5 minutes and marks them as ended
+4. Firestore locks are released for orphaned trips
+
+**Result:** With multiple drivers active, stale locks are cleaned up roughly every 1-2 minutes.
+
+#### Daily Cron as Fallback
+
+The `vercel.json` cron jobs still exist as a safety net:
+
+```json
+{
+  "path": "/api/cron/cleanup-stale-locks",
+  "schedule": "0 4 * * *"
+},
+{
+  "path": "/api/cron/cleanup-missed-bus",
+  "schedule": "5 4 * * *"
+}
+```
+
+These run at 4:00 AM and 4:05 AM daily to catch anything that slipped through.
+
+### Why This Works
+
+1. **Missed Bus Feature is Interactive**: Students check status, drivers poll for requests → cleanup happens naturally
+2. **Drivers Keep System Active**: Heartbeats every 5 seconds during trips → probabilistic cleanup runs frequently
+3. **No Stale Data for Active Users**: Cleanup runs *before* returning data, so users never see stale requests
+4. **Minimal Overhead**: Cleanup is a single database query (~10-50ms)
+
+### Files Implementing This Pattern
+
+- `src/lib/services/missed-bus-service.ts` - `performEagerCleanup()`, `expirePendingRequests()`, `getStudentRequestStatus()`, `getPendingRequestsForDriver()`
+- `src/lib/services/trip-lock-service.ts` - `maybeCleanupStaleLocks()`, `cleanupStaleLocks()`
+- `src/app/api/missed-bus/raise/route.ts` - Calls `performEagerCleanup()` before processing
+- `src/app/api/driver/heartbeat/route.ts` - Calls `maybeCleanupStaleLocks()` after successful heartbeat
+
+---
+
 ## Testing Checklist
 
 ### Unit Tests
 - [ ] Haversine distance calculation (100m threshold)
 - [ ] Student sequence derivation from route data
 - [ ] ORS success/failure branching
+- [ ] Eager cleanup expires stale requests
 
 ### Integration Tests
 - [ ] Assigned bus within 100m → returns `assigned_on_way`
@@ -179,9 +262,11 @@ Only executed if assigned bus has clearly passed or is not approaching:
 - [ ] ORS fails in Stage-1 → maintenance toast
 - [ ] First driver accept wins, others get `already_handled`
 - [ ] Rate limiting enforced
+- [ ] Expired requests cleaned up on next API call
 
 ### Manual Testing
 1. Student taps "Missed Bus" when assigned bus is 50m away → should show "bus is nearby" message
 2. Student taps "Missed Bus" when assigned bus has passed → should search for candidates
 3. Simulate ORS quota exhausted → maintenance toast appears
 4. Test rate limit with 3+ requests in same day
+5. Wait 15 minutes without driver response → request should show as expired on next status check

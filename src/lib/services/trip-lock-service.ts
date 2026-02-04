@@ -336,6 +336,103 @@ export class TripLockService {
 
         return data;
     }
+
+    /**
+     * Opportunistically clean up stale locks
+     * Called with a probability to avoid overhead on every request (5% chance)
+     * This works around Vercel Hobby plan's cron limitations
+     */
+    async maybeCleanupStaleLocks(): Promise<void> {
+        // Only run 5% of the time to avoid overhead
+        if (Math.random() > 0.05) {
+            return;
+        }
+
+        try {
+            await this.cleanupStaleLocks();
+        } catch (error) {
+            // Don't let cleanup errors affect the main operation
+            console.warn('Opportunistic lock cleanup warning:', error);
+        }
+    }
+
+    /**
+     * Clean up stale locks (works around Vercel Hobby cron limitations)
+     * This is called:
+     * 1. Opportunistically during heartbeat (5% chance)
+     * 2. By the daily cron job as a fallback
+     * 
+     * Returns the number of cleaned locks
+     */
+    async cleanupStaleLocks(): Promise<number> {
+        if (!adminDb) {
+            return 0;
+        }
+
+        let cleanedCount = 0;
+
+        try {
+            // Use the Supabase RPC function for cleanup
+            const { data: cleanedLocks, error: cleanError } = await this.supabase
+                .rpc('cleanup_stale_locks', { p_heartbeat_timeout_seconds: HEARTBEAT_TIMEOUT_SECONDS });
+
+            if (cleanError) {
+                console.error('Error cleaning stale locks:', cleanError);
+                return 0;
+            }
+
+            if (cleanedLocks && cleanedLocks.length > 0) {
+                cleanedCount = cleanedLocks.length;
+
+                // For each cleaned lock, also release Firestore lock
+                for (const lock of cleanedLocks) {
+                    try {
+                        await this.releaseFirestoreLock(lock.cleaned_bus_id);
+
+                        // Cleanup driver_status
+                        await this.supabase
+                            .from('driver_status')
+                            .delete()
+                            .eq('bus_id', lock.cleaned_bus_id);
+                    } catch (err: any) {
+                        console.error(`Error releasing Firestore lock for ${lock.cleaned_bus_id}:`, err);
+                    }
+                }
+
+                console.log(`✅ Cleaned ${cleanedCount} stale locks`);
+            }
+
+            return cleanedCount;
+        } catch (error) {
+            console.error('Error in cleanupStaleLocks:', error);
+            return 0;
+        }
+    }
+
+    /**
+     * Release a Firestore lock (public version for cleanup)
+     */
+    private async releaseFirestoreLock(busId: string): Promise<void> {
+        if (!adminDb) return;
+
+        try {
+            await adminDb.collection('buses').doc(busId).update({
+                activeTripLock: {
+                    active: false,
+                    tripId: null,
+                    driverId: null,
+                    shift: null,
+                    since: null,
+                    expiresAt: null
+                },
+                activeDriverId: null,
+                activeTripId: null,
+                lastEndedAt: FieldValue.serverTimestamp()
+            });
+        } catch (error) {
+            console.error('Error releasing Firestore lock:', error);
+        }
+    }
 }
 
 // Export singleton instance
