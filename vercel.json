@@ -2,43 +2,35 @@
   "crons": [
     {
       "path": "/api/cron/expiry-check?type=main",
-      "schedule": "0 0 1 6 *",
-      "comment": "Main expiry check on June 1st (Configured in deadline-config.json)"
+      "schedule": "0 0 1 6 *"
     },
     {
       "path": "/api/cron/expiry-check?type=mid-june",
-      "schedule": "0 0 15 6 *",
-      "comment": "Mid-month reminder on June 15th"
+      "schedule": "0 0 15 6 *"
     },
     {
       "path": "/api/cron/cleanup-notifications",
-      "schedule": "30 22 * * 6",
-      "comment": "Weekly notification cleanup on Sundays at 4:00 AM IST (22:30 UTC Saturday)"
+      "schedule": "30 22 * * 6"
     },
     {
       "path": "/api/cron/cleanup-expired-students",
-      "schedule": "0 0 31 8 *",
-      "comment": "Delete expired students on August 31 every year (hard delete date from deadline-config.json)"
+      "schedule": "0 0 31 8 *"
     },
     {
       "path": "/api/cron/cleanup-swaps",
-      "schedule": "30 22 * * 6",
-      "comment": "Weekly cleanup: expire old swap requests (Sundays at 4:00 AM IST)"
+      "schedule": "30 22 * * 6"
     },
     {
       "path": "/api/cron/annual-export",
-      "schedule": "30 3 30 6 *",
-      "comment": "Annual payment export on June 30 at 9:00 AM IST (3:30 UTC) - academic year end date from deadline-config.json"
+      "schedule": "30 3 30 6 *"
     },
     {
       "path": "/api/cron/cleanup-stale-locks",
-      "schedule": "0 4 * * *",
-      "comment": "Daily at 4 AM: cleanup stale trip locks (Modified for Vercel Hobby Plan)"
+      "schedule": "0 4 * * *"
     },
     {
       "path": "/api/cron/cleanup-missed-bus",
-      "schedule": "5 4 * * *",
-      "comment": "Daily at 4:05 AM: expire pending missed-bus requests (Modified for Vercel Hobby Plan)"
+      "schedule": "5 4 * * *"
     }
   ]
 }
