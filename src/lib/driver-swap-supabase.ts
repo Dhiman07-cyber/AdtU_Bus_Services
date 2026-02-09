@@ -253,8 +253,14 @@ export class DriverSwapSupabaseService {
             // Create temporary assignment
             await this.createTemporaryAssignment(request);
 
+            // Update active trip session if requested
+            if (request.meta?.applyToActiveTrip) {
+                await this.updateActiveTripSession(request, acceptorUid);
+            }
+
             // Send notifications
             await this.sendSwapAcceptedNotifications(request);
+            await this.notifyStudentsOfDriverChange(request);
 
             console.log('✅ Swap request accepted successfully');
             return { success: true };
@@ -1191,6 +1197,86 @@ export class DriverSwapSupabaseService {
             console.log('✅ Swap rejected notification sent');
         } catch (error) {
             console.error('❌ Error sending rejected notification:', error);
+        }
+    }
+
+    private static async updateActiveTripSession(request: SwapRequest, newDriverUid: string): Promise<void> {
+        try {
+            console.log('🔄 Checking for active trip session to update...');
+            const activeTripsSnapshot = await adminDb
+                .collection('trip_sessions')
+                .where('busId', '==', request.bus_id)
+                .where('endedAt', '==', null)
+                .limit(1)
+                .get();
+
+            if (!activeTripsSnapshot.empty) {
+                const tripDoc = activeTripsSnapshot.docs[0];
+                await tripDoc.ref.update({
+                    driverUid: newDriverUid,
+                    previousDriverUid: request.requester_driver_uid,
+                    swappedAt: FieldValue.serverTimestamp()
+                });
+                console.log(`✅ Updated active trip session ${tripDoc.id} with new driver ${newDriverUid}`);
+            } else {
+                console.log('ℹ️ No active trip session found to update');
+            }
+        } catch (error) {
+            console.error('❌ Error updating active trip session:', error);
+            // Don't throw - this is non-critical for the swap itself
+        }
+    }
+
+    private static async notifyStudentsOfDriverChange(request: SwapRequest): Promise<void> {
+        try {
+            console.log(`📢 Notifying students of driver change for Bus ${request.bus_number}`);
+
+            // Get students on this bus
+            const studentsSnapshot = await adminDb
+                .collection('students')
+                .where('busId', '==', request.bus_id)
+                .get();
+
+            if (studentsSnapshot.empty) {
+                console.log('ℹ️ No students found for this bus');
+                return;
+            }
+
+            const tokens: string[] = [];
+            studentsSnapshot.docs.forEach((doc: any) => {
+                const data = doc.data();
+                if (data.fcmToken) {
+                    tokens.push(data.fcmToken);
+                }
+            });
+
+            if (tokens.length === 0) {
+                console.log('ℹ️ No FCM tokens found for students');
+                return;
+            }
+
+            const messaging = (await import('firebase-admin/messaging')).getMessaging();
+
+            // Send multicast message
+            const response = await messaging.sendEachForMulticast({
+                tokens: tokens,
+                notification: {
+                    title: 'Driver Change Update',
+                    body: `${request.candidate_name} will be driving Bus ${request.bus_number || request.bus_id} temporarily.`,
+                },
+                data: {
+                    type: 'DRIVER_CHANGE',
+                    busId: request.bus_id,
+                    routeId: request.route_id || '',
+                    newDriverName: request.candidate_name,
+                    requestId: request.id
+                }
+            });
+
+            console.log(`✅ Sent driver change notification to ${response.successCount} students (${response.failureCount} failed)`);
+        } catch (error) {
+            console.error('❌ Error notifying students:', error);
+            // Don't throw - notification failure shouldn't rollback swap
         }
     }
 }

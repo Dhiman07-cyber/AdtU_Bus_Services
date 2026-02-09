@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { verifyToken } from '@/lib/firebase-admin';
 import { adminDb, FieldValue } from '@/lib/firebase-admin';
 import { createRazorpayOrder } from '@/lib/payment/razorpay.service';
+import { getCurrentBusFee } from '@/lib/bus-fee-service';
 
 export async function POST(request: NextRequest) {
   try {
@@ -16,13 +17,13 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const {
       durationYears,
-      totalFee,
+      // totalFee, // Ignored: Fetch from source of truth
       paymentMode,
       transactionId, // For offline payments
       receiptImageUrl // For offline payments
     } = body;
 
-    if (!durationYears || !totalFee || !paymentMode) {
+    if (!durationYears || !paymentMode) {
       return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
     }
 
@@ -32,6 +33,15 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Student not found' }, { status: 404 });
     }
 
+    // Fetch current bus fee from Firestore (Source of Truth)
+    const busFeeData = await getCurrentBusFee();
+    const currentBusFee = busFeeData.amount;
+
+    // Calculate authoritative total fee
+    const totalFee = currentBusFee * durationYears;
+
+    console.log(`💰 Calculating renewal fee for ${userId}: ${currentBusFee} x ${durationYears} = ${totalFee}`);
+
     const studentData = studentDoc.data()!;
     const enrollmentId = studentData.enrollmentId;
     const studentName = studentData.fullName;
@@ -40,7 +50,7 @@ export async function POST(request: NextRequest) {
       // Create Razorpay order
       const receipt = `renewal_${enrollmentId}_${Date.now()}`;
       const order = await createRazorpayOrder(
-        totalFee,
+        totalFee, // Use authoritative fee
         receipt,
         {
           studentId: userId,
@@ -67,7 +77,7 @@ export async function POST(request: NextRequest) {
         enrollmentId,
         studentName,
         durationYears,
-        totalFee,
+        totalFee, // Use authoritative fee
         transactionId: transactionId || '',
         receiptImageUrl: receiptImageUrl || '',
         paymentMode: 'offline',

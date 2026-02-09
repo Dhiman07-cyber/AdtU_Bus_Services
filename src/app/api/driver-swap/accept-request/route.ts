@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { auth, db as adminDb, FieldValue } from '@/lib/firebase-admin';
 import { createClient } from '@supabase/supabase-js';
+import { DriverSwapSupabaseService } from '@/lib/driver-swap-supabase';
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -63,125 +64,19 @@ export async function POST(request: Request) {
       );
     }
 
-    // Check for conflicting assignments
-    const { data: conflictingAssignment } = await supabase
-      .from('temporary_assignments')
-      .select('*')
-      .eq('bus_id', swapRequest.bus_id)
-      .eq('active', true)
-      .single();
+    // Use the central service to handle acceptance
+    // This handles both Assignment cases and True Swap cases
+    const result = await DriverSwapSupabaseService.acceptSwapRequest(requestId, candidateUid);
 
-    if (conflictingAssignment) {
+    if (!result.success) {
       return NextResponse.json(
-        { error: 'This bus already has an active temporary assignment' },
-        { status: 409 }
+        { error: result.error || 'Failed to accept swap request' },
+        { status: 400 }
       );
     }
 
-    // === ATOMIC TRANSACTION START ===
-    // Create temporary assignment
-    const { data: assignment, error: assignmentError } = await supabase
-      .from('temporary_assignments')
-      .insert({
-        bus_id: swapRequest.bus_id,
-        original_driver_uid: swapRequest.requester_driver_uid,
-        current_driver_uid: candidateUid,
-        route_id: swapRequest.route_id,
-        starts_at: swapRequest.starts_at,
-        ends_at: swapRequest.ends_at,
-        active: true,
-        created_by: 'system',
-        source_request_id: requestId,
-        reason: swapRequest.reason
-      })
-      .select()
-      .single();
-
-    if (assignmentError) {
-      console.error('❌ Error creating assignment:', assignmentError);
-      return NextResponse.json(
-        { error: 'Failed to create assignment' },
-        { status: 500 }
-      );
-    }
-
-    // Update swap request status
-    const { error: updateError } = await supabase
-      .from('driver_swap_requests')
-      .update({
-        status: 'accepted',
-        accepted_by: candidateUid,
-        accepted_at: new Date().toISOString()
-      })
-      .eq('id', requestId);
-
-    if (updateError) {
-      console.error('❌ Error updating swap request:', updateError);
-      // Rollback assignment creation
-      await supabase
-        .from('temporary_assignments')
-        .delete()
-        .eq('id', assignment.id);
-      return NextResponse.json(
-        { error: 'Failed to update swap request' },
-        { status: 500 }
-      );
-    }
-
-    // Update bus temp driver fields (Firestore)
+    // Broadcast success
     try {
-      await adminDb.collection('buses').doc(swapRequest.bus_id).update({
-        tempDriverUid: candidateUid,
-        tempDriverExpiresAt: new Date(swapRequest.ends_at)
-      });
-    } catch (busUpdateError) {
-      console.warn('⚠️ Failed to update bus temp driver:', busUpdateError);
-    }
-
-    // If applyToActiveTrip, update active trip session
-    if (swapRequest.meta?.applyToActiveTrip) {
-      try {
-        const activeTripsSnapshot = await adminDb
-          .collection('trip_sessions')
-          .where('busId', '==', swapRequest.bus_id)
-          .where('endedAt', '==', null)
-          .limit(1)
-          .get();
-
-        if (!activeTripsSnapshot.empty) {
-          const tripDoc = activeTripsSnapshot.docs[0];
-          await tripDoc.ref.update({
-            driverUid: candidateUid,
-            previousDriverUid: swapRequest.requester_driver_uid,
-            swappedAt: FieldValue.serverTimestamp()
-          });
-          console.log('✅ Updated active trip session with new driver');
-        }
-      } catch (tripUpdateError) {
-        console.warn('⚠️ Failed to update active trip:', tripUpdateError);
-      }
-    }
-
-    // === ATOMIC TRANSACTION END ===
-
-    console.log('✅ Assignment created:', assignment.id);
-
-    // Broadcast events
-    try {
-      // Notify bus channel (students)
-      const busChannel = supabase.channel(`bus:${swapRequest.bus_id}`);
-      await busChannel.send({
-        type: 'broadcast',
-        event: 'assignment_created',
-        payload: {
-          assignmentId: assignment.id,
-          busId: swapRequest.bus_id,
-          newDriverUid: candidateUid,
-          newDriverName: swapRequest.candidate_name,
-          endsAt: swapRequest.ends_at
-        }
-      });
-
       // Notify requester
       const requesterChannel = supabase.channel(`driver_swap_requests:${swapRequest.requester_driver_uid}`);
       await requesterChannel.send({
@@ -193,76 +88,14 @@ export async function POST(request: Request) {
           busId: swapRequest.bus_id
         }
       });
-
-      console.log('📢 Real-time events sent');
-    } catch (broadcastError) {
-      console.warn('⚠️ Failed to send real-time events:', broadcastError);
-    }
-
-    // Send FCM notifications
-    try {
-      // Get bus details
-      const busDoc = await adminDb.collection('buses').doc(swapRequest.bus_id).get();
-      const busData = busDoc.data();
-      const busNumber = busData?.busNumber || swapRequest.bus_id;
-
-      // Notify requester
-      const requesterDoc = await adminDb.collection('drivers').doc(swapRequest.requester_driver_uid).get();
-      const requesterFcmToken = requesterDoc.data()?.fcmToken;
-
-      if (requesterFcmToken) {
-        const messaging = (await import('firebase-admin/messaging')).getMessaging();
-        await messaging.send({
-          token: requesterFcmToken,
-          notification: {
-            title: 'Swap Request Accepted',
-            body: `${swapRequest.candidate_name} accepted your swap request for Bus ${busNumber}`,
-          },
-          data: {
-            type: 'SWAP_ACCEPTED',
-            requestId,
-            assignmentId: assignment.id
-          }
-        });
-      }
-
-      // Notify students on the route
-      const studentsSnapshot = await adminDb
-        .collection('students')
-        .where('busId', '==', swapRequest.bus_id)
-        .get();
-
-      const studentTokens: string[] = [];
-      studentsSnapshot.docs.forEach((doc: any) => {
-        const token = doc.data().fcmToken;
-        if (token) studentTokens.push(token);
-      });
-
-      if (studentTokens.length > 0) {
-        const messaging = (await import('firebase-admin/messaging')).getMessaging();
-        await messaging.sendEachForMulticast({
-          tokens: studentTokens,
-          notification: {
-            title: 'Driver Change',
-            body: `${swapRequest.candidate_name} will be driving Bus ${busNumber} temporarily`,
-          },
-          data: {
-            type: 'DRIVER_CHANGE',
-            busId: swapRequest.bus_id,
-            routeId: swapRequest.route_id,
-            newDriverName: swapRequest.candidate_name
-          }
-        });
-        console.log(`📱 Notified ${studentTokens.length} students of driver change`);
-      }
-    } catch (fcmError) {
-      console.warn('⚠️ Failed to send FCM notifications:', fcmError);
+      console.log('📢 Real-time swap_accepted broadcast sent');
+    } catch (e) {
+      console.warn('⚠️ Broadcast failed:', e);
     }
 
     return NextResponse.json({
       success: true,
-      assignmentId: assignment.id,
-      message: 'Swap request accepted and assignment created'
+      message: 'Swap request accepted successfully'
     });
 
   } catch (error: any) {

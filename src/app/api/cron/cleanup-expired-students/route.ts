@@ -5,8 +5,7 @@ import { shouldBlockAccessFromStoredDates, shouldHardDeleteFromStoredDates } fro
 import { computeBlockDatesFromValidUntil } from '@/lib/utils/deadline-computation';
 import { v2 as cloudinary } from 'cloudinary';
 import { decrementBusCapacity } from '@/lib/busCapacityService';
-import fs from 'fs';
-import path from 'path';
+import { getDeadlineConfig } from '@/lib/deadline-config-service';
 
 // Configure Cloudinary
 if (process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME) {
@@ -39,20 +38,15 @@ export async function GET(request: NextRequest) {
             return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
         }
 
-        // Load deadline config dynamically from file system for logging
-        const configPath = path.join(process.cwd(), 'src', 'config', 'deadline-config.json');
-        let config;
-        try {
-            const configContent = fs.readFileSync(configPath, 'utf8');
-            config = JSON.parse(configContent);
-        } catch (err) {
-            console.error('Failed to read deadline-config.json', err);
-            // Continue with default config info for logging
-            config = { softBlock: { month: 6, day: 31 }, hardDelete: { month: 7, day: 31 } };
-        }
+        // Load deadline config dynamically from Firestore
+        const config = await getDeadlineConfig() as any;
 
         console.log(`🔄 Running Automated Cleanup Cron Job`);
-        console.log(`   Config: SoftBlock=${config.softBlock.month + 1}/${config.softBlock.day}, HardDelete=${config.hardDelete.month + 1}/${config.hardDelete.day}`);
+        // Handle config.softBlock potentially being undefined or different structure if casting failed
+        const softBlockStr = config.softBlock ? `${config.softBlock.month + 1}/${config.softBlock.day}` : 'Unknown';
+        const hardDeleteStr = config.hardDelete ? `${config.hardDelete.month + 1}/${config.hardDelete.day}` : 'Unknown';
+
+        console.log(`   Config: SoftBlock=${softBlockStr}, HardDelete=${hardDeleteStr}`);
         console.log(`   Using PRE-STORED softBlock/hardBlock dates from student documents`);
 
         // 2. Fetch all students
@@ -96,8 +90,8 @@ export async function GET(request: NextRequest) {
                 let hardBlockStr = studentData.hardBlock;
 
                 if ((!softBlockStr || !hardBlockStr) && validUntilStr) {
-                    // Compute from validUntil date (the single source of truth)
-                    const blockDates = computeBlockDatesFromValidUntil(validUntilStr);
+                    // Compute from validUntil date (the single source of truth) with dynamic configuration
+                    const blockDates = computeBlockDatesFromValidUntil(validUntilStr, config);
 
                     // Update student document with computed block dates
                     await adminDb.collection('students').doc(uid).update({
@@ -122,9 +116,9 @@ export async function GET(request: NextRequest) {
                     sessionEndYear: studentData.sessionEndYear
                 };
 
-                // Check using optimized stored-date functions
-                const needsSoftBlock = shouldBlockAccessFromStoredDates(studentCheckData, null);
-                const needsHardDelete = shouldHardDeleteFromStoredDates(studentCheckData, null);
+                // Check using optimized stored-date functions with dynamic config override
+                const needsSoftBlock = shouldBlockAccessFromStoredDates(studentCheckData, null, config);
+                const needsHardDelete = shouldHardDeleteFromStoredDates(studentCheckData, null, config);
 
                 // --- HARD DELETE EXECUTION ---
                 if (needsHardDelete) {

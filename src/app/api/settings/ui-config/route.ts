@@ -1,30 +1,42 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { adminAuth } from '@/lib/firebase-admin';
+import { adminAuth, adminDb } from '@/lib/firebase-admin';
 import fs from 'fs';
 import path from 'path';
 
 const CONFIG_FILE_PATH = path.join(process.cwd(), 'src', 'config', 'UI_Config.json');
+const COLLECTION_NAME = 'settings';
+const DOC_ID = 'ui';
 
 /**
  * GET /api/settings/ui-config
- * Returns the UI configuration for landing page, application process, etc.
+ * Returns the UI configuration from Firestore (or fallback to local JSON)
  */
 export async function GET(req: NextRequest) {
     try {
-        if (!fs.existsSync(CONFIG_FILE_PATH)) {
-            return NextResponse.json(
-                { message: 'UI configuration file not found' },
-                { status: 404 }
-            );
+        // 1. Try fetching from Firestore
+        const doc = await adminDb.collection(COLLECTION_NAME).doc(DOC_ID).get();
+
+        if (doc.exists) {
+            return NextResponse.json({
+                config: doc.data(),
+                source: 'firestore'
+            });
         }
 
-        const configData = fs.readFileSync(CONFIG_FILE_PATH, 'utf-8');
-        const config = JSON.parse(configData);
+        // 2. Fallback to local JSON
+        if (fs.existsSync(CONFIG_FILE_PATH)) {
+            const configData = fs.readFileSync(CONFIG_FILE_PATH, 'utf-8');
+            const config = JSON.parse(configData);
+            return NextResponse.json({
+                config,
+                source: 'json-file-fallback'
+            });
+        }
 
-        return NextResponse.json({
-            config,
-            source: 'json-file'
-        });
+        return NextResponse.json(
+            { message: 'UI configuration file not found' },
+            { status: 404 }
+        );
     } catch (error: any) {
         console.error('Error reading UI config:', error);
         return NextResponse.json(
@@ -36,7 +48,7 @@ export async function GET(req: NextRequest) {
 
 /**
  * POST /api/settings/ui-config
- * Updates the UI configuration (admin only)
+ * Updates the UI configuration in Firestore
  */
 export async function POST(req: NextRequest) {
     try {
@@ -62,9 +74,12 @@ export async function POST(req: NextRequest) {
             return NextResponse.json({ message: 'Config data required' }, { status: 400 });
         }
 
-        // Read current config
+        // Get current config (from Firestore or File) to merge
         let currentConfig = {};
-        if (fs.existsSync(CONFIG_FILE_PATH)) {
+        const doc = await adminDb.collection(COLLECTION_NAME).doc(DOC_ID).get();
+        if (doc.exists) {
+            currentConfig = doc.data() || {};
+        } else if (fs.existsSync(CONFIG_FILE_PATH)) {
             const currentData = fs.readFileSync(CONFIG_FILE_PATH, 'utf-8');
             currentConfig = JSON.parse(currentData);
         }
@@ -78,10 +93,10 @@ export async function POST(req: NextRequest) {
             lastUpdatedBy: decodedToken.uid
         };
 
-        // Write to file
-        fs.writeFileSync(CONFIG_FILE_PATH, JSON.stringify(updatedConfig, null, 2), 'utf-8');
+        // Write to Firestore (Primary)
+        await adminDb.collection(COLLECTION_NAME).doc(DOC_ID).set(updatedConfig);
 
-        console.log(`[UI-Config] Updated by ${decodedToken.email} at ${new Date().toISOString()}`);
+        console.log(`[UI-Config] Updated by ${decodedToken.email} in Firestore`);
 
         return NextResponse.json({
             message: 'UI configuration updated successfully',

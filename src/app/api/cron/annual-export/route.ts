@@ -41,16 +41,8 @@ import fs from "fs";
 import path from "path";
 import { getAdminEmailRecipients } from "@/lib/services/admin-email.service";
 
-// Load deadline config for academic year settings
-const deadlineConfigPath = path.join(process.cwd(), 'src', 'config', 'deadline-config.json');
-let deadlineConfig: any = null;
-try {
-  if (fs.existsSync(deadlineConfigPath)) {
-    deadlineConfig = JSON.parse(fs.readFileSync(deadlineConfigPath, 'utf-8'));
-  }
-} catch (e) {
-  console.warn('⚠️ Could not load deadline-config.json, using defaults');
-}
+import { getDeadlineConfig } from "@/lib/deadline-config-service";
+import { DeadlineConfig } from "@/lib/types/deadline-config";
 
 /* ============================================================
    GET: Trigger Annual Export (SAFE - READ ONLY)
@@ -86,14 +78,15 @@ export async function GET(request: NextRequest) {
     const startYearParam = url.searchParams.get('startYear');
     const endYearParam = url.searchParams.get('endYear');
 
-    // 4. Calculate date range using deadline-config.json
+    // 4. Calculate date range using deadline-config from Firestore
+    const deadlineConfig = await getDeadlineConfig();
     const now = new Date();
     const currentMonth = now.getMonth();
     const currentYear = now.getFullYear();
 
     // Read academic year anchor from config (defaults to June 30)
-    const anchorMonth = deadlineConfig?.academicYear?.anchorMonth ?? 5; // June (0-indexed: 5)
-    const anchorDay = deadlineConfig?.academicYear?.anchorDay ?? 30;
+    const anchorMonth = deadlineConfig.academicYear?.anchorMonth ?? 5; // June (0-indexed: 5)
+    const anchorDay = deadlineConfig.academicYear?.anchorDay ?? 30;
 
     let academicStartYear: number;
     let academicEndYear: number;

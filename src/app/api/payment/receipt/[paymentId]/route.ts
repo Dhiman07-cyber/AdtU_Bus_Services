@@ -83,8 +83,39 @@ export async function GET(
     }
 
     // 3. Security Check: Only allow students to download their own receipt, and admins/mods to download any
-    if (userData.role === 'student' && payment.student_uid !== userId) {
-      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    if (userData.role === 'student') {
+      let isAuthorized = false;
+
+      // Check 1: Match by UID
+      if (payment.student_uid && payment.student_uid === userId) {
+        isAuthorized = true;
+      }
+
+      // Check 2: Match by Enrollment ID (if UID check failed or UID missing)
+      if (!isAuthorized && payment.student_id) {
+        let enrollmentId = userData.enrollmentId;
+
+        // If enrollmentId missing in user doc, check student profile
+        if (!enrollmentId) {
+          try {
+            const studentDoc = await adminDb.collection('students').doc(userId).get();
+            if (studentDoc.exists) {
+              enrollmentId = studentDoc.data()?.enrollmentId;
+            }
+          } catch (e) {
+            console.warn('Failed to fetch student profile for authentication check', e);
+          }
+        }
+
+        if (enrollmentId && payment.student_id === enrollmentId) {
+          isAuthorized = true;
+        }
+      }
+
+      if (!isAuthorized) {
+        console.warn(`Unauthorized receipt access attempt by student ${userId} for payment ${paymentId}`);
+        return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+      }
     }
 
     // 4. Generate RSA-2048 Digital Signature for Tamper-Proof Receipt

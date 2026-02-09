@@ -19,13 +19,13 @@ import EnhancedDatePicker from "@/components/enhanced-date-picker";
 import enhancedDatePicker from "@/components/enhanced-date-picker";
 import ProfileImageAddModal from '@/components/ProfileImageAddModal';
 import Image from 'next/image';
-import { calculateValidUntilDate, getAcademicYearDeadline } from '@/lib/utils/date-utils';
+import { calculateValidUntilDate } from '@/lib/utils/date-utils';
 import { checkBusCapacity, type BusCapacityInfo, type CapacityCheckResult } from '@/lib/bus-capacity-checker';
 import { AlertCircle, ExternalLink } from 'lucide-react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { uploadImage } from '@/lib/upload';
 import AddStudentPaymentSection from '@/components/AddStudentPaymentSection';
-import systemConfig from '@/config/system_config.json';
+
 import { useDebouncedStorage } from '@/hooks/useDebouncedStorage';
 import { OptimizedInput, OptimizedSelect, OptimizedTextarea } from '@/components/forms';
 
@@ -68,7 +68,8 @@ export default function AddStudentForm() {
   // Helper function to get initial form data from localStorage
   const getInitialFormData = (): StudentFormData => {
     const currentYear = new Date().getFullYear();
-    const defaultValidUntil = calculateValidUntilDate(currentYear, 1).toISOString();
+    // Use a transient default for the very first render, it will be updated by the useEffect once config is fetched
+    const defaultValidUntil = calculateValidUntilDate(currentYear, 1, { month: 5, day: 30 }).toISOString();
 
     const defaultData: StudentFormData = {
       name: '',
@@ -153,8 +154,40 @@ export default function AddStudentForm() {
   const [isLoaded, setIsLoaded] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Get bus fee from system config
-  const busFee = systemConfig?.busFee?.amount || 5000;
+  // Get bus fee from system config dynamically
+  const [busFee, setBusFee] = useState<number>(5000);
+  const [academicDeadline, setAcademicDeadline] = useState<{ month: number; day: number }>({ month: 5, day: 30 }); // Default June 30
+
+  useEffect(() => {
+    const fetchSystemConfig = async () => {
+      try {
+        const response = await fetch('/api/settings/system-config');
+        if (response.ok) {
+          const data = await response.json();
+          if (data.config?.busFee?.amount) {
+            setBusFee(data.config.busFee.amount);
+            console.log('💰 [Moderator] Fetched dynamic bus fee:', data.config.busFee.amount);
+          }
+          if (data.config?.academicYearEnd) {
+            const date = new Date(data.config.academicYearEnd);
+            if (!isNaN(date.getTime())) {
+              setAcademicDeadline({ month: date.getMonth(), day: date.getDate() });
+              console.log('📅 [Moderator] Fetched dynamic academic deadline:', date.toDateString());
+            }
+          }
+        }
+      } catch (error) {
+        console.error('Failed to fetch system config:', error);
+      }
+    };
+    fetchSystemConfig();
+  }, []);
+
+  // Recalculate validUntil when academicDeadline changes
+  useEffect(() => {
+    handleSessionStartYearChange(formData.sessionStartYear);
+  }, [academicDeadline]);
+
 
   // Enable auto-save ONLY after data dependencies (routes/buses) are loaded
   useEffect(() => {
@@ -317,8 +350,8 @@ export default function AddStudentForm() {
     const validDuration = isNaN(durationYears) ? 1 : durationYears;
 
     const endYear = validStartYear + validDuration;
-    // Calculate validUntil using config (June 30th by default)
-    const validUntil = calculateValidUntilDate(validStartYear, validDuration).toISOString();
+    // Calculate validUntil using dynamic academic deadline
+    const validUntil = calculateValidUntilDate(validStartYear, validDuration, academicDeadline).toISOString();
     return { endYear, validUntil };
   };
 

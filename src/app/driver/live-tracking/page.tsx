@@ -131,6 +131,109 @@ export default function DriverLiveTrackingPage() {
   } | null>(null);
   const lastValidLocationRef = useRef<{ lat: number; lng: number } | null>(null);
 
+  // WAIT REQUEST STATE
+  const [activeWaitRequest, setActiveWaitRequest] = useState<{
+    studentId: string;
+    studentName: string;
+    stopName: string;
+    timestamp: number;
+  } | null>(null);
+  const [waitRequestTimer, setWaitRequestTimer] = useState(10);
+  const [sendingResponse, setSendingResponse] = useState(false);
+
+  // Helper to handle wait request response
+  const handleRespondToWaitRequest = async (response: 'accepted' | 'rejected') => {
+    if (!activeWaitRequest || !currentUser) return;
+
+    setSendingResponse(true);
+    try {
+      const idToken = await currentUser.getIdToken();
+
+      await fetch('/api/driver/respond-wait', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          idToken,
+          studentId: activeWaitRequest.studentId,
+          response,
+          busId: busData?.busId
+        })
+      });
+
+      // Clear request
+      setActiveWaitRequest(null);
+      setWaitRequestTimer(10);
+
+      if (response === 'accepted') {
+        addToast(`Accepted wait request for ${activeWaitRequest.studentName}`, "success");
+      } else {
+        addToast("Rejected wait request", "info");
+      }
+    } catch (error) {
+      console.error("Error responding to wait request:", error);
+      addToast("Failed to send response", "error");
+    } finally {
+      setSendingResponse(false);
+    }
+  };
+
+  // Subscribe to wait requests
+  useEffect(() => {
+    if (!busData?.busId) return;
+
+    console.log("👂 Subscribing to wait requests for bus:", busData.busId);
+
+    const channelName = `driver_wait_request_${busData.busId}`;
+    const channel = supabase.channel(channelName);
+
+    channel
+      .on('broadcast', { event: 'wait_request' }, (payload) => {
+        console.log("📣 Received wait request:", payload);
+        const { studentId, studentName, stopName, timestamp } = payload.payload;
+
+        // Show request
+        setActiveWaitRequest({
+          studentId,
+          studentName,
+          stopName,
+          timestamp
+        });
+        setWaitRequestTimer(10); // Reset timer to 10s
+
+        // Play notification sound if available
+        try {
+          const audio = new Audio('/sounds/notification.mp3');
+          audio.play().catch(e => console.log('Audio play failed', e));
+        } catch (e) {
+          // Ignore audio errors
+        }
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [busData?.busId]);
+
+  // Handle countdown
+  useEffect(() => {
+    let interval: NodeJS.Timeout;
+
+    if (activeWaitRequest && waitRequestTimer > 0) {
+      interval = setInterval(() => {
+        setWaitRequestTimer(prev => prev - 1);
+      }, 1000);
+    } else if (activeWaitRequest && waitRequestTimer === 0) {
+      // Auto-reject on timeout
+      console.log("⏱️ Wait request timed out - Auto rejecting");
+      handleRespondToWaitRequest('rejected');
+    }
+
+    return () => clearInterval(interval);
+  }, [activeWaitRequest, waitRequestTimer]);
+
   // Start location tracking with better error handling and fallback
   const startLocationTracking = useCallback(() => {
     if (!navigator.geolocation) {
@@ -1106,8 +1209,8 @@ export default function DriverLiveTrackingPage() {
     // Broadcast immediately
     broadcastLocation();
 
-    // Then broadcast every 5 seconds (reduced frequency to avoid spam)
-    locationIntervalRef.current = setInterval(broadcastLocation, 5000);
+    // Then broadcast every 2 seconds for smoother real-time tracking
+    locationIntervalRef.current = setInterval(broadcastLocation, 2000);
 
     return () => {
       if (locationIntervalRef.current) {
@@ -1127,10 +1230,10 @@ export default function DriverLiveTrackingPage() {
       // Increment broadcast counter
       broadcastCountRef.current += 1;
 
-      // OPTIMIZATION: Save to database only every 6th time (30 seconds)
-      // But broadcast real-time EVERY time (5 seconds)
-      // This reduces DB writes by 6x while keeping real-time updates!
-      const shouldSaveToDatabase = broadcastCountRef.current % 6 === 0;
+      // OPTIMIZATION: Save to database only every 15th time (30 seconds)
+      // But broadcast real-time EVERY time (2 seconds)
+      // This reduces DB writes by 15x while keeping real-time updates!
+      const shouldSaveToDatabase = broadcastCountRef.current % 15 === 0;
 
       // Always broadcast to students via Supabase Realtime (real-time updates)
       try {
@@ -2067,6 +2170,80 @@ export default function DriverLiveTrackingPage() {
 
   return (
     <div className="flex-1 bg-background pb-24 md:pb-6">
+      {/* WAIT REQUEST OVERLAY */}
+      {activeWaitRequest && (
+        <div className="fixed inset-0 z-[10001] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-in fade-in zoom-in duration-200">
+          <Card className="max-w-md w-full border-0 shadow-2xl bg-white dark:bg-gray-900 rounded-3xl overflow-hidden relative">
+            {sendingResponse && (
+              <div className="absolute inset-0 bg-white/50 dark:bg-black/50 z-10 flex items-center justify-center">
+                <Loader2 className="w-10 h-10 animate-spin text-blue-600" />
+              </div>
+            )}
+
+            <div className="relative p-6 pb-8 bg-gradient-to-r from-purple-600 to-blue-600">
+              <div className="absolute inset-0 bg-[url('/noise.png')] opacity-20" />
+
+              {/* Animated Timer Ring */}
+              <div className="absolute top-4 right-4 w-12 h-12 rounded-full border-4 border-white/30 flex items-center justify-center">
+                <span className="text-xl font-bold text-white">{waitRequestTimer}</span>
+                <svg className="absolute inset-0 w-full h-full -rotate-90">
+                  <circle
+                    className="text-white"
+                    strokeWidth="4"
+                    strokeDasharray={100}
+                    strokeDashoffset={100 - (waitRequestTimer / 10) * 100}
+                    strokeLinecap="round"
+                    stroke="currentColor"
+                    fill="transparent"
+                    r="20" cx="24" cy="24"
+                  />
+                </svg>
+              </div>
+
+              <div className="relative z-10 mt-4">
+                <div className="w-16 h-16 bg-white rounded-full flex items-center justify-center shadow-lg mb-4 mx-auto animate-bounce">
+                  <img
+                    src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${activeWaitRequest.studentName}`}
+                    alt={activeWaitRequest.studentName}
+                    className="w-12 h-12 rounded-full"
+                  />
+                </div>
+                <h2 className="text-2xl font-bold text-center text-white mb-1">
+                  {activeWaitRequest.studentName}
+                </h2>
+                <p className="text-blue-100 text-center text-sm font-medium uppercase tracking-wide">
+                  Missed Bus • <span className="text-white font-bold">{activeWaitRequest.stopName}</span>
+                </p>
+                <p className="text-white/80 text-center text-xs mt-2">
+                  Bus is nearby! Waiting for you to accept...
+                </p>
+              </div>
+            </div>
+
+            <CardContent className="p-6 pt-8 -mt-6 bg-white dark:bg-gray-900 rounded-t-3xl relative z-0">
+              <p className="text-center text-gray-600 dark:text-gray-400 mb-6 font-medium">
+                Has stopped near {activeWaitRequest.stopName}. Can you wait 2 minutes?
+              </p>
+
+              <div className="grid grid-cols-2 gap-4">
+                <Button
+                  onClick={() => handleRespondToWaitRequest('rejected')}
+                  variant="outline"
+                  className="h-14 rounded-xl border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700 hover:border-red-300 font-bold text-lg"
+                >
+                  Reject
+                </Button>
+                <Button
+                  onClick={() => handleRespondToWaitRequest('accepted')}
+                  className="h-14 rounded-xl bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white font-bold text-lg shadow-lg shadow-green-500/30"
+                >
+                  Accept
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 md:py-8 space-y-8">
         {/* Enhanced Live Location Sharing Card */}
         <div className="relative overflow-hidden rounded-3xl bg-gradient-to-r from-purple-600 via-blue-600 to-cyan-600 p-1 animate-fade-in">

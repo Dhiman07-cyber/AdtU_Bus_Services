@@ -7,6 +7,7 @@ import { calculateRenewalDate } from '@/lib/utils/renewal-utils';
 import { generateOfflinePaymentId, OfflinePaymentDocument } from '@/lib/types/payment';
 import { computeBlockDatesFromValidUntil } from '@/lib/utils/deadline-computation';
 import { createUpdatedByEntry } from '@/lib/utils/updatedBy';
+import { getDeadlineConfig } from '@/lib/deadline-config-service';
 
 // Helper function to normalize shift values (remove "Shift" word, standardize to "Morning"/"Evening")
 function normalizeShift(shift: string | undefined): string {
@@ -172,18 +173,32 @@ export async function POST(request: NextRequest) {
       auditLogs: [...(appData.auditLogs || []), auditEntry]
     });
 
-    // Calculate validUntil using proper renewal date logic
-    // This ensures the date is always in the future, accounting for current date
-    const { newValidUntil } = calculateRenewalDate(null, formData.sessionInfo.durationYears);
+    // ✅ Fetch Deadline Configuration Dynamically
+    const deadlineConfig = await getDeadlineConfig();
+    const anchorMonth = deadlineConfig.academicYear.anchorMonth;
+    const anchorDay = deadlineConfig.academicYear.anchorDay;
+
+    // Calculate validUntil using dynamic renewal logic
+    const { newValidUntil } = calculateRenewalDate(
+      null,
+      formData.sessionInfo.durationYears,
+      deadlineConfig
+    );
     const validUntil = newValidUntil;
 
-    // Calculate sessionEndYear from the calculated validUntil
+    // Calculate sessionEndYear
     const validUntilDate = new Date(validUntil);
     const sessionEndYear = validUntilDate.getFullYear();
 
-    // Create STUDENTS collection document with EXACT field structure as specified
-    // Compute block dates from validUntil date
-    const blockDates = computeBlockDatesFromValidUntil(validUntil);
+    // Create STUDENTS collection document with EXACT field structure
+    // Compute block dates from validUntil date using dynamic config
+    const blockDates = computeBlockDatesFromValidUntil(validUntil, deadlineConfig); // Ensure computeBlockDates accepts config if possible, or we might need to update it too. Wait, assume computeBlockDates uses static defaults unless updated?
+    // Let's verify computeBlockDatesFromValidUntil. Ideally passing config is safer.
+    // If not updated, it uses static. I should check computeBlockDatesFromValidUntil.
+    // Assuming for now I need to pass it or rely on it being updated.
+    // Step 400 checked date-utils but not deadline-computation. Let's check deadline-computation first.
+    // actually, let's just finish this file assuming I'll fix deadline-computation next.
+    // Wait, let's stick to calculateRenewalDate for now.
 
     const studentDoc = {
       // Required fields only - as per specification

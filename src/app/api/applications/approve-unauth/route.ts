@@ -7,6 +7,7 @@ import { incrementBusCapacity } from '@/lib/busCapacityService';
 import { generateOfflinePaymentId, OfflinePaymentDocument } from '@/lib/types/payment';
 import { computeBlockDatesFromValidUntil } from '@/lib/utils/deadline-computation';
 import { sendApplicationApprovedNotification } from '@/lib/services/admin-email.service';
+import { getDeadlineConfig } from '@/lib/deadline-config-service';
 
 // Configure Cloudinary
 if (process.env.CLOUDINARY_API_KEY && process.env.CLOUDINARY_API_SECRET && process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME) {
@@ -78,17 +79,25 @@ export async function POST(request: NextRequest) {
     await adminDb.collection('users').doc(studentUid).set(userDoc);
     console.log('✅ User document created successfully');
 
-    // Calculate validUntil using proper renewal date logic
-    // This ensures the date is always in the future, accounting for current date
-    const { newValidUntil } = calculateRenewalDate(null, formData.sessionInfo.durationYears);
+    // ✅ Fetch Deadline Configuration Dynamically
+    const deadlineConfig = await getDeadlineConfig();
+    const anchorMonth = deadlineConfig.academicYear.anchorMonth;
+    const anchorDay = deadlineConfig.academicYear.anchorDay;
+
+    // Calculate validUntil using proper renewal date logic with dynamic anchor
+    const { newValidUntil } = calculateRenewalDate(
+      null,
+      formData.sessionInfo.durationYears,
+      deadlineConfig
+    );
     const validUntil = newValidUntil;
 
     // Calculate sessionEndYear from the calculated validUntil
     const validUntilDate = new Date(validUntil);
     const sessionEndYear = validUntilDate.getFullYear();
 
-    // Compute block dates from validUntil date
-    const blockDates = computeBlockDatesFromValidUntil(validUntil);
+    // Compute block dates from validUntil date using dynamic config
+    const blockDates = computeBlockDatesFromValidUntil(validUntil, deadlineConfig);
 
     // Create STUDENTS collection document with EXACT field structure as specified
     const studentDoc = {

@@ -11,15 +11,33 @@
  * 4. Simulation mode can override the year for testing
  */
 
-import { DEADLINE_CONFIG } from '@/lib/types/deadline-config-defaults';
+import { DeadlineConfig } from '@/lib/types/deadline-config';
+
+// Actually normalizeLeapYearDate was in deadline-computation.ts previously? Let me check.
+// No, it was in deadline-computation.ts. I need to keep it.
 
 /**
- * Student deadline status type (local definition)
+ * Handle leap year edge case for Feb 29
+ * Returns Feb 28 for non-leap years
+ */
+export function normalizeLeapYearDate(year: number, month: number, day: number): Date {
+    if (month === 1 && day === 29) { // February 29
+        const isLeapYear = (year % 4 === 0 && year % 100 !== 0) || (year % 400 === 0);
+        if (!isLeapYear) {
+            console.log(`[Date Computation] Feb 29 normalized to Feb 28 for non-leap year ${year}`);
+            return new Date(year, 1, 28);
+        }
+    }
+    return new Date(year, month, day);
+}
+
+/**
+ * Student deadline status type
  */
 type StudentDeadlineStatus = 'active' | 'soft_blocked' | 'pending_deletion' | 'deleted';
 
 /**
- * Student computed fields (local definition)
+ * Student computed fields
  */
 interface StudentComputedFields {
     serviceExpiryDate?: string;
@@ -32,7 +50,7 @@ interface StudentComputedFields {
 }
 
 /**
- * Date preview result (local definition)
+ * Date preview result
  */
 interface DatePreviewResult {
     studentId: string;
@@ -72,8 +90,8 @@ export interface ComputeDateParams {
     /** Student's session end year (e.g., 2026) */
     studentSessionEndYear: number;
 
-    /** Deadline configuration (month/day only) */
-    config?: typeof DEADLINE_CONFIG;
+    /** Deadline configuration (month/day only) - REQUIRED */
+    config: DeadlineConfig;
 
     /** Optional simulation mode override */
     simulationMode?: {
@@ -114,25 +132,17 @@ export interface ComputedDates {
 /**
  * Compute all deadline dates for a specific student
  * 
- * @param params - Parameters including student's sessionEndYear and optional config
+ * @param params - Parameters including student's sessionEndYear and config
  * @returns Computed dates for the student
- * 
- * @example
- * ```typescript
- * const dates = computeDatesForStudent({
- *   studentSessionEndYear: 2026,
- *   simulationMode: { enabled: false, customYear: 2024 }
- * });
- * 
- * console.log(dates.hardDeleteDate); // 2027-08-31 (NEXT year)
- * ```
  */
 export function computeDatesForStudent(params: ComputeDateParams): ComputedDates {
     const {
         studentSessionEndYear,
-        config = DEADLINE_CONFIG,
+        config,
         simulationMode
     } = params;
+
+    if (!config) throw new Error("Config required for computeDatesForStudent");
 
     // Determine the effective year to use
     const isSimulated = simulationMode?.enabled ?? false;
@@ -144,8 +154,7 @@ export function computeDatesForStudent(params: ComputeDateParams): ComputedDates
     // CORE DATE COMPUTATIONS
     // =====================
 
-    // Service Expiry Date: anchor month/day in effectiveYear
-    // Example: June 30, 2026 for sessionEndYear = 2026
+    // Service Expiry Date
     const serviceExpiryDate = new Date(
         effectiveYear,
         config.academicYear.anchorMonth,
@@ -153,8 +162,7 @@ export function computeDatesForStudent(params: ComputeDateParams): ComputedDates
         23, 59, 59, 999
     );
 
-    // Renewal Notification Date: config month/day in effectiveYear
-    // Example: June 1, 2026
+    // Renewal Notification Date
     const renewalNotificationDate = new Date(
         effectiveYear,
         config.renewalNotification.month,
@@ -162,8 +170,7 @@ export function computeDatesForStudent(params: ComputeDateParams): ComputedDates
         0, 0, 0
     );
 
-    // Renewal Deadline Date: config month/day in effectiveYear
-    // Example: July 1, 2026
+    // Renewal Deadline Date
     const renewalDeadlineDate = new Date(
         effectiveYear,
         config.renewalDeadline.month,
@@ -171,8 +178,7 @@ export function computeDatesForStudent(params: ComputeDateParams): ComputedDates
         23, 59, 59, 999
     );
 
-    // Soft Block Date: config month/day in effectiveYear
-    // Example: July 31, 2026
+    // Soft Block Date
     const softBlockDate = new Date(
         effectiveYear,
         config.softBlock.month,
@@ -183,8 +189,6 @@ export function computeDatesForStudent(params: ComputeDateParams): ComputedDates
     // =====================
     // CRITICAL: Hard Delete in NEXT academic cycle
     // =====================
-    // Per the design requirement, hard delete must occur in sessionEndYear + 1
-    // This ensures students have a full grace period before permanent deletion
     const hardDeleteYear = effectiveYear + 1;
     const hardDeleteDate = normalizeLeapYearDate(
         hardDeleteYear,
@@ -264,27 +268,21 @@ export function daysBetween(date1: Date, date2: Date): number {
 
 /**
  * Validate a date configuration for invalid day-of-month
- * Examples of invalid: Feb 31, Apr 31, etc.
  */
 export function validateDateConfig(
     month: number,
     day: number
 ): { valid: boolean; error?: string } {
-    // Validate month range
     if (month < 0 || month > 11) {
         return { valid: false, error: `Invalid month: ${month}. Must be 0-11.` };
     }
 
-    // Validate day range
     if (day < 1 || day > 31) {
         return { valid: false, error: `Invalid day: ${day}. Must be 1-31.` };
     }
 
-    // Test with a leap year to allow Feb 29
     const testDate = new Date(2024, month, day);
 
-    // If the date object normalized the day (e.g., Feb 31 → Mar 2/3),
-    // then the original was invalid
     if (testDate.getMonth() !== month) {
         const monthNames = [
             'January', 'February', 'March', 'April', 'May', 'June',
@@ -300,33 +298,15 @@ export function validateDateConfig(
 }
 
 /**
- * Handle leap year edge case for Feb 29
- * Returns Feb 28 for non-leap years
- */
-export function normalizeLeapYearDate(year: number, month: number, day: number): Date {
-    if (month === 1 && day === 29) { // February 29
-        const isLeapYear = (year % 4 === 0 && year % 100 !== 0) || (year % 400 === 0);
-        if (!isLeapYear) {
-            console.log(`[Date Computation] Feb 29 normalized to Feb 28 for non-leap year ${year}`);
-            return new Date(year, 1, 28);
-        }
-    }
-    return new Date(year, month, day);
-}
-
-/**
  * Check if a specific student should be soft-blocked based on current date
- * 
- * @param student - Student object with sessionEndYear and validUntil
- * @param config - Optional config override
- * @param simulationMode - Optional simulation mode settings
- * @returns Boolean indicating if student should be blocked
  */
 export function shouldSoftBlockStudent(
     student: { sessionEndYear?: number; validUntil?: string; status?: string },
-    config?: typeof DEADLINE_CONFIG,
+    config: DeadlineConfig, // REQUIRED
     simulationMode?: { enabled: boolean; customYear: number }
 ): boolean {
+    if (!config) throw new Error("Config required for shouldSoftBlockStudent");
+
     // Already blocked
     if (student.status === 'soft_blocked' || student.status === 'pending_deletion') {
         return false; // Already blocked, don't re-block
@@ -348,13 +328,13 @@ export function shouldSoftBlockStudent(
     // Compute dates for this student
     const computed = computeDatesForStudent({
         studentSessionEndYear: student.sessionEndYear,
-        config: config || DEADLINE_CONFIG,
+        config,
         simulationMode
     });
 
     // Get today's date (respect simulation mode for testing)
     const today = simulationMode?.enabled
-        ? new Date() // For simulation, use actual today but computed dates use custom year
+        ? new Date()
         : new Date();
 
     // Block if today is on or after soft block date
@@ -363,14 +343,6 @@ export function shouldSoftBlockStudent(
 
 /**
  * Check if a specific student should be hard-deleted based on current date
- * Hard delete always occurs in sessionEndYear + 1
- * 
- * SECURITY: Includes grace period check to prevent deleting recently renewed students
- * 
- * @param student - Student object with sessionEndYear
- * @param config - Optional config override
- * @param simulationMode - Optional simulation mode settings
- * @returns Boolean indicating if student should be deleted
  */
 export function shouldHardDeleteStudent(
     student: {
@@ -379,9 +351,11 @@ export function shouldHardDeleteStudent(
         lastRenewalDate?: Date | string | { toDate: () => Date } | null;
         validUntil?: Date | string | { toDate: () => Date } | null;
     },
-    config?: typeof DEADLINE_CONFIG,
+    config: DeadlineConfig, // REQUIRED
     simulationMode?: { enabled: boolean; customYear: number }
 ): boolean {
+    if (!config) throw new Error("Config required for shouldHardDeleteStudent");
+
     // Already deleted or pending deletion
     if (student.status === 'deleted' || student.status === 'pending_deletion') {
         return false;
@@ -390,8 +364,7 @@ export function shouldHardDeleteStudent(
     // Can't compute without sessionEndYear
     if (!student.sessionEndYear) return false;
 
-    // SECURITY: Grace period check - don't delete recently renewed students
-    // This prevents data loss due to delayed Firestore updates or clock skew
+    // SECURITY: Grace period check
     const GRACE_PERIOD_DAYS = 30;
 
     if (student.lastRenewalDate) {
@@ -403,7 +376,7 @@ export function shouldHardDeleteStudent(
         } else if (typeof (student.lastRenewalDate as any).toDate === 'function') {
             renewalDate = (student.lastRenewalDate as { toDate: () => Date }).toDate();
         } else {
-            renewalDate = new Date(0); // Default to epoch if can't parse
+            renewalDate = new Date(0);
         }
 
         const daysSinceRenewal = daysBetween(renewalDate, new Date());
@@ -413,7 +386,7 @@ export function shouldHardDeleteStudent(
         }
     }
 
-    // SECURITY: Also check if validUntil is still in the future (renewal might not have updated sessionEndYear yet)
+    // SECURITY: Also check validUntil
     if (student.validUntil) {
         let validUntilDate: Date;
         if (student.validUntil instanceof Date) {
@@ -432,10 +405,10 @@ export function shouldHardDeleteStudent(
         }
     }
 
-    // Compute dates for this student
+    // Compute dates
     const computed = computeDatesForStudent({
         studentSessionEndYear: student.sessionEndYear,
-        config: config || DEADLINE_CONFIG,
+        config,
         simulationMode
     });
 
@@ -450,14 +423,15 @@ export function shouldHardDeleteStudent(
  */
 export function getDaysUntilHardDeleteForStudent(
     student: { sessionEndYear?: number },
-    config?: typeof DEADLINE_CONFIG,
+    config: DeadlineConfig, // REQUIRED
     simulationMode?: { enabled: boolean; customYear: number }
 ): number {
     if (!student.sessionEndYear) return 0;
+    if (!config) throw new Error("Config required");
 
     const computed = computeDatesForStudent({
         studentSessionEndYear: student.sessionEndYear,
-        config: config || DEADLINE_CONFIG,
+        config,
         simulationMode
     });
 
@@ -469,14 +443,15 @@ export function getDaysUntilHardDeleteForStudent(
  */
 export function getDaysUntilSoftBlockForStudent(
     student: { sessionEndYear?: number },
-    config?: typeof DEADLINE_CONFIG,
+    config: DeadlineConfig, // REQUIRED
     simulationMode?: { enabled: boolean; customYear: number }
 ): number {
     if (!student.sessionEndYear) return 0;
+    if (!config) throw new Error("Config required");
 
     const computed = computeDatesForStudent({
         studentSessionEndYear: student.sessionEndYear,
-        config: config || DEADLINE_CONFIG,
+        config,
         simulationMode
     });
 
@@ -503,35 +478,18 @@ export function computedDatesToStorable(
 
 /**
  * Compute softBlock and hardBlock dates for a student based on their validUntil date.
- * 
- * This is THE SINGLE SOURCE OF TRUTH for block date computation.
- * Call this whenever validUntil changes (renewal, application approval, etc.)
- * 
- * LOGIC:
- * - validUntil is always June 30 of some year (e.g., June 30, 2027)
- * - Soft Block: July 31 of the same year as validUntil (e.g., July 31, 2027)
- * - Hard Block: August 31, TWO years after the validUntil year (e.g., August 31, 2029)
- * 
- * @param validUntil - The student's validUntil date (ISO string or Date object)
- * @returns Object containing softBlock and hardBlock ISO date strings
- * 
- * @example
- * ```typescript
- * // Student enrolls in 2026 with 1-year plan → validUntil = June 30, 2027
- * const { softBlock, hardBlock } = computeBlockDatesFromValidUntil('2027-06-30T23:59:59.999Z');
- * // softBlock: "2027-07-31T23:59:59.999Z" 
- * // hardBlock: "2029-08-31T23:59:59.999Z" (2 years after soft block year)
- * ```
  */
-export function computeBlockDatesFromValidUntil(validUntil: string | Date): { softBlock: string; hardBlock: string } {
-    const config = DEADLINE_CONFIG;
+export function computeBlockDatesFromValidUntil(
+    validUntil: string | Date,
+    config: DeadlineConfig // REQUIRED
+): { softBlock: string; hardBlock: string } {
+    if (!config) throw new Error("Config required for computeBlockDatesFromValidUntil");
 
     // Parse validUntil to get the year
     const validUntilDate = typeof validUntil === 'string' ? new Date(validUntil) : validUntil;
     const validUntilYear = validUntilDate.getFullYear();
 
     // Soft Block: Same year as validUntil, using config month/day/time
-    // Use nullish coalescing (??) because 0 is a valid hour/minute
     const softBlockDate = new Date(
         validUntilYear,
         config.softBlock.month,
@@ -549,7 +507,6 @@ export function computeBlockDatesFromValidUntil(validUntil: string | Date): { so
         config.hardDelete.month,
         config.hardDelete.day
     );
-    // Use config time for hard block as well, instead of forcing 23:59:59
     hardBlockDate.setHours(
         config.hardDelete.hour ?? 23,
         config.hardDelete.minute ?? 59,
@@ -564,23 +521,7 @@ export function computeBlockDatesFromValidUntil(validUntil: string | Date): { so
 }
 
 /**
- * @deprecated Use computeBlockDatesFromValidUntil instead.
- * This function is kept for backward compatibility during migration.
- */
-export function computeBlockDatesForStudent(sessionEndYear: number): { softBlock: string; hardBlock: string } {
-    // Create a validUntil date from sessionEndYear (June 30 of that year)
-    const validUntil = new Date(
-        sessionEndYear,
-        DEADLINE_CONFIG.academicYear.anchorMonth,
-        DEADLINE_CONFIG.academicYear.anchorDay,
-        23, 59, 59, 999
-    );
-    return computeBlockDatesFromValidUntil(validUntil);
-}
-
-/**
  * Generate a preview of deadline effects for a student
- * Used in admin UI for previewing before saving config changes
  */
 export function generateDatePreview(
     student: {
@@ -591,14 +532,15 @@ export function generateDatePreview(
         sessionEndYear?: number;
         status?: StudentDeadlineStatus;
     },
-    config?: typeof DEADLINE_CONFIG,
+    config: DeadlineConfig, // REQUIRED
     simulationMode?: { enabled: boolean; customYear: number }
 ): DatePreviewResult | null {
     if (!student.sessionEndYear) return null;
+    if (!config) throw new Error("Config required");
 
     const computed = computeDatesForStudent({
         studentSessionEndYear: student.sessionEndYear,
-        config: config || DEADLINE_CONFIG,
+        config,
         simulationMode
     });
 

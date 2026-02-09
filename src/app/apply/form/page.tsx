@@ -157,7 +157,7 @@ function ApplicationFormContent() {
         const storedState = localStorage.getItem('applicationState');
         const storedCodeId = localStorage.getItem('verificationCodeId');
         const storedExpiry = localStorage.getItem('verificationExpiry');
-        
+
         return {
           applicationState: (storedState as ApplicationState) || 'noDoc',
           verificationCodeId: storedCodeId || '',
@@ -167,7 +167,7 @@ function ApplicationFormContent() {
         console.error('❌ [Apply Form] Error loading verification state:', error);
       }
     }
-    
+
     return {
       applicationState: 'noDoc' as ApplicationState,
       verificationCodeId: '',
@@ -186,13 +186,13 @@ function ApplicationFormContent() {
   const [profilePhotoUrl, setProfilePhotoUrl] = useState<string>('');
 
   const [applicationId, setApplicationId] = useState<string>('');
-  
+
   // Initialize verification state from localStorage
   const initialVerificationState = getInitialVerificationState();
   const [applicationState, setApplicationState] = useState<ApplicationState>(initialVerificationState.applicationState);
   const [verificationCodeId, setVerificationCodeId] = useState<string>(initialVerificationState.verificationCodeId);
   const [verificationExpiry, setVerificationExpiry] = useState<string>(initialVerificationState.verificationExpiry);
-  
+
   const [routes, setRoutes] = useState<Route[]>([]);
   const [buses, setBuses] = useState<any[]>([]);
   const [moderators, setModerators] = useState<ModeratorProfile[]>([]);
@@ -206,6 +206,24 @@ function ApplicationFormContent() {
   const [busFees, setBusFees] = useState(0);
   const [showSuccessDialog, setShowSuccessDialog] = useState(false);
   const [assignedBusInfo, setAssignedBusInfo] = useState<any>(null);
+  const [deadlineConfig, setDeadlineConfig] = useState<any>(null);
+
+  // Fetch deadline config
+  useEffect(() => {
+    const fetchDeadlineConfig = async () => {
+      try {
+        const response = await fetch('/api/settings/deadline-config');
+        if (response.ok) {
+          const data = await response.json();
+          setDeadlineConfig(data.config || data);
+          console.log("📅 [Apply Form] Fetched deadline config:", data.config || data);
+        }
+      } catch (error) {
+        console.error("Error fetching deadline config:", error);
+      }
+    };
+    fetchDeadlineConfig();
+  }, []);
 
   // UI state
   const [saving, setSaving] = useState(false);
@@ -474,7 +492,7 @@ function ApplicationFormContent() {
     try {
       // Note: Draft data is now loaded synchronously during initialization
       // This function only handles loading existing applications from database
-      
+
       console.log('📋 Checking for existing application in database...');
 
       // Check for existing application in database
@@ -2217,10 +2235,11 @@ function ApplicationFormContent() {
                     duration={formData.sessionInfo.durationYears}
                     sessionStartYear={formData.sessionInfo.sessionStartYear}
                     sessionEndYear={formData.sessionInfo.sessionEndYear}
-                    validUntil={calculateSessionDates(
+                    validUntil={(deadlineConfig ? calculateSessionDates(
                       formData.sessionInfo.sessionStartYear,
-                      formData.sessionInfo.durationYears
-                    ).validUntil}
+                      formData.sessionInfo.durationYears,
+                      deadlineConfig
+                    ).validUntil : '')}
                     userId={currentUser?.uid || ''}
                     userName={formData.fullName}
                     userEmail={formData.email}
@@ -2255,7 +2274,7 @@ function ApplicationFormContent() {
                     }}
                     onOfflineSelected={(data) => {
                       setUseOnlinePayment(false);
-                      
+
                       // DON'T reset verification state when just uploading/updating receipt
                       // Only reset if explicitly switching FROM online TO offline payment mode
                       // If user is already in offline mode and just uploading receipt, preserve verification

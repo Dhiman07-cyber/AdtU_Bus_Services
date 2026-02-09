@@ -22,17 +22,13 @@ const inter = Inter({
 // Suppress Next.js 15 params warnings in development
 suppressConsoleWarnings();
 
-import fs from 'fs';
-import path from 'path';
+import { getSystemConfig } from '@/lib/system-config-service';
 
 export async function generateMetadata(): Promise<Metadata> {
   let appName = 'AdtU Bus Services';
   try {
-    const configPath = path.join(process.cwd(), 'src', 'config', 'system_config.json');
-    if (fs.existsSync(configPath)) {
-      const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
-      if (config.appName) appName = config.appName;
-    }
+    const config = await getSystemConfig();
+    if (config?.appName) appName = config.appName;
   } catch (e) {
     console.error('Error reading system config for metadata:', e);
   }

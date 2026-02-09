@@ -12,7 +12,6 @@ import { Button } from '@/components/ui/button';
 import { X, Share2, Download, Copy, CheckCircle, QrCode, ShieldCheck, Fingerprint } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { toast } from 'sonner';
-import systemConfig from '@/config/system_config.json';
 
 interface StudentQRDisplayProps {
     isOpen: boolean;

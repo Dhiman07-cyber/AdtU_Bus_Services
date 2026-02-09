@@ -45,16 +45,23 @@ export function calculateFee(durationInYears: number, yearlyFee: number = 0): nu
 
 /**
  * Calculate session dates based on duration
- * Uses deadline-config.json to dynamically determine the validity end date
+ * 
+ * @param startYear - Starting year
+ * @param duration - Duration in years
+ * @param deadlineConfig - Deadline config { month, day } - REQUIRED
  */
-export function calculateSessionDates(startYear: number, duration: number): {
+export function calculateSessionDates(
+  startYear: number,
+  duration: number,
+  deadlineConfig: { month: number; day: number }
+): {
   sessionStartYear: number;
   sessionEndYear: number;
   validUntil: string;
 } {
   const sessionEndYear = startYear + duration;
-  // Calculate validUntil using config (June 30th by default)
-  const validUntil = calculateValidUntilDate(startYear, duration).toISOString();
+  // Calculate validUntil using provided config
+  const validUntil = calculateValidUntilDate(startYear, duration, deadlineConfig).toISOString();
 
   return {
     sessionStartYear: startYear,

@@ -31,7 +31,6 @@ export default function StudentDashboard() {
   const [showQRModal, setShowQRModal] = useState(false);
   const [studentDataFirestore, setStudentDataFirestore] = useState<any>(null);
   const [studentDataLoading, setStudentDataLoading] = useState(true);
-  const [driverData, setDriverData] = useState<any>(null);
   const [daysUntilExpiry, setDaysUntilExpiry] = useState<number | null>(null);
 
   // Fetch student data directly from Firestore with proper field mapping
@@ -78,8 +77,10 @@ export default function StudentDashboard() {
   // OPTIMIZED: Fetch only specific bus and route data instead of entire collections
   const [busData, setBusData] = useState<any>(null);
   const [routeData, setRouteData] = useState<any>(null);
+  const [driverData, setDriverData] = useState<any>(null);
   const [busesLoading, setBusesLoading] = useState(false);
   const [routesLoading, setRoutesLoading] = useState(false);
+  const [driverLoading, setDriverLoading] = useState(false);
 
   useEffect(() => {
     const fetchAssignedData = async () => {
@@ -148,10 +149,84 @@ export default function StudentDashboard() {
           } catch (e) { console.error(e); }
           setRoutesLoading(false);
         }
+
+        // 3. Fetch Driver Data based on shift matching
+        if (studentBusId) {
+          setDriverLoading(true);
+          try {
+            const studentShift = studentData.shift || 'Morning';
+            console.log('🔍 Fetching driver for bus:', studentBusId, 'Student shift:', studentShift);
+            
+            // Query drivers assigned to this bus
+            const driversQuery = query(
+              collection(db, 'drivers'),
+              where('assignedBusId', '==', studentBusId)
+            );
+            const driversSnap = await getDocs(driversQuery);
+            
+            if (!driversSnap.empty) {
+              const drivers = driversSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+              console.log('📋 Found drivers for bus:', drivers);
+              
+              // Filter drivers based on shift matching logic
+              let matchedDriver = null;
+              
+              // Priority 1: Exact shift match
+              matchedDriver = drivers.find((d: any) => {
+                const driverShift = d.shift || 'Morning & Evening';
+                return driverShift === studentShift;
+              });
+              
+              // Priority 2: Driver with "Morning & Evening" shift
+              if (!matchedDriver) {
+                matchedDriver = drivers.find((d: any) => {
+                  const driverShift = d.shift || 'Morning & Evening';
+                  return driverShift === 'Morning & Evening';
+                });
+              }
+              
+              // Priority 3: If multiple drivers with same shift, pick the one created first (by timestamp)
+              if (!matchedDriver && drivers.length > 0) {
+                const sameShiftDrivers = drivers.filter((d: any) => {
+                  const driverShift = d.shift || 'Morning & Evening';
+                  return driverShift === studentShift;
+                });
+                
+                if (sameShiftDrivers.length > 0) {
+                  // Sort by createdAt timestamp (oldest first)
+                  sameShiftDrivers.sort((a: any, b: any) => {
+                    const aTime = a.createdAt?.seconds || 0;
+                    const bTime = b.createdAt?.seconds || 0;
+                    return aTime - bTime;
+                  });
+                  matchedDriver = sameShiftDrivers[0];
+                }
+              }
+              
+              // Fallback: If still no match, take the first driver
+              if (!matchedDriver && drivers.length > 0) {
+                matchedDriver = drivers[0];
+              }
+              
+              if (matchedDriver) {
+                console.log('✅ Matched driver:', matchedDriver);
+                setDriverData(matchedDriver);
+              } else {
+                console.log('⚠️ No matching driver found');
+              }
+            } else {
+              console.log('⚠️ No drivers found for bus:', studentBusId);
+            }
+          } catch (e) {
+            console.error('Error fetching driver:', e);
+          }
+          setDriverLoading(false);
+        }
       } catch (error) {
         console.error('Error fetching assigned data:', error);
         setBusesLoading(false);
         setRoutesLoading(false);
+        setDriverLoading(false);
       }
     };
 
@@ -272,54 +347,7 @@ export default function StudentDashboard() {
   // (which represents bus condition like Active/Maintenance, not trip status)
 
 
-  // Fetch driver data based on bus assignment
-  useEffect(() => {
-    const fetchDriverData = async () => {
-      if (!studentData?.busId && !studentData?.assignedBusId) return;
 
-      try {
-        const studentBusId = studentData.busId || studentData.assignedBusId;
-
-        // Import Firebase functions for querying
-        const { collection, query, where, getDocs } = await import('firebase/firestore');
-        const { db } = await import('@/lib/firebase');
-
-        // Query drivers collection to find driver assigned to this bus
-        const driversQuery = query(
-          collection(db, 'drivers'),
-          where('assignedBusId', '==', studentBusId)
-        );
-
-        const driversSnapshot = await getDocs(driversQuery);
-
-        if (!driversSnapshot.empty) {
-          const driverDoc = driversSnapshot.docs[0];
-          const driverData = { id: driverDoc.id, ...driverDoc.data() };
-          setDriverData(driverData);
-        } else {
-          // If no driver found with assignedBusId, try with busId field
-          const driversQuery2 = query(
-            collection(db, 'drivers'),
-            where('busId', '==', studentBusId)
-          );
-
-          const driversSnapshot2 = await getDocs(driversQuery2);
-
-          if (!driversSnapshot2.empty) {
-            const driverDoc = driversSnapshot2.docs[0];
-            const driverData = { id: driverDoc.id, ...driverDoc.data() };
-            setDriverData(driverData);
-          }
-        }
-      } catch (error) {
-        console.error('Error fetching driver data:', error);
-      }
-    };
-
-    if (studentData) {
-      fetchDriverData();
-    }
-  }, [studentData]);
 
   // Calculate days until expiry
   useEffect(() => {
@@ -367,7 +395,7 @@ export default function StudentDashboard() {
     }
   }, [studentData?.validUntil]);
 
-  const loading = studentDataLoading || busesLoading || routesLoading || tripStatusLoading;
+  const loading = studentDataLoading || busesLoading || routesLoading || driverLoading || tripStatusLoading;
 
   useEffect(() => {
     if (userData && userData.role !== "student") {
@@ -691,8 +719,8 @@ export default function StudentDashboard() {
 
             {/* Bus Operator Card - Vibrant with Desktop Hover */}
             <div className="group cursor-pointer h-full">
-              <Card className="relative overflow-hidden border-2 border-white shadow-lg hover:shadow-xl md:hover:shadow-2xl md:hover:shadow-blue-500/30 bg-gradient-to-br from-white via-blue-50/40 to-indigo-50/30 dark:from-gray-900 dark:via-blue-950/40 dark:to-indigo-950/30 transition-all duration-500 hover:scale-[1.02] h-full">
-                <div className="absolute inset-0 bg-gradient-to-br from-blue-500/5 via-indigo-500/5 to-purple-500/5 md:group-hover:from-blue-500/15 md:group-hover:via-indigo-500/15 md:group-hover:to-purple-500/15 transition-all duration-500 rounded-lg" />
+              <Card className="relative overflow-hidden border-2 border-white shadow-lg hover:shadow-xl md:hover:shadow-2xl md:hover:shadow-cyan-500/30 bg-gradient-to-br from-cyan-100 via-blue-50 to-teal-50 dark:from-cyan-900/40 dark:via-blue-950/40 dark:to-teal-950/30 transition-all duration-500 hover:scale-[1.02] h-full">
+                <div className="absolute inset-0 bg-gradient-to-br from-cyan-500/5 via-blue-500/5 to-teal-500/5 md:group-hover:from-cyan-500/15 md:group-hover:via-blue-500/15 md:group-hover:to-teal-500/15 transition-all duration-500 rounded-lg" />
 
                 <CardContent className="p-3 md:p-4 lg:p-6 relative z-10 h-full flex flex-col justify-between">
                   <div className="flex items-start justify-between mb-2 md:mb-3">
@@ -700,32 +728,48 @@ export default function StudentDashboard() {
                       <p className="text-[10px] md:text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">
                         Bus Operator
                       </p>
-                      <p className="text-base md:text-lg lg:text-xl font-black bg-gradient-to-r from-gray-900 to-gray-700 dark:from-white dark:to-gray-300 md:group-hover:from-blue-600 md:group-hover:to-indigo-600 bg-clip-text text-transparent leading-tight truncate transition-all duration-500">
-                        {driverData?.fullName || driverData?.name || 'Not Assigned'}
+                      <p className="text-lg md:text-2xl lg:text-3xl font-black bg-gradient-to-r from-gray-900 to-gray-700 dark:from-white dark:to-gray-300 md:group-hover:from-cyan-600 md:group-hover:to-teal-600 bg-clip-text text-transparent leading-tight transition-all duration-500 truncate">
+                        {driverData ? (driverData.fullName || driverData.name || 'Not Set') : 'Not Assigned'}
                       </p>
-                      <p className="text-[10px] md:text-xs text-gray-600 dark:text-gray-400 md:group-hover:text-blue-600 dark:md:group-hover:text-blue-400 truncate transition-colors duration-500">
-                        {driverData?.joiningDate ?
-                          `Served ${new Date().getFullYear() - new Date(driverData.joiningDate).getFullYear()} years` :
-                          'Service info unavailable'
-                        }
+                      <p className="text-[10px] md:text-xs text-gray-600 dark:text-gray-400 md:group-hover:text-cyan-600 dark:md:group-hover:text-cyan-400 truncate transition-colors duration-500">
+                        {driverData ? (() => {
+                          if (!driverData.joiningDate) return 'Service duration unknown';
+                          try {
+                            const joiningDate = new Date(driverData.joiningDate);
+                            const now = new Date();
+                            const diffTime = now.getTime() - joiningDate.getTime();
+                            const diffYears = diffTime / (1000 * 60 * 60 * 24 * 365.25);
+                            
+                            if (diffYears < 1) {
+                              const diffMonths = Math.floor(diffYears * 12);
+                              return diffMonths === 0 ? 'Joined recently' : `Served ${diffMonths} month${diffMonths !== 1 ? 's' : ''}`;
+                            }
+                            
+                            const years = Math.floor(diffYears);
+                            return `Served ${years} year${years !== 1 ? 's' : ''}`;
+                          } catch (e) {
+                            return 'Service duration unknown';
+                          }
+                        })() : 'No driver assigned'}
                       </p>
                     </div>
                     <div className="relative ml-2 flex-shrink-0">
-                      <div className="relative p-2 md:p-2.5 lg:p-3 rounded-xl shadow-lg md:group-hover:shadow-xl md:group-hover:scale-110 transition-all duration-500 bg-gradient-to-br from-blue-500 to-indigo-600">
+                      <div className="relative p-2 md:p-2.5 lg:p-3 rounded-xl shadow-lg md:group-hover:shadow-xl md:group-hover:scale-110 transition-all duration-500 bg-gradient-to-br from-cyan-500 to-teal-600">
                         <User className="h-5 w-5 md:h-6 md:w-6 lg:h-7 lg:w-7 text-white" />
                       </div>
                     </div>
                   </div>
 
-                  <div className={`px-2 md:px-3 py-1 rounded-full text-[10px] md:text-xs font-semibold shadow-md text-center md:group-hover:scale-110 transition-all duration-500 ${driverData?.fullName || driverData?.name
-                    ? 'bg-gradient-to-r from-blue-100 to-indigo-100 text-blue-700 dark:from-blue-900/40 dark:to-indigo-900/40 dark:text-blue-400 border border-blue-200 dark:border-blue-800'
+                  <div className={`px-2 md:px-3 py-1 rounded-full text-[10px] md:text-xs font-semibold shadow-md text-center md:group-hover:scale-110 transition-all duration-500 ${driverData
+                    ? 'bg-gradient-to-r from-cyan-100 to-teal-100 text-cyan-700 dark:from-cyan-900/40 dark:to-teal-900/40 dark:text-cyan-400 border border-cyan-200 dark:border-cyan-800'
                     : 'bg-gradient-to-r from-gray-100 to-gray-200 text-gray-700 dark:from-gray-800 dark:to-gray-700 dark:text-gray-400 border border-gray-200 dark:border-gray-700'
                     }`}>
-                    {driverData?.fullName || driverData?.name ? 'Assigned' : 'Not Assigned'}
+                    {driverData ? 'Assigned' : 'Not Set'}
                   </div>
                 </CardContent>
               </Card>
             </div>
+
 
             {/* Route Stops Card - Vibrant with Desktop Hover */}
             <div className="group cursor-pointer h-full">

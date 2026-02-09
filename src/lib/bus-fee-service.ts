@@ -1,10 +1,9 @@
 /**
  * Bus Fee Management Service
- * Handles bus fee storage in system_config.json
+ * Handles bus fee storage in Firestore (migrated from system_config.json)
  */
 
-import fs from 'fs';
-import path from 'path';
+import { getSystemConfig, updateSystemConfig } from './system-config-service';
 
 export interface BusFeeData {
   amount: number;
@@ -20,72 +19,15 @@ export interface BusFeeHistory {
   version: number;
 }
 
-// Interface matching src/config/system_config.json
-interface SystemConfig {
-  appName: string;
-  busFee: {
-    amount: number;
-    history?: BusFeeHistory[];
-  };
-  paymentExport?: {
-    startYear: number;
-    interval: number;
-  };
-  academicYearEnd?: string;
-  renewalReminder?: string;
-  renewalDeadline?: string;
-  softBlock?: string;
-  hardBlock?: string;
-  version: string;
-  lastUpdated: string;
-  updatedBy: string;
-  [key: string]: any; // Allow other properties
-}
-
-const CONFIG_FILE_PATH = path.join(process.cwd(), 'src', 'config', 'system_config.json');
-
 /**
- * Read system config from JSON file
- */
-function readSystemConfig(): SystemConfig {
-  try {
-    const fileContent = fs.readFileSync(CONFIG_FILE_PATH, 'utf-8');
-    return JSON.parse(fileContent);
-  } catch (error) {
-    console.error('Error reading system config:', error);
-    // Return a default fallback if file doesn't exist or is corrupted
-    return {
-      appName: "AdtU Bus Services",
-      busFee: {
-        amount: 0
-      },
-      version: "v1.0.0",
-      lastUpdated: new Date().toISOString(),
-      updatedBy: 'system'
-    };
-  }
-}
-
-/**
- * Write system config to JSON file
- */
-function writeSystemConfig(config: SystemConfig): void {
-  try {
-    fs.writeFileSync(CONFIG_FILE_PATH, JSON.stringify(config, null, 2), 'utf-8');
-  } catch (error) {
-    console.error('Error writing system config:', error);
-    throw error;
-  }
-}
-
-/**
- * Get current bus fee from system config file
+ * Get current bus fee from system config
+ * NO FALLBACK - throws error if config unavailable
  */
 export async function getCurrentBusFee(): Promise<BusFeeData> {
   try {
-    const config = readSystemConfig();
+    const config = await getSystemConfig();
 
-    console.log('🔍 Fetching bus fee from system_config.json...');
+    console.log('🔍 Fetching bus fee from system config...');
     const amount = config.busFee?.amount || 0;
 
     console.log('📊 Bus fee data from config:', {
@@ -99,22 +41,17 @@ export async function getCurrentBusFee(): Promise<BusFeeData> {
       amount: amount,
       updatedAt: config.lastUpdated || new Date().toISOString(),
       updatedBy: config.updatedBy || 'system',
-      version: 1 // Returning 1 as a placeholder since system config uses string version
+      version: 1
     };
   } catch (error) {
     console.error('Error getting current bus fee:', error);
-    // Return default on error
-    return {
-      amount: 0,
-      updatedAt: new Date().toISOString(),
-      updatedBy: 'system',
-      version: 1
-    };
+    // Re-throw to prevent fallback usage
+    throw new Error('Unstable network detected, please try again later');
   }
 }
 
 /**
- * Update bus fee in system config file
+ * Update bus fee in system config
  * This updates the global bus fee for the system
  */
 export async function updateBusFee(
@@ -123,7 +60,7 @@ export async function updateBusFee(
 ): Promise<{ success: boolean; error?: string; previousAmount?: number }> {
   try {
     // Get current config
-    const currentConfig = readSystemConfig();
+    const currentConfig = await getSystemConfig();
 
     // Ensure busFee object exists
     if (!currentConfig.busFee) {
@@ -132,30 +69,29 @@ export async function updateBusFee(
 
     const previousAmount = currentConfig.busFee.amount;
 
-    // Add current state to history before updating (if we decide to support history in system config)
+    // Add current state to history before updating
     if (!currentConfig.busFee.history) {
       currentConfig.busFee.history = [];
     }
 
+    // Push the previous state to history
+    // Note: The service layer will truncate this history to prevent unbounded growth
     currentConfig.busFee.history.push({
       amount: previousAmount,
       updatedAt: currentConfig.lastUpdated || new Date().toISOString(),
       updatedBy: currentConfig.updatedBy || 'system',
-      version: 1 // Placeholder
+      version: 1
     });
 
     // Update with new values
     currentConfig.busFee.amount = newAmount;
     currentConfig.lastUpdated = new Date().toISOString();
     currentConfig.updatedBy = adminUid;
-    // We strictly shouldn't just bump version string blindly, but for now we keep it simple or leave it. 
-    // Let's not touch the version string to avoid format issues, or maybe just update timestamp.
 
-    // Write to file
-    writeSystemConfig(currentConfig);
+    // Save to Firestore via service
+    await updateSystemConfig(currentConfig, adminUid);
 
     console.log(`✅ Bus fee updated by admin ${adminUid}: ${previousAmount} → ${newAmount}`);
-    console.log(`📝 Config saved to: ${CONFIG_FILE_PATH}`);
 
     return {
       success: true,
@@ -165,7 +101,7 @@ export async function updateBusFee(
     console.error('Error updating bus fee:', error);
     return {
       success: false,
-      error: error.message
+      error: error.message || 'Unstable network detected, please try again later'
     };
   }
 }
@@ -175,43 +111,35 @@ export async function updateBusFee(
  */
 export async function getBusFeeHistory(): Promise<BusFeeHistory[]> {
   try {
-    const config = readSystemConfig();
+    const config = await getSystemConfig();
     return config.busFee?.history || [];
   } catch (error) {
     console.error('Error getting bus fee history:', error);
-    return [];
+    throw new Error('Unstable network detected, please try again later');
   }
 }
 
 /**
- * Initialize bus fee config file if not exists
- * Creates the config file with default value if system config is missing
+ * Initialize bus fee config if not exists
+ * (This is now largely handled by getSystemConfig fallback, but kept for compatibility)
  */
 export async function initializeBusFee(defaultAmount: number = 0): Promise<void> {
-  try {
-    // Check if file exists
-    if (!fs.existsSync(CONFIG_FILE_PATH)) {
-      const defaultConfig: SystemConfig = {
-        appName: "AdtU Bus Services",
-        busFee: {
-          amount: defaultAmount,
-          history: []
-        },
-        version: "v1.0.0",
-        lastUpdated: new Date().toISOString(),
-        updatedBy: 'system'
-      };
-
-      // Create directory if it doesn't exist
-      const configDir = path.dirname(CONFIG_FILE_PATH);
-      if (!fs.existsSync(configDir)) {
-        fs.mkdirSync(configDir, { recursive: true });
-      }
-
-      writeSystemConfig(defaultConfig);
-      console.log(`✅ Initialized system config file with bus fee: ${defaultAmount}`);
-    }
-  } catch (error) {
-    console.error('Error initializing bus fee:', error);
+  // With Firestore, initialization happens lazily or via migration.
+  // We can explicitly set it if needed.
+  const config = await getSystemConfig();
+  if (!config) {
+    const defaultConfig = {
+      appName: "AdtU Bus Services",
+      busFee: {
+        amount: defaultAmount,
+        history: []
+      },
+      version: "v1.0.0",
+      lastUpdated: new Date().toISOString(),
+      updatedBy: 'system'
+    };
+    await updateSystemConfig(defaultConfig, 'system');
+    console.log(`✅ Initialized system config in Firestore with bus fee: ${defaultAmount}`);
   }
 }
+

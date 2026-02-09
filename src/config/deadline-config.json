@@ -1,6 +1,5 @@
 {
   "description": "Critical deadline configuration for bus service renewal system. Controls when notifications, access blocks, and account deletions occur.",
-  "version": "2.1.0",
   "lastUpdated": "2026-01-13",
   "academicYear": {
     "description": "Academic year configuration - all services align to this end date",

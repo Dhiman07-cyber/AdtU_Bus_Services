@@ -174,6 +174,8 @@ const nextConfig: NextConfig = {
                 : "connect-src 'self' http://localhost:* http://127.0.0.1:* https://*.razorpay.com https://api.razorpay.com wss://*.supabase.co https://*.supabase.co https://firestore.googleapis.com https://securetoken.googleapis.com https://identitytoolkit.googleapis.com https://*.googleapis.com https://apis.google.com https://accounts.google.com https://www.google.com https://api.cloudinary.com https://*.cloudinary.com",
               // Frames: Google OAuth, Razorpay checkout
               "frame-src 'self' https://api.razorpay.com https://checkout.razorpay.com https://accounts.google.com https://*.firebaseapp.com",
+              // Media: Allow videos from Supabase Storage
+              "media-src 'self' blob: https://*.supabase.co",
               "base-uri 'self'",
               // Form action: Allow Google OAuth and Razorpay
               "form-action 'self' https://api.razorpay.com https://accounts.google.com",

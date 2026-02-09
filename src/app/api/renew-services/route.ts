@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { adminDb, adminAuth } from '@/lib/firebase-admin';
 import { calculateRenewalDate, toFirestoreTimestamp, formatRenewalDate } from '@/lib/utils/renewal-utils';
 import { computeBlockDatesFromValidUntil } from '@/lib/utils/deadline-computation';
+import { getDeadlineConfig } from '@/lib/deadline-config-service';
 
 /**
  * POST /api/renew-services
@@ -59,6 +60,9 @@ export async function POST(request: NextRequest) {
         { status: 403 }
       );
     }
+
+    // Fetch deadline configuration
+    const config = await getDeadlineConfig();
 
     const body = await request.json();
     const { renewals, paymentMode, transactionId, adminUid } = body;
@@ -137,14 +141,14 @@ export async function POST(request: NextRequest) {
 
         // Calculate new validUntil date
         const currentValidUntil = studentData.validUntil?.toDate?.()?.toISOString() || null;
-        const { newValidUntil } = calculateRenewalDate(currentValidUntil, durationYears);
+        const { newValidUntil } = calculateRenewalDate(currentValidUntil, durationYears, config);
 
         // Calculate new sessionEndYear from validUntil (deadline from config: June 30th by default)
         const newValidUntilDate = new Date(newValidUntil);
         const newSessionEndYear = newValidUntilDate.getFullYear();
 
         // Compute block dates from the new validUntil
-        const blockDates = computeBlockDatesFromValidUntil(newValidUntil);
+        const blockDates = computeBlockDatesFromValidUntil(newValidUntil, config);
 
         // Update student document with validUntil AND block dates
         batch.update(studentRef, {

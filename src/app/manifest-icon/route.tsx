@@ -5,19 +5,7 @@ import { readFileSync, existsSync } from 'fs';
 export const runtime = 'nodejs';
 
 export async function GET() {
-    let appName = 'AdtU Bus Services';
 
-    try {
-        const configPath = join(process.cwd(), 'src', 'config', 'system_config.json');
-        if (existsSync(configPath)) {
-            const config = JSON.parse(readFileSync(configPath, 'utf-8'));
-            if (config.appName) {
-                appName = config.appName;
-            }
-        }
-    } catch (e) {
-        console.error('Error reading system config for manifest icon:', e);
-    }
 
     const iconPath = join(process.cwd(), 'public', 'Bus_Icon.png');
     const fallbackPath = join(process.cwd(), 'public', 'icons', 'icon-512x512.png');

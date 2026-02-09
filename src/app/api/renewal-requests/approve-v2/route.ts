@@ -7,6 +7,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { generateOfflinePaymentId } from '@/lib/types/payment';
 import { computeBlockDatesFromValidUntil } from '@/lib/utils/deadline-computation';
 import { v2 as cloudinary } from 'cloudinary';
+import { getDeadlineConfig } from '@/lib/deadline-config-service';
 
 // Configure Cloudinary
 if (process.env.CLOUDINARY_API_KEY && process.env.CLOUDINARY_API_SECRET && process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME) {
@@ -87,6 +88,9 @@ export async function POST(request: NextRequest) {
       paymentId
     });
 
+    // Fetch dynamic deadline config
+    const deadlineConfig = await getDeadlineConfig();
+
     // Start atomic transaction
     const studentRef = adminDb.collection('students').doc(studentId);
     const requestRef = adminDb.collection('renewal_requests').doc(requestId);
@@ -129,8 +133,8 @@ export async function POST(request: NextRequest) {
           }
         }
 
-        // Calculate new validity date
-        newValidUntil = calculateValidUntilDate(baseYear, durationYears);
+        // Calculate new validity date using dynamic config
+        newValidUntil = calculateValidUntilDate(baseYear, durationYears, deadlineConfig);
         const newSessionEndYear = baseYear + durationYears;
 
         // Calculate cumulative duration (existing + new)
@@ -145,7 +149,7 @@ export async function POST(request: NextRequest) {
         });
 
         // Compute block dates from the new validUntil date
-        const blockDates = computeBlockDatesFromValidUntil(newValidUntil);
+        const blockDates = computeBlockDatesFromValidUntil(newValidUntil, deadlineConfig);
 
         // Update student document atomically with ALL required fields
         transaction.update(studentRef, {

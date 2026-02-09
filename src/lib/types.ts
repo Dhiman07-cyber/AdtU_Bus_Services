@@ -84,6 +84,7 @@ export interface Driver {
   busAssigned?: string;
   driverId?: string;
   joiningDate?: string;
+  shift?: 'Morning' | 'Evening' | 'Morning & Evening' | string;
   status?: 'active' | 'inactive' | 'suspended';
   profilePhotoUrl?: string;
   tripActive?: boolean;

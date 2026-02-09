@@ -8,6 +8,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { adminDb, adminAuth } from '@/lib/firebase-admin';
 import { FieldValue } from 'firebase-admin/firestore';
+import { getCurrentBusFee } from '@/lib/bus-fee-service';
+import { calculateRenewalDate } from '@/lib/utils/renewal-utils';
+import { getDeadlineConfig } from '@/lib/deadline-config-service';
 
 export async function POST(request: NextRequest) {
   try {
@@ -26,7 +29,7 @@ export async function POST(request: NextRequest) {
 
     // Parse request body
     const body = await request.json();
-    const { studentId, duration, paymentMode, sessionInfo } = body;
+    const { studentId, duration, paymentMode, sessionInfo: clientSessionInfo } = body;
 
     // Validate student ID matches token
     if (studentId !== userId) {
@@ -47,7 +50,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const studentData = studentDoc.data();
+    const studentData = studentDoc.data()!;
 
     // Check if there's already a pending renewal application
     const existingApplications = await adminDb
@@ -58,13 +61,56 @@ export async function POST(request: NextRequest) {
 
     if (!existingApplications.empty) {
       return NextResponse.json(
-        { 
-          success: false, 
-          error: 'You already have a pending renewal application' 
+        {
+          success: false,
+          error: 'You already have a pending renewal application'
         },
         { status: 400 }
       );
     }
+
+    // -----------------------------------------------------
+    // AUTHORITATIVE CALCULATION (Source of Truth)
+    // -----------------------------------------------------
+
+    // 1. Fetch Fee
+    const busFeeData = await getCurrentBusFee();
+    const currentBusFee = busFeeData.amount;
+    const calculatedFee = currentBusFee * duration;
+
+    // 2. Fetch Deadline Config for Date Calculation
+    const deadlineConfig = await getDeadlineConfig();
+
+    // 3. Calculate Valid Until
+    // Use student's current validUntil as base
+    const currentValidUntil = studentData.validUntil;
+    // Handle Firestore Timestamp or String
+    let currentValidUntilStr: string | null = null;
+    if (currentValidUntil) {
+      if (typeof currentValidUntil === 'string') currentValidUntilStr = currentValidUntil;
+      else if (currentValidUntil.toDate) currentValidUntilStr = currentValidUntil.toDate().toISOString();
+    }
+
+    const renewalResult = calculateRenewalDate(currentValidUntilStr, duration, deadlineConfig);
+    const newValidUntil = renewalResult.newValidUntil;
+
+    // Calculate session years based on newValidUntil
+    const newValidUntilDate = new Date(newValidUntil);
+    const sessionEndYear = newValidUntilDate.getFullYear();
+    // Start year is typically duration years back? 
+    // Or just sessionEndYear - duration? 
+    // Actually, usually academic session is defined by end year.
+    // Let's assume start year is relative to current validity or now.
+    // For simplicity, we can trust client's start year OR derive it.
+    // Let's try to derive it: 
+    // If renewing for 1 year, session is (end-1) to end.
+    // But `sessionInfo` usually displays e.g. "2025-2026".
+    // Let's just store the validUntil which is the most critical part. 
+    // We can populate sessionStart/End for display.
+    const derivedSessionEndYear = sessionEndYear;
+    const derivedSessionStartYear = derivedSessionEndYear - duration; // Rough approximation
+
+    console.log(`📝 Creating renewal application for ${studentId}: Fee=${calculatedFee}, ValidUntil=${newValidUntil}`);
 
     // Create renewal application
     const renewalApplication = {
@@ -76,10 +122,11 @@ export async function POST(request: NextRequest) {
       currentValidUntil: studentData.validUntil,
       requestedDuration: duration,
       sessionInfo: {
-        sessionStartYear: sessionInfo.sessionStartYear,
-        sessionEndYear: sessionInfo.sessionEndYear,
-        validUntil: sessionInfo.validUntil,
-        fee: sessionInfo.fee,
+        // Use authoritative values primarily
+        sessionStartYear: derivedSessionStartYear,
+        sessionEndYear: derivedSessionEndYear,
+        validUntil: newValidUntil,
+        fee: calculatedFee,
       },
       paymentMode: paymentMode || 'offline',
       paymentStatus: 'pending',
@@ -91,6 +138,10 @@ export async function POST(request: NextRequest) {
     const applicationRef = await adminDb
       .collection('renewal_applications')
       .add(renewalApplication);
+
+    // ... Update student doc ... (unchanged logic below)
+
+
 
     // Update student document to indicate pending renewal
     await studentRef.update({
@@ -109,7 +160,7 @@ export async function POST(request: NextRequest) {
         applicationId: applicationRef.id,
         duration: duration,
         paymentMode: paymentMode,
-        requestedValidUntil: sessionInfo.validUntil,
+        requestedValidUntil: renewalApplication.sessionInfo.validUntil,
       },
       timestamp: FieldValue.serverTimestamp(),
     });
@@ -123,7 +174,7 @@ export async function POST(request: NextRequest) {
         applicationId: applicationRef.id,
         studentId,
         duration,
-        sessionInfo,
+        sessionInfo: renewalApplication.sessionInfo,
         paymentMode,
       },
     });

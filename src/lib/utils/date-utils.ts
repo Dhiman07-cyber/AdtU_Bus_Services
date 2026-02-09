@@ -1,7 +1,3 @@
-/**
- * Utility functions for parsing and handling dates from Firestore
- */
-import { DEADLINE_CONFIG } from '@/lib/types/deadline-config-defaults';
 
 /**
  * Safely parse a date from various formats
@@ -107,36 +103,32 @@ export function toFirestoreDate(date: Date): string {
 }
 
 /**
- * Get academic year deadline configuration from deadline-config.json
- * This ensures all date calculations use the same deadline (June 30th by default)
- */
-export function getAcademicYearDeadline(): { month: number; day: number } {
-  try {
-    return {
-      month: DEADLINE_CONFIG.academicYear.anchorMonth, // 5 = June (0-indexed)
-      day: DEADLINE_CONFIG.academicYear.anchorDay      // 30
-    };
-  } catch (error) {
-    console.error('Error reading deadline config, using default June 30:', error);
-    // Fallback to June 30th if config file is missing
-    return { month: 5, day: 30 };
-  }
-}
-
-/**
  * Calculate validity end date based on duration and academic year deadline
- * Uses deadline-config.json to determine the anchor date (June 30th by default)
  * 
  * @param startYear - Starting year
  * @param durationYears - Number of years (1-4)
+ * @param deadline - Deadline config object OR full DeadlineConfig - REQUIRED
  * @returns Date object set to the deadline of the final year
  */
-export function calculateValidUntilDate(startYear: number, durationYears: number): Date {
-  const deadline = getAcademicYearDeadline();
+export function calculateValidUntilDate(
+  startYear: number,
+  durationYears: number,
+  deadline: { month: number; day: number } | any
+): Date {
+  if (!deadline) throw new Error("Deadline config required for calculateValidUntilDate");
+
+  // Extract month/day from DeadlineConfig if provided, else use directly
+  const month = deadline.academicYear ? deadline.academicYear.anchorMonth : deadline.month;
+  const day = deadline.academicYear ? deadline.academicYear.anchorDay : deadline.day;
+
+  if (month === undefined || day === undefined) {
+    throw new Error("Invalid deadline configuration: month or day missing");
+  }
+
   const endYear = startYear + durationYears;
 
-  // Create date with deadline from config (June 30th by default)
-  const validUntil = new Date(endYear, deadline.month, deadline.day);
+  // Create date with deadline from config
+  const validUntil = new Date(endYear, month, day);
 
   return validUntil;
 }

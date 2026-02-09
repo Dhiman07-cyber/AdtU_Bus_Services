@@ -61,16 +61,16 @@ async function cleanupSupabase(
         console.log(`✅ Deleted ${count || 0} driver_location_updates`);
       }),
 
-    // 3. Delete/expire waiting flags
-    supabase
-      .from('waiting_flags')
-      .delete()
-      .eq('bus_id', busId)
-      .in('status', ['raised', 'acknowledged'])
-      .then(({ data, count }: { data: any, count: number }) => {
-        stats.waitingFlags = count || 0;
-        console.log(`✅ Deleted ${count || 0} waiting_flags`);
-      }),
+    // 3. Delete/expire waiting flags - DISABLED as per new requirement: flags should persist after trip end
+    // supabase
+    //   .from('waiting_flags')
+    //   .delete()
+    //   .eq('bus_id', busId)
+    //   .in('status', ['raised', 'acknowledged'])
+    //   .then(({ data, count }: { data: any, count: number }) => {
+    //     stats.waitingFlags = count || 0;
+    //     console.log(`✅ Deleted ${count || 0} waiting_flags`);
+    //   }),
 
     // 5. DELETE driver_status row completely (ensures clean state for next trip)
     // This is critical: the student dashboard queries for rows with status 'on_trip' or 'enroute'

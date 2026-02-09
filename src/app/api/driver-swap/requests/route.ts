@@ -97,6 +97,37 @@ export async function POST(request: Request) {
       routeName = routeDoc.data()?.routeName || routeDoc.data()?.name || '';
     }
 
+    // Check if candidate driver has a bus (for TRUE SWAP)
+    let swapType: 'assignment' | 'swap' = 'assignment';
+    let secondaryBusId = undefined;
+    let secondaryBusNumber = undefined;
+    let secondaryRouteId = undefined;
+    let secondaryRouteName = undefined;
+
+    const candidateBusId = toDriverData?.assignedBusId || toDriverData?.busId;
+
+    // Check if candidate bus is valid (not reserved/unassigned)
+    const isCandidateReserved = !candidateBusId ||
+      (typeof candidateBusId === 'string' && ['reserved', 'none', 'unassigned'].includes(candidateBusId.toLowerCase()));
+
+    if (!isCandidateReserved) {
+      console.log('🔄 Candidate has bus, setting as TRUE SWAP:', candidateBusId);
+      swapType = 'swap';
+      secondaryBusId = candidateBusId;
+
+      // Get secondary bus details
+      const secondaryBusDoc = await adminDb.collection('buses').doc(candidateBusId).get();
+      const secondaryBusData = secondaryBusDoc.data();
+
+      secondaryBusNumber = secondaryBusData?.busNumber || candidateBusId;
+      secondaryRouteId = secondaryBusData?.routeId || secondaryBusData?.assignedRouteId;
+
+      if (secondaryRouteId) {
+        const secRouteDoc = await adminDb.collection('routes').doc(secondaryRouteId).get();
+        secondaryRouteName = secRouteDoc.data()?.routeName || secRouteDoc.data()?.name;
+      }
+    }
+
     // Create the swap request using Supabase
     const result = await DriverSwapSupabaseService.createSwapRequest({
       fromDriverUID,
@@ -107,10 +138,14 @@ export async function POST(request: Request) {
       busNumber,
       routeId,
       routeName,
+      secondaryBusId,
+      secondaryBusNumber,
+      secondaryRouteId,
+      secondaryRouteName,
       startTime: timePeriod.startTime,
       endTime: timePeriod.endTime,
       timePeriodType: timePeriod.type,
-      swapType: 'assignment'
+      swapType
     });
 
     if (!result.success) {

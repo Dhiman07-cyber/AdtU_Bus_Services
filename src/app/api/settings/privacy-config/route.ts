@@ -1,96 +1,100 @@
-import { headers } from 'next/headers';
+import { NextRequest, NextResponse } from 'next/server';
+import { adminAuth, adminDb } from '@/lib/firebase-admin';
+import { getSystemConfig } from '@/lib/system-config-service';
 import fs from 'fs';
 import path from 'path';
 
-// Get the path to the config file
-const configPath = path.join(process.cwd(), 'src', 'config', 'privacy_config.json');
+const CONFIG_FILE_PATH = path.join(process.cwd(), 'src', 'config', 'privacy_config.json');
+const COLLECTION_NAME = 'settings';
+const DOC_ID = 'privacy';
 
-// Ensure the directory exists
-const ensureDirectoryExists = () => {
-    const dir = path.dirname(configPath);
-    if (!fs.existsSync(dir)) {
-        fs.mkdirSync(dir, { recursive: true });
-    }
-};
-
-export async function GET() {
+export async function GET(req: NextRequest) {
     try {
-        if (fs.existsSync(configPath)) {
-            let fileContent = fs.readFileSync(configPath, 'utf-8');
+        let config;
+        let source;
 
-            // Inject App Name from system_config.json
-            try {
-                const systemConfigPath = path.join(process.cwd(), 'src', 'config', 'system_config.json');
-                if (fs.existsSync(systemConfigPath)) {
-                    const systemConfig = JSON.parse(fs.readFileSync(systemConfigPath, 'utf-8'));
-                    if (systemConfig.appName) {
-                        fileContent = fileContent.replace(/AdtU Bus Services/g, systemConfig.appName);
-                    }
-                }
-            } catch (e) {
-                console.error('Error injecting app name into privacy config:', e);
-            }
-
-            return new Response(JSON.stringify({ success: true, config: JSON.parse(fileContent) }), {
-                headers: { 'Content-Type': 'application/json' },
-            });
-        } else {
-            // Return default/empty structure if file doesn't exist
-            return new Response(JSON.stringify({
-                success: true,
-                config: {
-                    title: "Privacy Policy",
-                    lastUpdated: new Date().toISOString().split('T')[0],
-                    sections: []
-                }
-            }), {
-                headers: { 'Content-Type': 'application/json' },
-            });
+        // 1. Try Firestore
+        const doc = await adminDb.collection(COLLECTION_NAME).doc(DOC_ID).get();
+        if (doc.exists) {
+            config = doc.data();
+            source = 'firestore';
         }
+
+        // 2. Fallback to Local JSON
+        if (!config && fs.existsSync(CONFIG_FILE_PATH)) {
+            const configData = fs.readFileSync(CONFIG_FILE_PATH, 'utf-8');
+            config = JSON.parse(configData);
+            source = 'json-file-fallback';
+        }
+
+        if (!config) {
+            config = {
+                title: "Privacy Policy",
+                lastUpdated: new Date().toISOString().split('T')[0],
+                sections: []
+            };
+            source = 'default';
+        }
+
+        // 3. Inject App Name dynamically
+        try {
+            const systemConfig = await getSystemConfig();
+            const appName = systemConfig?.appName || "AdtU Bus Services";
+            if (config && typeof config === 'object') {
+                let configStr = JSON.stringify(config);
+                configStr = configStr.replace(/AdtU Bus Services/g, appName);
+                config = JSON.parse(configStr);
+            }
+        } catch (e) {
+            console.error('Error injecting app name into privacy config:', e);
+        }
+
+        return NextResponse.json({
+            success: true,
+            config,
+            source
+        });
+
     } catch (error: any) {
         console.error('Error reading privacy config:', error);
-        return new Response(JSON.stringify({ success: false, error: 'Failed to read configuration' }), {
-            status: 500,
-            headers: { 'Content-Type': 'application/json' },
-        });
+        return NextResponse.json({ success: false, error: 'Failed to read configuration' }, { status: 500 });
     }
 }
 
-export async function POST(request: Request) {
+export async function POST(req: NextRequest) {
     try {
-        const authHeader = (await headers()).get('authorization');
-        if (!authHeader || !authHeader.startsWith('Bearer ')) {
-            return new Response(JSON.stringify({ success: false, error: 'Unauthorized' }), {
-                status: 401,
-                headers: { 'Content-Type': 'application/json' },
-            });
+        const authHeader = req.headers.get('authorization');
+        if (!authHeader?.startsWith('Bearer ')) {
+            return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
         }
 
-        const body = await request.json();
+        const token = authHeader.split('Bearer ')[1];
+        const decodedToken = await adminAuth.verifyIdToken(token);
+
+        // Ensure admin (optional strictly, but good practice)
+        // const userDoc = await adminAuth.getUser(decodedToken.uid);
+        // if (userDoc.customClaims?.role !== 'admin') ...
+
+        const body = await req.json();
         const { config } = body;
 
         if (!config) {
-            return new Response(JSON.stringify({ success: false, error: 'Invalid configuration data' }), {
-                status: 400,
-                headers: { 'Content-Type': 'application/json' },
-            });
+            return NextResponse.json({ success: false, error: 'Invalid configuration data' }, { status: 400 });
         }
 
-        ensureDirectoryExists();
-
-        // Update lastUpdated date automatically
+        // Update lastUpdated
         config.lastUpdated = new Date().toISOString().split('T')[0];
+        config.updatedBy = decodedToken.uid;
 
-        fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf-8');
+        // Save to Firestore
+        await adminDb.collection(COLLECTION_NAME).doc(DOC_ID).set(config);
 
-        return new Response(JSON.stringify({ success: true, message: 'Configuration saved successfully', config }), {
-            headers: { 'Content-Type': 'application/json' },
-        });
+        console.log(`[Privacy-Config] Updated by ${decodedToken.email} in Firestore`);
+
+        return NextResponse.json({ success: true, message: 'Configuration saved successfully', config });
+
     } catch (error: any) {
         console.error('Error saving privacy config:', error);
-        return new Response(JSON.stringify({ success: false, error: 'Failed to save configuration' }), {
-            status: 500,
-            headers: { 'Content-Type': 'application/json' },
-        });
+        return NextResponse.json({ success: false, error: 'Failed to save configuration' }, { status: 500 });
     }
 }

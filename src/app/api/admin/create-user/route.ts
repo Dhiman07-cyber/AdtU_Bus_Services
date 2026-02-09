@@ -13,41 +13,11 @@ import {
   AdminEmailRecipient
 } from '@/lib/services/admin-email.service';
 import { generateReceiptPdf } from '@/lib/services/receipt.service';
-import path from 'path';
-import fs from 'fs';
 import { createUpdatedByEntry } from '@/lib/utils/updatedBy';
+import { getSystemConfig } from '@/lib/system-config-service';
+import { getDeadlineConfig } from '@/lib/deadline-config-service';
 
-// Helper function to read bus fee from system_config.json
-function getBusFeeFromConfig(): number {
-  const configPath = path.join(process.cwd(), 'src', 'config', 'system_config.json');
-  let busFeeAmount = 5000; // Default fallback
-
-  if (fs.existsSync(configPath)) {
-    try {
-      const fileContent = fs.readFileSync(configPath, 'utf-8');
-      const config = JSON.parse(fileContent);
-      busFeeAmount = config?.busFee?.amount || 5000;
-      console.log('📋 Bus fee loaded from system_config.json:', busFeeAmount);
-    } catch (e) {
-      console.error('Error reading system_config.json for bus fee:', e);
-    }
-  } else {
-    // Fallback to bus_fee.json for backward compatibility
-    const fallbackPath = path.join(process.cwd(), 'src', 'config', 'bus_fee.json');
-    if (fs.existsSync(fallbackPath)) {
-      try {
-        const fileContent = fs.readFileSync(fallbackPath, 'utf-8');
-        const busFeeData = JSON.parse(fileContent);
-        busFeeAmount = busFeeData.amount || 5000;
-        console.log('📋 Bus fee loaded from bus_fee.json (fallback):', busFeeAmount);
-      } catch (e) {
-        console.error('Error reading bus_fee.json:', e);
-      }
-    }
-  }
-
-  return busFeeAmount;
-}
+// Removed getBusFeeFromConfig helper as we now use Firestore service
 
 // Helper function to get route name from routeId
 async function getRouteName(routeId: string): Promise<string> {
@@ -269,14 +239,24 @@ export async function POST(request: Request) {
       let finalValidUntil = validUntil;
       let finalSessionEndYear = sessionEndYear;
 
+      // ✅ Fetch Deadline Configuration Dynamically
+      const deadlineConfig = await getDeadlineConfig();
+      const anchorMonth = deadlineConfig.academicYear.anchorMonth;
+      const anchorDay = deadlineConfig.academicYear.anchorDay;
+
       if (!finalValidUntil) {
-        const { newValidUntil } = calculateRenewalDate(null, finalDuration);
+        // Use dynamic anchor from Firestore config
+        const { newValidUntil } = calculateRenewalDate(
+          null,
+          finalDuration,
+          deadlineConfig
+        );
         finalValidUntil = newValidUntil;
         finalSessionEndYear = new Date(finalValidUntil).getFullYear();
       }
 
-      // Compute block dates from finalValidUntil
-      const blockDates = computeBlockDatesFromValidUntil(finalValidUntil);
+      // Compute block dates from finalValidUntil using dynamic config
+      const blockDates = computeBlockDatesFromValidUntil(finalValidUntil, deadlineConfig);
 
       // Create STUDENTS collection document
       const studentDoc: any = {
@@ -322,8 +302,9 @@ export async function POST(request: Request) {
       };
 
       // Create Payment Record logic
-      // 1. Read bus fee from system_config.json
-      const busFeeAmount = getBusFeeFromConfig();
+      // 1. Read bus fee from system_config (Firestore)
+      const systemConfig = await getSystemConfig();
+      const busFeeAmount = systemConfig?.busFee?.amount || 5000;
 
       const totalAmount = busFeeAmount * finalDuration;
 
@@ -490,7 +471,7 @@ export async function POST(request: Request) {
         driverId: driverId || employeeId || '',
         address: address || '',
         profilePhotoUrl: profilePhotoUrl || '',
-        profilePhotoUrl: profilePhotoUrl || '',
+
         assignedRouteId: assignedRouteId || routeId || null,
         assignedBusId: assignedBusId || busId || null,
         shift: shift || 'Morning & Evening', // Default to Both Shifts if not provided

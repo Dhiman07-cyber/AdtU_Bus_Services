@@ -2,29 +2,21 @@ import { NextRequest, NextResponse } from 'next/server';
 import { adminAuth, adminDb } from '@/lib/firebase-admin';
 import { NotificationService } from '@/lib/notifications/NotificationService';
 import { NotificationTarget } from '@/lib/notifications/types';
-import fs from 'fs';
-import path from 'path';
+import { getSystemConfig, updateSystemConfig } from '@/lib/system-config-service';
 
-const CONFIG_FILE_PATH = path.join(process.cwd(), 'src', 'config', 'system_config.json');
-
-// GET: Retrieve system config from JSON file
+// GET: Retrieve system config from Firestore
 export async function GET(req: NextRequest) {
     try {
-        if (fs.existsSync(CONFIG_FILE_PATH)) {
-            const fileContent = fs.readFileSync(CONFIG_FILE_PATH, 'utf-8');
-            const config = JSON.parse(fileContent);
-            return NextResponse.json({ config });
-        }
-
-        return NextResponse.json(
-            { message: 'Configuration file not found' },
-            { status: 404 }
-        );
-    } catch (error) {
+        const config = await getSystemConfig();
+        return NextResponse.json({ config });
+    } catch (error: any) {
         console.error('Error fetching system config:', error);
         return NextResponse.json(
-            { message: 'Failed to fetch system configuration' },
-            { status: 500 }
+            { 
+                message: 'Unstable network detected, please try again later',
+                error: error.message 
+            },
+            { status: 503 }
         );
     }
 }
@@ -62,18 +54,10 @@ export async function POST(req: NextRequest) {
             );
         }
 
-        // Read current config
-        let oldConfig: any = {};
-        if (fs.existsSync(CONFIG_FILE_PATH)) {
-            const fileContent = fs.readFileSync(CONFIG_FILE_PATH, 'utf-8');
-            try {
-                oldConfig = JSON.parse(fileContent);
-            } catch (e) {
-                console.warn('Could not parse existing config file');
-            }
-        }
+        // Read current config to compare changes
+        const oldConfig = await getSystemConfig();
 
-        // Prepare updated config
+        // Prepare updated config object
         const updatedConfig = {
             ...oldConfig,
             ...config,
@@ -126,11 +110,12 @@ export async function POST(req: NextRequest) {
             }
         }
 
-        fs.writeFileSync(CONFIG_FILE_PATH, JSON.stringify(updatedConfig, null, 2), 'utf-8');
+        // Sync with Firestore via service (handles cleaning and history limiting)
+        const savedConfig = await updateSystemConfig(updatedConfig, uid);
 
         return NextResponse.json({
             message: 'System configuration updated successfully',
-            config: updatedConfig
+            config: savedConfig
         });
 
     } catch (error) {

@@ -1,45 +1,30 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { adminAuth, adminDb } from '@/lib/firebase-admin';
-import fs from 'fs';
-import path from 'path';
-
-const CONFIG_FILE_PATH = path.join(process.cwd(), 'src', 'config', 'deadline-config.json');
+import { getDeadlineConfig, updateDeadlineConfig } from '@/lib/deadline-config-service';
+import { getSystemConfig, updateSystemConfig } from '@/lib/system-config-service';
+import { DeadlineConfig } from '@/lib/types/deadline-config';
 
 /**
- * GET: Retrieve deadline config from JSON file
- * 
- * The JSON file is the single source of truth for renewal policy.
- * No Firestore storage for config data.
+ * GET: Retrieve deadline config from Firestore
  */
 export async function GET(req: NextRequest) {
     try {
-        // Check if JSON file exists
-        if (fs.existsSync(CONFIG_FILE_PATH)) {
-            const fileContent = fs.readFileSync(CONFIG_FILE_PATH, 'utf-8');
-            const deadlineConfig = JSON.parse(fileContent);
-            return NextResponse.json({ config: deadlineConfig });
-        }
-
-        return NextResponse.json(
-            { message: 'Configuration file not found' },
-            { status: 404 }
-        );
-    } catch (error) {
+        const config = await getDeadlineConfig();
+        return NextResponse.json({ config });
+    } catch (error: any) {
         console.error('Error fetching deadline config:', error);
         return NextResponse.json(
-            { message: 'Failed to fetch deadline configuration' },
-            { status: 500 }
+            { 
+                message: 'Unstable network detected, please try again later',
+                error: error.message 
+            },
+            { status: 503 }
         );
     }
 }
 
 /**
- * POST: Update deadline config (Admin only)
- * 
- * IMPORTANT: This writes ONLY to the JSON file.
- * - No Firestore writes for config or audit logs
- * - Month/day values only (year is stripped if provided)
- * - Version and lastUpdated are metadata only
+ * POST: Update deadline config in Firestore and sync dates to system-config
  */
 export async function POST(req: NextRequest) {
     try {
@@ -56,7 +41,6 @@ export async function POST(req: NextRequest) {
         const uid = decodedToken.uid;
 
         // Check if user is admin
-        // Check if user is admin
         try {
             const userDoc = await adminDb.collection('users').doc(uid).get();
             if (!userDoc.exists || userDoc.data()?.role !== 'admin') {
@@ -66,14 +50,10 @@ export async function POST(req: NextRequest) {
                 );
             }
         } catch (error: any) {
-            // Check for Resource Exhausted error (gRPC code 8)
             if (error.code === 8 || error.message?.includes('RESOURCE_EXHAUSTED')) {
                 console.warn('⚠️ Firestore quota exceeded. Bypassing admin role check for verified user.');
-                console.warn(`⚠️ User attempting action: ${uid}`);
-                // Proceed, assuming the user is authorized since they have a valid token
-                // and we are likely in a situation where we can't verify the role.
             } else {
-                throw error; // Re-throw other errors
+                throw error;
             }
         }
 
@@ -86,7 +66,7 @@ export async function POST(req: NextRequest) {
             );
         }
 
-        // Validate date fields (must be valid month/day combinations)
+        // Validate date fields
         const validationError = validateDateConfig(config);
         if (validationError) {
             return NextResponse.json(
@@ -95,52 +75,105 @@ export async function POST(req: NextRequest) {
             );
         }
 
-        // Read current config for comparison (console logging only)
-        let oldConfig = null;
-        if (fs.existsSync(CONFIG_FILE_PATH)) {
-            const fileContent = fs.readFileSync(CONFIG_FILE_PATH, 'utf-8');
-            try {
-                oldConfig = JSON.parse(fileContent);
-            } catch (e) {
-                console.warn('Could not parse existing config file, treating as fresh start');
-                oldConfig = null;
-            }
-        }
+        // 1. Update Deadline Config in Firestore
+        await updateDeadlineConfig(config, uid);
 
-        // Bump version number
-        const oldVersion = oldConfig?.version || '1.0.0';
-        const newVersion = bumpVersion(oldVersion);
-
-        // Build updated config with metadata
-        const updatedConfig = {
-            ...config,
-            version: newVersion,
-            lastUpdated: new Date().toISOString().split('T')[0],
-            lastUpdatedBy: uid
-        };
-
-        // Write to JSON file (single source of truth)
-        fs.writeFileSync(CONFIG_FILE_PATH, JSON.stringify(updatedConfig, null, 2), 'utf-8');
-
-        // Console logging only (no Firestore audit)
-        const changesSummary = computeChangesSummary(oldConfig, updatedConfig);
-        console.log(`✅ Deadline config updated by admin ${uid}`);
-        console.log(`📝 Version: ${oldVersion} → ${newVersion}`);
-        console.log(`📝 Changes: ${changesSummary.join(', ')}`);
+        // 2. Sync concrete dates to System Config
+        // This ensures that when rules change (e.g. Soft Block moved to July 15),
+        // the concrete dates in system-config (e.g. 2026-07-15) are updated for the current cycle.
+        await syncSystemConfigDates(config as DeadlineConfig, uid);
 
         return NextResponse.json({
-            message: 'Deadline configuration updated successfully.',
-            config: updatedConfig,
-            changesSummary,
-            previousVersion: oldVersion,
-            newVersion
+            message: 'Deadline configuration updated and synced successfully.',
+            config
         });
+
     } catch (error: any) {
         console.error('Error updating deadline config:', error);
         return NextResponse.json(
             { message: `Failed to update deadline configuration: ${error.message || 'Unknown error'}` },
             { status: 500 }
         );
+    }
+}
+
+/**
+ * Syncs the abstract rules from DeadlineConfig to concrete dates in SystemConfig
+ */
+async function syncSystemConfigDates(deadlineConfig: DeadlineConfig, uid: string) {
+    try {
+        const systemConfig = await getSystemConfig();
+        if (!systemConfig) return;
+
+        const updates: any = {};
+        const now = new Date();
+        const currentYear = now.getFullYear();
+
+        // Helper to construct date string (YYYY-MM-DD) preserving year from existing config if possible
+        const constructDate = (existingDateStr: string | undefined, month: number, day: number) => {
+            let year = currentYear;
+            if (existingDateStr) {
+                const date = new Date(existingDateStr);
+                if (!isNaN(date.getTime())) {
+                    year = date.getFullYear();
+                }
+            }
+            // Create date object (Month is 0-indexed in JS Date, but config sends 0-indexed month)
+            const newDate = new Date(year, month, day);
+            // Adjust to local date string YYYY-MM-DD (simplified)
+            // We use the year/month/day directly to avoid timezone shifts
+            const m = (month + 1).toString().padStart(2, '0');
+            const d = day.toString().padStart(2, '0');
+            return `${year}-${m}-${d}`;
+        };
+
+        // 1. Academic Year End
+        updates.academicYearEnd = constructDate(
+            systemConfig.academicYearEnd,
+            deadlineConfig.academicYear.anchorMonth,
+            deadlineConfig.academicYear.anchorDay
+        );
+
+        // 2. Renewal Reminder
+        updates.renewalReminder = constructDate(
+            systemConfig.renewalReminder,
+            deadlineConfig.renewalNotification.month,
+            deadlineConfig.renewalNotification.day
+        );
+
+        // 3. Renewal Deadline
+        updates.renewalDeadline = constructDate(
+            systemConfig.renewalDeadline,
+            deadlineConfig.renewalDeadline.month,
+            deadlineConfig.renewalDeadline.day
+        );
+
+        // 4. Soft Block
+        updates.softBlock = constructDate(
+            systemConfig.softBlock,
+            deadlineConfig.softBlock.month,
+            deadlineConfig.softBlock.day
+        );
+
+        // 5. Hard Block (mapped to hardDelete)
+        updates.hardBlock = constructDate(
+            systemConfig.hardBlock,
+            deadlineConfig.hardDelete.month,
+            deadlineConfig.hardDelete.day
+        );
+
+        // Merge updates into system config
+        const newSystemConfig = {
+            ...systemConfig,
+            ...updates
+        };
+
+        await updateSystemConfig(newSystemConfig, uid);
+        console.log('🔄 Synced System Config dates with new Deadline rules');
+
+    } catch (error) {
+        console.error('Error syncing system config dates:', error);
+        // Don't fail the request if sync fails, just log it
     }
 }
 
@@ -165,12 +198,10 @@ function validateDateConfig(config: any): string | null {
 
         if (month === undefined || day === undefined) continue;
 
-        // Validate month range (0-indexed: 0-11)
         if (month < 0 || month > 11) {
             return `Invalid month in ${field}: ${month}. Must be 0-11.`;
         }
 
-        // Validate day range using leap year reference
         const maxDay = getMaxDayForMonth(month);
         if (day < 1 || day > maxDay) {
             const monthNames = ['January', 'February', 'March', 'April', 'May', 'June',
@@ -182,83 +213,7 @@ function validateDateConfig(config: any): string | null {
     return null;
 }
 
-/**
- * Get maximum valid day for a month (using leap year reference)
- */
 function getMaxDayForMonth(month: number): number {
-    // Use 2024 (leap year) to allow Feb 29
     const date = new Date(2024, month + 1, 0);
     return date.getDate();
-}
-
-/**
- * Bump version number (patch increment)
- */
-function bumpVersion(version: string): string {
-    const parts = version.split('.').map(Number);
-    if (parts.length !== 3 || parts.some(isNaN)) {
-        return '1.0.1';
-    }
-    parts[2] += 1; // Increment patch version
-    return parts.join('.');
-}
-
-/**
- * Compute a summary of what changed between configs (for console logging)
- */
-function computeChangesSummary(oldConfig: any, newConfig: any): string[] {
-    const changes: string[] = [];
-
-    if (!oldConfig) {
-        changes.push('Initial configuration created');
-        return changes;
-    }
-
-    const monthNames = ['January', 'February', 'March', 'April', 'May', 'June',
-        'July', 'August', 'September', 'October', 'November', 'December'];
-
-    // Check academic year anchor
-    if (oldConfig.academicYear?.anchorMonth !== newConfig.academicYear?.anchorMonth ||
-        oldConfig.academicYear?.anchorDay !== newConfig.academicYear?.anchorDay) {
-        const month = monthNames[newConfig.academicYear?.anchorMonth] || 'Unknown';
-        changes.push(`Academic year anchor → ${month} ${newConfig.academicYear?.anchorDay}`);
-    }
-
-    // Check renewal deadline
-    if (oldConfig.renewalDeadline?.month !== newConfig.renewalDeadline?.month ||
-        oldConfig.renewalDeadline?.day !== newConfig.renewalDeadline?.day) {
-        const month = monthNames[newConfig.renewalDeadline?.month] || 'Unknown';
-        changes.push(`Renewal deadline → ${month} ${newConfig.renewalDeadline?.day}`);
-    }
-
-    // Check soft block
-    if (oldConfig.softBlock?.month !== newConfig.softBlock?.month ||
-        oldConfig.softBlock?.day !== newConfig.softBlock?.day) {
-        const month = monthNames[newConfig.softBlock?.month] || 'Unknown';
-        changes.push(`Soft block → ${month} ${newConfig.softBlock?.day}`);
-    }
-
-    // Check hard delete
-    if (oldConfig.hardDelete?.month !== newConfig.hardDelete?.month ||
-        oldConfig.hardDelete?.day !== newConfig.hardDelete?.day) {
-        const month = monthNames[newConfig.hardDelete?.month] || 'Unknown';
-        changes.push(`Hard delete → ${month} ${newConfig.hardDelete?.day}`);
-    }
-
-    // Check payment export
-    if (oldConfig.paymentExportStartYear !== newConfig.paymentExportStartYear ||
-        oldConfig.paymentExportInterval !== newConfig.paymentExportInterval) {
-        changes.push(`Payment Export → Start: ${newConfig.paymentExportStartYear}, Interval: ${newConfig.paymentExportInterval}`);
-    }
-
-    // Check urgent warning threshold
-    if (oldConfig.urgentWarningThreshold?.days !== newConfig.urgentWarningThreshold?.days) {
-        changes.push(`Urgent warning threshold → ${newConfig.urgentWarningThreshold?.days} days`);
-    }
-
-    if (changes.length === 0) {
-        changes.push('Minor changes (display text, descriptions, etc.)');
-    }
-
-    return changes;
 }

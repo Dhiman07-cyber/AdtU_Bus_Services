@@ -18,7 +18,8 @@ import { PaymentTransactionService } from '@/lib/payment/payment-transaction.ser
 import { calculateValidUntilDate } from '@/lib/utils/date-utils';
 import { createOnlinePayment } from '@/lib/payment/payment.service';
 import { checkRateLimit, RateLimits, createRateLimitId } from '@/lib/security/rate-limiter';
-import { computeBlockDatesForStudent } from '@/lib/utils/deadline-computation';
+import { computeBlockDatesFromValidUntil } from '@/lib/utils/deadline-computation';
+import { getDeadlineConfig } from '@/lib/deadline-config-service';
 
 export async function POST(request: NextRequest) {
   console.log('🎯 VERIFY-PAYMENT ENDPOINT HIT!');
@@ -161,6 +162,9 @@ export async function POST(request: NextRequest) {
 
     console.log('🔍 Payment type:', { isNewRegistration, isRenewal, trustedPurpose });
 
+    // Fetch deadline config once for all subsequent calculations
+    const deadlineConfig = await getDeadlineConfig();
+
     // Process payment if we have a trusted userId
     if (trustedUserId && (isRenewal || isNewRegistration)) {
       console.log('✅ Processing payment for user:', trustedUserId);
@@ -226,7 +230,7 @@ export async function POST(request: NextRequest) {
             }
 
             // Calculate new validity date
-            const newValidUntil = calculateValidUntilDate(baseYear, trustedDurationYears);
+            const newValidUntil = calculateValidUntilDate(baseYear, trustedDurationYears, deadlineConfig);
             const newSessionEndYear = newValidUntil.getFullYear();
             const totalDurationYears = existingDurationYears + trustedDurationYears;
 
@@ -237,8 +241,8 @@ export async function POST(request: NextRequest) {
               paymentAmount: trustedAmount
             });
 
-            // Compute block dates for the new sessionEndYear
-            const blockDates = computeBlockDatesForStudent(newSessionEndYear);
+            // Compute block dates for the new validUntil
+            const blockDates = computeBlockDatesFromValidUntil(newValidUntil, deadlineConfig);
 
             transaction.update(studentRef, {
               validUntil: newValidUntil,

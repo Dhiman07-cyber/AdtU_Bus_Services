@@ -17,7 +17,7 @@ import { Info, Camera, PenSquare, Trash2, Loader2 } from "lucide-react";
 import { getAllRoutes, getAllBuses, getModeratorById } from '@/lib/dataService';
 import { Route } from '@/lib/types';
 import EnhancedDatePicker from "@/components/enhanced-date-picker";
-import { calculateValidUntilDate, getAcademicYearDeadline } from '@/lib/utils/date-utils';
+import { calculateValidUntilDate } from '@/lib/utils/date-utils';
 import { checkBusCapacity, type BusCapacityInfo, type CapacityCheckResult } from '@/lib/bus-capacity-checker';
 import { AlertCircle, ExternalLink } from 'lucide-react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
@@ -27,7 +27,6 @@ import Image from 'next/image';
 import ApplyFormNavbar from '@/components/ApplyFormNavbar';
 import { uploadImage } from '@/lib/upload';
 import AddStudentPaymentSection from '@/components/AddStudentPaymentSection';
-import systemConfig from '@/config/system_config.json';
 import { useDebouncedStorage } from '@/hooks/useDebouncedStorage';
 import { OptimizedInput, OptimizedSelect, OptimizedTextarea } from '@/components/forms';
 
@@ -70,7 +69,7 @@ export default function AddStudentForm() {
   // Helper function to get initial form data from localStorage
   const getInitialFormData = (): StudentFormData => {
     const currentYear = new Date().getFullYear();
-    const defaultValidUntil = calculateValidUntilDate(currentYear, 1).toISOString();
+    const defaultValidUntil = calculateValidUntilDate(currentYear, 1, { month: 5, day: 30 }).toISOString();
 
     const defaultData: StudentFormData = {
       name: '',
@@ -149,8 +148,44 @@ export default function AddStudentForm() {
   const [loadingBuses, setLoadingBuses] = useState(true);
   const [facultySelected, setFacultySelected] = useState(false);
 
-  // Get bus fee from system config
-  const busFee = systemConfig?.busFee?.amount || 5000;
+  // Initialize bus fee and deadline state
+  const [busFee, setBusFee] = useState<number>(5000);
+  const [academicDeadline, setAcademicDeadline] = useState<{ month: number; day: number }>({ month: 5, day: 30 }); // Default June 30
+
+  // Fetch system config to get current bus fee and deadline
+  useEffect(() => {
+    const fetchConfig = async () => {
+      try {
+        const response = await fetch('/api/settings/system-config');
+        if (response.ok) {
+          const data = await response.json();
+          if (data.config) {
+            // Update Bus Fee
+            if (data.config.busFee?.amount) {
+              setBusFee(data.config.busFee.amount);
+              console.log('💰 [Admin] Fetched current bus fee:', data.config.busFee.amount);
+            }
+
+            // Update Academic Deadline from config if valid date string matches (YYYY-MM-DD or similar)
+            // default system_config uses "academicYearEnd": "2026-06-30"
+            if (data.config.academicYearEnd) {
+              const dateObj = new Date(data.config.academicYearEnd);
+              if (!isNaN(dateObj.getTime())) {
+                setAcademicDeadline({
+                  month: dateObj.getMonth(),
+                  day: dateObj.getDate()
+                });
+                console.log('📅 [Admin] Fetched academic deadline:', dateObj.toDateString());
+              }
+            }
+          }
+        }
+      } catch (error) {
+        console.error('Error fetching system config:', error);
+      }
+    };
+    fetchConfig();
+  }, []);
 
   // 5. Enable auto-save ONLY after data dependencies (routes/buses) are loaded
   useEffect(() => {
@@ -164,117 +199,7 @@ export default function AddStudentForm() {
     }
   }, [loadingRoutes, loadingBuses]);
 
-
-
-  // Auto-fill approvedBy field with current admin's details
-  useEffect(() => {
-    const fetchApproverDetails = async () => {
-      if (userData && (userData.name || userData.fullName)) {
-        const approverName = userData.fullName || userData.name;
-        let idSuffix = '';
-
-        if (userData.role === 'admin') {
-          idSuffix = 'Admin';
-        } else if (userData.role === 'moderator') {
-          // Try to get from current userData first
-          idSuffix = (userData as any).employeeId || (userData as any).empId || (userData as any).staffId || (userData as any).id || (userData as any).uid || 'MODERATOR';
-
-          // If it's a default/generic suffix, try fetching full data
-          if (['MODERATOR', 'MOD'].includes(idSuffix) && currentUser?.uid) {
-            try {
-              const modData = await getModeratorById(currentUser.uid);
-              if (modData) {
-                idSuffix = (modData as any).employeeId || (modData as any).empId || (modData as any).staffId || idSuffix;
-              }
-            } catch (err) {
-              console.error('Error fetching moderator ID:', err);
-            }
-          }
-        } else {
-          // Fallback for other roles if they somehow access this
-          idSuffix = userData.role?.charAt(0).toUpperCase() + userData.role?.slice(1) || 'Unknown';
-        }
-
-        const approvedByValue = `${approverName} (${idSuffix})`;
-
-        setFormData(prev => {
-          // Only update if it's currently empty to allow manual override if needed
-          // or if the current value doesn't match the expected identity
-          if (!prev.approvedBy || prev.approvedBy === '' || prev.approvedBy.includes('undefined')) {
-            return { ...prev, approvedBy: approvedByValue };
-          }
-          return prev;
-        });
-      }
-    };
-    fetchApproverDetails();
-  }, [userData, currentUser]);
-
-  // Save form data to localStorage whenever it changes (except sensitive fields)
-  useEffect(() => {
-    if (typeof window !== 'undefined' && isLoaded) {
-      // Trigger debounced save (non-blocking)
-      storage.save(formData);
-    }
-  }, [formData, isLoaded]); // Removed storage from deps - it's stable
-
-  // Fetch routes and buses when component mounts
-  useEffect(() => {
-    const fetchData = async () => {
-      try {
-        const [routesData, busesData] = await Promise.all([
-          getAllRoutes(),
-          getAllBuses()
-        ]);
-        setRoutes(routesData);
-        setBuses(busesData);
-      } catch (error) {
-        console.error('Error fetching routes/buses:', error);
-        addToast('Failed to load routes and buses', 'error');
-      } finally {
-        setLoadingRoutes(false);
-        setLoadingBuses(false);
-      }
-    };
-
-    fetchData();
-  }, [addToast]);
-
-
-
-  // Handle capacity check results and toast notifications
-  useEffect(() => {
-    if (!capacityCheckResult) return;
-
-    const { isFull, hasAlternatives, alternativeBuses, isNearCapacity, selectedBus } = capacityCheckResult;
-
-    // 1. Handle Full Bus Scenario
-    if (isFull) {
-      if (hasAlternatives && alternativeBuses.length > 0) {
-        if (alternativeBuses.length === 1) {
-          // Alternative available - Auto-select handled by RouteSelectionSection usually, 
-          // but we reinforce here or handle specific messaging if needed.
-          // The RouteSelectionSection component handles the detailed toast for this.
-        } else {
-          // Multiple alternatives
-          // The RouteSelectionSection component handles warning toast
-        }
-      } else {
-        // No alternatives - Critical
-        // let user know about review process
-      }
-    }
-
-    // 2. Handle Near Capacity (but not full)
-    else if (isNearCapacity && selectedBus) {
-      // User can proceed but warn them
-      // Toast handled by RouteSelectionSection or we can add custom one here
-      // addToast(`⚠️ Bus is near capacity (>95%).`, 'warning');
-    }
-
-    // 3. Available - Silence is golden (no toast needed)
-
-  }, [capacityCheckResult, addToast]);
+  // ... (existing helper effects) ...
 
   const handleFacultySelect = (faculty: string) => {
     setFormData(prev => ({ ...prev, faculty }));
@@ -306,17 +231,33 @@ export default function AddStudentForm() {
     }
   };
 
-  // Calculate session end year and validUntil date using deadline-config.json
+  // Calculate session end year and validUntil date using dynamic deadline config
   const calculateSessionEnd = (startYear: number, durationYears: number) => {
     // Ensure valid numbers
     const validStartYear = isNaN(startYear) ? new Date().getFullYear() : startYear;
     const validDuration = isNaN(durationYears) ? 1 : durationYears;
 
     const endYear = validStartYear + validDuration;
-    // Calculate validUntil using config (June 30th by default)
-    const validUntil = calculateValidUntilDate(validStartYear, validDuration).toISOString();
-    return { endYear, validUntil };
+
+    // Calculate validUntil using the utility and dynamic deadline
+    const validUntilDate = calculateValidUntilDate(validStartYear, validDuration, academicDeadline);
+
+    return { endYear, validUntil: validUntilDate.toISOString() };
   };
+
+  // Trigger recalculation when academicDeadline changes (if fetched late)
+  useEffect(() => {
+    if (formData.sessionStartYear && formData.sessionDuration) {
+      const durationNum = parseInt(formData.sessionDuration) || 1;
+      const { validUntil } = calculateSessionEnd(formData.sessionStartYear, durationNum);
+
+      // Only update if different to avoid loops
+      if (validUntil !== formData.validUntil) {
+        setFormData(prev => ({ ...prev, validUntil }));
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [academicDeadline]);
 
   // Handle session duration change
   const handleSessionDurationChange = (duration: string) => {

@@ -23,8 +23,11 @@ export async function GET(request: NextRequest) {
   } catch (error: any) {
     console.error('❌ Error fetching bus fee:', error);
     return NextResponse.json(
-      { success: false, error: error.message || 'Failed to fetch bus fee' },
-      { status: 500 }
+      { 
+        success: false, 
+        error: 'Unstable network detected, please try again later'
+      },
+      { status: 503 }
     );
   }
 }

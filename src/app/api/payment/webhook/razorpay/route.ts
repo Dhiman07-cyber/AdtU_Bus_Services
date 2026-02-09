@@ -14,6 +14,7 @@ import { PaymentTransactionService } from '@/lib/payment/payment-transaction.ser
 import { calculateValidUntilDate } from '@/lib/utils/date-utils';
 import { fetchOrderDetails } from '@/lib/payment/razorpay.service';
 import { computeBlockDatesFromValidUntil } from '@/lib/utils/deadline-computation';
+import { getDeadlineConfig } from '@/lib/deadline-config-service';
 
 export async function POST(request: NextRequest) {
   try {
@@ -81,6 +82,9 @@ export async function POST(request: NextRequest) {
       console.log('⏱️ Duration Years:', durationYears);
       console.log('💰 Amount:', amount / 100);
 
+      // Fetch dynamic deadline config
+      const deadlineConfig = await getDeadlineConfig();
+
       // Find student by enrollmentId OR userId
       let studentRef: any;
       let studentDocId: string;
@@ -116,7 +120,7 @@ export async function POST(request: NextRequest) {
       try {
         // SECURITY FIX: Atomic idempotency check inside transaction
         await adminDb.runTransaction(async (transaction: any) => {
-          // First, check and set the processed payment marker atomically
+          // ... existing code ...
           const processedPaymentRef = adminDb.collection('processed_payments').doc(paymentId);
           const processedPaymentDoc = await transaction.get(processedPaymentRef);
 
@@ -186,14 +190,14 @@ export async function POST(request: NextRequest) {
             console.log('ℹ️ No existing validity - starting fresh from current year:', baseYear);
           }
 
-          // Calculate new validity using config (June 30 deadline)
-          newValidUntil = calculateValidUntilDate(baseYear, durationYears);
+          // Calculate new validity using dynamic config
+          newValidUntil = calculateValidUntilDate(baseYear, durationYears, deadlineConfig);
           newSessionStartYear = existingSessionStartYear;
           newSessionEndYear = baseYear + durationYears;
           totalDurationYears = existingDurationYears + durationYears;
 
           // Compute block dates from the new validUntil
-          const blockDates = computeBlockDatesFromValidUntil(newValidUntil);
+          const blockDates = computeBlockDatesFromValidUntil(newValidUntil, deadlineConfig);
 
           console.log('\n✨ NEW CALCULATED VALUES:');
           console.log('New validUntil:', newValidUntil.toISOString());

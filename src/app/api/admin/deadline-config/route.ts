@@ -1,13 +1,12 @@
 /**
  * Get Deadline Configuration API
  * 
- * Returns the current deadline configuration from deadline-config.json
+ * Returns the current deadline configuration from Firestore
  */
 
 import { NextRequest, NextResponse } from 'next/server';
 import { adminAuth, adminDb } from '@/lib/firebase-admin';
-import fs from 'fs';
-import path from 'path';
+import { getDeadlineConfig } from '@/lib/deadline-config-service';
 
 export async function GET(request: NextRequest) {
     try {
@@ -28,18 +27,14 @@ export async function GET(request: NextRequest) {
                 return NextResponse.json({ error: 'Admin access required' }, { status: 403 });
             }
         } catch {
-            // Allow unauthenticated access for client-side loading (config is not sensitive)
+            // Allow unauthenticated access for client-side loading? 
+            // The original logic allowed falling back if auth failed but proceeded to load config.
+            // "Allow unauthenticated access for client-side loading (config is not sensitive)"
+            // I'll keep this behavior but it's risky if config contained sensitive info. Deadline config is public logic.
         }
 
-        // Load config
-        const configPath = path.join(process.cwd(), 'src', 'config', 'deadline-config.json');
-
-        if (!fs.existsSync(configPath)) {
-            return NextResponse.json({ error: 'Config file not found' }, { status: 404 });
-        }
-
-        const configContent = fs.readFileSync(configPath, 'utf8');
-        const config = JSON.parse(configContent);
+        // Load config from Firestore
+        const config = await getDeadlineConfig();
 
         return NextResponse.json({
             success: true,

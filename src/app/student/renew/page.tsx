@@ -80,6 +80,24 @@ export default function StudentRenewalPage() {
   const [baseFee, setBaseFee] = useState<number>(0);
   const [loadingFee, setLoadingFee] = useState(true);
   const [downloadingReceiptId, setDownloadingReceiptId] = useState<string | null>(null);
+  const [deadlineConfig, setDeadlineConfig] = useState<any>(null);
+
+  // Fetch deadline config
+  useEffect(() => {
+    const fetchDeadlineConfig = async () => {
+      try {
+        const response = await fetch('/api/settings/deadline-config');
+        if (response.ok) {
+          const data = await response.json();
+          setDeadlineConfig(data.config || data);
+          console.log("📅 [Renewal Page] Fetched deadline config:", data.config || data);
+        }
+      } catch (error) {
+        console.error("Error fetching deadline config:", error);
+      }
+    };
+    fetchDeadlineConfig();
+  }, []);
 
   // Fetch buses data
   const { data: buses, refresh: refreshBuses } = usePaginatedCollection('buses', {
@@ -216,22 +234,25 @@ export default function StudentRenewalPage() {
       }
 
       // Calculate the NEW session they're paying for
-      const info = calculateSessionDates(baseYear, selectedDuration);
+      // Only calculate if deadlineConfig is loaded
+      const info = deadlineConfig ? calculateSessionDates(baseYear, selectedDuration, deadlineConfig) : null;
       const fee = baseFee * selectedDuration;
 
-      console.log('📊 Renewal Summary Calculated:');
-      console.log('- Duration:', selectedDuration, 'years');
-      console.log('- Session:', info.sessionStartYear, '-', info.sessionEndYear);
-      console.log('- Valid Until:', new Date(info.validUntil).toLocaleDateString());
-      console.log('- Fee:', fee);
+      if (info) {
+        console.log('📊 Renewal Summary Calculated:');
+        console.log('- Duration:', selectedDuration, 'years');
+        console.log('- Session:', info.sessionStartYear, '-', info.sessionEndYear);
+        console.log('- Valid Until:', new Date(info.validUntil).toLocaleDateString());
+        console.log('- Fee:', fee);
 
-      setSessionInfo({
-        ...info,
-        fee,
-        duration: selectedDuration
-      });
+        setSessionInfo({
+          ...info,
+          fee,
+          duration: selectedDuration
+        });
+      }
     }
-  }, [selectedDuration, studentData, baseFee]);
+  }, [selectedDuration, studentData, baseFee, deadlineConfig]);
 
   const handlePaymentComplete = async (paymentDetails: any) => {
     setProcessingRenewal(true);

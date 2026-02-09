@@ -16,7 +16,8 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { CheckCircle, XCircle, Clock, User, Calendar, Plus, Bus, AlertCircle, Search, Filter, UserCheck, ArrowRight, Sparkles, Zap, StopCircle, RefreshCw, ShieldCheck, Lock } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { db } from '@/lib/firebase';
-import { collection, getDocs, doc, getDoc, query, where, orderBy, onSnapshot } from 'firebase/firestore';
+import { collection, getDocs, doc, getDoc } from 'firebase/firestore';
+import { supabase } from '@/lib/supabase-client';
 import { format, addHours, addDays } from 'date-fns';
 import EnhancedDatePicker from '@/components/enhanced-date-picker';
 
@@ -137,9 +138,19 @@ function SwapRequestPageContent() {
   const [processing, setProcessing] = useState<string | null>(null);
   const [hasActiveSwap, setHasActiveSwap] = useState(false); // Track if driver has active swap
 
-  // Confirmation dialog state
   const [showEndSwapDialog, setShowEndSwapDialog] = useState(false);
   const [swapToEnd, setSwapToEnd] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    await fetchSwapRequests();
+    await fetchMyBusData();
+    setTimeout(() => {
+      setRefreshing(false);
+      addToast('Refreshed data successfully', 'success');
+    }, 800);
+  };
 
   // State for create request
   const [drivers, setDrivers] = useState<Driver[]>([]);
@@ -170,6 +181,42 @@ function SwapRequestPageContent() {
 
   // NOTE: Cache clearing removed for production - caching is now enabled
 
+  // Initial fetch function for Swap Requests (replacing Firestore onSnapshot)
+  const fetchSwapRequests = async () => {
+    if (!currentUser) return;
+
+    try {
+      const token = await currentUser.getIdToken();
+      const headers = { 'Authorization': `Bearer ${token}` };
+
+      // Fetch Incoming
+      const resIn = await fetch('/api/driver-swap/requests?type=incoming', { headers });
+      const dataIn = await resIn.json();
+      if (dataIn.success) {
+        setIncomingRequests(dataIn.requests);
+        setIncomingLoading(false);
+      }
+
+      // Fetch Outgoing
+      const resOut = await fetch('/api/driver-swap/requests?type=outgoing', { headers });
+      const dataOut = await resOut.json();
+      if (dataOut.success) {
+        setOutgoingRequests(dataOut.requests);
+        setOutgoingLoading(false);
+      }
+
+      // Check active swaps
+      const hasAcceptedIn = (dataIn.requests || []).some((r: any) => r.status === 'accepted');
+      const hasAcceptedOut = (dataOut.requests || []).some((r: any) => r.status === 'accepted');
+      setHasActiveSwap(hasAcceptedIn || hasAcceptedOut);
+
+    } catch (error) {
+      console.error("❌ Error fetching swap requests:", error);
+      setIncomingLoading(false);
+      setOutgoingLoading(false);
+    }
+  };
+
   useEffect(() => {
     // Wait for auth to finish loading before checking auth state
     if (authLoading) return;
@@ -181,125 +228,59 @@ function SwapRequestPageContent() {
 
     fetchMyBusData();
     fetchDrivers();
+    fetchSwapRequests();
 
-    // Set up real-time Firestore listeners for swap requests
-    console.log('🔄 Setting up real-time Firestore listeners for swap requests...');
+    // Set up real-time Supabase listeners
+    console.log('🔄 Setting up real-time Supabase listeners for swap requests...');
 
-    // Query for incoming requests (where current user is the target)
-    const incomingQuery = query(
-      collection(db, 'driver_swap_requests'),
-      where('toDriverUID', '==', currentUser.uid),
-      orderBy('createdAt', 'desc')
-    );
+    // Channel for Table Changes (Global/RLS dependent)
+    const dbChannel = supabase.channel('driver-swaps-db-changes')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'driver_swap_requests'
+        },
+        async (payload) => {
+          console.log('🔔 DB Real-time update received:', payload);
 
-    // Query for outgoing requests (where current user is the sender)
-    const outgoingQuery = query(
-      collection(db, 'driver_swap_requests'),
-      where('fromDriverUID', '==', currentUser.uid),
-      orderBy('createdAt', 'desc')
-    );
+          const newRecord = payload.new as any;
+          const oldRecord = payload.old as any;
+          const uid = currentUser.uid;
 
-    // Listen to incoming requests in real-time
-    const unsubscribeIncoming = onSnapshot(
-      incomingQuery,
-      (snapshot) => {
-        console.log('📥 Real-time update: Incoming requests changed');
-        const requests: SwapRequest[] = [];
+          // Check if update is relevant to current user
+          const isRelevant =
+            (newRecord && (newRecord.requester_driver_uid === uid || newRecord.candidate_driver_uid === uid)) ||
+            (oldRecord && (oldRecord.requester_driver_uid === uid || oldRecord.candidate_driver_uid === uid));
 
-        snapshot.forEach((doc) => {
-          const data = doc.data();
-          // Only show pending and accepted requests
-          if (data.status === 'pending' || data.status === 'accepted') {
-            requests.push({
-              id: doc.id,
-              ...data
-            } as SwapRequest);
+          if (isRelevant) {
+            console.log('✨ Relevant DB update detected, refreshing data...');
+            await fetchSwapRequests();
           }
-        });
-
-        setIncomingRequests(requests);
-        setIncomingLoading(false);
-
-        // Check for accepted swaps
-        const hasAcceptedIncoming = requests.some(r => r.status === 'accepted');
-
-        // Update hasActiveSwap (will be combined with outgoing)
-        setHasActiveSwap(prev => {
-          const hasAcceptedOutgoing = outgoingRequests.some(r => r.status === 'accepted');
-          return hasAcceptedIncoming || hasAcceptedOutgoing;
-        });
-
-        // Show toast for new pending requests (not on initial load)
-        if (!snapshot.metadata.hasPendingWrites && !snapshot.metadata.fromCache) {
-          snapshot.docChanges().forEach((change) => {
-            if (change.type === 'added' && change.doc.data().status === 'pending') {
-              const fromName = change.doc.data().fromDriverName || 'A driver';
-              addToast(`📩 New swap request from ${fromName}!`, 'info');
-            }
-          });
         }
-      },
-      (error) => {
-        console.error('❌ Error listening to incoming requests:', error);
-        setIncomingLoading(false);
-      }
-    );
+      )
+      .subscribe();
 
-    // Listen to outgoing requests in real-time
-    const unsubscribeOutgoing = onSnapshot(
-      outgoingQuery,
-      (snapshot) => {
-        console.log('📤 Real-time update: Outgoing requests changed');
-        const requests: SwapRequest[] = [];
-
-        snapshot.forEach((doc) => {
-          const data = doc.data();
-          // Show all statuses for outgoing
-          requests.push({
-            id: doc.id,
-            ...data
-          } as SwapRequest);
-        });
-
-        setOutgoingRequests(requests);
-        setOutgoingLoading(false);
-
-        // Check for accepted swaps
-        const hasAcceptedOutgoing = requests.some(r => r.status === 'accepted');
-
-        // Update hasActiveSwap (will be combined with incoming)
-        setHasActiveSwap(prev => {
-          const hasAcceptedIncoming = incomingRequests.some(r => r.status === 'accepted');
-          return hasAcceptedIncoming || hasAcceptedOutgoing;
-        });
-
-        // Show toast for status changes (not on initial load)
-        if (!snapshot.metadata.hasPendingWrites && !snapshot.metadata.fromCache) {
-          snapshot.docChanges().forEach((change) => {
-            if (change.type === 'modified') {
-              const data = change.doc.data();
-              if (data.status === 'accepted') {
-                addToast(`✅ Your swap request was accepted by ${data.toDriverName}!`, 'success');
-              } else if (data.status === 'rejected') {
-                addToast(`❌ Your swap request was rejected by ${data.toDriverName}`, 'info');
-              } else if (data.status === 'expired') {
-                addToast(`⏰ Your swap request has expired`, 'info');
-              }
-            }
-          });
-        }
-      },
-      (error) => {
-        console.error('❌ Error listening to outgoing requests:', error);
-        setOutgoingLoading(false);
-      }
-    );
+    // Channel for Direct Broadcasts (User specific, bypasses RLS issues for trigger)
+    const broadcastChannel = supabase.channel(`driver_swap_requests:${currentUser.uid}`)
+      .on('broadcast', { event: 'swap_requested' }, (payload) => {
+        console.log('📢 Swap Requested Broadcast received:', payload);
+        fetchSwapRequests();
+        addToast(`📩 New swap request from ${payload.payload?.requesterName || 'a driver'}!`, 'info');
+      })
+      .on('broadcast', { event: 'swap_cancelled' }, (payload) => {
+        console.log('🚫 Swap Cancelled Broadcast received:', payload);
+        fetchSwapRequests();
+        addToast('A swap request was cancelled', 'info');
+      })
+      .subscribe();
 
     // Cleanup listeners on unmount
     return () => {
-      console.log('🧹 Cleaning up Firestore listeners');
-      unsubscribeIncoming();
-      unsubscribeOutgoing();
+      console.log('🧹 Cleaning up Supabase listeners');
+      supabase.removeChannel(dbChannel);
+      supabase.removeChannel(broadcastChannel);
     };
   }, [currentUser, userData, authLoading]);
 
@@ -929,12 +910,15 @@ function SwapRequestPageContent() {
                     <Bus className="h-4 w-4 text-blue-200" />
                     {myBusData.busNumber}
                   </div>
-                  {myBusData.shift && (
-                    <div className="px-4 py-2 rounded-xl bg-white/10 backdrop-blur-md border border-white/20 text-white font-semibold text-sm flex items-center gap-2 shadow-sm">
-                      <Clock className="h-4 w-4 text-purple-200" />
-                      {myBusData.shift} Shift
-                    </div>
-                  )}
+                  <Button
+                    size="sm"
+                    onClick={handleRefresh}
+                    disabled={refreshing}
+                    className="px-4 py-2 h-auto rounded-xl bg-white/10 hover:bg-white/20 backdrop-blur-md border border-white/20 text-white font-semibold text-sm flex items-center gap-2 shadow-sm transition-all"
+                  >
+                    <RefreshCw className={cn("h-4 w-4 text-emerald-200", refreshing && "animate-spin")} />
+                    Refresh
+                  </Button>
                 </>
               ) : (
                 <div className="px-4 py-2 rounded-xl bg-amber-500/20 backdrop-blur-md border border-amber-500/30 text-amber-100 font-semibold text-sm flex items-center gap-2">

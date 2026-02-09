@@ -5,12 +5,13 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button';
 import { AlertTriangle, Clock, XCircle, Phone, Mail, CreditCard, ArrowRight } from 'lucide-react';
 import { useRouter } from 'next/navigation';
-import { getDaysUntilHardDelete, getBlockingMessage, getContactInfo, URGENT_WARNING_DAYS, getHardDeleteDate } from '@/lib/utils/renewal-utils';
+import { getDaysUntilHardDelete, getBlockingMessage, getContactInfo, getHardDeleteDate } from '@/lib/utils/renewal-utils';
 
 interface StudentAccessBlockScreenProps {
   validUntil: string | null;
   studentName: string;
   onLogout?: () => void;
+  deadlineConfig?: any;
 }
 
 /**
@@ -20,13 +21,14 @@ interface StudentAccessBlockScreenProps {
 export default function StudentAccessBlockScreen({
   validUntil,
   studentName,
-  onLogout
+  onLogout,
+  deadlineConfig
 }: StudentAccessBlockScreenProps) {
   const router = useRouter();
-  const daysUntilDelete = getDaysUntilHardDelete(validUntil);
-  const message = getBlockingMessage(validUntil);
-  const contactInfo = getContactInfo();
-  const hardDeleteDate = getHardDeleteDate(validUntil);
+  const daysUntilDelete = getDaysUntilHardDelete(validUntil, null, deadlineConfig);
+  const message = getBlockingMessage(validUntil, null, deadlineConfig);
+  const contactInfo = getContactInfo(); // Contact info is static/default for now unless we update getContactInfo signature too
+  const hardDeleteDate = getHardDeleteDate(validUntil, null, deadlineConfig);
   const hardDeleteDateFormatted = hardDeleteDate.toLocaleDateString('en-GB', {
     day: 'numeric',
     month: 'long',
@@ -113,7 +115,7 @@ export default function StudentAccessBlockScreen({
           </div>
 
           {/* Warning - Dynamic Threshold */}
-          {daysUntilDelete > 0 && daysUntilDelete <= URGENT_WARNING_DAYS && (
+          {daysUntilDelete > 0 && daysUntilDelete <= (deadlineConfig?.urgentWarningThreshold?.days || 15) && (
             <div className="p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg">
               <div className="flex items-center gap-2 text-red-700 dark:text-red-400">
                 <AlertTriangle className="h-5 w-5" />

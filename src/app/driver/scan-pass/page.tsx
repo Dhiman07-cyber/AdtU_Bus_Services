@@ -503,12 +503,12 @@ export default function DriverScanPassPage() {
         {scannedStudents.length === 0 && (
           <div className="w-full flex items-center justify-between mb-6 px-1">
             <div className="text-left">
-              <h1 className="text-xl font-black text-white tracking-tight leading-none">Bus Pass Scanner</h1>
+              <h1 className="text-xl font-black text-white tracking-tight leading-none pt-7">Bus Pass Scanner</h1>
               <p className="text-[9px] text-white/40 font-bold uppercase tracking-[0.15em] mt-1">Verify student boarding</p>
             </div>
             <button
               onClick={resetScan}
-              className="p-2 rounded-xl bg-white text-[#020617] hover:bg-white/90 transition-all shadow-lg hover:scale-102 hover:cursor-pointer"
+              className="p-2 rounded-xl bg-white text-[#020617] hover:bg-white/90 transition-all shadow-lg hover:scale-102 hover:cursor-pointer mt-4"
               title="Refresh"
             >
               <div className="flex items-center gap-2">

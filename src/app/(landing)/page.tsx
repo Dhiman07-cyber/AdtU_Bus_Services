@@ -12,6 +12,29 @@ import {
 
 function LandingVideo() {
   const videoRef = useRef<HTMLVideoElement>(null);
+  const [videoUrl, setVideoUrl] = useState<string>('');
+  const [isLoading, setIsLoading] = useState(true);
+
+  // Fetch video URL from Supabase on mount
+  useEffect(() => {
+    const fetchVideoUrl = async () => {
+      try {
+        const response = await fetch('/api/landing-video');
+        if (response.ok) {
+          const data = await response.json();
+          if (data.success && data.url) {
+            setVideoUrl(data.url);
+          }
+        }
+      } catch (error) {
+        console.error('Failed to fetch video URL:', error);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchVideoUrl();
+  }, []);
 
   // Video looping logic for 3:07 cutoff
   const handleTimeUpdate = () => {
@@ -28,15 +51,21 @@ function LandingVideo() {
 
       {/* Video Content */}
       <div className="absolute inset-3 sm:inset-4 lg:inset-3 rounded-xl sm:rounded-2xl overflow-hidden shadow-inner bg-[#0F1117] border border-white/10">
-        <video
-          ref={videoRef}
-          src="/landing_video/Welcome_Video.mp4"
-          autoPlay
-          muted
-          playsInline
-          onTimeUpdate={handleTimeUpdate}
-          className="w-full h-full object-cover"
-        />
+        {isLoading || !videoUrl ? (
+          <div className="w-full h-full flex items-center justify-center">
+            <div className="w-12 h-12 border-4 border-blue-500/30 border-t-blue-500 rounded-full animate-spin"></div>
+          </div>
+        ) : (
+          <video
+            ref={videoRef}
+            src={videoUrl}
+            autoPlay
+            muted
+            playsInline
+            onTimeUpdate={handleTimeUpdate}
+            className="w-full h-full object-cover"
+          />
+        )}
 
         {/* Decorative overlay to maintain premium feel */}
         <div className="absolute inset-0 bg-gradient-to-t from-black/40 via-transparent to-transparent pointer-events-none"></div>
@@ -52,12 +81,22 @@ export default function PremiumLanding() {
   const router = useRouter();
   const [authLoading, setAuthLoading] = useState(false);
   const [animationKey, setAnimationKey] = useState(Date.now());
-
+  const [landingConfig, setLandingConfig] = useState<any>(null);
 
   // Restart animation on component mount (especially after sign out)
   useEffect(() => {
     // Force animation restart by updating key
     setAnimationKey(Date.now());
+  }, []);
+
+  // Fetch landing config
+  useEffect(() => {
+    fetch('/api/settings/landing-config')
+      .then(res => res.json())
+      .then(data => {
+        if (data.success) setLandingConfig(data.config);
+      })
+      .catch(console.error);
   }, []);
 
   // Redirect logic
@@ -1131,18 +1170,16 @@ export default function PremiumLanding() {
                   <span>☎</span> Support
                 </h4>
                 <div className="space-y-2 sm:space-y-3 text-xs sm:text-sm">
-                  <div className="flex items-center gap-1.5 sm:gap-2 text-[#B0B3B8]">
-                    <span>📞</span>
-                    <span className="text-[11px] sm:text-xs">+91 93657 71454</span>
-                  </div>
-                  <div className="flex items-center gap-1.5 sm:gap-2 text-[#B0B3B8]">
-                    <span>📞</span>
-                    <span className="text-[11px] sm:text-xs">+91 91270 70577</span>
-                  </div>
-                  <div className="flex items-center gap-1.5 sm:gap-2 text-[#B0B3B8]">
-                    <span>📞</span>
-                    <span className="text-[11px] sm:text-xs">+91 60039 03319</span>
-                  </div>
+                  {(landingConfig?.supportPhones || [
+                    '+91 93657 71454',
+                    '+91 91270 70577',
+                    '+91 60039 03319'
+                  ]).map((phone: string, idx: number) => (
+                    <div key={idx} className="flex items-center gap-1.5 sm:gap-2 text-[#B0B3B8]">
+                      <span>📞</span>
+                      <span className="text-[11px] sm:text-xs">{phone}</span>
+                    </div>
+                  ))}
                 </div>
               </div>
             </div>
@@ -1154,7 +1191,7 @@ export default function PremiumLanding() {
               </h4>
               <ul className="space-y-2 sm:space-y-3">
                 <li><a href="/terms-and-conditions" target="_blank" rel="noopener noreferrer" className="text-[#B0B3B8] hover:text-white transition-colors text-xs sm:text-sm block">Terms & Conditions</a></li>
-                <li><a href="https://adtu.in/privacy-and-policy/" target="_blank" rel="noopener noreferrer" className="text-[#B0B3B8] hover:text-white transition-colors text-xs sm:text-sm block">Privacy Policy</a></li>
+                <li><a href="/privacy-policy" target="_blank" rel="noopener noreferrer" className="text-[#B0B3B8] hover:text-white transition-colors text-xs sm:text-sm block">Privacy Policy</a></li>
               </ul>
             </div>
 

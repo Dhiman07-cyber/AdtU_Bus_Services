@@ -31,6 +31,8 @@ export const useBusLocation = (busId: string) => {
   const lastUpdateRef = useRef<number>(0);
   const channelRef = useRef<any>(null);
 
+  const [interpolatedLocation, setInterpolatedLocation] = useState<Position | null>(null);
+
   // Handle bus location updates from realtime channel (optimized)
   const handleBusLocationUpdate = useCallback((payload: any) => {
     const locationData = payload.payload;
@@ -73,6 +75,11 @@ export const useBusLocation = (busId: string) => {
           lng: locationData.lng,
           timestamp: Date.now()
         };
+        setInterpolatedLocation({
+          lat: locationData.lat,
+          lng: locationData.lng,
+          timestamp: Date.now()
+        });
       }
 
       lastUpdateRef.current = Date.now();
@@ -84,16 +91,11 @@ export const useBusLocation = (busId: string) => {
   useEffect(() => {
     const fetchInitialLocation = async () => {
       if (!supabase || !busId) {
-        console.log('Supabase client or busId not available');
         setLoading(false);
         return;
       }
 
       try {
-        console.log(`Fetching initial bus location for bus: ${busId}`);
-
-        // Query bus_locations for the most recent location of this bus
-        // Use the busId as-is (it should match what's stored in the database)
         const { data: locations, error } = await supabase
           .from('bus_locations')
           .select('*')
@@ -101,14 +103,8 @@ export const useBusLocation = (busId: string) => {
           .order('timestamp', { ascending: false })
           .limit(1);
 
-        if (error) {
-          console.error('Error fetching initial bus location:', error);
-          // Don't set error state for missing initial data - this is expected when no trips are active
-          console.log('No initial bus location found (this is normal when no trips are active)');
-        } else if (locations && locations.length > 0) {
+        if (!error && locations && locations.length > 0) {
           const location = locations[0];
-          console.log('Found initial bus location:', location);
-
           const busLocation: BusLocation = {
             busId: location.bus_id,
             driverUid: location.driver_uid,
@@ -121,172 +117,108 @@ export const useBusLocation = (busId: string) => {
           };
 
           setCurrentLocation(busLocation);
+          currentPositionRef.current = {
+            lat: location.lat,
+            lng: location.lng,
+            timestamp: Date.now()
+          };
+          setInterpolatedLocation({ ...currentPositionRef.current });
           setHistory([busLocation]);
           setLoading(false);
         } else {
-          console.log('No initial bus location found, will wait for realtime updates');
-          // Set a timeout to stop loading after 10 seconds even if no realtime updates
-          setTimeout(() => {
-            if (loading) {
-              console.log('No realtime updates received, stopping loading state');
-              setLoading(false);
-            }
-          }, 10000);
+          setLoading(false);
         }
-      } catch (err: any) {
+      } catch (err) {
         console.error('Error fetching initial bus location:', err);
-        // Don't set error state for connection issues when fetching initial data
-        console.log('Failed to fetch initial bus location (this is normal when no trips are active)');
+        setLoading(false);
       }
     };
 
     fetchInitialLocation();
   }, [busId]);
 
-  // Subscribe to realtime channel - use postgres_changes for reliable updates
+  // Subscribe to realtime channel
   useEffect(() => {
-    if (!supabase || !busId) {
-      console.log('[useBusLocation] Supabase client or busId not available');
-      setLoading(false);
-      return;
-    }
+    if (!supabase || !busId) return;
 
-    // Create channel - BUS-SPECIFIC (CRITICAL: not route-specific!)
-    // This ensures students on different buses don't see each other's locations
     const channelName = `bus_location_${busId}`;
-    console.log(`Creating Supabase channel: ${channelName} for bus: ${busId}`);
-
     const channel = supabase.channel(channelName, {
       config: {
         broadcast: {
           self: false
-        },
-        presence: {
-          key: ''
         }
       }
     });
 
-    // Listen for broadcast events from driver
-    channel.on(
-      'broadcast',
-      {
-        event: 'bus_location_update'
-      },
-      (payload: any) => {
-        console.log('📍 Received bus location broadcast:', payload);
+    channel.on('broadcast', { event: 'bus_location_update' }, handleBusLocationUpdate);
 
-        // The payload already has the correct structure from driver broadcast
-        if (payload.payload) {
-          const locationData = {
-            payload: {
-              busId: payload.payload.busId,
-              driverUid: payload.payload.driverUid,
-              lat: payload.payload.lat,
-              lng: payload.payload.lng,
-              speed: payload.payload.speed || 0,
-              heading: payload.payload.heading || 0,
-              accuracy: payload.payload.accuracy,
-              ts: payload.payload.timestamp
-            }
-          };
-
-          handleBusLocationUpdate(locationData);
+    channel.on('postgres_changes', {
+      event: 'INSERT',
+      schema: 'public',
+      table: 'bus_locations',
+      filter: `bus_id=eq.${busId}`
+    }, (payload) => {
+      const newLoc = payload.new;
+      handleBusLocationUpdate({
+        payload: {
+          busId: newLoc.bus_id,
+          driverUid: newLoc.driver_uid,
+          lat: newLoc.lat,
+          lng: newLoc.lng,
+          speed: newLoc.speed || 0,
+          heading: newLoc.heading || 0,
+          accuracy: newLoc.accuracy,
+          ts: newLoc.timestamp
         }
-      }
-    );
+      });
+    });
 
-    // Also listen to postgres_changes as fallback
-    channel.on(
-      'postgres_changes',
-      {
-        event: 'INSERT',
-        schema: 'public',
-        table: 'bus_locations',
-        filter: `bus_id=eq.${busId}`
-      },
-      (payload: any) => {
-        console.log('📍 Received bus location INSERT event (fallback):', payload);
-
-        // Convert from postgres format to our format
-        const newLocation = payload.new;
-        const locationData = {
-          payload: {
-            busId: newLocation.bus_id,
-            driverUid: newLocation.driver_uid,
-            lat: newLocation.lat,
-            lng: newLocation.lng,
-            speed: newLocation.speed || 0,
-            heading: newLocation.heading || 0,
-            accuracy: newLocation.accuracy,
-            ts: newLocation.timestamp
-          }
-        };
-
-        handleBusLocationUpdate(locationData);
-      }
-    );
-
-    // Subscribe to the channel
-    channel.subscribe((status: string, error: any) => {
+    channel.subscribe((status) => {
       if (status === 'SUBSCRIBED') {
-        console.log(`✅ Successfully subscribed to postgres changes for bus ${busId}`);
         setLoading(false);
-      } else if (status === 'CHANNEL_ERROR') {
-        console.error(`❌ Error subscribing to channel:`, error);
-        setError(`Error subscribing to channel: ${error?.message || 'Unknown error'}`);
-        setLoading(false);
-      } else if (status === 'TIMED_OUT') {
-        console.error(`⏱️ Timeout subscribing to channel`);
-        setError('Timeout subscribing to channel');
-        setLoading(false);
-      } else {
-        console.log(`Channel status: ${status}`, error);
       }
     });
 
     channelRef.current = channel;
 
-    // Cleanup function
     return () => {
-      try {
-        supabase.removeChannel(channel);
-        console.log(`Unsubscribed from bus_location_${busId}`);
-      } catch (error) {
-        console.warn('Failed to remove channel:', error);
-      }
+      supabase.removeChannel(channel);
     };
   }, [busId, handleBusLocationUpdate]);
 
   // Interpolation for smooth movement
   useEffect(() => {
+    let lastAnimTime = Date.now();
+
     const animate = () => {
+      const now = Date.now();
+      const deltaTime = now - lastAnimTime;
+      lastAnimTime = now;
+
       if (targetPositionRef.current && currentPositionRef.current) {
-        const now = Date.now();
         const elapsed = now - lastUpdateRef.current;
-        const duration = 5000; // 5 seconds for full interpolation
+        const duration = 2500; // 2.5 seconds interpolation
 
         if (elapsed < duration) {
-          const progress = elapsed / duration;
-          const easeProgress = 1 - Math.pow(1 - progress, 2); // Ease out
+          // Use a simple lerp for smooth tracking
+          // The 0.1 factor per frame (at 60fps) provides smooth movement
+          const factor = 0.08;
 
-          currentPositionRef.current.lat =
-            currentPositionRef.current.lat +
-            (targetPositionRef.current.lat - currentPositionRef.current.lat) * easeProgress;
+          currentPositionRef.current = {
+            lat: currentPositionRef.current.lat + (targetPositionRef.current.lat - currentPositionRef.current.lat) * factor,
+            lng: currentPositionRef.current.lng + (targetPositionRef.current.lng - currentPositionRef.current.lng) * factor,
+            timestamp: now
+          };
 
-          currentPositionRef.current.lng =
-            currentPositionRef.current.lng +
-            (targetPositionRef.current.lng - currentPositionRef.current.lng) * easeProgress;
-
-          animationRef.current = requestAnimationFrame(animate);
+          setInterpolatedLocation({ ...currentPositionRef.current });
         } else {
-          // Animation complete, set target as current
           currentPositionRef.current = { ...targetPositionRef.current };
+          setInterpolatedLocation({ ...currentPositionRef.current });
           targetPositionRef.current = null;
         }
-      } else {
-        animationRef.current = requestAnimationFrame(animate);
       }
+
+      animationRef.current = requestAnimationFrame(animate);
     };
 
     animationRef.current = requestAnimationFrame(animate);
@@ -298,16 +230,11 @@ export const useBusLocation = (busId: string) => {
     };
   }, []);
 
-  // Get interpolated position
-  const getInterpolatedPosition = useCallback(() => {
-    return currentPositionRef.current;
-  }, []);
-
   return {
     currentLocation,
+    interpolatedLocation,
     history,
     loading,
-    error,
-    getInterpolatedPosition
+    error
   };
 };

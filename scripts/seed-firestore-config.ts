@@ -21,17 +21,23 @@ dotenv.config();
 // Initialize Firebase Admin
 function initAdmin() {
     if (getApps().length === 0) {
-        const serviceAccount = process.env.FIREBASE_SERVICE_ACCOUNT_KEY;
-        if (serviceAccount) {
-            initializeApp({
-                credential: cert(JSON.parse(serviceAccount)),
-            });
-        } else {
-            // Use default credentials (for local dev with gcloud auth)
-            initializeApp({
-                projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
-            });
+        const projectId = process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID;
+        const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
+        const privateKey = process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n');
+
+        if (!projectId || !clientEmail || !privateKey) {
+            console.error('❌ Missing Firebase credentials in .env file');
+            console.error('Required: NEXT_PUBLIC_FIREBASE_PROJECT_ID, FIREBASE_CLIENT_EMAIL, FIREBASE_PRIVATE_KEY');
+            process.exit(1);
         }
+
+        initializeApp({
+            credential: cert({
+                projectId,
+                clientEmail,
+                privateKey,
+            }),
+        });
     }
     return getFirestore();
 }
@@ -73,7 +79,7 @@ async function seedConfig() {
 
         // 3. Seed systemSignals/admin/latest (initial empty signal)
         console.log('📝 Creating systemSignals/admin/latest...');
-        await db.doc('systemSignals/admin/latest').set({
+        await db.collection('systemSignals').doc('admin').collection('signals').doc('latest').set({
             id: 'latest',
             type: 'initial',
             reason: 'System initialized',

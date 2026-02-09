@@ -34,9 +34,13 @@ export default function DriverSwapPage() {
 
   // Fetch swap requests
   const fetchSwapRequests = async (driverUid: string) => {
+    if (!currentUser) return;
     try {
+      const token = await currentUser.getIdToken();
       // Fetch pending swap requests where this driver is either the requester or target
-      const response = await fetch(`/api/driver/swap-requests?driverUid=${driverUid}`);
+      const response = await fetch('/api/driver-swap/requests?type=all', {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
       const result = await response.json();
 
       if (response.ok) {

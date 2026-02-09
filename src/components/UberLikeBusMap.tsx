@@ -72,7 +72,7 @@ export default function UberLikeBusMap({
   studentLocation = null,
   onShowQrCode
 }: UberLikeBusMapProps) {
-  const { currentLocation: busLocation, loading } = useBusLocation(journeyActive ? busId : '');
+  const { currentLocation: busLocation, interpolatedLocation, loading } = useBusLocation(journeyActive ? busId : '');
   const [mapReady, setMapReady] = useState(false);
   const [busIcon, setBusIcon] = useState<any>(null);
   const [studentIcon, setStudentIcon] = useState<any>(null);
@@ -80,10 +80,14 @@ export default function UberLikeBusMap({
   const mapRef = useRef<any>(null);
   const mapContainerRef = useRef<HTMLDivElement>(null);
 
+  // Use interpolated location for the marker, fallback to raw location
+  const displayLat = interpolatedLocation?.lat || busLocation?.lat;
+  const displayLng = interpolatedLocation?.lng || busLocation?.lng;
+
   // Default center (ADTU Campus area)
   const defaultCenter: [number, number] = [26.1445, 91.7362];
-  const mapCenter: [number, number] = (busLocation && busLocation.lat && busLocation.lng)
-    ? [busLocation.lat, busLocation.lng]
+  const mapCenter: [number, number] = (displayLat && displayLng)
+    ? [displayLat, displayLng]
     : defaultCenter;
 
   // Stable key for MapContainer - only change if busId changes
@@ -434,12 +438,12 @@ export default function UberLikeBusMap({
         {busLocation && <MapController busLocation={busLocation} mapRef={mapRef} />}
 
         {/* Bus marker with accuracy circle */}
-        {busLocation && busIcon && mapReady && (
+        {(displayLat && displayLng) && busIcon && mapReady && (
           <>
             {/* Accuracy radius */}
             <Circle
-              center={[busLocation.lat, busLocation.lng]}
-              radius={busLocation.accuracy || 50}
+              center={[displayLat, displayLng]}
+              radius={busLocation?.accuracy || 50}
               pathOptions={{
                 fillColor: '#3B82F6',
                 fillOpacity: 0.1,
@@ -450,15 +454,15 @@ export default function UberLikeBusMap({
             />
 
             {/* Bus marker */}
-            <Marker position={[busLocation.lat, busLocation.lng]} icon={busIcon}>
+            <Marker position={[displayLat, displayLng]} icon={busIcon}>
               <Popup>
                 <div className="text-center p-2">
                   <p className="font-bold text-lg mb-2">🚌 Your Bus</p>
                   <div className="space-y-1 text-sm">
-                    <p><strong>Speed:</strong> {((busLocation.speed || 0) * 3.6).toFixed(1)} km/h</p>
-                    <p><strong>Accuracy:</strong> {(busLocation.accuracy || 0).toFixed(0)}m</p>
+                    <p><strong>Speed:</strong> {((busLocation?.speed || 0) * 3.6).toFixed(1)} km/h</p>
+                    <p><strong>Accuracy:</strong> {(busLocation?.accuracy || 0).toFixed(0)}m</p>
                     <p className="text-xs text-gray-500 mt-2">
-                      {new Date(busLocation.timestamp || Date.now()).toLocaleTimeString()}
+                      {new Date(busLocation?.timestamp || Date.now()).toLocaleTimeString()}
                     </p>
                   </div>
                 </div>
@@ -501,19 +505,19 @@ export default function UberLikeBusMap({
         {/* Re-center button (Top) - Premium Design */}
         <button
           onClick={() => {
-            if (mapRef.current && busLocation && busLocation.lat && busLocation.lng) {
-              mapRef.current.flyTo([busLocation.lat, busLocation.lng], 16, {
+            if (mapRef.current && displayLat && displayLng) {
+              mapRef.current.flyTo([displayLat, displayLng], 16, {
                 duration: 1.2,
                 easeLinearity: 0.25
               });
             }
           }}
-          disabled={!busLocation}
-          className={`relative w-12 h-12 rounded-full shadow-xl flex items-center justify-center transition-all duration-300 group overflow-hidden ${busLocation
+          disabled={!displayLat}
+          className={`relative w-12 h-12 rounded-full shadow-xl flex items-center justify-center transition-all duration-300 group overflow-hidden ${displayLat
             ? 'bg-gradient-to-br from-blue-500 via-blue-600 to-indigo-700 text-white hover:scale-110 hover:shadow-blue-500/40 cursor-pointer'
             : 'bg-gray-300 dark:bg-gray-700 cursor-not-allowed opacity-60'
             }`}
-          title={busLocation ? "Center on bus" : "Waiting for bus location..."}
+          title={displayLat ? "Center on bus" : "Waiting for bus location..."}
         >
           {/* Animated ring effect on hover */}
           {busLocation && (

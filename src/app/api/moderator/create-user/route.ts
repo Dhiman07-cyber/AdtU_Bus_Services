@@ -5,7 +5,9 @@ import { getFirestore } from 'firebase-admin/firestore';
 import { getAuth } from 'firebase-admin/auth';
 import { cert } from 'firebase-admin/app';
 
-import { computeBlockDatesForStudent } from '@/lib/utils/deadline-computation';
+import { computeBlockDatesFromValidUntil } from '@/lib/utils/deadline-computation';
+import { calculateValidUntilDate } from '@/lib/utils/date-utils';
+import { getDeadlineConfig } from '@/lib/deadline-config-service';
 import { createUpdatedByEntry } from '@/lib/utils/updatedBy';
 
 let adminApp: any;
@@ -185,6 +187,10 @@ export async function POST(request: Request) {
       }
     }
 
+
+    // Fetch deadline config for student validity calculations
+    const deadlineConfig = await getDeadlineConfig();
+
     if (useAdminSDK && db) {
       // Use Firebase Admin SDK
       try {
@@ -247,9 +253,9 @@ export async function POST(request: Request) {
             sessionDuration: sessionDuration || '1',
             sessionStartYear: sessionStartYear || new Date().getFullYear(),
             sessionEndYear: sessionEndYear || (new Date().getFullYear() + 1),
-            validUntil: validUntil || new Date(new Date().getFullYear() + 1, 6, 31).toISOString(),
+            validUntil: validUntil || calculateValidUntilDate(sessionStartYear || new Date().getFullYear(), parseInt(sessionDuration || '1'), deadlineConfig).toISOString(),
             // Block dates computed from sessionEndYear
-            ...computeBlockDatesForStudent(sessionEndYear || (new Date().getFullYear() + 1)),
+            ...computeBlockDatesFromValidUntil(validUntil || calculateValidUntilDate(sessionStartYear || new Date().getFullYear(), parseInt(sessionDuration || '1'), deadlineConfig).toISOString(), deadlineConfig),
             pickupPoint: pickupPoint || '',
             waitingFlag: false,
             boardedFlag: false,
@@ -376,9 +382,9 @@ export async function POST(request: Request) {
           sessionDuration: sessionDuration || '1',
           sessionStartYear: sessionStartYear || new Date().getFullYear(),
           sessionEndYear: sessionEndYear || (new Date().getFullYear() + 1),
-          validUntil: validUntil || new Date(new Date().getFullYear() + 1, 6, 31).toISOString(),
+          validUntil: validUntil || calculateValidUntilDate(sessionStartYear || new Date().getFullYear(), parseInt(sessionDuration || '1'), deadlineConfig).toISOString(),
           // Block dates computed from sessionEndYear
-          ...computeBlockDatesForStudent(sessionEndYear || (new Date().getFullYear() + 1)),
+          ...computeBlockDatesFromValidUntil(validUntil || calculateValidUntilDate(sessionStartYear || new Date().getFullYear(), parseInt(sessionDuration || '1'), deadlineConfig).toISOString(), deadlineConfig),
           waitingFlag: false,
           boardedFlag: false,
           feesStatus: 'draft',

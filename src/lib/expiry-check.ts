@@ -1,5 +1,5 @@
 import { adminDb } from './firebase-admin';
-import deadlineConfig from '@/config/deadline-config.json';
+import { getDeadlineConfig } from '@/lib/deadline-config-service';
 
 interface ExpiryCheckResult {
   totalChecked: number;
@@ -10,7 +10,7 @@ interface ExpiryCheckResult {
 
 /**
  * Main function to check for expiring students and send reminders
- * Dynamically scheduled based on deadline-config.json
+ * Dynamically scheduled based on deadline-config from Firestore
  */
 export async function checkAndNotifyExpiringStudents(force: boolean = false): Promise<ExpiryCheckResult> {
   const result: ExpiryCheckResult = {
@@ -20,12 +20,13 @@ export async function checkAndNotifyExpiringStudents(force: boolean = false): Pr
   };
 
   try {
+    const deadlineConfig = await getDeadlineConfig();
     const now = new Date();
     const currentYear = now.getFullYear();
-    const currentMonth = now.getMonth();
+    const currentMonth = now.getMonth(); // 0-indexed
     const currentDay = now.getDate();
 
-    // Configuration from JSON
+    // Configuration from Firestore
     const notifMonth = deadlineConfig.renewalNotification.month; // e.g., 5 (June)
     const notifDay = deadlineConfig.renewalNotification.day; // e.g., 1
 
@@ -143,6 +144,7 @@ export async function sendMidJuneReminder(force: boolean = false): Promise<Expir
   };
 
   try {
+    const deadlineConfig = await getDeadlineConfig();
     const now = new Date();
     const currentYear = now.getFullYear();
     const currentDay = now.getDate();

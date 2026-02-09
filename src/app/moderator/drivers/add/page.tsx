@@ -44,6 +44,7 @@ type DriverFormData = {
   driverId: string;
   address: string;
   approvedBy: string;
+  shift: string;
 };
 
 export default function AddDriver() {
@@ -76,6 +77,7 @@ export default function AddDriver() {
     driverId: '',
     address: '',
     approvedBy: '',
+    shift: 'Morning & Evening',
   };
 
   // Always initialize with empty form data - no auto-fill
@@ -453,7 +455,8 @@ export default function AddDriver() {
           address: formData.address,
           assignedBusId: assignedBusId,
           assignedRouteId: assignedRouteId,
-          approvedBy: formData.approvedBy
+          approvedBy: formData.approvedBy,
+          shift: formData.shift
         }),
       });
 
@@ -500,6 +503,7 @@ export default function AddDriver() {
       driverId: '',
       address: '',
       approvedBy: approvedByValue,
+      shift: 'Morning & Evening',
     });
     setPreviewUrl(null);
     setErrors({});
@@ -872,6 +876,26 @@ export default function AddDriver() {
                   {busOptions.length === 0 && formData.routeId && formData.routeId !== 'reserved' && (
                     <p className="text-[10px] text-amber-500 mt-1">No buses found for this route</p>
                   )}
+                </div>
+
+                <div>
+                  <Label htmlFor="shift" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    Shift <span className="text-red-500">*</span>
+                  </Label>
+                  <Select
+                    value={formData.shift}
+                    onValueChange={(value) => setFormData(prev => ({ ...prev, shift: value }))}
+                  >
+                    <SelectTrigger className="w-full h-9">
+                      <SelectValue placeholder="Select Shift" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="Morning">Morning</SelectItem>
+                      <SelectItem value="Evening">Evening</SelectItem>
+                      <SelectItem value="Morning & Evening">Morning & Evening</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Driver's working shift</p>
                 </div>
 
                 <div>

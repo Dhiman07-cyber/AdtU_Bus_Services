@@ -98,12 +98,12 @@ export async function POST(request: Request) {
                 .delete()
                 .eq('bus_id', busId);
 
-            // Delete waiting flags
-            await supabase
-                .from('waiting_flags')
-                .delete()
-                .eq('bus_id', busId)
-                .in('status', ['raised', 'acknowledged']);
+            // Delete waiting flags - DISABLED as per new requirement: flags should persist after trip end
+            // await supabase
+            //     .from('waiting_flags')
+            //     .delete()
+            //     .eq('bus_id', busId)
+            //     .in('status', ['raised', 'acknowledged']);
 
             // Broadcast trip end
             const channels = [
