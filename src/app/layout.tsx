@@ -10,6 +10,7 @@ import SimpleErrorBoundary from '@/components/simple-error-boundary';
 import AppShell from '@/components/AppShell';
 import MobileErrorHandler from '@/components/MobileErrorHandler';
 import SmoothScrollProvider from '@/components/smooth-scroll-provider';
+import { SpeedInsights } from "@vercel/speed-insights/next";
 
 // Configure Inter font with only CSS variable to prevent hydration issues
 const inter = Inter({
@@ -91,6 +92,7 @@ export default function RootLayout({
                   <SmoothScrollProvider>
                     <AppShell>
                       {children}
+                      <SpeedInsights />
                     </AppShell>
                   </SmoothScrollProvider>
                 </NotificationProvider>
