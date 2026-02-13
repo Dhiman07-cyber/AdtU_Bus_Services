@@ -160,22 +160,22 @@ const nextConfig: NextConfig = {
             key: 'Content-Security-Policy',
             value: [
               "default-src 'self'",
-              // Scripts: Firebase, Razorpay, Google APIs - unsafe-eval required by these SDKs
-              "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://checkout.razorpay.com https://*.razorpay.com https://apis.google.com https://www.gstatic.com",
+              // Scripts: Firebase, Razorpay, Google APIs, Vercel Feedback
+              "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://checkout.razorpay.com https://*.razorpay.com https://apis.google.com https://www.gstatic.com https://vercel.live https://*.vercel.live",
               // Styles: Allow all for Firebase UI
-              "style-src 'self' 'unsafe-inline' https://checkout.razorpay.com https://fonts.googleapis.com",
+              "style-src 'self' 'unsafe-inline' https://checkout.razorpay.com https://fonts.googleapis.com https://vercel.live https://*.vercel.live",
               // Images: Cloudinary, Google, Razorpay, Dicebear avatars
-              "img-src 'self' data: blob: https: https://res.cloudinary.com https://lh3.googleusercontent.com https://api.dicebear.com https://checkout.razorpay.com https://www.google.com",
+              "img-src 'self' data: blob: https: https://res.cloudinary.com https://lh3.googleusercontent.com https://api.dicebear.com https://checkout.razorpay.com https://www.google.com https://vercel.live https://*.vercel.live",
               // Fonts: Google Fonts, Razorpay
-              "font-src 'self' data: https://checkout.razorpay.com https://fonts.gstatic.com",
-              // Connect: Firebase, Razorpay, Supabase, Google, Cloudinary - restrict to specific domains in production
+              "font-src 'self' data: https://checkout.razorpay.com https://fonts.gstatic.com https://vercel.live https://*.vercel.live",
+              // Connect: Firebase, Razorpay, Supabase, Google, Cloudinary, Vercel - restrict to specific domains in production
               isProduction
-                ? "connect-src 'self' https://*.razorpay.com https://api.razorpay.com wss://*.supabase.co https://*.supabase.co https://firestore.googleapis.com https://securetoken.googleapis.com https://identitytoolkit.googleapis.com https://*.googleapis.com https://apis.google.com https://accounts.google.com https://www.google.com https://api.cloudinary.com https://*.cloudinary.com"
-                : "connect-src 'self' http://localhost:* http://127.0.0.1:* https://*.razorpay.com https://api.razorpay.com wss://*.supabase.co https://*.supabase.co https://firestore.googleapis.com https://securetoken.googleapis.com https://identitytoolkit.googleapis.com https://*.googleapis.com https://apis.google.com https://accounts.google.com https://www.google.com https://api.cloudinary.com https://*.cloudinary.com",
-              // Frames: Google OAuth, Razorpay checkout
-              "frame-src 'self' https://api.razorpay.com https://checkout.razorpay.com https://accounts.google.com https://*.firebaseapp.com",
-              // Media: Allow videos from Supabase Storage
-              "media-src 'self' blob: https://*.supabase.co",
+                ? "connect-src 'self' https://*.razorpay.com https://api.razorpay.com wss://*.supabase.co https://*.supabase.co https://*.supabase.in https://firestore.googleapis.com https://securetoken.googleapis.com https://identitytoolkit.googleapis.com https://*.googleapis.com https://apis.google.com https://accounts.google.com https://www.google.com https://api.cloudinary.com https://*.cloudinary.com https://vercel.live https://*.vercel.live"
+                : "connect-src 'self' http://localhost:* http://127.0.0.1:* https://*.razorpay.com https://api.razorpay.com wss://*.supabase.co https://*.supabase.co https://*.supabase.in https://firestore.googleapis.com https://securetoken.googleapis.com https://identitytoolkit.googleapis.com https://*.googleapis.com https://apis.google.com https://accounts.google.com https://www.google.com https://api.cloudinary.com https://*.cloudinary.com https://vercel.live https://*.vercel.live",
+              // Frames: Google OAuth, Razorpay checkout, Vercel
+              "frame-src 'self' https://api.razorpay.com https://checkout.razorpay.com https://accounts.google.com https://*.firebaseapp.com https://vercel.live https://*.vercel.live",
+              // Media: Allow videos from ALL Supabase subdomains
+              "media-src 'self' blob: data: https://*.supabase.co https://*.supabase.in",
               "base-uri 'self'",
               // Form action: Allow Google OAuth and Razorpay
               "form-action 'self' https://api.razorpay.com https://accounts.google.com",

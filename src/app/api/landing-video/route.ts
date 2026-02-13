@@ -4,14 +4,9 @@ import { adminDb } from '@/lib/firebase-admin';
 export const dynamic = 'force-dynamic';
 
 // Supabase storage configuration
-// Supabase storage configuration
-const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://ztqilqooygdqpmhnxidi.supabase.co'; // Fallback to known project URL
+const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const BUCKET_NAME = 'adtu_bus_assets';
 const DEFAULT_VIDEO_PATH = 'landing_video/Welcome_Final.mp4';
-
-if (!process.env.NEXT_PUBLIC_SUPABASE_URL) {
-    console.warn('⚠️ NEXT_PUBLIC_SUPABASE_URL is missing in environment variables. Using fallback URL.');
-}
 
 /**
  * GET /api/landing-video

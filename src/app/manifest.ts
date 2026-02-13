@@ -26,13 +26,13 @@ export default async function manifest(): Promise<MetadataRoute.Manifest> {
         orientation: 'portrait-primary',
         icons: [
             {
-                src: '/manifest-icon',
+                src: '/icons/icon-512x512.png',
                 sizes: '512x512',
                 type: 'image/png',
                 purpose: 'any maskable' as any
             },
             {
-                src: '/manifest-icon', // Use same dynamic icon for 192 as well, browser resizes or we can add size param
+                src: '/icons/icon-192x192.png',
                 sizes: '192x192',
                 type: 'image/png',
                 purpose: 'any maskable' as any
@@ -45,14 +45,14 @@ export default async function manifest(): Promise<MetadataRoute.Manifest> {
                 short_name: 'Track',
                 description: 'Track your bus in real-time',
                 url: '/student/track-bus',
-                icons: [{ src: '/manifest-icon', sizes: '192x192' }]
+                icons: [{ src: '/icons/icon-192x192.png', sizes: '192x192' }]
             },
             {
                 name: 'Live Tracking',
                 short_name: 'Live',
                 description: 'Driver live tracking',
                 url: '/driver/live-tracking',
-                icons: [{ src: '/manifest-icon', sizes: '192x192' }]
+                icons: [{ src: '/icons/icon-192x192.png', sizes: '192x192' }]
             }
         ],
         prefer_related_applications: false,

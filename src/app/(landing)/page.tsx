@@ -61,9 +61,12 @@ function LandingVideo() {
             src={videoUrl}
             autoPlay
             muted
+            loop
             playsInline
             onTimeUpdate={handleTimeUpdate}
             className="w-full h-full object-cover"
+            onLoadedData={() => console.log('✅ Movie loaded successfully:', videoUrl)}
+            onError={(e) => console.error('❌ Video loading error:', e)}
           />
         )}
 
