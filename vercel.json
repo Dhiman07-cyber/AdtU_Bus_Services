@@ -21,10 +21,6 @@
       "schedule": "30 22 * * 6"
     },
     {
-      "path": "/api/cron/annual-export",
-      "schedule": "30 3 30 6 *"
-    },
-    {
       "path": "/api/cron/cleanup-stale-locks",
       "schedule": "0 4 * * *"
     },

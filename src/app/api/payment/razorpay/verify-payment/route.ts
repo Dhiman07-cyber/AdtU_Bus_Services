@@ -321,7 +321,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(
       {
         success: false,
-        error: error.message || 'Payment verification failed',
+        error: 'Payment verification failed',
       },
       { status: 500 }
     );

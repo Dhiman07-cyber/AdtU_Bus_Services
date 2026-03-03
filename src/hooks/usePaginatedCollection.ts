@@ -50,9 +50,9 @@ interface CacheEntry<T> {
 }
 
 const dataCache = new Map<string, CacheEntry<any>>();
-// SPARK PLAN SAFETY: 10 minute cache to prevent excessive reads
-// Data persists across page navigations, HMR reloads, and component remounts
-const CACHE_TTL_MS = 10 * 60 * 1000; // 10 minutes
+// SPARK PLAN SAFETY: 24 hour cache to prevent excessive reads
+// Data persists across page navigations, HMR reloads, and component remounts until refreshed
+const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
 
 function getCacheKey(collectionName: string, orderByField: string, orderDirection: string): string {
     return `${collectionName}:${orderByField}:${orderDirection}`;
@@ -455,7 +455,8 @@ export function usePaginatedCollectionWithQuery<T = DocumentData>(
     const refresh = useCallback(async () => {
         setCursor(null);
         setHasMore(true);
-        setPages([]);
+        // SPARK PLAN FIX: Don't clear pages immediately to prevent UI flash
+        // setPages([]);
         await fetchPage(false, true);
     }, [fetchPage]);
 

@@ -54,10 +54,12 @@ import { usePaginatedCollection, invalidateCollectionCache } from '@/hooks/usePa
 import { useEventDrivenRefresh } from '@/hooks/useEventDrivenRefresh';
 import { exportToExcel } from '@/lib/export-helpers';
 import { ExportButton } from '@/components/ExportButton';
+import { useModeratorPermissions } from '@/hooks/useModeratorPermissions';
 
 export default function AdminDrivers() {
   const { currentUser, userData, loading: authLoading } = useAuth();
   const { addToast } = useToast();
+  const { canDriverAdd, canDriverEdit, canDriverDelete, canDriverReassign } = useModeratorPermissions();
   const router = useRouter();
 
   // SPARK PLAN SAFETY: Event-driven refresh - only fetches when mutations occur
@@ -260,18 +262,22 @@ export default function AdminDrivers() {
           <p className="text-gray-600 dark:text-gray-400 mt-1">View and manage all drivers</p>
         </div>
         <div className="flex gap-2">
-          <Link href="/moderator/drivers/add">
-            <Button className="bg-blue-600 hover:bg-blue-700 text-white border border-blue-700 transition-all duration-200 hover:scale-105 hover:shadow-lg rounded-md px-2.5 py-1.5 text-xs h-8">
-              <Plus className="mr-1.5 h-3.5 w-3.5" />
-              Add New Driver
-            </Button>
-          </Link>
-          <Link href="/moderator/driver-assignment">
-            <Button className="bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white border-0 transition-all duration-200 hover:scale-105 hover:shadow-lg hover:shadow-purple-500/25 rounded-md px-2.5 py-1.5 text-xs h-8">
-              <ArrowRightLeft className="mr-1.5 h-3.5 w-3.5" />
-              Driver Reassignment
-            </Button>
-          </Link>
+          {canDriverAdd && (
+            <Link href="/moderator/drivers/add">
+              <Button className="bg-blue-600 hover:bg-blue-700 text-white border border-blue-700 transition-all duration-200 hover:scale-105 hover:shadow-lg rounded-md px-2.5 py-1.5 text-xs h-8">
+                <Plus className="mr-1.5 h-3.5 w-3.5" />
+                Add New Driver
+              </Button>
+            </Link>
+          )}
+          {canDriverReassign && (
+            <Link href="/moderator/driver-assignment">
+              <Button className="bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white border-0 transition-all duration-200 hover:scale-105 hover:shadow-lg hover:shadow-purple-500/25 rounded-md px-2.5 py-1.5 text-xs h-8">
+                <ArrowRightLeft className="mr-1.5 h-3.5 w-3.5" />
+                Driver Reassignment
+              </Button>
+            </Link>
+          )}
           <Button
             onClick={handleRefresh}
             disabled={isRefreshing}
@@ -444,23 +450,29 @@ export default function AdminDrivers() {
                                     View Details
                                   </Link>
                                 </DropdownMenuItem>
-                                <DropdownMenuItem asChild>
-                                  <Link href={`/moderator/drivers/edit/${driver.id}`} className="text-white hover:bg-gray-700 dark:hover:bg-gray-800 focus:bg-gray-700 dark:focus:bg-gray-800 px-2 py-1.5 text-sm !text-white">
-                                    <Edit className="mr-2 h-3.5 w-3.5 text-yellow-400" />
-                                    Edit
-                                  </Link>
-                                </DropdownMenuItem>
-                                <DropdownMenuSeparator className="bg-gray-600" />
-                                <DropdownMenuItem
-                                  className="text-white hover:!bg-red-600 focus:!bg-red-600 px-2 py-1.5 text-sm !text-white cursor-pointer transition-colors"
-                                  onClick={() => {
-                                    setDeleteItem({ id: driver.id, name: driver.name || driver.fullName });
-                                    setIsDialogOpen(true);
-                                  }}
-                                >
-                                  <Trash2 className="mr-2 h-3.5 w-3.5" />
-                                  Delete
-                                </DropdownMenuItem>
+                                {canDriverEdit && (
+                                  <DropdownMenuItem asChild>
+                                    <Link href={`/moderator/drivers/edit/${driver.id}`} className="text-white hover:bg-gray-700 dark:hover:bg-gray-800 focus:bg-gray-700 dark:focus:bg-gray-800 px-2 py-1.5 text-sm !text-white">
+                                      <Edit className="mr-2 h-3.5 w-3.5 text-yellow-400" />
+                                      Edit
+                                    </Link>
+                                  </DropdownMenuItem>
+                                )}
+                                {canDriverDelete && (
+                                  <>
+                                    <DropdownMenuSeparator className="bg-gray-600" />
+                                    <DropdownMenuItem
+                                      className="text-white hover:!bg-red-600 focus:!bg-red-600 px-2 py-1.5 text-sm !text-white cursor-pointer transition-colors"
+                                      onClick={() => {
+                                        setDeleteItem({ id: driver.id, name: driver.name || driver.fullName });
+                                        setIsDialogOpen(true);
+                                      }}
+                                    >
+                                      <Trash2 className="mr-2 h-3.5 w-3.5" />
+                                      Delete
+                                    </DropdownMenuItem>
+                                  </>
+                                )}
                               </DropdownMenuContent>
                             </DropdownMenu>
                           </TableCell>

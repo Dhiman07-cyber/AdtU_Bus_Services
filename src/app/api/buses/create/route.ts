@@ -190,7 +190,7 @@ export async function POST(request: Request) {
   } catch (error: any) {
     console.error('❌ Error creating bus:', error);
     return NextResponse.json(
-      { success: false, error: error.message || 'Failed to create bus' },
+      { success: false, error: 'Failed to create bus' },
       { status: 500 }
     );
   }

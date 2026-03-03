@@ -108,7 +108,7 @@ export async function POST(request: Request) {
   } catch (error: any) {
     console.error('❌ Error creating route:', error);
     return NextResponse.json(
-      { success: false, error: error.message || 'Failed to create route' },
+      { success: false, error: 'Failed to create route' },
       { status: 500 }
     );
   }

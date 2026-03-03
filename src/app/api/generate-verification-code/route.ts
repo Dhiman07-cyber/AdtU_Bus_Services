@@ -3,6 +3,8 @@ import { db } from '@/lib/firebase';
 import { doc, getDoc, updateDoc, collection, addDoc, query, where, getDocs } from 'firebase/firestore';
 import CryptoJS from 'crypto-js';
 import admin from 'firebase-admin';
+import { verifyApiAuth } from '@/lib/security/api-auth';
+import { checkRateLimit, createRateLimitId } from '@/lib/security/rate-limiter';
 
 // Initialize Firebase Admin SDK if not already initialized
 if (!admin.apps.length) {
@@ -21,6 +23,20 @@ if (!admin.apps.length) {
 
 export async function POST(request: NextRequest) {
   try {
+    // SECURITY: Verify admin/moderator authentication
+    const auth = await verifyApiAuth(request, ['admin', 'moderator']);
+    if (!auth.authenticated) return auth.response;
+
+    // SECURITY: Rate limit (3 per 5 minutes)
+    const rateLimitId = createRateLimitId(auth.uid, 'generate-verification-code');
+    const rateCheck = checkRateLimit(rateLimitId, 3, 300000);
+    if (!rateCheck.allowed) {
+      return NextResponse.json(
+        { success: false, error: 'Too many verification code requests. Please wait.' },
+        { status: 429 }
+      );
+    }
+
     const { applicationId } = await request.json();
 
     if (!applicationId) {
@@ -32,7 +48,7 @@ export async function POST(request: NextRequest) {
 
     // Get the application
     const applicationDoc = await getDoc(doc(db, 'applications', applicationId));
-    
+
     if (!applicationDoc.exists()) {
       return NextResponse.json(
         { success: false, error: 'Application not found' },
@@ -42,12 +58,13 @@ export async function POST(request: NextRequest) {
 
     const applicationData = applicationDoc.data();
 
-    // Generate 6-digit verification code
-    const verificationCode = Math.floor(100000 + Math.random() * 900000).toString();
-    
+    // Generate 6-digit verification code using crypto-safe randomness
+    const crypto = await import('crypto');
+    const verificationCode = crypto.randomInt(100000, 999999).toString();
+
     // Hash the verification code for security
     const hashedCode = CryptoJS.SHA256(verificationCode).toString();
-    
+
     // Update application with verification details
     await updateDoc(doc(db, 'applications', applicationId), {
       verification: {
@@ -84,13 +101,13 @@ export async function POST(request: NextRequest) {
         fcmTokensRef,
         where('userUid', '==', applicationData.verification.moderatorUID)
       );
-      
+
       const querySnapshot = await getDocs(q);
-      
+
       if (!querySnapshot.empty) {
         const tokens = querySnapshot.docs.map((docSnapshot: any) => docSnapshot.data().deviceToken);
         const messaging = admin.messaging();
-        
+
         // Send notification to all devices
         const message = {
           notification: {
@@ -99,7 +116,7 @@ export async function POST(request: NextRequest) {
           },
           tokens: tokens
         };
-        
+
         // Send to each token individually to avoid token limit issues
         for (const token of tokens) {
           try {

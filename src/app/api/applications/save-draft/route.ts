@@ -96,7 +96,7 @@ export async function POST(request: NextRequest) {
   } catch (error: any) {
     console.error('Error saving draft:', error);
     return NextResponse.json(
-      { error: error.message || 'Failed to save draft' },
+      { error: 'Failed to save draft' },
       { status: 500 }
     );
   }

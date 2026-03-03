@@ -1,10 +1,39 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/firebase';
 import { collection, query, where, getDocs, addDoc, updateDoc, doc } from 'firebase/firestore';
+import { verifyTokenOnly } from '@/lib/security/api-auth';
+import { checkRateLimit, createRateLimitId } from '@/lib/security/rate-limiter';
 
 export async function POST(request: NextRequest) {
   try {
+    // SECURITY: Verify authentication
+    const user = await verifyTokenOnly(request);
+    if (!user) {
+      return NextResponse.json(
+        { success: false, error: 'Authentication required' },
+        { status: 401 }
+      );
+    }
+
     const { userUid, token, platform } = await request.json();
+
+    // SECURITY: Users can only save tokens for their own UID
+    if (userUid !== user.uid) {
+      return NextResponse.json(
+        { success: false, error: 'Cannot save tokens for other users' },
+        { status: 403 }
+      );
+    }
+
+    // SECURITY: Rate limit token saves (10 per minute)
+    const rateLimitId = createRateLimitId(user.uid, 'save-fcm-token');
+    const rateCheck = checkRateLimit(rateLimitId, 10, 60000);
+    if (!rateCheck.allowed) {
+      return NextResponse.json(
+        { success: false, error: 'Too many requests' },
+        { status: 429 }
+      );
+    }
 
     if (!userUid || !token || !platform) {
       return NextResponse.json(
@@ -20,9 +49,9 @@ export async function POST(request: NextRequest) {
       where('userUid', '==', userUid),
       where('deviceToken', '==', token)
     );
-    
+
     const querySnapshot = await getDocs(q);
-    
+
     if (querySnapshot.empty) {
       // Add new token
       await addDoc(fcmTokensRef, {

@@ -16,8 +16,7 @@ export async function GET(req: NextRequest) {
         return NextResponse.json(
             { 
                 message: 'Unstable network detected, please try again later',
-                error: error.message 
-            },
+                error: 'An unexpected error occurred' },
             { status: 503 }
         );
     }
@@ -91,7 +90,7 @@ export async function POST(req: NextRequest) {
     } catch (error: any) {
         console.error('Error updating deadline config:', error);
         return NextResponse.json(
-            { message: `Failed to update deadline configuration: ${error.message || 'Unknown error'}` },
+            { message: 'Failed to update deadline configuration' },
             { status: 500 }
         );
     }

@@ -14,8 +14,7 @@ export async function GET(req: NextRequest) {
         return NextResponse.json(
             { 
                 message: 'Unstable network detected, please try again later',
-                error: error.message 
-            },
+                error: 'An unexpected error occurred' },
             { status: 503 }
         );
     }

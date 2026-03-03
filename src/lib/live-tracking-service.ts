@@ -35,15 +35,7 @@ export interface WaitingFlag {
   source?: 'gps' | 'manual';
 }
 
-export interface TripData {
-  trip_id: string;
-  bus_id: string;
-  driver_uid: string;
-  route_id: string;
-  started_at: string;
-  ended_at?: string;
-  status: 'active' | 'ended';
-}
+
 
 class LiveTrackingService {
   private watchId: number | null = null;
@@ -110,9 +102,9 @@ class LiveTrackingService {
    */
   async sendLocationUpdate(location: BusLocation, force: boolean = false): Promise<boolean> {
     const now = Date.now();
-    
+
     // Throttle based on speed
-    const effectiveInterval = location.speed < 2 
+    const effectiveInterval = location.speed < 2
       ? 15000 // 15s when stopped
       : this.updateIntervalMs; // 5s when moving
 
@@ -317,59 +309,6 @@ class LiveTrackingService {
     };
   }
 
-  /**
-   * Start a trip
-   */
-  async startTrip(tripData: Omit<TripData, 'status'>): Promise<{ success: boolean; error?: string }> {
-    try {
-      const response = await fetch('/api/trip/start', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(tripData),
-      });
-
-      const result = await response.json();
-
-      if (!response.ok) {
-        return { success: false, error: result.error || 'Failed to start trip' };
-      }
-
-      console.log('✅ Trip started:', result);
-      return { success: true };
-    } catch (error: any) {
-      console.error('❌ Error starting trip:', error);
-      return { success: false, error: error.message };
-    }
-  }
-
-  /**
-   * End a trip
-   */
-  async endTrip(tripId: string): Promise<{ success: boolean; error?: string }> {
-    try {
-      const response = await fetch('/api/trip/end', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ trip_id: tripId }),
-      });
-
-      const result = await response.json();
-
-      if (!response.ok) {
-        return { success: false, error: result.error || 'Failed to end trip' };
-      }
-
-      console.log('✅ Trip ended:', result);
-      return { success: true };
-    } catch (error: any) {
-      console.error('❌ Error ending trip:', error);
-      return { success: false, error: error.message };
-    }
-  }
 
   /**
    * Calculate distance between two points (Haversine formula)
@@ -394,7 +333,7 @@ class LiveTrackingService {
    */
   setOnlineStatus(isOnline: boolean): void {
     this.isOnline = isOnline;
-    
+
     // Try to flush buffered location when coming back online
     if (isOnline && this.bufferedLocation) {
       this.sendLocationUpdate(this.bufferedLocation, true);

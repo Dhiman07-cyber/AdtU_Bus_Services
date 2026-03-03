@@ -208,7 +208,7 @@ export async function POST(request: Request) {
   } catch (error: any) {
     console.error('Error acknowledging flag:', error);
     return NextResponse.json(
-      { error: error.message || 'Failed to acknowledge flag' },
+      { error: 'Failed to acknowledge flag' },
       { status: 500 }
     );
   }

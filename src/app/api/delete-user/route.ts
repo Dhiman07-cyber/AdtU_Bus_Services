@@ -368,7 +368,7 @@ export async function DELETE(request: Request) {
         console.error('Error with Admin SDK:', adminError);
         return new Response(JSON.stringify({
           success: false,
-          error: adminError.message || 'Failed to delete user with admin SDK'
+          error: 'Failed to delete user with admin SDK'
         }), {
           status: 500,
           headers: { 'Content-Type': 'application/json' },
@@ -387,7 +387,7 @@ export async function DELETE(request: Request) {
     console.error('Error deleting user:', error);
     return new Response(JSON.stringify({
       success: false,
-      error: error.message || 'Failed to delete user'
+      error: 'Failed to delete user'
     }), {
       status: 500,
       headers: { 'Content-Type': 'application/json' },

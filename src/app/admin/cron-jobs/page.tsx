@@ -126,26 +126,6 @@ const CRON_JOBS = [
         safe: false,
         warning: 'This action PERMANENTLY DELETES student accounts, all their data, and cannot be undone.',
     },
-    {
-        id: 'annual-export',
-        name: 'Annual Export & Archival',
-        endpoint: '/api/cron/annual-export',
-        method: 'GET',
-        schedule: 'July 31 at 09:00 IST (03:30 UTC)',
-        category: 'Finance',
-        description: 'Comprehensive financial year-end process: exports payments to PDF, archives to Firestore, and sends report. READ-ONLY operation.',
-        details: [
-            'Fetches all payments for the financial year (Apr 1 - Mar 31)',
-            'Archives minimal payment history to student Firestore documents',
-            'Generates institutional PDF report with all transactions',
-            'Sends email with PDF attachment to admin',
-            '✅ READ-ONLY: Does not delete payments from Supabase',
-        ],
-        icon: FileText,
-        color: 'green',
-        safe: true,
-        hasCleanupOption: false,
-    },
 ];
 
 interface CronResult {
@@ -162,22 +142,10 @@ export default function AdminCronTestingPage() {
     const { userData, currentUser, loading } = useAuth();
     const [results, setResults] = useState<Record<string, CronResult>>({});
     const [runningJobs, setRunningJobs] = useState<Set<string>>(new Set());
-    const [cleanupEnabled, setCleanupEnabled] = useState<Record<string, boolean>>({});
+
     const [expandedJob, setExpandedJob] = useState<string | null>(null);
 
     // Redirect if not authenticated or not admin (after loading completes)
-    useEffect(() => {
-        if (!loading) {
-            if (!currentUser) {
-                router.push('/login');
-                return;
-            }
-            if (userData && userData.role !== 'admin') {
-                router.push(`/${userData.role}`);
-                return;
-            }
-        }
-    }, [currentUser, userData, loading, router]);
 
     const runCronJob = async (job: typeof CRON_JOBS[0]) => {
         if (!currentUser) return;
@@ -186,12 +154,7 @@ export default function AdminCronTestingPage() {
         setRunningJobs(prev => new Set([...prev, job.id]));
 
         try {
-            let endpoint = job.endpoint;
-
-            // Add cleanup param if enabled for annual-export
-            if (job.hasCleanupOption && cleanupEnabled[job.id]) {
-                endpoint += endpoint.includes('?') ? '&cleanup=true' : '?cleanup=true';
-            }
+            const endpoint = job.endpoint;
 
             // Get admin token for authentication
             const token = await currentUser.getIdToken();
@@ -281,11 +244,6 @@ export default function AdminCronTestingPage() {
                 </div>
             </div>
         );
-    }
-
-    // Return null during redirect
-    if (!currentUser || userData.role !== 'admin') {
-        return null;
     }
 
     return (
@@ -425,21 +383,6 @@ export default function AdminCronTestingPage() {
 
                                                 {/* Right: Actions */}
                                                 <div className="flex flex-col gap-2 lg:min-w-[200px]">
-                                                    {/* Cleanup toggle for annual-export */}
-                                                    {job.hasCleanupOption && (
-                                                        <label className="flex items-center gap-2 p-2 bg-red-900/20 border border-red-700/30 rounded-lg cursor-pointer hover:bg-red-900/30 transition-colors">
-                                                            <input
-                                                                type="checkbox"
-                                                                checked={cleanupEnabled[job.id] || false}
-                                                                onChange={(e) => setCleanupEnabled(prev => ({ ...prev, [job.id]: e.target.checked }))}
-                                                                className="w-4 h-4 rounded border-red-500 text-red-600 focus:ring-red-500"
-                                                            />
-                                                            <div>
-                                                                <span className="text-red-300 text-xs font-medium">Enable Cleanup</span>
-                                                                <p className="text-red-400/70 text-[10px]">Delete from Supabase after archive</p>
-                                                            </div>
-                                                        </label>
-                                                    )}
 
                                                     {/* Run Button */}
                                                     <Button

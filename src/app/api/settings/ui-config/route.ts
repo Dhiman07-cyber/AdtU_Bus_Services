@@ -1,9 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { adminAuth, adminDb } from '@/lib/firebase-admin';
-import fs from 'fs';
-import path from 'path';
-
-const CONFIG_FILE_PATH = path.join(process.cwd(), 'src', 'config', 'UI_Config.json');
 const COLLECTION_NAME = 'settings';
 const DOC_ID = 'ui';
 
@@ -23,16 +19,6 @@ export async function GET(req: NextRequest) {
             });
         }
 
-        // 2. Fallback to local JSON
-        if (fs.existsSync(CONFIG_FILE_PATH)) {
-            const configData = fs.readFileSync(CONFIG_FILE_PATH, 'utf-8');
-            const config = JSON.parse(configData);
-            return NextResponse.json({
-                config,
-                source: 'json-file-fallback'
-            });
-        }
-
         return NextResponse.json(
             { message: 'UI configuration file not found' },
             { status: 404 }
@@ -40,7 +26,7 @@ export async function GET(req: NextRequest) {
     } catch (error: any) {
         console.error('Error reading UI config:', error);
         return NextResponse.json(
-            { message: 'Failed to load UI configuration', error: error.message },
+            { message: 'Failed to load UI configuration', error: 'An unexpected error occurred' },
             { status: 500 }
         );
     }
@@ -79,9 +65,6 @@ export async function POST(req: NextRequest) {
         const doc = await adminDb.collection(COLLECTION_NAME).doc(DOC_ID).get();
         if (doc.exists) {
             currentConfig = doc.data() || {};
-        } else if (fs.existsSync(CONFIG_FILE_PATH)) {
-            const currentData = fs.readFileSync(CONFIG_FILE_PATH, 'utf-8');
-            currentConfig = JSON.parse(currentData);
         }
 
         // Merge with updates
@@ -105,7 +88,7 @@ export async function POST(req: NextRequest) {
     } catch (error: any) {
         console.error('Error saving UI config:', error);
         return NextResponse.json(
-            { message: 'Failed to save UI configuration', error: error.message },
+            { message: 'Failed to save UI configuration', error: 'An unexpected error occurred' },
             { status: 500 }
         );
     }

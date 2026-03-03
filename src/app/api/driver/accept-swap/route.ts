@@ -157,20 +157,27 @@ export async function POST(request: Request) {
 
     // Send FCM notification to all students on the bus
     try {
-      const studentsSnapshot = await adminDb
+      let studentsSnapshot = await adminDb
         .collection('students')
         .where('assignedBusId', '==', busId)
         .get();
 
+      if (studentsSnapshot.empty) {
+        const altSnapshot1 = await adminDb.collection('students').where('busId', '==', busId).get();
+        const altSnapshot2 = await adminDb.collection('students').where('bus_id', '==', busId).get();
+        studentsSnapshot = altSnapshot1.empty ? altSnapshot2 : altSnapshot1;
+      }
+
       const fcmTokens: string[] = [];
+      const studentIds = studentsSnapshot.docs.map((doc: any) => doc.id);
 
-      for (const doc of studentsSnapshot.docs) {
-        const tokensSnapshot = await adminDb
-          .collection('fcm_tokens')
-          .where('userUid', '==', doc.id)
-          .get();
+      // Fetch FCM tokens concurrently to prevent N+1 query slow down
+      const tokenSnapshots = await Promise.all(
+        studentIds.map((uid: string) => adminDb.collection('fcm_tokens').where('userUid', '==', uid).get())
+      );
 
-        tokensSnapshot.docs.forEach((tokenDoc: any) => {
+      for (const snapshot of tokenSnapshots) {
+        snapshot.docs.forEach((tokenDoc: any) => {
           fcmTokens.push(tokenDoc.data().deviceToken);
         });
       }
@@ -243,7 +250,7 @@ export async function POST(request: Request) {
   } catch (error: any) {
     console.error('Error accepting swap request:', error);
     return NextResponse.json(
-      { error: error.message || 'Failed to accept swap request' },
+      { error: 'Failed to accept swap request' },
       { status: 500 }
     );
   }

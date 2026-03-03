@@ -51,8 +51,13 @@ export default function ModeratorVerificationsPage() {
 
   const handleRefresh = async () => {
     setIsRefreshing(true);
-    await loadVerifications(false);
-    setIsRefreshing(false);
+    try {
+      await loadVerifications(false);
+    } catch (error) {
+      console.error('Error refreshing verifications:', error);
+    } finally {
+      setIsRefreshing(false);
+    }
   };
 
   if (loading || loadingVerifications) {

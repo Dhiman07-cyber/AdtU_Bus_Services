@@ -55,13 +55,14 @@ Because network variability guarantees duplicate processing payloads historicall
 
 ## 4. Defensive Security Parameters & Infrastructure Shielding
 *   **Authoritative Routing & API Rate Restraints:** Essential, heavy-load executing endpoints feature stringent bounding limitations. Operations interfacing with mapping dependencies constrain individual payload execution, while endpoint parameters cap distinct student `raise` operations linearly at 3 queries per circadian cycle.
-*   **Infrastructure Master Kill-Switch:** To avert massive volumetric DDoS attacks or quota financial bleeding on WebSocket architectures, the platform utilizes environmental overrides (e.g., `ENABLE_FIRESTORE_REALTIME`). Engaging this switch triggers Firebase Security Rules natively dropping active listener topologies forcibly, triggering the frontend to immediately downgrade to legacy short-polling mechanisms.
+*   **Infrastructure Load Mitigation:** To avert massive volumetric DDoS attacks or quota financial bleeding on WebSocket architectures, the platform utilizes environmental overrides (e.g., `ENABLE_FIRESTORE_REALTIME`). Engaging this switch triggers Firebase Security Rules natively dropping active listener topologies forcibly, triggering the frontend to immediately downgrade to legacy short-polling mechanisms.
 *   **Physical Anti-Spoofing Protocols:** Malicious application patching attempting false-injections against driver GPS matrices are negated via server-side physical logic filters. Incoming data coordinate blocks are evaluated against elapsed timestamp deltas—the execution engine will flatly deny ingestion strings proposing traversal speeds logically exceeding established constraints (e.g., transitioning distances mathematically equating to >200km/h ranges).
 
 ---
 
 ## 5. Background Tasking & Cron Workers
 Deployed utilizing `vercel.json` orchestration files executing specialized logic sequences continuously at precise chronologies:
-*   `api/cron/cleanup-stale-locks`: Executes minutely. Serves strictly to forcefully expunge abandoned locks.
-*   `api/cron/reconciliation`: Executes via nightly batches. Iterates down complex financial log parameters verifying internal success variables match explicitly to the raw external execution outputs from Razorpay parameters.
-*   `api/cron/access-audit`: Executes on extensive cycles to meticulously strip out ephemeral, obsolete mapping histories and aggregate raw traffic flows.
+*   `api/cron/cleanup-stale-locks`: Executes minutely. Forces release of physical driver trip locks abandoned due to offline failures.
+*   `api/cron/cleanup-swaps` & `api/cron/cleanup-missed-bus`: Sweeps ephemeral tables to gracefully terminate expired swap states and abandoned pickup requests.
+*   `api/cron/expiry-check` & `api/cron/cleanup-expired-students`: Nightly pipelines analyzing session thresholds, orchestrating the transition of users from "Soft Blocked" into automated profile purging.
+*   `api/cron/annual-export` & `api/cron/cleanup-notifications`: Long-horizon sweeps archiving legacy databases elements restricting infinite data bloat.

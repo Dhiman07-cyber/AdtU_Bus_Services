@@ -73,7 +73,7 @@ export async function POST(request: Request) {
   } catch (error: any) {
     console.error('Error notifying driver:', error);
     return NextResponse.json(
-      { error: error.message || 'Failed to notify driver' },
+      { error: 'Failed to notify driver' },
       { status: 500 }
     );
   }

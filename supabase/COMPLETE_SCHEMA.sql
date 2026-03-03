@@ -395,7 +395,7 @@ BEGIN
   WHERE status = 'raised'
     AND expires_at < NOW();
 END;
-$$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
 -- Trigger for driver_status timestamp
 CREATE OR REPLACE FUNCTION update_driver_status_timestamp()
@@ -404,7 +404,7 @@ BEGIN
   NEW.last_updated_at = NOW();
   RETURN NEW;
 END;
-$$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
 DROP TRIGGER IF EXISTS driver_status_update_timestamp ON driver_status;
 CREATE TRIGGER driver_status_update_timestamp
@@ -428,7 +428,7 @@ BEGIN
   
   RETURN v_temp_driver;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
 -- Trigger for updated_at columns
 CREATE OR REPLACE FUNCTION update_updated_at_column()
@@ -437,7 +437,7 @@ BEGIN
   NEW.updated_at = NOW();
   RETURN NEW;
 END;
-$$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
 DROP TRIGGER IF EXISTS update_swap_requests_updated_at ON driver_swap_requests;
 CREATE TRIGGER update_swap_requests_updated_at
@@ -445,17 +445,33 @@ CREATE TRIGGER update_swap_requests_updated_at
   FOR EACH ROW
   EXECUTE FUNCTION update_updated_at_column();
 
+-- Trigger for updated_at (reassignment logs)
+CREATE OR REPLACE FUNCTION update_reassignment_logs_updated_at()
+RETURNS TRIGGER AS $$
+BEGIN
+  RETURN update_updated_at_column();
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+
 DROP TRIGGER IF EXISTS reassignment_logs_updated_at ON public.reassignment_logs;
 CREATE TRIGGER reassignment_logs_updated_at
   BEFORE UPDATE ON public.reassignment_logs
   FOR EACH ROW
-  EXECUTE FUNCTION update_updated_at_column();
+  EXECUTE FUNCTION update_reassignment_logs_updated_at();
+
+-- Trigger for updated_at (payments)
+CREATE OR REPLACE FUNCTION update_payments_updated_at()
+RETURNS TRIGGER AS $$
+BEGIN
+  RETURN update_updated_at_column();
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
 DROP TRIGGER IF EXISTS payments_updated_at ON public.payments;
 CREATE TRIGGER payments_updated_at
   BEFORE UPDATE ON public.payments
   FOR EACH ROW
-  EXECUTE FUNCTION update_updated_at_column();
+  EXECUTE FUNCTION update_payments_updated_at();
 
 -- Function to expire temporary assignments
 CREATE OR REPLACE FUNCTION expire_temporary_assignments()
@@ -480,7 +496,7 @@ BEGIN
   
   RETURN QUERY SELECT v_count;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
 -- Function for reassignment logs pagination
 CREATE OR REPLACE FUNCTION get_reassignment_logs(
@@ -507,7 +523,7 @@ BEGIN
   ORDER BY rl.created_at DESC
   LIMIT p_limit OFFSET p_offset;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
 -- Function to cleanup old reassignment logs
 CREATE OR REPLACE FUNCTION cleanup_old_reassignment_logs()
@@ -526,7 +542,7 @@ BEGIN
   GET DIAGNOSTICS deleted_count = ROW_COUNT;
   RETURN deleted_count;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
 -- =====================================================
 -- SECTION 6: ROW LEVEL SECURITY (HARDENED)
@@ -891,7 +907,7 @@ BEGIN
     RETURN QUERY SELECT FALSE, NULL::TEXT, NULL::UUID, NULL::TIMESTAMPTZ, NULL::TIMESTAMPTZ;
   END IF;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
 -- Function to get stale locks
 CREATE OR REPLACE FUNCTION get_stale_locks(p_heartbeat_timeout_seconds INTEGER DEFAULT 60)
@@ -914,7 +930,7 @@ BEGIN
   WHERE at.status = 'active'
     AND at.last_heartbeat < NOW() - (p_heartbeat_timeout_seconds || ' seconds')::INTERVAL;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
 -- Function to clean up stale locks
 CREATE OR REPLACE FUNCTION cleanup_stale_locks(p_heartbeat_timeout_seconds INTEGER DEFAULT 60)
@@ -939,7 +955,7 @@ BEGIN
     RETURN QUERY SELECT v_trip.trip_id, v_trip.bus_id, v_trip.driver_id;
   END LOOP;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
 -- =====================================================
 -- SECTION 10: MISSED BUS REQUESTS (Student Pickup Requests)
@@ -1013,7 +1029,96 @@ BEGIN
   GET DIAGNOSTICS expired_count = ROW_COUNT;
   RETURN expired_count;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+
+-- Function to get pending missed bus requests for a trip
+CREATE OR REPLACE FUNCTION get_pending_missed_bus_requests_for_trip(p_trip_id UUID)
+RETURNS TABLE(
+  request_id UUID,
+  student_id TEXT,
+  route_id TEXT,
+  stop_id TEXT,
+  student_sequence INT,
+  created_at TIMESTAMPTZ,
+  expires_at TIMESTAMPTZ
+) AS $$
+BEGIN
+  RETURN QUERY
+  SELECT 
+    mbr.id AS request_id,
+    mbr.student_id,
+    mbr.route_id,
+    mbr.stop_id,
+    mbr.student_sequence,
+    mbr.created_at,
+    mbr.expires_at
+  FROM public.missed_bus_requests mbr
+  WHERE mbr.status = 'pending'
+    AND mbr.trip_candidates ? p_trip_id::text;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+
+-- device_sessions table (single-device session management)
+CREATE TABLE IF NOT EXISTS public.device_sessions (
+  user_id TEXT NOT NULL,
+  device_id TEXT NOT NULL,
+  feature TEXT NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  last_active_at TIMESTAMPTZ DEFAULT NOW(),
+  PRIMARY KEY (user_id, feature)
+);
+
+CREATE INDEX IF NOT EXISTS idx_device_sessions_user_id ON public.device_sessions(user_id);
+CREATE INDEX IF NOT EXISTS idx_device_sessions_last_active ON public.device_sessions(last_active_at);
+
+-- Function to cleanup stale device sessions
+CREATE OR REPLACE FUNCTION cleanup_stale_device_sessions(p_timeout_seconds INTEGER DEFAULT 60)
+RETURNS INTEGER AS $$
+DECLARE
+  deleted_count INTEGER := 0;
+BEGIN
+  DELETE FROM public.device_sessions
+  WHERE last_active_at < NOW() - (p_timeout_seconds || ' seconds')::INTERVAL;
+  
+  GET DIAGNOSTICS deleted_count = ROW_COUNT;
+  RETURN deleted_count;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+
+-- Enable RLS for device_sessions
+ALTER TABLE public.device_sessions ENABLE ROW LEVEL SECURITY;
+
+-- device_sessions policies (SECURED)
+-- Systematic cleanup: Drop ALL existing policies on device_sessions 
+-- regardless of name to remove "Always True" lingering policies.
+DO $$
+DECLARE
+    policy_record RECORD;
+BEGIN
+    FOR policy_record IN 
+        SELECT policyname 
+        FROM pg_policies 
+        WHERE tablename = 'device_sessions' AND schemaname = 'public'
+    LOOP
+        EXECUTE format('DROP POLICY %I ON public.device_sessions', policy_record.policyname);
+    END LOOP;
+END $$;
+
+CREATE POLICY "device_sessions_select_own" ON public.device_sessions
+  FOR SELECT TO authenticated
+  USING (user_id = auth.uid()::text OR auth.role() = 'service_role');
+
+CREATE POLICY "device_sessions_insert_own" ON public.device_sessions
+  FOR INSERT TO authenticated
+  WITH CHECK (user_id = auth.uid()::text OR auth.role() = 'service_role');
+
+CREATE POLICY "device_sessions_update_own" ON public.device_sessions
+  FOR UPDATE TO authenticated
+  USING (user_id = auth.uid()::text OR auth.role() = 'service_role');
+
+CREATE POLICY "device_sessions_delete_own" ON public.device_sessions
+  FOR DELETE TO authenticated
+  USING (user_id = auth.uid()::text OR auth.role() = 'service_role');
 
 
 -- =====================================================

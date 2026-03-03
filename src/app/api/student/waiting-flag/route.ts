@@ -201,8 +201,7 @@ export async function POST(request: Request) {
 
       return NextResponse.json(
         {
-          error: 'Failed to create waiting flag: ' + supabaseError.message,
-          details: supabaseError
+          error: 'Failed to create waiting flag'
         },
         { status: 500 }
       );
@@ -272,7 +271,7 @@ export async function POST(request: Request) {
   } catch (error: any) {
     console.error('Error creating waiting flag:', error);
     return NextResponse.json(
-      { error: error.message || 'Failed to create waiting flag' },
+      { error: 'Failed to create waiting flag' },
       { status: 500 }
     );
   }
@@ -366,7 +365,7 @@ export async function DELETE(request: Request) {
   } catch (error: any) {
     console.error('Error removing waiting flag:', error);
     return NextResponse.json(
-      { error: error.message || 'Failed to remove waiting flag' },
+      { error: 'Failed to remove waiting flag' },
       { status: 500 }
     );
   }

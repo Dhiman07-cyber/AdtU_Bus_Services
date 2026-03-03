@@ -1,10 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { adminAuth, adminDb } from '@/lib/firebase-admin';
 import { getSystemConfig } from '@/lib/system-config-service';
-import fs from 'fs';
-import path from 'path';
-
-const CONFIG_FILE_PATH = path.join(process.cwd(), 'src', 'config', 'terms_config.json');
 const COLLECTION_NAME = 'settings';
 const DOC_ID = 'terms';
 
@@ -24,12 +20,7 @@ export async function GET(req: NextRequest) {
             source = 'firestore';
         }
 
-        // 2. Fallback to Local JSON
-        if (!config && fs.existsSync(CONFIG_FILE_PATH)) {
-            const configData = fs.readFileSync(CONFIG_FILE_PATH, 'utf-8');
-            config = JSON.parse(configData);
-            source = 'json-file-fallback';
-        }
+        // 2. No Fallback allowed
 
         if (!config) {
             // Default structure

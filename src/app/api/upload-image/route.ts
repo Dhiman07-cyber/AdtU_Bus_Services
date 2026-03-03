@@ -1,4 +1,8 @@
+import { NextRequest, NextResponse } from 'next/server';
 import { v2 as cloudinary } from 'cloudinary';
+import { verifyTokenOnly } from '@/lib/security/api-auth';
+import { checkRateLimit, createRateLimitId } from '@/lib/security/rate-limiter';
+import { handleApiError } from '@/lib/security/safe-error';
 
 // Configure Cloudinary
 cloudinary.config({
@@ -8,41 +12,82 @@ cloudinary.config({
   secure: true
 });
 
-export async function POST(request: Request) {
+/** Allowed image MIME types */
+const ALLOWED_TYPES = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp'];
+/** Maximum file size: 5MB */
+const MAX_FILE_SIZE = 5 * 1024 * 1024;
+/** Allowed Cloudinary folder names */
+const ALLOWED_FOLDERS = ['adtu', 'ADTU', 'profiles', 'receipts'];
+
+export async function POST(request: NextRequest) {
   try {
+    // SECURITY: Verify authentication
+    const user = await verifyTokenOnly(request);
+    if (!user) {
+      return NextResponse.json(
+        { error: 'Authentication required' },
+        { status: 401 }
+      );
+    }
+
+    // SECURITY: Rate limit uploads (5 per minute)
+    const rateLimitId = createRateLimitId(user.uid, 'upload-image');
+    const rateCheck = checkRateLimit(rateLimitId, 5, 60000);
+    if (!rateCheck.allowed) {
+      return NextResponse.json(
+        { error: 'Too many uploads. Please wait before trying again.' },
+        { status: 429 }
+      );
+    }
+
     const formData = await request.formData();
     const file = formData.get('file') as File;
-    const folder = formData.get('folder') as string || 'adtu';
+    const folder = (formData.get('folder') as string) || 'adtu';
 
     if (!file) {
-      return new Response(JSON.stringify({ error: 'No file provided' }), {
-        status: 400,
-        headers: { 'Content-Type': 'application/json' },
-      });
+      return NextResponse.json({ error: 'No file provided' }, { status: 400 });
     }
+
+    // SECURITY: Validate file type
+    if (!ALLOWED_TYPES.includes(file.type)) {
+      return NextResponse.json(
+        { error: 'Invalid file type. Only JPEG, PNG, GIF, and WebP are allowed.' },
+        { status: 400 }
+      );
+    }
+
+    // SECURITY: Validate file size
+    if (file.size > MAX_FILE_SIZE) {
+      return NextResponse.json(
+        { error: 'File size exceeds 5MB limit.' },
+        { status: 400 }
+      );
+    }
+
+    // SECURITY: Validate and sanitize folder name
+    const sanitizedFolder = ALLOWED_FOLDERS.includes(folder) ? folder : 'adtu';
 
     // Convert file to base64
     const arrayBuffer = await file.arrayBuffer();
     const base64 = Buffer.from(arrayBuffer).toString('base64');
     const dataURI = `data:${file.type};base64,${base64}`;
 
-    // Upload to Cloudinary
+    // Upload to Cloudinary with unique filename
     const result = await cloudinary.uploader.upload(dataURI, {
-      folder: folder,
-      use_filename: true,
-      unique_filename: false,
-      overwrite: true
+      folder: sanitizedFolder,
+      use_filename: false,
+      unique_filename: true,
+      overwrite: false,
+      // SECURITY: Strip all metadata from uploaded images
+      transformation: [{ flags: 'strip_profile' }],
     });
 
-    return new Response(JSON.stringify({ url: result.secure_url }), {
-      status: 200,
-      headers: { 'Content-Type': 'application/json' },
-    });
+    return NextResponse.json({ url: result.secure_url });
   } catch (error: any) {
     console.error('Error uploading image to Cloudinary:', error);
-    return new Response(JSON.stringify({ error: error.message || 'Failed to upload image' }), {
-      status: 500,
-      headers: { 'Content-Type': 'application/json' },
-    });
+    return NextResponse.json(
+      handleApiError(error, 'upload-image', 'Failed to upload image'),
+      { status: 500 }
+    );
   }
 }

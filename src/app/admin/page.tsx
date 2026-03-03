@@ -18,7 +18,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 // SPARK PLAN SAFETY: Migrated to usePaginatedCollection
 import { usePaginatedCollection } from '@/hooks/usePaginatedCollection';
-import { FullScreenLoader } from '@/components/LoadingSpinner';
+import { PremiumPageLoader } from '@/components/LoadingSpinner';
 
 import {
   Users,
@@ -48,7 +48,11 @@ import {
   BarChart as BarChartIcon,
   TrendingUp as TrendingUpIcon,
   Sun,
-  Moon
+  Moon,
+  Info,
+  AlertTriangle,
+  Wallet,
+  CreditCard
 } from 'lucide-react';
 import {
   BarChart,
@@ -68,12 +72,12 @@ import {
   Area
 } from 'recharts';
 import { auth } from '@/lib/firebase';
-import { CreditCard, Wallet } from 'lucide-react';
 import HighLoadAlert from '@/components/HighLoadAlert';
 
 const CHART_COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899'];
 import { ActiveTripsCard } from '@/components/dashboard/ActiveTripsCard';
 import { useSystemConfig } from '@/contexts/SystemConfigContext';
+import { parseFirestoreDate } from '@/lib/utils/date-utils';
 
 // ============================================================================
 // DASHBOARD CACHING UTILITIES
@@ -198,14 +202,21 @@ export default function EnhancedAdminDashboard() {
       const studentsColl = collection(db, 'students');
       const totalStudentsSnap = await getCountFromServer(studentsColl);
 
-      // Fetch all 'active' students to apply complex filters
+      // Fetch aggregated counts to improve dashboard loading time
       const activeStudentsQuery = query(studentsColl, where('status', '==', 'active'));
-      const activeStudentsSnapDoc = await getDocs(activeStudentsQuery);
-      const activeStudentsFiltered = activeStudentsSnapDoc.docs.map(doc => doc.data());
+      const activeStudentsSnap = await getCountFromServer(activeStudentsQuery);
+      const activeCount = activeStudentsSnap.data().count;
 
-      const activeCount = activeStudentsFiltered.length;
-      const morningCount = activeStudentsFiltered.filter((s: any) => s.shift?.toLowerCase() === 'morning').length;
-      const eveningCount = activeStudentsFiltered.filter((s: any) => s.shift?.toLowerCase() === 'evening').length;
+      const morningQuery = query(studentsColl, where('status', '==', 'active'), where('shift', 'in', ['morning', 'Morning', 'MORNING']));
+      const eveningQuery = query(studentsColl, where('status', '==', 'active'), where('shift', 'in', ['evening', 'Evening', 'EVENING']));
+
+      const [mSnap, eSnap] = await Promise.all([
+        getCountFromServer(morningQuery),
+        getCountFromServer(eveningQuery)
+      ]);
+
+      const morningCount = mSnap.data().count;
+      const eveningCount = eSnap.data().count;
 
       // 2. Drivers, Buses
       const driversColl = collection(db, 'drivers');
@@ -357,17 +368,22 @@ export default function EnhancedAdminDashboard() {
   // Manual refresh handler
   const handleRefreshAll = async () => {
     setIsRefreshing(true);
-    await Promise.all([
-      refreshStudents(),
-      refreshDrivers(),
-      refreshBuses(),
-      refreshApplications(),
-      refreshNotifications(),
-      fetchRealTotalCounts(),
-      refreshConfig()
-    ]);
-    setLastUpdated(new Date());
-    setIsRefreshing(false);
+    try {
+      await Promise.all([
+        refreshStudents(),
+        refreshDrivers(),
+        refreshBuses(),
+        refreshApplications(),
+        refreshNotifications(),
+        fetchRealTotalCounts(),
+        refreshConfig()
+      ]);
+      setLastUpdated(new Date());
+    } catch (error) {
+      console.error('Error refreshing dashboard:', error);
+    } finally {
+      setIsRefreshing(false);
+    }
   };
 
   const [busUtilization, setBusUtilization] = useState<any[]>([]);
@@ -377,14 +393,6 @@ export default function EnhancedAdminDashboard() {
   const [verificationTrend, setVerificationTrend] = useState<any[]>([]);
   const [activeTrips, setActiveTrips] = useState<any[]>([]);
 
-  useEffect(() => {
-    if (!authLoading) {
-      if (!currentUser || !userData || userData.role !== 'admin') {
-        router.push('/login');
-        return;
-      }
-    }
-  }, [authLoading, currentUser, userData, router]);
 
 
   // Memoized calculation functions
@@ -670,8 +678,8 @@ export default function EnhancedAdminDashboard() {
   }, [allDataLoading, students, drivers, buses, routes, notifications]);
 
 
-  if (allDataLoading) {
-    return <FullScreenLoader message="Loading Dashboard..." />;
+  if (allDataLoading && students.length === 0 && drivers.length === 0 && buses.length === 0) {
+    return <PremiumPageLoader message="Curating Dashboard Experience..." subMessage="Fetching system status and analytics..." />;
   }
 
   // Get first name from user data
@@ -722,7 +730,7 @@ export default function EnhancedAdminDashboard() {
           <Button
             onClick={handleRefreshAll}
             disabled={isRefreshing}
-            className="group h-8 px-4 bg-white hover:bg-gray-50 text-gray-600 hover:text-purple-600 border border-gray-200 hover:border-purple-200 shadow-sm hover:shadow-lg hover:shadow-purple-500/10 font-bold text-[10px] uppercase tracking-widest rounded-lg transition-all duration-300 active:scale-95"
+            className="group h-8 px-4 bg-white hover:bg-gray-50 text-black hover:text-purple-600 border border-gray-200 hover:border-purple-200 shadow-sm hover:shadow-lg hover:shadow-purple-500/10 font-bold text-[10px] uppercase tracking-widest rounded-lg transition-all duration-300 active:scale-95"
             size="sm"
           >
             <RefreshCw className={`mr-2 h-3.5 w-3.5 transition-transform duration-500 ${isRefreshing ? 'animate-spin' : 'group-hover:rotate-180'}`} />
@@ -918,42 +926,44 @@ export default function EnhancedAdminDashboard() {
 
           {/* Processing Efficiency - Replaces Priority Tasks */}
           < Card className="bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl border border-slate-200 dark:border-slate-800 shadow-sm hover:shadow-md hover:border-violet-500/30 transition-all duration-300 group cursor-pointer" >
-            <CardHeader className="px-2.5">
-              <CardTitle className="text-xs text-gray-900 dark:text-white flex items-center gap-1 group-hover:text-violet-400 transition-colors">
-                <Activity className="h-3 w-3 group-hover:scale-110 transition-transform" />
-                Academic Year Info
-              </CardTitle>
-              <CardDescription className="text-[10px]">Key academic dates</CardDescription>
+            <CardHeader className="px-2.5 pb-2">
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-xs text-gray-900 dark:text-white flex items-center gap-1 group-hover:text-violet-400 transition-colors">
+                  <Activity className="h-3 w-3 group-hover:scale-110 transition-transform" />
+                  Academic Year Info
+                </CardTitle>
+                <Link href="/admin/sys-renewal-config-x9k2p">
+                  <Button variant="ghost" size="icon" className="h-5 w-5 hover:bg-violet-500/10 hover:text-violet-400">
+                    <Filter className="h-3 w-3" />
+                  </Button>
+                </Link>
+              </div>
+              <CardDescription className="text-[10px]">Key academic dates & deadlines</CardDescription>
             </CardHeader>
-            <CardContent className="px-2.5">
-              <div className="space-y-0.5">
-                <div className="flex items-center justify-between text-[10px] mb-1">
-                  <span className="text-gray-500 dark:text-gray-400">Academic Year End:</span>
-                  <span className="text-green-400 font-bold">{systemConfig?.academicYearEnd ? (() => {
-                    const d = new Date(systemConfig.academicYearEnd!);
-                    const day = d.getDate();
-                    const suffix = (day > 3 && day < 21) || day % 10 > 3 ? 'th' : ['th', 'st', 'nd', 'rd'][day % 10];
-                    return `${day}${suffix} ${d.toLocaleString('en-GB', { month: 'long' })}`;
-                  })() : 'N/A'}</span>
-                </div>
-                <div className="flex items-center justify-between text-[10px] mb-1">
-                  <span className="text-gray-500 dark:text-gray-400">Soft Block:</span>
-                  <span className="text-yellow-400 font-bold">{systemConfig?.softBlock ? (() => {
-                    const d = new Date(systemConfig.softBlock!);
-                    const day = d.getDate();
-                    const suffix = (day > 3 && day < 21) || day % 10 > 3 ? 'th' : ['th', 'st', 'nd', 'rd'][day % 10];
-                    return `${day}${suffix} ${d.toLocaleString('en-GB', { month: 'long' })}`;
-                  })() : 'N/A'}</span>
-                </div>
-                <div className="flex items-center justify-between text-[10px]">
-                  <span className="text-gray-500 dark:text-gray-400">Hard Block:</span>
-                  <span className="text-red-400 font-bold">{systemConfig?.hardBlock ? (() => {
-                    const d = new Date(systemConfig.hardBlock!);
-                    const day = d.getDate();
-                    const suffix = (day > 3 && day < 21) || day % 10 > 3 ? 'th' : ['th', 'st', 'nd', 'rd'][day % 10];
-                    return `${day}${suffix} ${d.toLocaleString('en-GB', { month: 'long' })}`;
-                  })() : 'N/A'}</span>
-                </div>
+            <CardContent className="px-2.5 pt-0">
+              <div className="space-y-1.5">
+                {[
+                  { label: 'Academic Year End', value: systemConfig?.academicYearEnd, color: 'text-green-400', icon: CheckCircle },
+                  { label: 'Soft Block', value: systemConfig?.softBlock, color: 'text-yellow-400', icon: Info },
+                  { label: 'Hard Block', value: systemConfig?.hardBlock, color: 'text-red-400', icon: AlertTriangle }
+                ].map((item, idx) => {
+                  const date = parseFirestoreDate(item.value);
+                  return (
+                    <div key={idx} className="flex items-center justify-between group/row">
+                      <div className="flex items-center gap-1.5">
+                        <item.icon className="h-2.5 w-2.5 text-gray-500" />
+                        <span className="text-[10px] text-gray-500 dark:text-gray-400 group-hover/row:text-gray-300 transition-colors">{item.label}:</span>
+                      </div>
+                      <span className={`${item.color} font-bold text-[10px] tracking-tight`}>
+                        {date ? (() => {
+                          const day = date.getDate();
+                          const suffix = (day > 3 && day < 21) || day % 10 > 3 ? 'th' : ['th', 'st', 'nd', 'rd'][day % 10];
+                          return `${day}${suffix} ${date.toLocaleString('en-GB', { month: 'short' })}`;
+                        })() : 'N/A'}
+                      </span>
+                    </div>
+                  );
+                })}
               </div>
             </CardContent>
           </Card >

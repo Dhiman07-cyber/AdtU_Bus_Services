@@ -126,7 +126,7 @@ export async function POST(request: Request) {
     return NextResponse.json(
       { 
         success: false, 
-        error: error.message,
+        error: 'An unexpected error occurred',
         note: 'Fix failed - bus documents may be partially updated'
       },
       { status: 500 }

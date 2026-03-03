@@ -36,7 +36,7 @@ export async function GET(request: NextRequest) {
   } catch (error: any) {
     console.error('Error checking application:', error);
     return NextResponse.json(
-      { error: error.message || 'Failed to check application' },
+      { error: 'Failed to check application' },
       { status: 500 }
     );
   }

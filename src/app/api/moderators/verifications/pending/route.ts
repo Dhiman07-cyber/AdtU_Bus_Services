@@ -36,7 +36,7 @@ export async function GET(request: NextRequest) {
   } catch (error: any) {
     console.error('Error fetching verifications:', error);
     return NextResponse.json(
-      { error: error.message || 'Failed to fetch verifications' },
+      { error: 'Failed to fetch verifications' },
       { status: 500 }
     );
   }

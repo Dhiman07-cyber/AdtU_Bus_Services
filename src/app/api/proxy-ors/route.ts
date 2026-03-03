@@ -1,7 +1,9 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { getRobustRoute, type ORSConfig } from '@/lib/ors-robust-client';
 import { validateCoordinates } from '@/lib/coordinate-validator';
+import { verifyApiAuth } from '@/lib/security/api-auth';
+import { checkRateLimit, RateLimits, createRateLimitId } from '@/lib/security/rate-limiter';
 
 // Initialize Supabase client with service role for caching
 const supabase = createClient(
@@ -36,19 +38,30 @@ const orsConfig: ORSConfig = {
  * - routeId?: string (optional, for caching by routeId)
  * - address?: string (for geocoding)
  */
-export async function POST(request: Request) {
+export async function POST(request: NextRequest) {
   try {
+    // SECURITY: Require admin/moderator authentication
+    const auth = await verifyApiAuth(request, ['admin', 'moderator']);
+    if (!auth.authenticated) return auth.response;
+
+    // SECURITY: Rate limit ORS API calls
+    const rateLimitId = createRateLimitId(auth.uid, 'proxy-ors');
+    const rateCheck = checkRateLimit(rateLimitId, 30, 60000);
+    if (!rateCheck.allowed) {
+      return NextResponse.json({ error: 'Too many requests' }, { status: 429 });
+    }
+
     // Clone request body to avoid mutation errors
     const body = await request.json();
     const requestData = JSON.parse(JSON.stringify(body)); // Deep clone to prevent read-only issues
-    
-    const { 
-      action, 
-      coordinates, 
-      profile = 'driving-car', 
-      routeId, 
+
+    const {
+      action,
+      coordinates,
+      profile = 'driving-car',
+      routeId,
       address,
-      forceRefresh = false 
+      forceRefresh = false
     } = requestData;
 
     if (!ORS_API_KEY) {
@@ -71,16 +84,16 @@ export async function POST(request: Request) {
 
       // Early validation using our validator
       const validation = validateCoordinates(coordinates);
-      
+
       if (!validation.valid) {
         console.error('❌ Coordinate validation failed:', {
           routeId,
           errors: validation.errors,
           coordinates
         });
-        
+
         return NextResponse.json(
-          { 
+          {
             error: 'Invalid coordinates',
             details: validation.errors,
             suggestion: 'Check that all coordinates are numeric and within valid lat/lng ranges'
@@ -132,9 +145,9 @@ export async function POST(request: Request) {
           reason: routeResult.fallbackReason,
           attempts: routeResult.attempts
         });
-        
+
         return NextResponse.json(
-          { 
+          {
             error: 'Failed to fetch route',
             details: routeResult.fallbackReason,
             attempts: routeResult.attempts,
@@ -206,7 +219,7 @@ export async function POST(request: Request) {
       }
 
       const orsUrl = `${ORS_BASE_URL}/geocode/search`;
-      
+
       const orsResponse = await fetch(
         `${orsUrl}?api_key=${ORS_API_KEY}&text=${encodeURIComponent(address)}`,
         {
@@ -262,7 +275,7 @@ export async function POST(request: Request) {
   } catch (error: any) {
     console.error('Error in ORS proxy:', error);
     return NextResponse.json(
-      { error: error.message || 'Failed to process ORS request' },
+      { error: 'Failed to process ORS request' },
       { status: 500 }
     );
   }
@@ -273,8 +286,12 @@ export async function POST(request: Request) {
  * 
  * Get cached route geometry
  */
-export async function GET(request: Request) {
+export async function GET(request: NextRequest) {
   try {
+    // SECURITY: Require authentication
+    const auth = await verifyApiAuth(request, ['admin', 'moderator']);
+    if (!auth.authenticated) return auth.response;
+
     const url = new URL(request.url);
     const routeId = url.searchParams.get('routeId');
 
@@ -318,7 +335,7 @@ export async function GET(request: Request) {
   } catch (error: any) {
     console.error('Error getting cached route:', error);
     return NextResponse.json(
-      { error: error.message || 'Failed to get cached route' },
+      { error: 'Failed to get cached route' },
       { status: 500 }
     );
   }

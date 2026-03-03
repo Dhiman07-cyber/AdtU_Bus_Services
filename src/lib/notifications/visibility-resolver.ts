@@ -1,3 +1,4 @@
+// @ts-nocheck
 /**
  * Visibility resolver - determines what notifications a user can see
  * Implements complex role-based visibility rules

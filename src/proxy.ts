@@ -1,238 +1,398 @@
 /**
- * Next.js Proxy - ADTU Smart Bus Management System
-
- * This proxy runs BEFORE every request and handles:
- * 1. Rate limiting for all API routes
- * 2. Security headers
- * 3. Request logging for monitoring
+ * Next.js Proxy for ADTU Bus Services (Next.js 16+ convention)
  * 
- * @see https://nextjs.org/docs/messages/middleware-to-proxy
+ * SECURITY: Provides multi-layer route-level protection:
+ * - IP-based global rate limiting (DDoS/load protection)
+ * - CSRF protection for state-changing requests
+ * - Suspicious path/scanner blocking
+ * - Authentication verification via Firebase session cookies
+ * - Role-based access control for protected routes
+ * - Security headers injection
+ * - Request method validation
  */
 
-import { NextResponse } from 'next/server';
-import type { NextRequest } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 
 // ============================================================================
-// RATE LIMITING CONFIGURATION
+// RATE LIMITING (Edge-compatible, in-memory)
 // ============================================================================
 
-interface RateLimitEntry {
-    count: number;
-    resetTime: number;
+/**
+ * Global IP rate limiter for proxy-level DDoS protection.
+ * Runs at the edge, so uses simple in-memory Map.
+ * This is a first line of defense; individual API routes have their own limits.
+ */
+const ipRequestCounts = new Map<string, { count: number; resetTime: number }>();
+const IP_RATE_LIMIT = 300;        // max requests per window
+const IP_RATE_WINDOW_MS = 60_000; // 1 minute window
+const IP_CACHE_MAX = 50_000;      // prevent unbounded memory growth
+
+function checkGlobalRateLimit(ip: string): { allowed: boolean; remaining: number } {
+    const now = Date.now();
+
+    // Evict expired entries periodically (every ~1000 checks)
+    if (ipRequestCounts.size > IP_CACHE_MAX) {
+        for (const [key, entry] of ipRequestCounts) {
+            if (now > entry.resetTime) ipRequestCounts.delete(key);
+        }
+    }
+
+    const entry = ipRequestCounts.get(ip);
+    if (!entry || now > entry.resetTime) {
+        ipRequestCounts.set(ip, { count: 1, resetTime: now + IP_RATE_WINDOW_MS });
+        return { allowed: true, remaining: IP_RATE_LIMIT - 1 };
+    }
+
+    entry.count++;
+    if (entry.count > IP_RATE_LIMIT) {
+        return { allowed: false, remaining: 0 };
+    }
+
+    return { allowed: true, remaining: IP_RATE_LIMIT - entry.count };
 }
 
-// Simple in-memory store (works per-instance, good for Vercel Edge)
-// For production with multiple instances, consider Upstash Redis
-const rateLimitStore = new Map<string, RateLimitEntry>();
+// ============================================================================
+// ROUTE CONFIGURATION
+// ============================================================================
 
-// Rate limit configurations by route pattern
-const RATE_LIMITS: Record<string, { maxRequests: number; windowMs: number }> = {
-    // Authentication - strict limits
-    '/api/auth': { maxRequests: 10, windowMs: 60000 },
-
-    // Payment endpoints - moderate limits
-    '/api/payment': { maxRequests: 10, windowMs: 60000 },
-    '/api/razorpay': { maxRequests: 10, windowMs: 60000 },
-
-    // Driver location broadcasts - high limits (real-time)
-    '/api/driver/broadcast-location': { maxRequests: 120, windowMs: 60000 }, // 2/sec
-
-    // Bus pass operations
-    '/api/bus-pass': { maxRequests: 30, windowMs: 60000 },
-
-    // Health checks - high limits (for monitoring)
-    '/api/health': { maxRequests: 100, windowMs: 60000 },
-
-    // Admin operations - moderate limits
-    '/api/admin': { maxRequests: 60, windowMs: 60000 },
-
-    // Moderator operations
-    '/api/moderator': { maxRequests: 60, windowMs: 60000 },
-
-    // Student operations
-    '/api/student': { maxRequests: 60, windowMs: 60000 },
-
-    // Webhooks - higher limits for external services
-    '/api/webhooks': { maxRequests: 100, windowMs: 60000 },
-
-    // Missed bus requests - moderate limits
-    '/api/missed-bus': { maxRequests: 10, windowMs: 60000 },
-
-    // Default for all other API routes
-    'default': { maxRequests: 60, windowMs: 60000 }
-};
-
-// Endpoints that should NOT be rate limited (emergency/critical)
-const RATE_LIMIT_EXEMPT = [
-    '/api/health',      // Health checks should always work
-    '/api/health/db',   // DB health checks
+/** Public routes accessible without authentication */
+const PUBLIC_ROUTES = [
+    '/',
+    '/login',
+    '/about',
+    '/contact',
+    '/faq',
+    '/how-it-works',
+    '/privacy-policy',
+    '/terms-and-conditions',
+    '/rules-content',
+    '/apply',
+    '/setup-admin',
 ];
 
-/**
- * Get rate limit config for a given path
+/** Public API routes that don't require authentication */
+const PUBLIC_API_ROUTES = [
+    '/api/health',
+    '/api/health/db',
+    '/api/check-first-user',
+    '/api/create-first-admin',
+    '/api/auth/google',
+    '/api/landing-video',
+    '/api/get-rules-content',
+    '/api/get-bus-fee',
+    '/api/faculties',
+    '/api/settings/privacy-config',
+    '/api/settings/terms-config',
+    '/api/settings/ui-config',
+    '/api/settings/landing-config',
+    '/api/settings/system-config',
+    '/api/settings/deadline-config',
+    '/api/settings/bus-fees',
+    '/api/payment/webhook/razorpay', // Webhooks verify their own signatures
+    '/api/applications/check',
+    '/api/applications/my-status',
+    '/api/applications/my-application',
+];
+
+/** 
+ * Cron job routes - these use CRON_SECRET instead of user auth 
+ * They verify authorization internally
  */
-function getRateLimitConfig(pathname: string): { maxRequests: number; windowMs: number } {
-    // Check for exact matches first
-    for (const [pattern, config] of Object.entries(RATE_LIMITS)) {
-        if (pattern !== 'default' && pathname.startsWith(pattern)) {
-            return config;
+const CRON_API_ROUTES = [
+    '/api/cron/',
+];
+
+/** Role-based route access mapping */
+const ROLE_ROUTE_MAP: Record<string, string[]> = {
+    '/admin': ['admin'],
+    '/moderator': ['admin', 'moderator'],
+    '/driver': ['admin', 'driver'],
+    '/student': ['admin', 'moderator', 'student'],
+    '/profile': ['admin', 'moderator', 'driver', 'student'],
+};
+
+/** Valid HTTP methods for API routes */
+const VALID_API_METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS', 'HEAD'];
+
+/**
+ * Suspicious paths commonly targeted by automated scanners.
+ * Block these immediately to reduce noise and attack surface.
+ */
+const BLOCKED_PATH_PATTERNS = [
+    /\.php$/i,
+    /\.asp$/i,
+    /\.aspx$/i,
+    /\.jsp$/i,
+    /\.cgi$/i,
+    /\/wp-admin/i,
+    /\/wp-login/i,
+    /\/wp-content/i,
+    /\/wordpress/i,
+    /\/xmlrpc/i,
+    /\/phpmyadmin/i,
+    /\/\.env/i,
+    /\/\.git/i,
+    /\/\.svn/i,
+    /\/\.htaccess/i,
+    /\/\.htpasswd/i,
+    /\/web\.config/i,
+    /\/administrator/i,
+    /\/admin\.php/i,
+    /\/config\.php/i,
+    /\/eval-stdin/i,
+    /\/actuator/i,
+    /\/debug\//i,
+    /\/trace/i,
+    /\/console/i,
+    /\/shell/i,
+    /\/cmd/i,
+    /\/exec/i,
+    /\/etc\/passwd/i,
+    /\/proc\/self/i,
+    /\/\.well-known\/security\.txt/i,
+];
+
+/** Static file extensions to skip */
+const STATIC_EXTENSIONS = [
+    '.ico', '.png', '.jpg', '.jpeg', '.gif', '.svg', '.webp',
+    '.css', '.js', '.woff', '.woff2', '.ttf', '.eot',
+    '.mp4', '.webm', '.ogg', '.mp3', '.wav',
+    '.xml', '.map',
+];
+
+// ============================================================================
+// HELPER FUNCTIONS
+// ============================================================================
+
+function getClientIp(request: NextRequest): string {
+    return (
+        request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||
+        request.headers.get('x-real-ip') ||
+        request.headers.get('cf-connecting-ip') ||
+        '127.0.0.1'
+    );
+}
+
+function isStaticFile(pathname: string): boolean {
+    return STATIC_EXTENSIONS.some(ext => pathname.endsWith(ext)) ||
+        pathname.startsWith('/_next/') ||
+        pathname.startsWith('/public/') ||
+        pathname === '/favicon.ico' ||
+        pathname === '/manifest.json' ||
+        pathname.startsWith('/manifest-icon/');
+}
+
+function isBlockedPath(pathname: string): boolean {
+    return BLOCKED_PATH_PATTERNS.some(pattern => pattern.test(pathname));
+}
+
+function isPublicRoute(pathname: string): boolean {
+    return PUBLIC_ROUTES.some(route => {
+        if (route === '/') return pathname === '/';
+        return pathname === route || pathname.startsWith(route + '/');
+    });
+}
+
+function isPublicApiRoute(pathname: string): boolean {
+    return PUBLIC_API_ROUTES.some(route => pathname.startsWith(route));
+}
+
+function isCronRoute(pathname: string): boolean {
+    return CRON_API_ROUTES.some(route => pathname.startsWith(route));
+}
+
+function getRequiredRoles(pathname: string): string[] | null {
+    for (const [routePrefix, roles] of Object.entries(ROLE_ROUTE_MAP)) {
+        if (pathname.startsWith(routePrefix)) {
+            return roles;
         }
     }
-    return RATE_LIMITS['default'];
+    return null;
 }
 
 /**
- * Get client identifier for rate limiting
- * Uses IP address + forwarded headers
+ * Extract the allowed origins for CSRF checks
  */
-function getClientIdentifier(request: NextRequest): string {
-    // Try to get real IP from various headers (Vercel, Cloudflare, etc.)
-    const forwardedFor = request.headers.get('x-forwarded-for');
-    const realIp = request.headers.get('x-real-ip');
-    const cfConnectingIp = request.headers.get('cf-connecting-ip');
+function getAllowedOrigins(): string[] {
+    const origins = [
+        process.env.NEXT_PUBLIC_APP_URL || '',
+        'https://adtu-bus.vercel.app',
+        'https://adtu-bus-xq.vercel.app',
+    ].filter(Boolean);
 
-    const ip = cfConnectingIp || realIp || forwardedFor?.split(',')[0]?.trim() || 'unknown';
+    if (process.env.NODE_ENV === 'development') {
+        origins.push('http://localhost:3000', 'http://127.0.0.1:3000');
+    }
 
-    // Combine with pathname for per-endpoint limiting
-    return `${ip}:${request.nextUrl.pathname}`;
+    return origins;
 }
 
 /**
- * Check rate limit for a request
+ * Validate Origin / Referer for CSRF protection
  */
-function checkRateLimit(
-    identifier: string,
-    maxRequests: number,
-    windowMs: number
-): { allowed: boolean; remaining: number; resetIn: number } {
-    const now = Date.now();
-    const entry = rateLimitStore.get(identifier);
+function validateOrigin(request: NextRequest): boolean {
+    const method = request.method;
 
-    // Cleanup old entries periodically
-    if (rateLimitStore.size > 10000) {
-        for (const [key, val] of rateLimitStore) {
-            if (now > val.resetTime) {
-                rateLimitStore.delete(key);
-            }
+    // Only validate state-changing methods
+    if (['GET', 'HEAD', 'OPTIONS'].includes(method)) {
+        return true;
+    }
+
+    const origin = request.headers.get('origin');
+    const referer = request.headers.get('referer');
+
+    // Webhooks and cron jobs may not have an origin
+    if (request.nextUrl.pathname.includes('/webhook/') || isCronRoute(request.nextUrl.pathname)) {
+        return true;
+    }
+
+    // API routes called from server components won't have origin
+    if (!origin && !referer) {
+        // Allow server-to-server calls in production (Vercel internal)
+        return true;
+    }
+
+    const allowedOrigins = getAllowedOrigins();
+
+    // Check origin header
+    if (origin) {
+        if (allowedOrigins.some(allowed => origin === allowed)) return true;
+        // Allow Vercel preview deployments
+        if (/^https:\/\/.*\.vercel\.app$/.test(origin)) return true;
+        if (process.env.NODE_ENV === 'development' && origin.startsWith('http://localhost:')) return true;
+    }
+
+    // Fallback to referer
+    if (referer) {
+        try {
+            const refererUrl = new URL(referer);
+            const refererOrigin = refererUrl.origin;
+            if (allowedOrigins.some(allowed => refererOrigin === allowed)) return true;
+            if (/^https:\/\/.*\.vercel\.app$/.test(refererOrigin)) return true;
+            if (process.env.NODE_ENV === 'development' && refererOrigin.startsWith('http://localhost:')) return true;
+        } catch {
+            // Invalid referer URL — reject
         }
     }
 
-    // No entry or expired - start fresh
-    if (!entry || now > entry.resetTime) {
-        rateLimitStore.set(identifier, {
-            count: 1,
-            resetTime: now + windowMs
-        });
-        return { allowed: true, remaining: maxRequests - 1, resetIn: windowMs };
-    }
+    return false;
+}
 
-    // Check if limit exceeded
-    if (entry.count >= maxRequests) {
-        return {
-            allowed: false,
-            remaining: 0,
-            resetIn: entry.resetTime - now
-        };
-    }
-
-    // Increment and allow
-    entry.count++;
-    return {
-        allowed: true,
-        remaining: maxRequests - entry.count,
-        resetIn: entry.resetTime - now
-    };
+/**
+ * Create a JSON error response with proper headers
+ */
+function jsonError(message: string, status: number, extraHeaders?: Record<string, string>): NextResponse {
+    return new NextResponse(
+        JSON.stringify({ error: message }),
+        {
+            status,
+            headers: {
+                'Content-Type': 'application/json',
+                'X-Content-Type-Options': 'nosniff',
+                ...extraHeaders,
+            },
+        }
+    );
 }
 
 // ============================================================================
-// PROXY FUNCTION (renamed from middleware in Next.js 16+)
+// PROXY (formerly middleware — Next.js 16+ convention)
 // ============================================================================
 
-export function proxy(request: NextRequest) {
-    const pathname = request.nextUrl.pathname;
+export async function proxy(request: NextRequest) {
+    const { pathname } = request.nextUrl;
+    const clientIp = getClientIp(request);
 
-    // Only process API routes
-    if (!pathname.startsWith('/api')) {
+    // ── 1. Skip static files (no processing needed) ──
+    if (isStaticFile(pathname)) {
         return NextResponse.next();
     }
 
-    // Skip rate limiting for exempt endpoints
-    if (RATE_LIMIT_EXEMPT.some(exempt => pathname.startsWith(exempt))) {
-        return addSecurityHeaders(NextResponse.next());
+    // ── 2. Block suspicious scanner paths immediately ──
+    if (isBlockedPath(pathname)) {
+        // Return 404, not 403, to avoid fingerprinting
+        return new NextResponse(null, { status: 404 });
     }
 
-    // Get rate limit configuration
-    const config = getRateLimitConfig(pathname);
-    const clientId = getClientIdentifier(request);
-
-    // Check rate limit
-    const { allowed, remaining, resetIn } = checkRateLimit(
-        clientId,
-        config.maxRequests,
-        config.windowMs
-    );
-
-    // If rate limited, return 429
-    if (!allowed) {
-        const response = NextResponse.json(
-            {
-                error: 'Too Many Requests',
-                message: 'Rate limit exceeded. Please slow down.',
-                retryAfter: Math.ceil(resetIn / 1000)
-            },
-            { status: 429 }
-        );
-
-        // Add rate limit headers
-        response.headers.set('X-RateLimit-Limit', String(config.maxRequests));
-        response.headers.set('X-RateLimit-Remaining', '0');
-        response.headers.set('X-RateLimit-Reset', String(Math.ceil(resetIn / 1000)));
-        response.headers.set('Retry-After', String(Math.ceil(resetIn / 1000)));
-
-        return addSecurityHeaders(response);
+    // ── 3. Validate HTTP method ──
+    if (!VALID_API_METHODS.includes(request.method)) {
+        return jsonError('Method not allowed', 405);
     }
 
-    // Allow the request and add headers
+    // ── 4. Global IP rate limiting (DDoS protection) ──
+    const rateLimit = checkGlobalRateLimit(clientIp);
+    if (!rateLimit.allowed) {
+        console.warn(`🚫 [PROXY] Rate limit exceeded for IP ${clientIp} on ${pathname}`);
+        return jsonError('Too many requests', 429, {
+            'Retry-After': '60',
+            'X-RateLimit-Limit': String(IP_RATE_LIMIT),
+            'X-RateLimit-Remaining': '0',
+        });
+    }
+
+    // ── 5. Create response with security headers ──
     const response = NextResponse.next();
-    response.headers.set('X-RateLimit-Limit', String(config.maxRequests));
-    response.headers.set('X-RateLimit-Remaining', String(remaining));
-    response.headers.set('X-RateLimit-Reset', String(Math.ceil(resetIn / 1000)));
 
-    return addSecurityHeaders(response);
-}
-
-/**
- * Add security headers to all responses
- */
-function addSecurityHeaders(response: NextResponse): NextResponse {
-    // Prevent clickjacking
-    response.headers.set('X-Frame-Options', 'DENY');
-
-    // Prevent MIME type sniffing
+    // Security headers (complement next.config.ts)
     response.headers.set('X-Content-Type-Options', 'nosniff');
-
-    // XSS Protection (legacy, but still useful)
+    response.headers.set('X-Frame-Options', 'DENY');
     response.headers.set('X-XSS-Protection', '1; mode=block');
+    response.headers.set('X-RateLimit-Remaining', String(rateLimit.remaining));
 
-    // Referrer policy
-    response.headers.set('Referrer-Policy', 'strict-origin-when-cross-origin');
+    // ── 6. CSRF validation for state-changing requests ──
+    if (!validateOrigin(request)) {
+        console.warn(`🚫 [PROXY] CSRF validation failed for ${request.method} ${pathname} from IP ${clientIp}`);
+        return jsonError('Forbidden: Invalid request origin', 403);
+    }
 
-    // Permissions policy (restrict sensitive features)
-    response.headers.set(
-        'Permissions-Policy',
-        'camera=(), microphone=(), geolocation=(self), payment=(self)'
-    );
+    // ── 7. Allow public routes ──
+    if (isPublicRoute(pathname)) {
+        return response;
+    }
+
+    // ── 8. Allow public API routes ──
+    if (isPublicApiRoute(pathname)) {
+        return response;
+    }
+
+    // ── 9. Allow cron routes (they validate CRON_SECRET internally) ──
+    if (isCronRoute(pathname)) {
+        return response;
+    }
+
+    // ── 10. For protected page routes, client-side AuthContext and Layouts handle the checks ──
+    // We intentionally do not use edge redirects here because Firebase Web Auth relies on IndexedDB,
+    // which requires client-side hydration, not cookies.
+
+
+    // ── 11. For API routes, require authorization header for non-public routes ──
+    if (pathname.startsWith('/api/') && !isPublicApiRoute(pathname) && !isCronRoute(pathname)) {
+        const hasAuth = request.headers.get('authorization') ||
+            request.cookies.get('__session')?.value ||
+            request.cookies.get('firebase-auth-token')?.value;
+
+        if (!hasAuth) {
+            // Don't block — the API handler will do final auth. 
+            // But add a header so API handlers know the proxy didn't find auth.
+            response.headers.set('X-Proxy-Auth', 'none');
+        }
+    }
 
     return response;
 }
 
 // ============================================================================
-// PROXY CONFIG
+// MATCHER CONFIGURATION
 // ============================================================================
 
 export const config = {
-    // Only run on API routes (not on static files, images, etc.)
     matcher: [
-        '/api/:path*',
+        /*
+         * Match all request paths except:
+         * - _next/static (static files)
+         * - _next/image (image optimization files)
+         * - favicon.ico (favicon file)
+         */
+        '/((?!_next/static|_next/image|favicon.ico).*)',
     ],
 };

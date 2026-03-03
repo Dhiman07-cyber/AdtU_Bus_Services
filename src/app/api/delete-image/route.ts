@@ -48,7 +48,7 @@ export async function POST(request: NextRequest) {
   } catch (error: any) {
     console.error('Error deleting image:', error);
     return NextResponse.json(
-      { error: error.message || 'Failed to delete image' },
+      { error: 'Failed to delete image' },
       { status: 500 }
     );
   }

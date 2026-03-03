@@ -37,7 +37,12 @@ export async function POST(request: NextRequest) {
       .update(body)
       .digest('hex');
 
-    if (signature !== expectedSignature) {
+    // SECURITY: Use timing-safe comparison to prevent timing attacks
+    if (!signature || signature.length !== expectedSignature.length ||
+      !crypto.timingSafeEqual(
+        Buffer.from(signature, 'utf8'),
+        Buffer.from(expectedSignature, 'utf8')
+      )) {
       console.error('❌ Invalid webhook signature');
       return NextResponse.json({ error: 'Invalid signature' }, { status: 401 });
     }

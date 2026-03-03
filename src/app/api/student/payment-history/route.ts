@@ -129,7 +129,7 @@ export async function GET(request: NextRequest) {
     } catch (error: any) {
         console.error('Error fetching payment history:', error);
         return NextResponse.json(
-            { error: error.message || 'Failed to fetch payment history' },
+            { error: 'Failed to fetch payment history' },
             { status: 500 }
         );
     }

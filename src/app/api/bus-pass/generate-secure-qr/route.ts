@@ -144,7 +144,7 @@ export async function POST(request: NextRequest) {
     } catch (error: any) {
         console.error('Error generating secure QR:', error);
         return NextResponse.json(
-            { success: false, error: error.message || 'Failed to generate QR code' },
+            { success: false, error: 'Failed to generate QR code' },
             { status: 500 }
         );
     }

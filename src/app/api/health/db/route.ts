@@ -33,7 +33,7 @@ export async function GET() {
             results['supabase'] = {
                 status: 'error',
                 latency_ms: supabaseLatency,
-                message: readError.message
+                message: 'Database read error'
             };
         } else {
             results['supabase'] = {
@@ -45,7 +45,7 @@ export async function GET() {
         results['supabase'] = {
             status: 'error',
             latency_ms: Date.now() - startTime,
-            message: e instanceof Error ? e.message : 'Unknown error'
+            message: 'Database connection error'
         };
     }
 

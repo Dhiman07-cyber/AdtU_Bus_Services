@@ -57,7 +57,7 @@ export async function GET(request: Request) {
         if (error) {
             console.error('❌ Error querying driver_status:', error);
             return createJsonResponse(
-                { tripActive: false, error: error.message, tripData: null },
+                { tripActive: false, error: 'An unexpected error occurred', tripData: null },
                 200 // Return 200 with error info for graceful degradation
             );
         }
@@ -88,7 +88,7 @@ export async function GET(request: Request) {
     } catch (error: any) {
         console.error('❌ Error in trip-status API:', error);
         return createJsonResponse(
-            { tripActive: false, error: error?.message || 'Unknown error', tripData: null },
+            { tripActive: false, error: 'An unexpected error occurred', tripData: null },
             200 // Graceful degradation
         );
     }

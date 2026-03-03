@@ -243,7 +243,7 @@ export async function POST(request: Request) {
         console.error('Error with Admin SDK:', adminError);
         return new Response(JSON.stringify({
           success: false,
-          error: adminError.message || 'Failed to delete student with admin SDK'
+          error: 'Failed to delete student with admin SDK'
         }), {
           status: 500,
           headers: { 'Content-Type': 'application/json' },
@@ -262,7 +262,7 @@ export async function POST(request: Request) {
     console.error('Error deleting student:', error);
     return new Response(JSON.stringify({
       success: false,
-      error: error.message || 'Failed to delete student'
+      error: 'Failed to delete student'
     }), {
       status: 500,
       headers: { 'Content-Type': 'application/json' },

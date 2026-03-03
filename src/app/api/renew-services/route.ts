@@ -187,7 +187,7 @@ export async function POST(request: NextRequest) {
         results.push({
           studentUid,
           success: false,
-          error: error.message || 'Unknown error'
+          error: 'Unknown error'
         });
       }
     }
@@ -217,7 +217,7 @@ export async function POST(request: NextRequest) {
   } catch (error: any) {
     console.error('❌ Error processing renewals:', error);
     return NextResponse.json(
-      { success: false, error: error.message || 'Internal server error' },
+      { success: false, error: 'Internal server error' },
       { status: 500 }
     );
   }

@@ -241,7 +241,7 @@ export async function POST(request: Request) {
         console.error('Error with Admin SDK:', adminError);
         return new Response(JSON.stringify({
           success: false,
-          error: adminError.message || 'Failed to fetch profile requests'
+          error: 'Failed to fetch profile requests'
         }), {
           status: 500,
           headers: { 'Content-Type': 'application/json' },
@@ -260,7 +260,7 @@ export async function POST(request: Request) {
     console.error('Error fetching profile requests:', error);
     return new Response(JSON.stringify({
       success: false,
-      error: error.message || 'Failed to fetch profile requests'
+      error: 'Failed to fetch profile requests'
     }), {
       status: 500,
       headers: { 'Content-Type': 'application/json' },

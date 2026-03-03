@@ -157,7 +157,7 @@ export async function POST(request: NextRequest) {
     } catch (error: any) {
         console.error('❌ Error syncing bus counts:', error);
         return NextResponse.json(
-            { error: error.message || 'Failed to sync bus counts' },
+            { error: 'Failed to sync bus counts' },
             { status: 500 }
         );
     }

@@ -78,7 +78,7 @@ export async function POST(request: Request) {
   } catch (error: any) {
     console.error('❌ Error registering FCM token:', error);
     return NextResponse.json(
-      { error: error.message || 'Failed to register FCM token' },
+      { error: 'Failed to register FCM token' },
       { status: 500 }
     );
   }

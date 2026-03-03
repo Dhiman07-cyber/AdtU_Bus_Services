@@ -7,7 +7,7 @@
 
 import { createClient, RealtimeChannel } from '@supabase/supabase-js';
 import { db as adminDb, FieldValue } from './firebase-admin';
-import { calculateNotificationExpiry } from './notification-utils';
+import { calculateNotificationExpiry } from './notification-expiry';
 
 // Default notification TTL: 1 day (24 hours)
 const NOTIFICATION_TTL_DAYS = 1;

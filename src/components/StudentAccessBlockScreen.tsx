@@ -27,7 +27,7 @@ export default function StudentAccessBlockScreen({
   const router = useRouter();
   const daysUntilDelete = getDaysUntilHardDelete(validUntil, null, deadlineConfig);
   const message = getBlockingMessage(validUntil, null, deadlineConfig);
-  const contactInfo = getContactInfo(); // Contact info is static/default for now unless we update getContactInfo signature too
+  const contactInfo = getContactInfo(deadlineConfig); // Pass config to avoid error
   const hardDeleteDate = getHardDeleteDate(validUntil, null, deadlineConfig);
   const hardDeleteDateFormatted = hardDeleteDate.toLocaleDateString('en-GB', {
     day: 'numeric',

@@ -1,10 +1,9 @@
 /**
  * Static Default Configuration for Deadline System
- * Used as a fallback and to prevent HMR loops when reading dynamic JSON configuration
+ * Used as a fallback and to prevent HMR loops when reading dynamic configuration
  * 
- * NOTE: This file contains the default values derived from the deadline-config.json file.
- * We are using this static version in utility files to avoid build-time dependencies on the 
- * JSON file which gets updated by the Admin API, causing dev-server restarts.
+ * NOTE: This file contains the default values for the deadline config.
+ * We are using this static version in utility files to avoid build-time dependencies.
  */
 
 export const DEADLINE_CONFIG: any = new Proxy({}, {

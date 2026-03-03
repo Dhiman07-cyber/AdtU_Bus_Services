@@ -108,7 +108,7 @@ export default function PWAInstallPrompt() {
     <div className="fixed bottom-4 left-4 right-4 md:left-auto md:right-6 md:bottom-6 z-[9999] md:max-w-sm animate-in slide-in-from-bottom-10 duration-700 fade-in-0">
       <div className="relative group">
         {/* Vibrant Glow Effect */}
-        <div className="absolute -inset-1 bg-gradient-to-r from-violet-600 via-fuchsia-600 to-cyan-400 rounded-2xl blur opacity-25 group-hover:opacity-100 transition duration-1000 group-hover:duration-200"></div>
+        <div className="absolute -inset-1 bg-gradient-to-r from-blue-600/10 via-indigo-600/10 to-cyan-400/10 rounded-2xl blur opacity-10 group-hover:opacity-25 transition duration-1000 group-hover:duration-500"></div>
 
         {/* Main Card */}
         <div className="relative bg-slate-900/90 backdrop-blur-xl border border-white/10 rounded-2xl p-5 shadow-2xl ring-1 ring-white/10 dark:ring-white/5 overflow-hidden">

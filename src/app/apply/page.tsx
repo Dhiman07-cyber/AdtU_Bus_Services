@@ -115,9 +115,9 @@ export default function ApplyLandingPage() {
   // Case: Application Under Review
   if (false && existingApplication) {
     return (
-      <div className="min-h-screen flex items-center justify-center p-4 bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50 dark:from-gray-950 dark:via-blue-950/20 dark:to-purple-950/20">
+      <div className="min-h-screen flex items-center justify-center p-4 bg-gradient-to-br from-blue-50 via-slate-50 to-indigo-50 dark:from-gray-950 dark:via-blue-950/20 dark:to-slate-900/20">
         <Card className="w-full max-w-lg shadow-2xl border-indigo-100 dark:border-indigo-900/50 overflow-hidden relative">
-          <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-blue-500 via-indigo-500 to-purple-500"></div>
+          <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-blue-500 via-indigo-500 to-cyan-500"></div>
 
           <CardHeader className="text-center pt-8 pb-2">
             <div className="mx-auto mb-4 relative">
@@ -173,10 +173,10 @@ export default function ApplyLandingPage() {
 
   if (!currentUser) {
     return (
-      <div className="min-h-screen flex items-center justify-center p-4 bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50 dark:from-gray-950 dark:via-blue-950/20 dark:to-purple-950/20">
+      <div className="min-h-screen flex items-center justify-center p-4 bg-gradient-to-br from-blue-50 via-slate-50 to-indigo-50 dark:from-gray-950 dark:via-blue-950/20 dark:to-slate-900/20">
         <Card className="w-full max-w-md animate-fade-in shadow-2xl border-2 border-blue-200 dark:border-blue-800">
           <CardHeader className="text-center pb-4">
-            <div className="w-14 h-14 sm:w-16 sm:h-16 md:w-20 md:h-20 mx-auto mb-3 sm:mb-4 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center animate-bounce-in">
+            <div className="w-14 h-14 sm:w-16 sm:h-16 md:w-20 md:h-20 mx-auto mb-3 sm:mb-4 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center animate-bounce-in">
               <Shield className="h-7 w-7 sm:h-8 sm:w-8 md:h-10 md:w-10 text-white" />
             </div>
             <CardTitle className="text-lg sm:text-xl md:text-2xl">Sign In Required</CardTitle>
@@ -186,7 +186,7 @@ export default function ApplyLandingPage() {
           </CardHeader>
           <CardContent>
             <Link href="/login">
-              <Button className="w-full bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 h-12 text-lg font-semibold shadow-lg hover:shadow-xl transition-all duration-300 transform hover:scale-105">
+              <Button className="w-full bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 h-12 text-lg font-semibold shadow-lg hover:shadow-xl transition-all duration-300 transform hover:scale-105">
                 Sign In with Google
               </Button>
             </Link>
@@ -201,8 +201,8 @@ export default function ApplyLandingPage() {
       {/* Premium Animated Background with Grid */}
       <div className="fixed inset-0 overflow-hidden pointer-events-none">
         {/* Gradient Orbs */}
-        <div className="absolute top-20 -left-20 w-96 h-96 bg-gradient-to-br from-blue-500/20 to-purple-500/20 rounded-full blur-3xl animate-float"></div>
-        <div className="absolute top-1/3 -right-20 w-[600px] h-[600px] bg-gradient-to-bl from-purple-500/20 to-pink-500/20 rounded-full blur-3xl animate-float" style={{ animationDelay: '1s' }}></div>
+        <div className="absolute top-20 -left-20 w-96 h-96 bg-gradient-to-br from-blue-500/20 to-indigo-500/20 rounded-full blur-3xl animate-float"></div>
+        <div className="absolute top-1/3 -right-20 w-[600px] h-[600px] bg-gradient-to-bl from-blue-500/20 to-cyan-500/20 rounded-full blur-3xl animate-float" style={{ animationDelay: '1s' }}></div>
         <div className="absolute bottom-20 left-1/4 w-80 h-80 bg-gradient-to-tr from-indigo-500/20 to-blue-500/20 rounded-full blur-3xl animate-float" style={{ animationDelay: '2s' }}></div>
 
         {/* Grid Pattern */}
@@ -225,10 +225,10 @@ export default function ApplyLandingPage() {
           {/* Main Heading with Premium Typography */}
           <div className="space-y-2 sm:space-y-3">
             <h1 className="text-2xl sm:text-3xl md:text-4xl lg:text-5xl font-black animate-slide-in-up tracking-tight" style={{ animationDelay: '0.1s' }}>
-              <span className="block bg-gradient-to-r from-blue-600 via-purple-600 to-indigo-600 bg-clip-text text-transparent leading-tight">
+              <span className="block bg-gradient-to-r from-blue-600 via-indigo-600 to-cyan-600 bg-clip-text text-transparent leading-tight">
                 {config?.landingPage?.heroTitle ? config.landingPage.heroTitle.split(' ').slice(0, 2).join(' ') : "Welcome to"}
               </span>
-              <span className="block bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-600 bg-clip-text text-transparent leading-tight">
+              <span className="block bg-gradient-to-r from-indigo-600 via-blue-600 to-cyan-600 bg-clip-text text-transparent leading-tight">
                 {config?.landingPage?.heroTitle ? config.landingPage.heroTitle.split(' ').slice(2).join(' ') : "ADTU Bus Services"}
               </span>
             </h1>
@@ -247,7 +247,7 @@ export default function ApplyLandingPage() {
           {/* Premium CTA Buttons */}
           <div className="flex flex-col sm:flex-row justify-center gap-3 pt-3 animate-slide-in-up" style={{ animationDelay: '0.3s' }}>
             <Link href="/apply/form">
-              <Button size="default" className="group relative px-4 sm:px-6 md:px-8 py-2.5 sm:py-3 md:py-4 text-xs sm:text-sm md:text-base font-bold bg-gradient-to-r from-blue-600 via-purple-600 to-indigo-600 hover:from-blue-700 hover:via-purple-700 hover:to-indigo-700 shadow-xl hover:shadow-purple-500/50 transition-all duration-300 transform hover:scale-105 overflow-hidden w-full sm:w-auto">
+              <Button size="default" className="group relative px-4 sm:px-6 md:px-8 py-2.5 sm:py-3 md:py-4 text-xs sm:text-sm md:text-base font-bold bg-gradient-to-r from-blue-600 via-indigo-600 to-blue-700 hover:from-blue-700 hover:via-indigo-700 hover:to-blue-800 shadow-xl hover:shadow-blue-500/50 transition-all duration-300 transform hover:scale-105 overflow-hidden w-full sm:w-auto">
                 {/* Shine effect */}
                 <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent transform translate-x-[-100%] group-hover:translate-x-[100%] transition-transform duration-1000"></div>
 
@@ -335,7 +335,7 @@ export default function ApplyLandingPage() {
         <div className="space-y-4 sm:space-y-6 animate-slide-in-up" style={{ animationDelay: '0.5s' }}>
           <div className="text-center">
             <h2 className="text-xl sm:text-2xl md:text-3xl font-bold mb-2">
-              <span className="bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
+              <span className="bg-gradient-to-r from-blue-600 to-cyan-600 bg-clip-text text-transparent">
                 Why Choose Our Service?
               </span>
             </h2>
@@ -406,7 +406,7 @@ export default function ApplyLandingPage() {
                 <span className="text-[10px] sm:text-xs font-bold text-indigo-300 uppercase tracking-widest">The Experience</span>
               </div>
               <CardTitle className="text-2xl sm:text-3xl md:text-4xl font-black mb-3">
-                <span className="bg-gradient-to-r from-white via-indigo-200 to-indigo-400 bg-clip-text text-transparent">
+                <span className="bg-gradient-to-r from-white via-blue-200 to-cyan-400 bg-clip-text text-transparent">
                   Application Journey
                 </span>
               </CardTitle>

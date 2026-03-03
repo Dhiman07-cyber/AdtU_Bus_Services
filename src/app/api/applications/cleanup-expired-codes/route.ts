@@ -4,10 +4,10 @@ import { adminAuth, adminDb } from '@/lib/firebase-admin';
 export async function POST(request: NextRequest) {
   try {
     const token = request.headers.get('Authorization')?.replace('Bearer ', '');
-    
+
     if (!token) {
       console.warn('⚠️ Cleanup attempt without auth token');
-      return NextResponse.json({ 
+      return NextResponse.json({
         error: 'Unauthorized',
         message: 'Authentication token is required'
       }, { status: 401 });
@@ -18,13 +18,12 @@ export async function POST(request: NextRequest) {
       decodedToken = await adminAuth.verifyIdToken(token);
     } catch (authError: any) {
       console.error('❌ Token verification failed:', authError.message);
-      return NextResponse.json({ 
+      return NextResponse.json({
         error: 'Unauthorized',
-        message: 'Invalid or expired authentication token',
-        details: authError.message
+        message: 'Invalid or expired authentication token'
       }, { status: 401 });
     }
-    
+
     const uid = decodedToken.uid;
 
     // Get current time
@@ -36,8 +35,8 @@ export async function POST(request: NextRequest) {
       .get();
 
     if (expiredCodesQuery.empty) {
-      return NextResponse.json({ 
-        success: true, 
+      return NextResponse.json({
+        success: true,
         message: 'No expired codes found',
         cleanedCount: 0
       });
@@ -98,8 +97,8 @@ export async function POST(request: NextRequest) {
     const totalDeleted = deletedCount + oldNotificationsDeleted;
     console.log(`🧹 Cleaned up ${deletedCount} expired verification codes and ${oldNotificationsDeleted} old notifications`);
 
-    return NextResponse.json({ 
-      success: true, 
+    return NextResponse.json({
+      success: true,
       message: `Cleaned up ${deletedCount} expired verification codes and ${oldNotificationsDeleted} old notifications`,
       cleanedCount: totalDeleted,
       codesDeleted: deletedCount,
@@ -109,14 +108,12 @@ export async function POST(request: NextRequest) {
   } catch (error: any) {
     console.error('Error cleaning up expired codes:', error);
     console.error('Error details:', {
-      message: error.message,
+      message: 'Internal error',
       code: error.code,
       stack: error.stack
     });
-    return NextResponse.json({ 
-      error: 'Failed to cleanup expired codes',
-      details: error.message,
-      code: error.code
+    return NextResponse.json({
+      error: 'Failed to cleanup expired codes'
     }, { status: 500 });
   }
 }

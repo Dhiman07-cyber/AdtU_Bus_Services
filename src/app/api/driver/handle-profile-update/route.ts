@@ -280,7 +280,7 @@ export async function POST(request: Request) {
         console.error('Error with Admin SDK:', adminError);
         return new Response(JSON.stringify({
           success: false,
-          error: adminError.message || 'Failed to process profile update request'
+          error: 'Failed to process profile update request'
         }), {
           status: 500,
           headers: { 'Content-Type': 'application/json' },
@@ -299,7 +299,7 @@ export async function POST(request: Request) {
     console.error('Error processing profile update request:', error);
     return new Response(JSON.stringify({
       success: false,
-      error: error.message || 'Failed to process profile update request'
+      error: 'Failed to process profile update request'
     }), {
       status: 500,
       headers: { 'Content-Type': 'application/json' },

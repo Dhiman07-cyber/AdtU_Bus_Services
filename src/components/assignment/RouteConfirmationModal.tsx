@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -88,11 +88,6 @@ export function RouteConfirmationModal({
     removedNoOpInfo = [],
     processing = false,
 }: RouteConfirmationModalProps) {
-    // Initial row sync
-    useEffect(() => {
-        // No local state needed yet for rows unless we add status updates
-    }, []);
-
     // Handle Cancel from review step
     const handleCancel = () => {
         onClose();

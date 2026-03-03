@@ -87,7 +87,7 @@ export async function POST(req: NextRequest) {
   } catch (error: any) {
     console.error('❌ Error in force fix:', error);
     return NextResponse.json(
-      { success: false, error: error.message },
+      { success: false, error: 'An unexpected error occurred' },
       { status: 500 }
     );
   }

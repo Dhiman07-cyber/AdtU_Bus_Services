@@ -106,7 +106,7 @@ export async function POST(request: NextRequest) {
       console.error('Error code:', dbError.code);
       console.error('Error message:', dbError.message);
       return NextResponse.json(
-        { error: `Firestore write failed: ${dbError.message}` },
+        { error: 'Database write failed' },
         { status: 500 }
       );
     }
@@ -120,7 +120,7 @@ export async function POST(request: NextRequest) {
     console.error('❌ Error creating unauthenticated user:', error);
     console.error('Error stack:', error.stack);
     return NextResponse.json(
-      { error: error.message || 'Failed to create unauthenticated user' },
+      { error: 'Failed to create unauthenticated user' },
       { status: 500 }
     );
   }

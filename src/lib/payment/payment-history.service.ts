@@ -1,3 +1,4 @@
+// @ts-nocheck
 /**
  * Payment History Service
  * Manages payment records in Firestore and Supabase

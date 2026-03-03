@@ -36,6 +36,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { PremiumPageLoader } from '@/components/LoadingSpinner';
 import {
   Search,
   Plus,
@@ -232,12 +233,8 @@ export default function RoutesPage() {
     }
   };
 
-  if (isLoading) {
-    return (
-      <div className="flex justify-center items-center h-64">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
-      </div>
-    );
+  if (isLoading && routesData.length === 0) {
+    return <PremiumPageLoader message="Curating Transit Routes..." subMessage="Fetching route definitions and stops..." />;
   }
 
   return (

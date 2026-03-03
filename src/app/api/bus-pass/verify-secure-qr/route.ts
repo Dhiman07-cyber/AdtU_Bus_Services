@@ -203,7 +203,7 @@ export async function POST(request: NextRequest) {
         return NextResponse.json(
             {
                 status: 'invalid',
-                message: error.message || 'Verification failed'
+                message: 'Verification failed'
             },
             { status: 500 }
         );

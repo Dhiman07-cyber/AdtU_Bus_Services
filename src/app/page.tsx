@@ -3,6 +3,7 @@
 import { useAuth } from '@/contexts/auth-context';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
+import { PremiumPageLoader } from '@/components/LoadingSpinner';
 import LandingPage from '@/app/(landing)/page';
 
 export default function Home() {
@@ -53,30 +54,12 @@ export default function Home() {
 
   // Show loading spinner only while checking auth
   if (loading) {
-    return (
-      <div className="loading-screen flex items-center justify-center min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950">
-        <div className="flex flex-col items-center gap-4 sm:gap-6">
-          <div className="pink-purple-spinner"></div>
-          <p className="text-base sm:text-lg font-semibold bg-gradient-to-r from-pink-400 via-purple-400 to-pink-400 bg-clip-text text-transparent animate-pulse px-4 text-center">
-            Loading...
-          </p>
-        </div>
-      </div>
-    );
+    return <PremiumPageLoader message="Loading..." />;
   }
 
   // Show redirecting state only when we're actually redirecting
   if (isRedirecting && !redirectFailed) {
-    return (
-      <div className="loading-screen flex items-center justify-center min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950">
-        <div className="flex flex-col items-center gap-4 sm:gap-6">
-          <div className="pink-purple-spinner"></div>
-          <p className="text-base sm:text-lg font-semibold bg-gradient-to-r from-pink-400 via-purple-400 to-pink-400 bg-clip-text text-transparent animate-pulse px-4 text-center">
-            {needsApplication ? 'Redirecting to application...' : 'Redirecting...'}
-          </p>
-        </div>
-      </div>
-    );
+    return <PremiumPageLoader message={needsApplication ? 'Redirecting to application...' : 'Redirecting...'} />;
   }
 
   // Show landing page for:

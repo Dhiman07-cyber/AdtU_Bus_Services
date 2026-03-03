@@ -157,7 +157,7 @@ export async function POST(request: Request) {
         console.error('Error updating user:', error);
         return new Response(JSON.stringify({
             success: false,
-            error: error.message || 'Internal Server Error'
+            error: 'Internal Server Error'
         }), {
             status: 500,
             headers: { 'Content-Type': 'application/json' }

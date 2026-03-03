@@ -191,7 +191,7 @@ export async function POST(request: NextRequest) {
         return NextResponse.json(
             {
                 status: 'invalid',
-                message: error.message || 'Internal server error'
+                message: 'Internal server error'
             },
             { status: 500 }
         );

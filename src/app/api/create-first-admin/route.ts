@@ -152,7 +152,7 @@ export async function POST(request: Request) {
     console.error('Error creating first admin user:', error);
     return new Response(JSON.stringify({ 
       success: false, 
-      error: error.message || 'Failed to create first admin user' 
+      error: 'Failed to create first admin user' 
     }), {
       status: 500,
       headers: { 'Content-Type': 'application/json' },

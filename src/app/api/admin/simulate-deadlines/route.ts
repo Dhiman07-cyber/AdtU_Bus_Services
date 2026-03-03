@@ -23,10 +23,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { adminAuth, adminDb } from '@/lib/firebase-admin';
 import { v2 as cloudinary } from 'cloudinary';
-import { createClient } from '@supabase/supabase-js';
-import fs from 'fs';
-import path from 'path';
 import { decrementBusCapacity } from '@/lib/busCapacityService';
+import { getDeadlineConfig } from '@/lib/deadline-config-service';
 
 // Configure Cloudinary
 if (process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME) {
@@ -89,9 +87,7 @@ export async function POST(request: NextRequest) {
         const simYear = simDate.getFullYear();
 
         // Load deadline config (can be overridden by customDeadlines)
-        const configPath = path.join(process.cwd(), 'src', 'config', 'deadline-config.json');
-        const configContent = fs.readFileSync(configPath, 'utf8');
-        let config = JSON.parse(configContent);
+        let config: any = await getDeadlineConfig();
 
         // Apply custom deadline overrides if provided
         if (customDeadlines) {
@@ -478,7 +474,7 @@ export async function POST(request: NextRequest) {
     } catch (error: any) {
         console.error('Simulation error:', error);
         return NextResponse.json(
-            { error: error.message || 'Simulation failed' },
+            { error: 'Simulation failed' },
             { status: 500 }
         );
     }

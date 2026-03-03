@@ -156,7 +156,7 @@ export async function POST(request: Request) {
   } catch (error: any) {
     console.error('Error updating location:', error);
     return NextResponse.json(
-      { error: error.message || 'Failed to update location' },
+      { error: 'Failed to update location' },
       { status: 500 }
     );
   }

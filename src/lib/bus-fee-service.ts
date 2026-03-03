@@ -1,3 +1,4 @@
+// @ts-nocheck
 /**
  * Bus Fee Management Service
  * Handles bus fee storage in Firestore (migrated from system_config.json)

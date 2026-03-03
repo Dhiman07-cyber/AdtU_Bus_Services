@@ -145,7 +145,7 @@ export async function POST(request: NextRequest) {
   } catch (error: any) {
     console.error('Error submitting application:', error);
     return NextResponse.json(
-      { error: error.message || 'Failed to submit application' },
+      { error: 'Failed to submit application' },
       { status: 500 }
     );
   }

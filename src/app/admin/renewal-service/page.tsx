@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useAuth } from '@/contexts/auth-context';
 import { useRouter } from 'next/navigation';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -38,7 +38,11 @@ import {
   XCircle,
   Download,
   Filter,
-
+  TrendingUp,
+  BarChart3,
+  Wallet,
+  ArrowUpRight,
+  ArrowDownRight,
   Copy
 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -46,8 +50,10 @@ import { collection, query, where, getDocs, orderBy, limit } from 'firebase/fire
 import { db } from '@/lib/firebase';
 import Image from 'next/image';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from 'recharts';
 
 import { parseFirestoreDate, formatDate } from '@/lib/utils/date-utils';
+import { PremiumPageLoader } from '@/components/LoadingSpinner';
 import Avatar from '@/components/Avatar';
 import { PaymentDetailModal } from '@/components/payment';
 
@@ -117,8 +123,9 @@ interface EnrichedTransaction extends Transaction {
 export default function AdminRenewalServicePage() {
   const { currentUser, userData, loading } = useAuth();
   const router = useRouter();
+  const isAdmin = userData?.role === 'admin';
 
-  const [activeTab, setActiveTab] = useState('approval');
+  const [activeTab, setActiveTab] = useState('dashboard');
   const [renewalRequests, setRenewalRequests] = useState<RenewalRequest[]>([]);
   const [loadingRequests, setLoadingRequests] = useState(false);
   const [selectedRequest, setSelectedRequest] = useState<RenewalRequest | null>(null);
@@ -141,7 +148,16 @@ export default function AdminRenewalServicePage() {
   const [selectedPaymentId, setSelectedPaymentId] = useState<string | null>(null);
   const [showPaymentDetailModal, setShowPaymentDetailModal] = useState(false);
   const [searchTrigger, setSearchTrigger] = useState(0);
-  const [isExporting, setIsExporting] = useState(false);
+  const [isManualRefreshing, setIsManualRefreshing] = useState(false);
+
+  // Payment Dashboard states (admin-only)
+  const [dashboardStats, setDashboardStats] = useState<{
+    totalRevenue: number;
+    completedCount: number;
+    pendingCount: number;
+    monthlyData: { name: string; amount: number }[];
+  } | null>(null);
+  const [loadingDashboard, setLoadingDashboard] = useState(false);
 
   // Handler for clicking on manual payment badge
   const handleManualPaymentClick = (paymentId: string) => {
@@ -149,12 +165,38 @@ export default function AdminRenewalServicePage() {
     setShowPaymentDetailModal(true);
   };
 
-  // Check admin access
+  // Fetch dashboard analytics (admin-only)
   useEffect(() => {
-    if (!loading && userData && userData.role !== 'admin' && userData.role !== 'moderator') {
-      router.push(`/${userData.role}`);
-    }
-  }, [userData, loading, router]);
+    const fetchDashboardStats = async () => {
+      if (!currentUser || !isAdmin || activeTab !== 'dashboard') return;
+      setLoadingDashboard(true);
+      try {
+        const token = await currentUser.getIdToken();
+        const response = await fetch('/api/admin/analytics/payments', {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (response.ok) {
+          const data = await response.json();
+          setDashboardStats(data.stats);
+        }
+      } catch (error) {
+        console.error('Error fetching dashboard stats:', error);
+      } finally {
+        setLoadingDashboard(false);
+      }
+    };
+    fetchDashboardStats();
+  }, [currentUser, isAdmin, activeTab, searchTrigger]);
+
+  // Manual refresh handler
+  const handleManualRefresh = () => {
+    setIsManualRefreshing(true);
+    setSearchTrigger(prev => prev + 1);
+    // Reset the flag after a short delay for visual feedback
+    setTimeout(() => setIsManualRefreshing(false), 1500);
+  };
+
+  // Check admin access - REMOVED: Handled by AdminLayout/ModeratorLayout
 
   // Fetch renewal requests with student data
   useEffect(() => {
@@ -440,12 +482,27 @@ export default function AdminRenewalServicePage() {
   };
 
   if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
-      </div>
-    );
+    return <PremiumPageLoader message="Initializing Renewal Console..." subMessage="Securing your payment environment..." />;
   }
+
+  // Dashboard computed values
+  const avgPayment = useMemo(() => {
+    if (!dashboardStats) return 0;
+    const total = dashboardStats.completedCount + dashboardStats.pendingCount;
+    return total > 0 ? Math.round(dashboardStats.totalRevenue / total) : 0;
+  }, [dashboardStats]);
+
+  const onlinePayments = useMemo(() => {
+    if (!enrichedTransactions.length) return 0;
+    return enrichedTransactions.filter(t => t.paymentMethod === 'online').length;
+  }, [enrichedTransactions]);
+
+  const offlinePayments = useMemo(() => {
+    if (!enrichedTransactions.length) return 0;
+    return enrichedTransactions.filter(t => t.paymentMethod !== 'online').length;
+  }, [enrichedTransactions]);
+
+  const CHART_COLORS = ['#8b5cf6', '#f97316'];
 
   return (
     <div className="min-h-screen bg-transparent p-4">
@@ -468,45 +525,11 @@ export default function AdminRenewalServicePage() {
 
           <div className="flex items-center gap-2">
             <Button
-              onClick={async () => {
-                if (isExporting) return;
-                setIsExporting(true);
-                try {
-                  const token = await currentUser?.getIdToken();
-                  const response = await fetch('/api/cron/annual-export', {
-                    method: 'GET',
-                    headers: {
-                      'Authorization': `Bearer ${token}`
-                    }
-                  });
-                  const data = await response.json();
-                  if (data.success) {
-                    toast.success(`Export sent! ${data.transactionCount} transactions exported to admin emails.`);
-                  } else {
-                    toast.error(data.error || 'Export failed');
-                  }
-                } catch (error: any) {
-                  console.error('Export error:', error);
-                  toast.error('Failed to trigger export');
-                } finally {
-                  setIsExporting(false);
-                }
-              }}
-              disabled={isExporting}
-              className="group h-8 px-4 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white border-0 shadow-sm hover:shadow-lg hover:shadow-emerald-500/20 font-bold text-[10px] uppercase tracking-widest rounded-lg transition-all duration-300 active:scale-95 disabled:opacity-50"
+              onClick={handleManualRefresh}
+              disabled={isManualRefreshing}
+              className="group h-8 px-4 bg-white hover:bg-gray-50 text-gray-600 hover:text-purple-600 border border-gray-200 hover:border-purple-200 shadow-sm hover:shadow-lg hover:shadow-purple-500/10 font-bold text-[10px] uppercase tracking-widest rounded-lg transition-all duration-300 active:scale-95 disabled:opacity-50"
             >
-              {isExporting ? (
-                <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
-              ) : (
-                <Download className="mr-2 h-3.5 w-3.5" />
-              )}
-              Export
-            </Button>
-            <Button
-              onClick={() => setSearchTrigger(prev => prev + 1)}
-              className="group h-8 px-4 bg-white hover:bg-gray-50 text-gray-600 hover:text-purple-600 border border-gray-200 hover:border-purple-200 shadow-sm hover:shadow-lg hover:shadow-purple-500/10 font-bold text-[10px] uppercase tracking-widest rounded-lg transition-all duration-300 active:scale-95"
-            >
-              <RefreshCw className={`mr-2 h-3.5 w-3.5 transition-transform duration-500 ${loadingRequests || loadingTransactions ? 'animate-spin' : 'group-hover:rotate-180'}`} />
+              <RefreshCw className={`mr-2 h-3.5 w-3.5 transition-transform duration-500 ${isManualRefreshing ? 'animate-spin' : 'group-hover:rotate-180'}`} />
               Refresh
             </Button>
           </div>
@@ -515,7 +538,19 @@ export default function AdminRenewalServicePage() {
         {/* Tabs - Custom Gradient Tabs */}
         <div className="mb-4">
           <div className="flex gap-2 border-b border-gray-700/30 px-4">
-
+            {/* Dashboard Tab - Admin Only */}
+            {isAdmin && (
+              <button
+                onClick={() => setActiveTab('dashboard')}
+                className={`flex-1 flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-t-lg font-semibold text-[10px] sm:text-xs transition-all border-b-2 ${activeTab === 'dashboard'
+                  ? 'bg-gradient-to-r from-purple-600 via-violet-600 to-fuchsia-600 text-white shadow-md shadow-purple-500/30 border-purple-500'
+                  : 'bg-transparent text-gray-400 hover:text-gray-200 border-transparent hover:bg-gray-800/30'
+                  }`}
+              >
+                <BarChart3 className="h-3.5 w-3.5" />
+                Dashboard
+              </button>
+            )}
             <button
               onClick={() => setActiveTab('approval')}
               className={`flex-1 flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-t-lg font-semibold text-[10px] sm:text-xs transition-all border-b-2 ${activeTab === 'approval'
@@ -544,13 +579,265 @@ export default function AdminRenewalServicePage() {
           </div>
         </div>
 
-        <Tabs defaultValue="approval" value={activeTab} onValueChange={setActiveTab}>
+        <Tabs defaultValue="dashboard" value={activeTab} onValueChange={setActiveTab}>
           <div className="hidden">
             <TabsList>
+              {isAdmin && <TabsTrigger value="dashboard">Dashboard</TabsTrigger>}
               <TabsTrigger value="approval">Approval</TabsTrigger>
               <TabsTrigger value="history">History</TabsTrigger>
             </TabsList>
           </div>
+
+          {/* Payment Dashboard Tab - Admin Only */}
+          {isAdmin && (
+            <TabsContent value="dashboard" className="mt-0 px-0 py-4">
+              {loadingDashboard ? (
+                <div className="flex justify-center py-16">
+                  <Loader2 className="h-8 w-8 animate-spin text-purple-600" />
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {/* KPI Cards */}
+                  <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+                    {/* Total Revenue */}
+                    <Card className="bg-gradient-to-br from-emerald-500/10 to-teal-500/15 border border-emerald-500/25 backdrop-blur-sm hover:shadow-lg hover:shadow-emerald-500/10 transition-all duration-300 group">
+                      <CardContent className="p-4">
+                        <div className="flex items-center justify-between mb-2">
+                          <div className="h-8 w-8 rounded-xl bg-emerald-500/20 border border-emerald-500/30 flex items-center justify-center group-hover:scale-110 transition-transform">
+                            <IndianRupee className="h-4 w-4 text-emerald-400" />
+                          </div>
+                          <div className="flex items-center gap-1 text-emerald-400">
+                            <ArrowUpRight className="h-3 w-3" />
+                            <span className="text-[10px] font-bold">Revenue</span>
+                          </div>
+                        </div>
+                        <p className="text-xl font-black text-white tracking-tight">
+                          ₹{(dashboardStats?.totalRevenue || 0).toLocaleString('en-IN')}
+                        </p>
+                        <p className="text-[10px] text-gray-500 dark:text-gray-400 mt-1 uppercase tracking-wider font-semibold">Total Collection</p>
+                      </CardContent>
+                    </Card>
+
+                    {/* Completed Payments */}
+                    <Card className="bg-gradient-to-br from-blue-500/10 to-indigo-500/15 border border-blue-500/25 backdrop-blur-sm hover:shadow-lg hover:shadow-blue-500/10 transition-all duration-300 group">
+                      <CardContent className="p-4">
+                        <div className="flex items-center justify-between mb-2">
+                          <div className="h-8 w-8 rounded-xl bg-blue-500/20 border border-blue-500/30 flex items-center justify-center group-hover:scale-110 transition-transform">
+                            <CheckCircle className="h-4 w-4 text-blue-400" />
+                          </div>
+                          <Badge className="bg-blue-500/20 text-blue-400 border-blue-500/30 text-[9px] px-1.5 py-0">Verified</Badge>
+                        </div>
+                        <p className="text-xl font-black text-white tracking-tight">
+                          {dashboardStats?.completedCount || 0}
+                        </p>
+                        <p className="text-[10px] text-gray-500 dark:text-gray-400 mt-1 uppercase tracking-wider font-semibold">Completed</p>
+                      </CardContent>
+                    </Card>
+
+                    {/* Pending Payments */}
+                    <Card className="bg-gradient-to-br from-amber-500/10 to-orange-500/15 border border-amber-500/25 backdrop-blur-sm hover:shadow-lg hover:shadow-amber-500/10 transition-all duration-300 group">
+                      <CardContent className="p-4">
+                        <div className="flex items-center justify-between mb-2">
+                          <div className="h-8 w-8 rounded-xl bg-amber-500/20 border border-amber-500/30 flex items-center justify-center group-hover:scale-110 transition-transform">
+                            <Clock className="h-4 w-4 text-amber-400" />
+                          </div>
+                          <Badge className="bg-amber-500/20 text-amber-400 border-amber-500/30 text-[9px] px-1.5 py-0">Pending</Badge>
+                        </div>
+                        <p className="text-xl font-black text-white tracking-tight">
+                          {dashboardStats?.pendingCount || 0}
+                        </p>
+                        <p className="text-[10px] text-gray-500 dark:text-gray-400 mt-1 uppercase tracking-wider font-semibold">Awaiting</p>
+                      </CardContent>
+                    </Card>
+
+                    {/* Avg Payment */}
+                    <Card className="bg-gradient-to-br from-purple-500/10 to-fuchsia-500/15 border border-purple-500/25 backdrop-blur-sm hover:shadow-lg hover:shadow-purple-500/10 transition-all duration-300 group">
+                      <CardContent className="p-4">
+                        <div className="flex items-center justify-between mb-2">
+                          <div className="h-8 w-8 rounded-xl bg-purple-500/20 border border-purple-500/30 flex items-center justify-center group-hover:scale-110 transition-transform">
+                            <Wallet className="h-4 w-4 text-purple-400" />
+                          </div>
+                          <div className="flex items-center gap-1 text-purple-400">
+                            <TrendingUp className="h-3 w-3" />
+                            <span className="text-[10px] font-bold">Avg</span>
+                          </div>
+                        </div>
+                        <p className="text-xl font-black text-white tracking-tight">
+                          ₹{avgPayment.toLocaleString('en-IN')}
+                        </p>
+                        <p className="text-[10px] text-gray-500 dark:text-gray-400 mt-1 uppercase tracking-wider font-semibold">Per Student</p>
+                      </CardContent>
+                    </Card>
+                  </div>
+
+                  {/* Charts Row */}
+                  <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                    {/* Monthly Revenue Trend */}
+                    <Card className="lg:col-span-2 border border-zinc-800/50 shadow-xl bg-zinc-900/50 backdrop-blur-sm">
+                      <CardHeader className="pb-2">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <CardTitle className="text-sm text-white flex items-center gap-2">
+                              <TrendingUp className="h-4 w-4 text-purple-400" />
+                              Monthly Revenue
+                            </CardTitle>
+                            <CardDescription className="text-[10px] text-gray-400 mt-0.5">
+                              Payment collection trend for {new Date().getFullYear()}
+                            </CardDescription>
+                          </div>
+                          <Badge className="bg-purple-500/20 text-purple-400 border-purple-500/30 text-[9px]">
+                            FY {new Date().getFullYear()}
+                          </Badge>
+                        </div>
+                      </CardHeader>
+                      <CardContent className="pt-0">
+                        {dashboardStats?.monthlyData && dashboardStats.monthlyData.some(d => d.amount > 0) ? (
+                          <div className="h-[220px] w-full">
+                            <ResponsiveContainer width="100%" height={220}>
+                              <AreaChart data={dashboardStats.monthlyData}>
+                                <defs>
+                                  <linearGradient id="dashRevGrad" x1="0" y1="0" x2="0" y2="1">
+                                    <stop offset="5%" stopColor="#8b5cf6" stopOpacity={0.6} />
+                                    <stop offset="95%" stopColor="#8b5cf6" stopOpacity={0} />
+                                  </linearGradient>
+                                </defs>
+                                <CartesianGrid strokeDasharray="3 3" stroke="#374151" vertical={false} opacity={0.4} />
+                                <XAxis dataKey="name" tick={{ fontSize: 10, fill: '#9ca3af' }} tickLine={false} axisLine={false} />
+                                <YAxis tick={{ fontSize: 10, fill: '#9ca3af' }} tickLine={false} axisLine={false} width={50} tickFormatter={(v) => `₹${v >= 1000 ? `${(v / 1000).toFixed(0)}k` : v}`} />
+                                <Tooltip
+                                  contentStyle={{ backgroundColor: '#1e1e2e', border: '1px solid #374151', borderRadius: '12px', fontSize: '11px', boxShadow: '0 10px 30px rgba(0,0,0,0.5)' }}
+                                  labelStyle={{ color: '#9ca3af', marginBottom: '4px', fontWeight: 600 }}
+                                  formatter={(value: any) => [`₹${Number(value).toLocaleString('en-IN')}`, 'Revenue']}
+                                />
+                                <Area
+                                  type="monotone"
+                                  dataKey="amount"
+                                  stroke="#8b5cf6"
+                                  strokeWidth={2.5}
+                                  fillOpacity={1}
+                                  fill="url(#dashRevGrad)"
+                                  dot={{ fill: '#8b5cf6', strokeWidth: 0, r: 3 }}
+                                  activeDot={{ fill: '#a78bfa', stroke: '#8b5cf6', strokeWidth: 2, r: 5 }}
+                                />
+                              </AreaChart>
+                            </ResponsiveContainer>
+                          </div>
+                        ) : (
+                          <div className="h-[220px] flex flex-col items-center justify-center text-gray-500">
+                            <BarChart3 className="h-10 w-10 mb-3 opacity-40" />
+                            <p className="text-sm font-medium">No revenue data yet</p>
+                            <p className="text-[10px] text-gray-600 mt-1">Revenue chart will appear after payments are processed</p>
+                          </div>
+                        )}
+                      </CardContent>
+                    </Card>
+
+                    {/* Payment Method Breakdown */}
+                    <Card className="border border-zinc-800/50 shadow-xl bg-zinc-900/50 backdrop-blur-sm">
+                      <CardHeader className="pb-2">
+                        <CardTitle className="text-sm text-white flex items-center gap-2">
+                          <CreditCard className="h-4 w-4 text-pink-400" />
+                          Payment Methods
+                        </CardTitle>
+                        <CardDescription className="text-[10px] text-gray-400">Online vs Offline breakdown</CardDescription>
+                      </CardHeader>
+                      <CardContent>
+                        {(dashboardStats?.completedCount || 0) + (dashboardStats?.pendingCount || 0) > 0 ? (
+                          <div className="space-y-4">
+                            {/* Collection Rate */}
+                            <div className="bg-zinc-800/50 rounded-xl p-3 border border-zinc-700/50">
+                              <div className="flex items-center justify-between mb-2">
+                                <span className="text-[10px] text-gray-400 font-semibold uppercase tracking-wider">Collection Rate</span>
+                                <span className="text-sm font-black text-emerald-400">
+                                  {((dashboardStats?.completedCount || 0) / Math.max((dashboardStats?.completedCount || 0) + (dashboardStats?.pendingCount || 0), 1) * 100).toFixed(1)}%
+                                </span>
+                              </div>
+                              <div className="relative w-full bg-zinc-800 rounded-full h-2 overflow-hidden">
+                                <div
+                                  className="bg-gradient-to-r from-emerald-500 to-teal-400 h-2 rounded-full transition-all duration-700"
+                                  style={{ width: `${(dashboardStats?.completedCount || 0) / Math.max((dashboardStats?.completedCount || 0) + (dashboardStats?.pendingCount || 0), 1) * 100}%` }}
+                                />
+                              </div>
+                            </div>
+
+                            {/* Stats Breakdown */}
+                            <div className="space-y-2">
+                              <div className="flex items-center justify-between bg-zinc-800/30 rounded-lg px-3 py-2 border border-zinc-700/30 hover:border-purple-500/30 transition-colors">
+                                <div className="flex items-center gap-2">
+                                  <div className="h-2 w-2 rounded-full bg-purple-500 shadow-[0_0_8px_rgba(139,92,246,0.6)]" />
+                                  <span className="text-[10px] text-gray-300 font-bold uppercase tracking-wider">Completed</span>
+                                </div>
+                                <span className="text-sm font-black text-white">{dashboardStats?.completedCount || 0}</span>
+                              </div>
+                              <div className="flex items-center justify-between bg-zinc-800/30 rounded-lg px-3 py-2 border border-zinc-700/30 hover:border-amber-500/30 transition-colors">
+                                <div className="flex items-center gap-2">
+                                  <div className="h-2 w-2 rounded-full bg-amber-500 shadow-[0_0_8px_rgba(245,158,11,0.6)]" />
+                                  <span className="text-[10px] text-gray-300 font-bold uppercase tracking-wider">Pending</span>
+                                </div>
+                                <span className="text-sm font-black text-white">{dashboardStats?.pendingCount || 0}</span>
+                              </div>
+                              <div className="flex items-center justify-between bg-zinc-800/30 rounded-lg px-3 py-2 border border-zinc-700/30 hover:border-emerald-500/30 transition-colors">
+                                <div className="flex items-center gap-2">
+                                  <div className="h-2 w-2 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.6)]" />
+                                  <span className="text-[10px] text-gray-300 font-bold uppercase tracking-wider">Total Revenue</span>
+                                </div>
+                                <span className="text-sm font-black text-emerald-400">₹{(dashboardStats?.totalRevenue || 0).toLocaleString('en-IN')}</span>
+                              </div>
+                            </div>
+
+                            {/* Revenue per completed */}
+                            <div className="pt-2 border-t border-zinc-700/30">
+                              <div className="flex items-center justify-between">
+                                <span className="text-[10px] text-gray-500 font-medium">Avg Revenue / Payment</span>
+                                <span className="text-xs font-bold text-purple-400">₹{avgPayment.toLocaleString('en-IN')}</span>
+                              </div>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="h-[200px] flex flex-col items-center justify-center text-gray-500">
+                            <CreditCard className="h-10 w-10 mb-3 opacity-40" />
+                            <p className="text-sm font-medium">No payments yet</p>
+                            <p className="text-[10px] text-gray-600 mt-1">Method breakdown will appear after payments</p>
+                          </div>
+                        )}
+                      </CardContent>
+                    </Card>
+                  </div>
+
+                  {/* Monthly Detail Table */}
+                  {dashboardStats?.monthlyData && dashboardStats.monthlyData.some(d => d.amount > 0) && (
+                    <Card className="border border-zinc-800/50 shadow-xl bg-zinc-900/50 backdrop-blur-sm">
+                      <CardHeader className="pb-2">
+                        <CardTitle className="text-sm text-white flex items-center gap-2">
+                          <Calendar className="h-4 w-4 text-indigo-400" />
+                          Monthly Breakdown
+                        </CardTitle>
+                        <CardDescription className="text-[10px] text-gray-400">Revenue collected per month</CardDescription>
+                      </CardHeader>
+                      <CardContent className="pt-0">
+                        <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-12 gap-2">
+                          {dashboardStats.monthlyData.map((m, i) => (
+                            <div
+                              key={m.name}
+                              className={`rounded-xl p-2.5 text-center border transition-all duration-200 hover:scale-105 ${m.amount > 0
+                                ? 'bg-gradient-to-b from-purple-500/15 to-purple-500/5 border-purple-500/30 hover:border-purple-400/50'
+                                : 'bg-zinc-800/30 border-zinc-700/30 opacity-60'
+                                }`}
+                            >
+                              <p className="text-[9px] font-bold text-gray-400 uppercase tracking-wider mb-1">{m.name}</p>
+                              <p className={`text-xs font-black ${m.amount > 0 ? 'text-purple-300' : 'text-gray-600'}`}>
+                                {m.amount > 0 ? `₹${m.amount >= 1000 ? `${(m.amount / 1000).toFixed(1)}k` : m.amount}` : '—'}
+                              </p>
+                            </div>
+                          ))}
+                        </div>
+                      </CardContent>
+                    </Card>
+                  )}
+                </div>
+              )}
+            </TabsContent>
+          )}
 
           {/* Payment Approval Tab */}
           <TabsContent value="approval" className="mt-0 px-0 py-4">

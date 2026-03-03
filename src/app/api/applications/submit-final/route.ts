@@ -203,13 +203,13 @@ export async function POST(request: NextRequest) {
     console.error('❌ CRITICAL ERROR in submit-final API:', error);
     console.error('Diagnostic Info:', {
       name: error.name,
-      message: error.message,
+      message: 'Internal error',
       stack: error.stack
     });
     return NextResponse.json(
       {
-        error: error.message || 'Failed to submit application',
-        details: process.env.NODE_ENV === 'development' ? error.stack : undefined
+        error: 'Failed to submit application',
+        details: undefined
       },
       { status: 500 }
     );

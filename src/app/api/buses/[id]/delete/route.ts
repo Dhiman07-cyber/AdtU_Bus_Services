@@ -26,6 +26,6 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ i
     });
   } catch (error: any) {
     console.error('Error deleting bus:', error);
-    return NextResponse.json({ error: error.message || 'Failed to delete bus' }, { status: 500 });
+    return NextResponse.json({ error: 'Failed to delete bus' }, { status: 500 });
   }
 }

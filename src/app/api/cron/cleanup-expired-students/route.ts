@@ -34,7 +34,11 @@ export async function GET(request: NextRequest) {
 
         // In production, strictly enforce CRON_SECRET. 
         // For dev/testing, you might allow manual overrides or disable this check carefully.
-        if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
+        if (!cronSecret) {
+            console.error('🚫 CRON_SECRET not configured — blocking cron request');
+            return NextResponse.json({ error: 'Server configuration error' }, { status: 500 });
+        }
+        if (authHeader !== `Bearer ${cronSecret}`) {
             return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
         }
 
@@ -243,7 +247,7 @@ export async function GET(request: NextRequest) {
 
             } catch (err: any) {
                 console.error(`❌ Error processing student ${uid}:`, err);
-                results.errors.push(`Error processing ${uid}: ${err.message}`);
+                results.errors.push(`Error processing student ${uid}`);
             }
         }
 
@@ -252,6 +256,6 @@ export async function GET(request: NextRequest) {
 
     } catch (error: any) {
         console.error('❌ Cron Job Fatal Error:', error);
-        return NextResponse.json({ error: error.message || 'Internal Server Error' }, { status: 500 });
+        return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
     }
 }

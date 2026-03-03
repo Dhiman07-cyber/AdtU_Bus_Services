@@ -160,7 +160,7 @@ export async function POST(request: NextRequest) {
   } catch (error: any) {
     console.error('Error rejecting renewal request:', error);
     return NextResponse.json(
-      { error: error.message || 'Failed to reject renewal request' },
+      { error: 'Failed to reject renewal request' },
       { status: 500 }
     );
   }

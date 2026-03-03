@@ -40,7 +40,7 @@ export async function POST(request: Request) {
     if (!auth) {
       return NextResponse.json({ error: 'Firebase Admin not initialized' }, { status: 500 });
     }
-    
+
     const decodedToken = await auth.verifyIdToken(idToken);
     const userUid = decodedToken.uid;
 
@@ -60,14 +60,14 @@ export async function POST(request: Request) {
       createdAt: new Date()
     });
 
-    return NextResponse.json({ 
+    return NextResponse.json({
       success: true,
       message: 'FCM token registered successfully'
     });
   } catch (error: any) {
     console.error('Error registering FCM token:', error);
     return NextResponse.json(
-      { error: error.message || 'Failed to register FCM token' },
+      { error: 'Failed to register FCM token' },
       { status: 500 }
     );
   }

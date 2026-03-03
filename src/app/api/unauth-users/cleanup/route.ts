@@ -173,7 +173,7 @@ export async function POST(request: NextRequest) {
   } catch (error: any) {
     console.error('❌ Error during cleanup:', error);
     return NextResponse.json(
-      { error: error.message || 'Failed to cleanup unauth users' },
+      { error: 'Failed to cleanup unauth users' },
       { status: 500 }
     );
   }

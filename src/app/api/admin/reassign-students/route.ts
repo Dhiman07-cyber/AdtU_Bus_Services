@@ -291,7 +291,7 @@ export async function POST(request: NextRequest) {
     } catch (error: any) {
         console.error('❌ Reassignment failed:', error);
         return NextResponse.json(
-            { success: false, error: error.message || 'Reassignment failed' },
+            { success: false, error: 'Reassignment failed' },
             { status: 500 }
         );
     }

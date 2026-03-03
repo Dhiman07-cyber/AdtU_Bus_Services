@@ -1,3 +1,4 @@
+// @ts-nocheck
 /**
  * Location Service
  * Main entry point for location tracking

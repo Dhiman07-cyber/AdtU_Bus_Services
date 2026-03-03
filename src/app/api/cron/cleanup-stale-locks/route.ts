@@ -18,14 +18,15 @@ import { db as adminDb, FieldValue } from '@/lib/firebase-admin';
 // Configuration
 const HEARTBEAT_TIMEOUT_SECONDS = 300;
 
-// Verify cron secret to prevent unauthorized execution
+// SECURITY: Fail-closed cron auth verification
 function verifyCronAuth(request: Request): boolean {
     const authHeader = request.headers.get('authorization');
     const cronSecret = process.env.CRON_SECRET;
 
-    // If no secret configured, allow in development
-    if (!cronSecret && process.env.NODE_ENV !== 'production') {
-        return true;
+    // SECURITY: Fail-closed — if CRON_SECRET is not configured, deny all
+    if (!cronSecret) {
+        console.error('🚫 CRON_SECRET not configured — blocking cron request');
+        return false;
     }
 
     return authHeader === `Bearer ${cronSecret}`;
@@ -67,7 +68,7 @@ export async function GET(request: Request) {
 
             if (cleanError) {
                 console.error('Error cleaning stale locks:', cleanError);
-                stats.errors.push(`stale_locks: ${cleanError.message}`);
+                stats.errors.push('stale_locks_cleanup_error');
             } else if (cleanedLocks && cleanedLocks.length > 0) {
                 stats.staleLocksCleaned = cleanedLocks.length;
 
@@ -98,7 +99,7 @@ export async function GET(request: Request) {
 
                     } catch (err: any) {
                         console.error(`Error releasing Firestore lock for ${lock.cleaned_bus_id}:`, err);
-                        stats.errors.push(`firestore_${lock.cleaned_bus_id}: ${err.message}`);
+                        stats.errors.push(`firestore_lock_release_error`);
                     }
                 }
 
@@ -106,7 +107,7 @@ export async function GET(request: Request) {
             }
         } catch (err: any) {
             console.error('Error in stale lock cleanup:', err);
-            stats.errors.push(`stale_locks_general: ${err.message}`);
+            stats.errors.push('stale_locks_general_error');
         }
 
         // STEP 2: Reconcile Firestore locks with Supabase
@@ -146,7 +147,7 @@ export async function GET(request: Request) {
             }
         } catch (err: any) {
             console.error('Error in lock reconciliation:', err);
-            stats.errors.push(`reconciliation: ${err.message}`);
+            stats.errors.push('reconciliation_error');
         }
 
         const elapsed = Date.now() - startTime;
@@ -165,7 +166,7 @@ export async function GET(request: Request) {
     } catch (error: any) {
         console.error('❌ Cleanup worker error:', error);
         return NextResponse.json(
-            { error: error.message || 'Cleanup failed' },
+            { error: 'Cleanup failed' },
             { status: 500 }
         );
     }

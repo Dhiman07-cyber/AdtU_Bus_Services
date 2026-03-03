@@ -42,7 +42,7 @@ export async function GET(
   } catch (error: any) {
     console.error('Error fetching application:', error);
     return NextResponse.json(
-      { error: error.message || 'Failed to fetch application' },
+      { error: 'Failed to fetch application' },
       { status: 500 }
     );
   }

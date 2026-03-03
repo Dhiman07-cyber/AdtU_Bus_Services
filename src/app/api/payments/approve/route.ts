@@ -104,7 +104,7 @@ export async function POST(request: NextRequest) {
         return NextResponse.json(
             {
                 success: false,
-                error: error instanceof Error ? error.message : 'Failed to approve payment'
+                error: 'Failed to approve payment'
             },
             { status: 500 }
         );

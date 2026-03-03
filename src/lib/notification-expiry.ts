@@ -4,10 +4,12 @@
  */
 
 import { adminDb } from './firebase-admin';
-import { calculateNotificationExpiry } from './notification-utils';
-
-export { calculateNotificationExpiry };
-
+export function calculateNotificationExpiry(startDate: Date, daysToLive: number = 0): string {
+  const expiresAt = new Date(startDate);
+  expiresAt.setDate(expiresAt.getDate() + daysToLive);
+  expiresAt.setHours(23, 59, 59, 999);
+  return expiresAt.toISOString();
+}
 /**
  * Delete expired notifications (run at midnight)
  * Deletes notifications where expiry date is before current date

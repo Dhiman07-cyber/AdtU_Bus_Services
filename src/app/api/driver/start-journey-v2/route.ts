@@ -209,7 +209,7 @@ export async function POST(request: Request) {
 
       console.error('❌ Lock acquisition failed:', txError);
       return NextResponse.json(
-        { error: `Failed to acquire bus lock: ${txError.message}` },
+        { error: 'Failed to acquire bus lock' },
         { status: 500 }
       );
     }
@@ -294,7 +294,7 @@ export async function POST(request: Request) {
     if (driverStatusError) {
       console.error('❌ Error inserting driver_status:', driverStatusError);
       return NextResponse.json(
-        { error: 'Failed to update driver status: ' + driverStatusError.message },
+        { error: 'Failed to update driver status' },
         { status: 500 }
       );
     }
@@ -441,11 +441,20 @@ export async function POST(request: Request) {
     // Send FCM in background (don't await loop)
     (async () => {
       try {
-        const studentsSnapshot = await adminDb.collection('students').where('assignedBusId', '==', busId).get();
-        const fcmTokens: string[] = [];
+        let studentsSnapshot = await adminDb.collection('students').where('assignedBusId', '==', busId).get();
 
-        for (const doc of studentsSnapshot.docs) {
-          const tokens = await adminDb.collection('fcm_tokens').where('userUid', '==', doc.id).get();
+        if (studentsSnapshot.empty) {
+          const altSnapshot1 = await adminDb.collection('students').where('busId', '==', busId).get();
+          const altSnapshot2 = await adminDb.collection('students').where('bus_id', '==', busId).get();
+          studentsSnapshot = altSnapshot1.empty ? altSnapshot2 : altSnapshot1;
+        }
+
+        const fcmTokens: string[] = [];
+        const studentIds = studentsSnapshot.docs.map((doc: any) => doc.id);
+        const tokenSnapshots = await Promise.all(
+          studentIds.map((uid: string) => adminDb.collection('fcm_tokens').where('userUid', '==', uid).get())
+        );
+        for (const tokens of tokenSnapshots) {
           tokens.forEach((t: any) => fcmTokens.push(t.data().deviceToken));
         }
 
@@ -484,7 +493,7 @@ export async function POST(request: Request) {
   } catch (error: any) {
     console.error('❌ Error starting journey:', error);
     return NextResponse.json(
-      { error: error.message || 'Failed to start journey' },
+      { error: 'Failed to start journey' },
       { status: 500 }
     );
   }

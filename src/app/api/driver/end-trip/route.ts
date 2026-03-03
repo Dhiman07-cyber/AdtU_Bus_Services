@@ -143,7 +143,7 @@ export async function POST(request: Request) {
     } catch (error: any) {
         console.error('❌ Error ending trip:', error);
         return NextResponse.json(
-            { error: error.message || 'Failed to end trip' },
+            { error: 'Failed to end trip' },
             { status: 500 }
         );
     }

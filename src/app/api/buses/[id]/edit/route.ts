@@ -47,6 +47,6 @@ export async function PUT(request: Request, { params }: { params: Promise<{ id: 
     });
   } catch (error: any) {
     console.error('Error updating bus data:', error);
-    return NextResponse.json({ error: error.message || 'Failed to update bus data' }, { status: 500 });
+    return NextResponse.json({ error: 'Failed to update bus data' }, { status: 500 });
   }
 }

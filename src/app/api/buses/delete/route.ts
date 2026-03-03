@@ -44,7 +44,7 @@ export async function DELETE(request: NextRequest) {
   } catch (error: any) {
     console.error('Error in delete bus API:', error);
     return NextResponse.json(
-      { error: error.message || 'Failed to delete bus' },
+      { error: 'Failed to delete bus' },
       { status: 500 }
     );
   }

@@ -62,7 +62,7 @@ export async function GET(request: NextRequest) {
     } catch (error: any) {
         console.error('Error fetching drivers:', error);
         return NextResponse.json(
-            { success: false, error: error.message || 'Failed to fetch drivers' },
+            { success: false, error: 'Failed to fetch drivers' },
             { status: 500 }
         );
     }

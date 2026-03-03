@@ -47,6 +47,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
+import { PremiumPageLoader } from '@/components/LoadingSpinner';
 import { MoreHorizontal, Eye, Edit, Trash2, Search, Loader2, Plus, RefreshCw, Filter, X, Users, ArrowRightLeft, ChevronDown, QrCode, Download } from "lucide-react";
 import { deleteStudent } from '@/lib/dataService';
 import { useToast } from '@/contexts/toast-context';
@@ -113,10 +114,16 @@ export default function AdminStudents() {
   // Manual refresh handler
   const handleRefresh = async () => {
     setIsRefreshing(true);
-    invalidateCollectionCache('students');
-    await Promise.all([refreshStudents(), refreshBuses()]);
-    addToast('Data refreshed', 'success');
-    setIsRefreshing(false);
+    try {
+      invalidateCollectionCache('students');
+      await Promise.all([refreshStudents(), refreshBuses()]);
+      addToast('Data refreshed', 'success');
+    } catch (error) {
+      console.error('Error refreshing students:', error);
+      addToast('Failed to refresh data', 'error');
+    } finally {
+      setIsRefreshing(false);
+    }
   };
 
   // Debounce search term
@@ -325,14 +332,7 @@ export default function AdminStudents() {
   const showFullPageLoader = authLoading || (isLoading && students.length === 0 && !searchResults);
 
   if (showFullPageLoader) {
-    return (
-      <div className="min-h-[70vh] flex items-center justify-center">
-        <div className="text-center space-y-4">
-          <div className="w-12 h-12 border-4 border-gray-200 dark:border-gray-700 rounded-full animate-spin border-t-blue-600 mx-auto"></div>
-          <p className="text-muted-foreground text-lg">Loading students...</p>
-        </div>
-      </div>
-    );
+    return <PremiumPageLoader message="Curating Student Directory..." subMessage="Fetching student profiles and status..." />;
   }
 
   if (!currentUser || !userData || userData.role !== 'admin') {
@@ -376,7 +376,7 @@ export default function AdminStudents() {
             size="sm"
             onClick={handleRefresh}
             disabled={isRefreshing}
-            className="group h-8 px-4 bg-white hover:bg-gray-50 text-gray-600 hover:text-purple-600 border border-gray-200 hover:border-purple-200 shadow-sm hover:shadow-lg hover:shadow-purple-500/10 font-bold text-[10px] uppercase tracking-widest rounded-lg transition-all duration-300 active:scale-95"
+            className="group h-8 px-4 bg-white hover:bg-gray-50 text-black hover:text-purple-600 border border-gray-200 hover:border-purple-200 shadow-sm hover:shadow-lg hover:shadow-purple-500/10 font-bold text-[10px] uppercase tracking-widest rounded-lg transition-all duration-300 active:scale-95"
           >
             <RefreshCw className={`mr-2 h-3.5 w-3.5 transition-transform duration-500 ${isRefreshing ? 'animate-spin' : 'group-hover:rotate-180'}`} />
             Refresh

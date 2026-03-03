@@ -108,7 +108,7 @@ export async function POST(request: Request) {
                 console.error('Error checking pending status:', adminError);
                 return new Response(JSON.stringify({
                     success: false,
-                    error: adminError.message || 'Failed to check pending status'
+                    error: 'Failed to check pending status'
                 }), {
                     status: 500,
                     headers: { 'Content-Type': 'application/json' },
@@ -127,7 +127,7 @@ export async function POST(request: Request) {
         console.error('Error in check-pending-status:', error);
         return new Response(JSON.stringify({
             success: false,
-            error: error.message || 'Failed to check pending status'
+            error: 'Failed to check pending status'
         }), {
             status: 500,
             headers: { 'Content-Type': 'application/json' },

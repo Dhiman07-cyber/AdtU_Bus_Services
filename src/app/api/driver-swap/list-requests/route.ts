@@ -84,7 +84,7 @@ export async function GET(request: Request) {
   } catch (error: any) {
     console.error('❌ Error listing swap requests:', error);
     return NextResponse.json(
-      { error: error.message || 'Internal server error' },
+      { error: 'Internal server error' },
       { status: 500 }
     );
   }

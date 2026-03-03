@@ -42,7 +42,7 @@ export async function GET(request: NextRequest) {
   } catch (error: any) {
     console.error('Error getting bus fee:', error);
     return NextResponse.json(
-      { success: false, error: error.message },
+      { success: false, error: 'An unexpected error occurred' },
       { status: 500 }
     );
   }
@@ -99,7 +99,7 @@ export async function POST(request: NextRequest) {
   } catch (error: any) {
     console.error('Error updating bus fee:', error);
     return NextResponse.json(
-      { success: false, error: error.message },
+      { success: false, error: 'An unexpected error occurred' },
       { status: 500 }
     );
   }

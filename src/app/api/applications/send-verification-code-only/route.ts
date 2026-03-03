@@ -136,7 +136,7 @@ export async function POST(request: NextRequest) {
   } catch (error: any) {
     console.error('Error sending verification code:', error);
     return NextResponse.json(
-      { error: error.message || 'Failed to send verification code' },
+      { error: 'Failed to send verification code' },
       { status: 500 }
     );
   }

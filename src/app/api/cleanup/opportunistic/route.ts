@@ -19,7 +19,7 @@ export async function POST(request: Request) {
   } catch (error: any) {
     console.error('Error initiating cleanup:', error);
     return NextResponse.json(
-      { error: error.message || 'Failed to initiate cleanup' },
+      { error: 'Failed to initiate cleanup' },
       { status: 500 }
     );
   }

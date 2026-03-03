@@ -103,7 +103,7 @@ export async function POST(request: NextRequest) {
         if (error) {
             console.error('[reassignment-logs/write] Insert error:', error);
             return NextResponse.json({ 
-                error: error.message,
+                error: 'An unexpected error occurred',
                 code: error.code,
                 details: error.details,
                 hint: error.hint

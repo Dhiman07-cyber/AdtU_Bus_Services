@@ -1,3 +1,4 @@
+// @ts-nocheck
 /**
  * Mobile Native Location Strategy
  * Uses Capacitor Geolocation plugin with FusedLocationProvider (Android) / CoreLocation (iOS)

@@ -35,15 +35,21 @@ export async function GET(request: NextRequest) {
         // 4. They have a valid email and name (basic validation)
         const hasValidData = data.email && (data.name || data.fullName);
         const isActive = hasValidData && (!data.status || data.status === 'active' || data.active === true);
+
+        // Check if moderator has permission to appear in the list (default: true for backward compatibility)
+        const permissions = data.permissions;
+        const canAppearInList = !permissions || permissions.canAppearInModeratorList !== false;
+
         console.log(`📋 Moderator ${doc.id}:`, {
           name: data.name || data.fullName,
           status: data.status,
           active: data.active,
           hasValidData,
           isActive,
+          canAppearInList,
           email: data.email
         });
-        return isActive;
+        return isActive && canAppearInList;
       })
       .map((doc: any) => {
         const data = doc.data();
@@ -68,7 +74,7 @@ export async function GET(request: NextRequest) {
   } catch (error: any) {
     console.error('Error fetching moderators:', error);
     return NextResponse.json(
-      { error: error.message || 'Failed to fetch moderators' },
+      { error: 'Failed to fetch moderators' },
       { status: 500 }
     );
   }

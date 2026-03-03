@@ -276,21 +276,27 @@ export async function POST(request: Request) {
     try {
       console.log('📲 Sending trip end FCM notifications...');
 
-      const studentsSnapshot = await adminDb
+      let studentsSnapshot = await adminDb
         .collection('students')
         .where('assignedBusId', '==', busId)
         .get();
 
+      if (studentsSnapshot.empty) {
+        const altSnapshot1 = await adminDb.collection('students').where('busId', '==', busId).get();
+        const altSnapshot2 = await adminDb.collection('students').where('bus_id', '==', busId).get();
+        studentsSnapshot = altSnapshot1.empty ? altSnapshot2 : altSnapshot1;
+      }
+
       if (!studentsSnapshot.empty && auth.messaging) {
         const allTokens: string[] = [];
 
-        for (const studentDoc of studentsSnapshot.docs) {
-          const tokensSnapshot = await adminDb
-            .collection('fcm_tokens')
-            .where('userUid', '==', studentDoc.id)
-            .get();
+        const studentIds = studentsSnapshot.docs.map((doc: any) => doc.id);
+        const tokenSnapshots = await Promise.all(
+          studentIds.map((uid: string) => adminDb.collection('fcm_tokens').where('userUid', '==', uid).get())
+        );
 
-          tokensSnapshot.docs.forEach((tokenDoc: any) => {
+        for (const snapshot of tokenSnapshots) {
+          snapshot.docs.forEach((tokenDoc: any) => {
             allTokens.push(tokenDoc.data().deviceToken);
           });
         }
@@ -358,7 +364,7 @@ export async function POST(request: Request) {
   } catch (error: any) {
     console.error('❌ Error ending journey:', error);
     return NextResponse.json(
-      { error: error.message || 'Failed to end journey' },
+      { error: 'Failed to end journey' },
       { status: 500 }
     );
   }

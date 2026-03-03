@@ -164,7 +164,7 @@ export async function POST(request: Request) {
   } catch (error: any) {
     console.error('Error in driver swap request creation:', error);
     return NextResponse.json(
-      { error: error.message || 'Internal server error' },
+      { error: 'Internal server error' },
       { status: 500 }
     );
   }
@@ -223,7 +223,7 @@ export async function GET(request: Request) {
     console.error('❌ Error fetching swap requests:', error);
     return NextResponse.json(
       {
-        error: error.message || 'Internal server error',
+        error: 'Internal server error',
         success: false,
         requests: []
       },

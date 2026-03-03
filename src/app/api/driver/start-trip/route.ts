@@ -155,7 +155,7 @@ export async function POST(request: Request) {
     } catch (error: any) {
         console.error('❌ Error starting trip:', error);
         return NextResponse.json(
-            { error: error.message || 'Failed to start trip' },
+            { error: 'Failed to start trip' },
             { status: 500 }
         );
     }

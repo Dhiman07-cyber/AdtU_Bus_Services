@@ -58,7 +58,7 @@ export async function POST(request: NextRequest) {
   } catch (error: any) {
     console.error('Error in boarding action API:', error);
     return NextResponse.json(
-      { success: false, error: error.message || 'Internal server error' },
+      { success: false, error: 'Internal server error' },
       { status: 500 }
     );
   }

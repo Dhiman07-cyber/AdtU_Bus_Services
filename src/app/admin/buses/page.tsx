@@ -38,6 +38,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { PremiumPageLoader } from '@/components/LoadingSpinner';
 import {
   Search,
   Plus,
@@ -160,9 +161,15 @@ export default function BusesPage() {
   // Manual refresh handler
   const handleRefresh = async () => {
     setIsRefreshing(true);
-    await Promise.all([refreshBuses(), refreshDrivers(), refreshRoutes()]);
-    addToast('Data refreshed', 'success');
-    setIsRefreshing(false);
+    try {
+      await Promise.all([refreshBuses(), refreshDrivers(), refreshRoutes()]);
+      addToast('Data refreshed', 'success');
+    } catch (error) {
+      console.error('Error refreshing buses:', error);
+      addToast('Failed to refresh data', 'error');
+    } finally {
+      setIsRefreshing(false);
+    }
   };
 
   // Helper function to extract number from string
@@ -346,8 +353,8 @@ export default function BusesPage() {
     }
   };
 
-  if (isLoading) {
-    return <div className="flex justify-center items-center h-64">Loading...</div>;
+  if (isLoading && buses.length === 0) {
+    return <PremiumPageLoader message="Curating Bus Fleet..." subMessage="Fetching bus status and assignments..." />;
   }
 
   return (
@@ -384,7 +391,7 @@ export default function BusesPage() {
             size="sm"
             onClick={handleRefresh}
             disabled={isRefreshing}
-            className="group h-8 px-4 bg-white hover:bg-gray-50 text-gray-600 hover:text-purple-600 border border-gray-200 hover:border-purple-200 shadow-sm hover:shadow-lg hover:shadow-purple-500/10 font-bold text-[10px] uppercase tracking-widest rounded-lg transition-all duration-300 active:scale-95"
+            className="group h-8 px-4 bg-white hover:bg-gray-50 text-black hover:text-purple-600 border border-gray-200 hover:border-purple-200 shadow-sm hover:shadow-lg hover:shadow-purple-500/10 font-bold text-[10px] uppercase tracking-widest rounded-lg transition-all duration-300 active:scale-95"
           >
             <RefreshCw className={`mr-2 h-3.5 w-3.5 transition-transform duration-500 ${isRefreshing ? 'animate-spin' : 'group-hover:rotate-180'}`} />
             Refresh

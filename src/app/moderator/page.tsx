@@ -18,7 +18,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 // SPARK PLAN SAFETY: Migrated to usePaginatedCollection
 import { usePaginatedCollection } from '@/hooks/usePaginatedCollection';
-import { FullScreenLoader } from '@/components/LoadingSpinner';
+import { PremiumPageLoader } from '@/components/LoadingSpinner';
 
 import {
   Users,
@@ -48,7 +48,10 @@ import {
   BarChart as BarChartIcon,
   TrendingUp as TrendingUpIcon,
   Sun,
-  Moon
+  Moon,
+  Info,
+  AlertTriangle,
+  Wallet
 } from 'lucide-react';
 import {
   BarChart,
@@ -73,6 +76,7 @@ import HighLoadAlert from '@/components/HighLoadAlert';
 const CHART_COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899'];
 import { ActiveTripsCard } from '@/components/dashboard/ActiveTripsCard';
 import { useSystemConfig } from '@/contexts/SystemConfigContext';
+import { parseFirestoreDate } from '@/lib/utils/date-utils';
 
 // ============================================================================
 // DASHBOARD CACHING UTILITIES (Moderator)
@@ -158,6 +162,9 @@ export default function EnhancedModeratorDashboard() {
     last30DaysPayments: 0
   });
 
+  const [deadlineData, setDeadlineData] = useState<any>(null);
+  const [loadingDeadline, setLoadingDeadline] = useState(false);
+
   // Paginated data fetching (on-demand refresh)
   const { data: students, loading: loadingStudents, refresh: refreshStudents } = usePaginatedCollection('students', {
     pageSize: 50, orderByField: 'updatedAt', orderDirection: 'desc', autoRefresh: false,
@@ -174,6 +181,77 @@ export default function EnhancedModeratorDashboard() {
   const { data: notifications, loading: loadingNotifications, refresh: refreshNotifications } = usePaginatedCollection('notifications', {
     pageSize: 50, orderByField: 'createdAt', orderDirection: 'desc', autoRefresh: false,
   });
+
+  // Fetch Deadline Config (Added to fix N/A values)
+  const fetchDeadlineConfig = useCallback(async () => {
+    try {
+      setLoadingDeadline(true);
+      const response = await fetch('/api/settings/deadline-config');
+      if (response.ok) {
+        const data = await response.json();
+        if (data.config) {
+          setDeadlineData(data.config);
+        }
+      }
+    } catch (error) {
+      console.warn('Failed to fetch deadline config:', error);
+    } finally {
+      setLoadingDeadline(false);
+    }
+  }, []);
+
+  // Helper for displaying deadline dates (synced or from deadline rules)
+  const getDeadlineDisplay = useCallback((field: string) => {
+    // 1. Try systemConfig first (concrete synced dates)
+    const syncedDateStr = systemConfig?.[field as keyof typeof systemConfig] as string;
+    if (syncedDateStr && typeof syncedDateStr === 'string') {
+      const d = new Date(syncedDateStr);
+      if (!isNaN(d.getTime())) {
+        const day = d.getDate();
+        const dayStr = day + (day % 10 === 1 && day !== 11 ? 'st' : day % 10 === 2 && day !== 12 ? 'nd' : day % 10 === 3 && day !== 13 ? 'rd' : 'th');
+        const month = d.toLocaleString('en-US', { month: 'long' });
+        return `${dayStr} ${month}`;
+      }
+    }
+
+    // 2. Fallback to deadlineData (abstract rules from Firestore)
+    if (deadlineData) {
+      let month = -1;
+      let day = -1;
+
+      switch (field) {
+        case 'academicYearEnd':
+          month = deadlineData.academicYear?.anchorMonth;
+          day = deadlineData.academicYear?.anchorDay;
+          break;
+        case 'renewalReminder':
+          month = deadlineData.renewalNotification?.month;
+          day = deadlineData.renewalNotification?.day;
+          break;
+        case 'renewalDeadline':
+          month = deadlineData.renewalDeadline?.month;
+          day = deadlineData.renewalDeadline?.day;
+          break;
+        case 'softBlock':
+          month = deadlineData.softBlock?.month;
+          day = deadlineData.softBlock?.day;
+          break;
+        case 'hardBlock':
+          // The hard block in UI is mapped to hardDelete in config
+          month = deadlineData.hardDelete?.month;
+          day = deadlineData.hardDelete?.day;
+          break;
+      }
+
+      if (month !== -1 && day !== -1 && month !== undefined && day !== undefined) {
+        const dayStr = day + (day % 10 === 1 && day !== 11 ? 'st' : day % 10 === 2 && day !== 12 ? 'nd' : day % 10 === 3 && day !== 13 ? 'rd' : 'th');
+        const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+        return `${dayStr} ${monthNames[month]}`;
+      }
+    }
+
+    return 'N/A';
+  }, [systemConfig, deadlineData]);
 
   // Fetch Accurate Counts
   const fetchRealTotalCounts = async () => {
@@ -260,6 +338,7 @@ export default function EnhancedModeratorDashboard() {
 
   useEffect(() => {
     fetchRealTotalCounts();
+    fetchDeadlineConfig();
     // Also fetch full dataset for charts once
     const fetchFullChartData = async () => {
       try {
@@ -277,7 +356,7 @@ export default function EnhancedModeratorDashboard() {
       }
     };
     fetchFullChartData();
-  }, []);
+  }, [fetchDeadlineConfig]);
 
   // Note: Caching useEffect moved below allBuses/allRoutes state declarations
 
@@ -287,7 +366,7 @@ export default function EnhancedModeratorDashboard() {
 
   const routes = useMemo(() => {
     // Legacy route extraction for compatibility with other parts of UI using 'routes' from paginated buses
-    // But for charts we use allRoutes. 
+    // But for charts we use allRoutes.
     // This hook output is 'routes' derived from 'buses' (paginated).
     return buses.map((bus: any) => {
       if (bus.route) {
@@ -350,17 +429,22 @@ export default function EnhancedModeratorDashboard() {
   // Manual refresh handler
   const handleRefreshAll = async () => {
     setIsRefreshing(true);
-    await Promise.all([
-      refreshStudents(),
-      refreshDrivers(),
-      refreshBuses(),
-      refreshApplications(),
-      refreshNotifications(),
-      fetchRealTotalCounts(),
-      refreshConfig()
-    ]);
-    setLastUpdated(new Date());
-    setIsRefreshing(false);
+    try {
+      await Promise.all([
+        refreshStudents(),
+        refreshDrivers(),
+        refreshBuses(),
+        refreshApplications(),
+        refreshNotifications(),
+        fetchRealTotalCounts(),
+        refreshConfig()
+      ]);
+      setLastUpdated(new Date());
+    } catch (error) {
+      console.error('Error refreshing moderator dashboard:', error);
+    } finally {
+      setIsRefreshing(false);
+    }
   };
 
   const [busUtilization, setBusUtilization] = useState<any[]>([]);
@@ -370,14 +454,6 @@ export default function EnhancedModeratorDashboard() {
   const [verificationTrend, setVerificationTrend] = useState<any[]>([]);
   const [activeTrips, setActiveTrips] = useState<any[]>([]);
 
-  useEffect(() => {
-    if (!authLoading) {
-      if (!currentUser || !userData || userData.role !== 'moderator') {
-        router.push('/login');
-        return;
-      }
-    }
-  }, [authLoading, currentUser, userData, router]);
 
 
   // Memoized calculation functions
@@ -659,8 +735,8 @@ export default function EnhancedModeratorDashboard() {
   }, [allDataLoading, students, drivers, buses, routes, notifications]);
 
 
-  if (allDataLoading) {
-    return <FullScreenLoader message="Loading Dashboard..." />;
+  if (allDataLoading && students.length === 0 && drivers.length === 0 && buses.length === 0) {
+    return <PremiumPageLoader message="Curating Dashboard Experience..." subMessage="Fetching moderation status and analytics..." />;
   }
 
   // Get first name from user data
@@ -711,7 +787,7 @@ export default function EnhancedModeratorDashboard() {
           <Button
             onClick={handleRefreshAll}
             disabled={isRefreshing}
-            className="group h-8 px-4 bg-white hover:bg-gray-50 text-gray-600 hover:text-purple-600 border border-gray-200 hover:border-purple-200 shadow-sm hover:shadow-lg hover:shadow-purple-500/10 font-bold text-[10px] uppercase tracking-widest rounded-lg transition-all duration-300 active:scale-95"
+            className="group h-8 px-4 bg-white hover:bg-gray-50 text-black hover:text-purple-600 border border-gray-200 hover:border-purple-200 shadow-sm hover:shadow-lg hover:shadow-purple-500/10 font-bold text-[10px] uppercase tracking-widest rounded-lg transition-all duration-300 active:scale-95"
             size="sm"
           >
             <RefreshCw className={`mr-2 h-3.5 w-3.5 transition-transform duration-500 ${isRefreshing ? 'animate-spin' : 'group-hover:rotate-180'}`} />
@@ -799,8 +875,10 @@ export default function EnhancedModeratorDashboard() {
           <Card className="hover:scale-[1.02] transition-all duration-300 bg-gradient-to-br from-cyan-50 to-sky-50 dark:from-cyan-500/20 dark:to-sky-500/20 border-cyan-200 dark:border-cyan-500/30 backdrop-blur-sm shadow-sm group cursor-pointer overflow-hidden">
             <CardHeader className="px-2.5 pb-0">
               <div className="flex items-center justify-between">
-                <CardTitle className="text-[10px] font-medium text-gray-500 dark:text-gray-400 group-hover:text-cyan-400 transition-colors uppercase tracking-wider !pb-0 !mb-0">Shift Distribution</CardTitle>
-                <PieChartIcon className="h-3 w-3 text-cyan-500 group-hover:rotate-12 transition-transform" />
+                <div className="flex items-center gap-1">
+                  <PieChartIcon className="h-3 w-3 text-cyan-500 group-hover:rotate-12 transition-transform" />
+                  <CardTitle className="text-[10px] font-medium text-gray-500 dark:text-gray-400 group-hover:text-cyan-400 transition-colors uppercase tracking-wider !pb-0 !mb-0">Shift Distribution</CardTitle>
+                </div>
               </div>
             </CardHeader>
             <CardContent className="px-2.5 flex flex-col gap-1.5">
@@ -841,30 +919,15 @@ export default function EnhancedModeratorDashboard() {
               <div className="space-y-0.5">
                 <div className="flex justify-between text-[10px] mb-1">
                   <span className="text-gray-500 dark:text-gray-400">Academic Year End:</span>
-                  <span className="text-red-400 font-semibold">{systemConfig?.academicYearEnd ? (() => {
-                    const d = new Date(systemConfig.academicYearEnd!);
-                    const day = d.getDate();
-                    const suffix = (day > 3 && day < 21) || day % 10 > 3 ? 'th' : ['th', 'st', 'nd', 'rd'][day % 10];
-                    return `${day}${suffix} ${d.toLocaleString('en-GB', { month: 'long' })}`;
-                  })() : 'N/A'}</span>
+                  <span className="text-red-400 font-semibold">{getDeadlineDisplay('academicYearEnd')}</span>
                 </div>
                 <div className="flex justify-between text-[10px] mb-1">
                   <span className="text-gray-500 dark:text-gray-400">Renewal Reminder:</span>
-                  <span className="text-orange-400 font-semibold">{systemConfig?.renewalReminder ? (() => {
-                    const d = new Date(systemConfig.renewalReminder!);
-                    const day = d.getDate();
-                    const suffix = (day > 3 && day < 21) || day % 10 > 3 ? 'th' : ['th', 'st', 'nd', 'rd'][day % 10];
-                    return `${day}${suffix} ${d.toLocaleString('en-GB', { month: 'long' })}`;
-                  })() : 'N/A'}</span>
+                  <span className="text-orange-400 font-semibold">{getDeadlineDisplay('renewalReminder')}</span>
                 </div>
                 <div className="flex justify-between text-[10px]">
                   <span className="text-gray-500 dark:text-gray-400">Renewal Deadline:</span>
-                  <span className="text-green-400 font-semibold">{systemConfig?.renewalDeadline ? (() => {
-                    const d = new Date(systemConfig.renewalDeadline!);
-                    const day = d.getDate();
-                    const suffix = (day > 3 && day < 21) || day % 10 > 3 ? 'th' : ['th', 'st', 'nd', 'rd'][day % 10];
-                    return `${day}${suffix} ${d.toLocaleString('en-GB', { month: 'long' })}`;
-                  })() : 'N/A'}</span>
+                  <span className="text-green-400 font-semibold">{getDeadlineDisplay('renewalDeadline')}</span>
                 </div>
               </div>
             </CardContent>
@@ -929,30 +992,15 @@ export default function EnhancedModeratorDashboard() {
               <div className="space-y-0.5">
                 <div className="flex items-center justify-between text-[10px] mb-1">
                   <span className="text-gray-500 dark:text-gray-400">Academic Year End:</span>
-                  <span className="text-green-400 font-bold">{systemConfig?.academicYearEnd ? (() => {
-                    const d = new Date(systemConfig.academicYearEnd!);
-                    const day = d.getDate();
-                    const suffix = (day > 3 && day < 21) || day % 10 > 3 ? 'th' : ['th', 'st', 'nd', 'rd'][day % 10];
-                    return `${day}${suffix} ${d.toLocaleString('en-GB', { month: 'long' })}`;
-                  })() : 'N/A'}</span>
+                  <span className="text-green-400 font-bold">{getDeadlineDisplay('academicYearEnd')}</span>
                 </div>
                 <div className="flex items-center justify-between text-[10px] mb-1">
                   <span className="text-gray-500 dark:text-gray-400">Soft Block:</span>
-                  <span className="text-yellow-400 font-bold">{systemConfig?.softBlock ? (() => {
-                    const d = new Date(systemConfig.softBlock!);
-                    const day = d.getDate();
-                    const suffix = (day > 3 && day < 21) || day % 10 > 3 ? 'th' : ['th', 'st', 'nd', 'rd'][day % 10];
-                    return `${day}${suffix} ${d.toLocaleString('en-GB', { month: 'long' })}`;
-                  })() : 'N/A'}</span>
+                  <span className="text-yellow-400 font-bold">{getDeadlineDisplay('softBlock')}</span>
                 </div>
                 <div className="flex items-center justify-between text-[10px]">
                   <span className="text-gray-500 dark:text-gray-400">Hard Block:</span>
-                  <span className="text-red-400 font-bold">{systemConfig?.hardBlock ? (() => {
-                    const d = new Date(systemConfig.hardBlock!);
-                    const day = d.getDate();
-                    const suffix = (day > 3 && day < 21) || day % 10 > 3 ? 'th' : ['th', 'st', 'nd', 'rd'][day % 10];
-                    return `${day}${suffix} ${d.toLocaleString('en-GB', { month: 'long' })}`;
-                  })() : 'N/A'}</span>
+                  <span className="text-red-400 font-bold">{getDeadlineDisplay('hardBlock')}</span>
                 </div>
               </div>
             </CardContent>

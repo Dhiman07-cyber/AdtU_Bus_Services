@@ -28,7 +28,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
     });
   } catch (error: any) {
     console.error('Error fetching bus data:', error);
-    return NextResponse.json({ error: error.message || 'Failed to fetch bus data' }, { status: 500 });
+    return NextResponse.json({ error: 'Failed to fetch bus data' }, { status: 500 });
   }
 }
 
@@ -64,7 +64,7 @@ export async function PUT(request: Request, { params }: { params: Promise<{ id: 
     });
   } catch (error: any) {
     console.error('Error updating bus data:', error);
-    return NextResponse.json({ error: error.message || 'Failed to update bus data' }, { status: 500 });
+    return NextResponse.json({ error: 'Failed to update bus data' }, { status: 500 });
   }
 }
 
@@ -94,6 +94,6 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ i
     });
   } catch (error: any) {
     console.error('Error deleting bus:', error);
-    return NextResponse.json({ error: error.message || 'Failed to delete bus' }, { status: 500 });
+    return NextResponse.json({ error: 'Failed to delete bus' }, { status: 500 });
   }
 }

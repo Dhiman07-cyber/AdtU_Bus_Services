@@ -150,7 +150,7 @@ export async function POST(req: NextRequest) {
             } catch (error: any) {
                 previews.push({
                     studentId,
-                    error: error.message,
+                    error: 'An unexpected error occurred',
                     exists: false
                 });
             }
@@ -190,7 +190,7 @@ export async function POST(req: NextRequest) {
     } catch (error: any) {
         console.error('Error in deadline preview:', error);
         return NextResponse.json(
-            { message: error.message || 'Failed to generate preview' },
+            { message: 'Failed to generate preview' },
             { status: 500 }
         );
     }
@@ -299,7 +299,7 @@ export async function GET(req: NextRequest) {
     } catch (error: any) {
         console.error('Error in deadline preview:', error);
         return NextResponse.json(
-            { message: error.message || 'Failed to generate preview' },
+            { message: 'Failed to generate preview' },
             { status: 500 }
         );
     }

@@ -20,7 +20,7 @@ export async function GET() {
     console.error('Error reading firestore.rules:', error);
     return new Response(JSON.stringify({ 
       success: false, 
-      error: error.message || 'Failed to read firestore.rules file' 
+      error: 'Failed to read firestore.rules file' 
     }), {
       status: 500,
       headers: { 'Content-Type': 'application/json' },

@@ -245,7 +245,7 @@ export async function POST(request: Request) {
   } catch (error: any) {
     console.error('❌ Error in waiting-flag/create:', error);
     return NextResponse.json(
-      { error: error.message || 'Internal server error' },
+      { error: 'Internal server error' },
       { status: 500 }
     );
   }

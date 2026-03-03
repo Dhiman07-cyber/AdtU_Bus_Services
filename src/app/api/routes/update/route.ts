@@ -76,6 +76,6 @@ export async function PUT(request: Request) {
 
     } catch (error: any) {
         console.error('Update route error:', error);
-        return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+        return NextResponse.json({ success: false, error: 'An unexpected error occurred' }, { status: 500 });
     }
 }

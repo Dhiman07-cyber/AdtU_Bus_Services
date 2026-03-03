@@ -175,7 +175,7 @@ export async function GET(request: Request) {
     return NextResponse.json(
       {
         error: 'Failed to get Firestore health metrics',
-        message: error.message
+        message: 'Internal error'
       },
       { status: 500 }
     );

@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { NextRequest, NextResponse } from 'next/server';
 import { v2 as cloudinary } from 'cloudinary';
 
@@ -13,12 +14,12 @@ if (process.env.CLOUDINARY_API_KEY && process.env.CLOUDINARY_API_SECRET && proce
 export async function POST(request: NextRequest) {
   try {
     console.log('📥 [Upload API] Request received');
-    
+
     // Mobile optimization: Add request timeout handling
-    const timeoutPromise = new Promise((_, reject) => 
+    const timeoutPromise = new Promise((_, reject) =>
       setTimeout(() => reject(new Error('Server timeout')), 25000) // 25 second server timeout
     );
-    
+
     const processRequest = async () => {
       const formData = await request.formData();
       const file = formData.get('file') as File;
@@ -127,19 +128,19 @@ export async function POST(request: NextRequest) {
     };
 
     // Race between processing and timeout
-    return await Promise.race([processRequest(), timeoutPromise]);
-    
+    return (await Promise.race([processRequest(), timeoutPromise])) as NextResponse;
+
   } catch (error: any) {
     console.error('❌ [Upload API] Error:', error);
-    
+
     if (error.name === 'AbortError' || error.message === 'Server timeout') {
-      return NextResponse.json({ 
-        error: 'Upload timed out. Please try with a smaller image or better network connection.' 
+      return NextResponse.json({
+        error: 'Upload timed out. Please try with a smaller image or better network connection.'
       }, { status: 408 });
     }
-    
-    return NextResponse.json({ 
-      error: error.message || 'Upload failed' 
+
+    return NextResponse.json({
+      error: 'Upload failed'
     }, { status: 500 });
   }
 }

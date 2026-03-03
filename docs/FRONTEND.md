@@ -9,7 +9,7 @@ The **Frontend Architecture** is designed to provide a premium, modern, and high
 *   **State Management:** React Context / Custom Hooks (e.g., `useTripLock`).
 *   **Animations:** Framer Motion & CSS keyframes for high-end micro-interactions, scroll animations, and page transitions.
 *   **Map Integration:** Likely Mapbox or Leaflet for live bus tracking.
-*   **Real-time Data:** Firebase Web SDK (`onSnapshot`) for live config/data streams.
+*   **Real-time Data:** Firebase Web SDK `getDocs` paired with a custom 24-hr caching layer (`usePaginatedCollection`) supplemented by localized signal invalidation for strict database query economy.
 
 ---
 
@@ -36,7 +36,7 @@ The **Frontend Architecture** is designed to provide a premium, modern, and high
         *   If the bus is < 100m: *"Your assigned bus appears nearby..."*
         *   If searching: *"Searching other buses..."*
         *   If accepted: *"Good news — Bus [No] will pick you up."*
-*   **UI Focus:** Real-time polling updates via the `missed_bus_requests` status without heavy page reloads.
+*   **UI Focus:** Event-driven status refreshes syncing the `missed_bus_requests` progression visually without aggressively reloading the mapping modules.
 
 ### B. Driver Flow
 **1. Shift & Lock System**
@@ -65,7 +65,7 @@ The **Frontend Architecture** is designed to provide a premium, modern, and high
 
 ### B. The Application State Layer
 *   Frontend leverages global context strictly for **Session** and **Theme**. 
-*   **Real-time Synced State:** Utilizes SWR or React Query alongside Firebase SDK listeners to ensure the "Local UI state" exactly mirrors the "Authoritative Firestore State" (resolving the "Drift" problem).
+*   **Event-Driven Caching Mechanism (Spark Safety):** Admin lists retrieve queries utilizing `usePaginatedCollection` locked behind a 24-hour cache TTL. Global signals via `sessionStorage` trigger localized `invalidateCollectionCache()` commands when mutations succeed. This precisely replicates true sync visually while achieving nearly zero ambient background queries.
 
 ### C. Error Handling & Toasts
 *   Global Toast Providers capture and uniformize ORS (OpenRouteService) maintenance failures, API timeouts, and GPS permission denials, displaying contextual instructions to the end-user rather than generic crash screens.

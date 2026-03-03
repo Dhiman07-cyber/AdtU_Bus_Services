@@ -1,89 +1,92 @@
-import { getApps, initializeApp } from 'firebase-admin/app';
-import { getFirestore } from 'firebase-admin/firestore';
+import { NextRequest, NextResponse } from 'next/server';
+import { adminDb } from '@/lib/firebase-admin';
+import { verifyApiAuth } from '@/lib/security/api-auth';
+import { checkRateLimit, RateLimits, createRateLimitId } from '@/lib/security/rate-limiter';
+import { handleApiError } from '@/lib/security/safe-error';
 
-let adminApp: any;
-let db: any;
-let useAdminSDK = false;
+/**
+ * SECURITY: Fields that are NEVER allowed to be updated by this endpoint.
+ * These can only be changed through dedicated, secured workflows.
+ */
+const BLOCKED_FIELDS = [
+  'role',           // Privilege escalation prevention
+  'uid',            // Identity change prevention
+  'firstAdmin',     // Admin flag protection
+  'createdAt',      // Audit trail preservation
+  'email',          // Email changes go through Firebase Auth
+  'busFeeVersion',  // Internal field
+];
 
-// Try to initialize Firebase Admin SDK
-try {
-  if (process.env.FIREBASE_CLIENT_EMAIL && process.env.FIREBASE_PRIVATE_KEY) {
-    if (!getApps().length) {
-      // Fix private key parsing issue
-      const privateKey = process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n');
-      adminApp = initializeApp({
-        credential: require('firebase-admin').cert({
-          projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
-          clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
-          privateKey: privateKey,
-        }),
-      });
-    } else {
-      adminApp = getApps()[0];
+/**
+ * POST /api/update-user
+ * 
+ * SECURITY: Requires admin or moderator authentication.
+ * Blocks dangerous field updates to prevent privilege escalation.
+ */
+export async function POST(request: NextRequest) {
+  try {
+    // SECURITY: Verify authentication and required role
+    const auth = await verifyApiAuth(request, ['admin', 'moderator']);
+    if (!auth.authenticated) return auth.response;
+
+    // SECURITY: Rate limit by user
+    const rateLimitId = createRateLimitId(auth.uid, 'update-user');
+    const rateCheck = checkRateLimit(rateLimitId, RateLimits.UPDATE.maxRequests, RateLimits.UPDATE.windowMs);
+    if (!rateCheck.allowed) {
+      return NextResponse.json(
+        { success: false, error: 'Too many requests. Please wait.' },
+        { status: 429 }
+      );
     }
 
-    db = getFirestore(adminApp);
-    useAdminSDK = true;
-  }
-} catch (error) {
-  console.log('Failed to initialize Firebase Admin SDK, falling back to client SDK:', error);
-  useAdminSDK = false;
-}
-
-export async function POST(request: Request) {
-  try {
     const userData = await request.json();
     const { uid, ...updateData } = userData;
-    
+
     // Validate required input
-    if (!uid) {
-      return new Response(JSON.stringify({ 
-        success: false, 
-        error: 'User ID is required' 
-      }), {
-        status: 400,
-        headers: { 'Content-Type': 'application/json' },
-      });
+    if (!uid || typeof uid !== 'string' || uid.length > 128) {
+      return NextResponse.json(
+        { success: false, error: 'Valid User ID is required' },
+        { status: 400 }
+      );
     }
-    
-    if (useAdminSDK && db) {
-      // Use Firebase Admin SDK
-      try {
-        // Update user document in Firestore
-        await db.collection('users').doc(uid).update(updateData);
-        
-        return new Response(JSON.stringify({ success: true }), {
-          status: 200,
-          headers: { 'Content-Type': 'application/json' },
-        });
-      } catch (adminError: any) {
-        console.error('Error with Admin SDK:', adminError);
-        return new Response(JSON.stringify({ 
-          success: false, 
-          error: adminError.message || 'Failed to update user with admin SDK' 
-        }), {
-          status: 500,
-          headers: { 'Content-Type': 'application/json' },
-        });
+
+    // SECURITY: Strip blocked fields to prevent privilege escalation
+    const sanitizedData: Record<string, any> = {};
+    for (const [key, value] of Object.entries(updateData)) {
+      if (BLOCKED_FIELDS.includes(key)) {
+        console.warn(`⚠️ [SECURITY] Blocked field "${key}" stripped from update request by ${auth.uid}`);
+        continue;
       }
+      sanitizedData[key] = value;
     }
-    
-    // Fallback to client SDK
-    return new Response(JSON.stringify({ 
-      success: false, 
-      error: 'Admin SDK not available for update operation' 
-    }), {
-      status: 500,
-      headers: { 'Content-Type': 'application/json' },
-    });
+
+    if (Object.keys(sanitizedData).length === 0) {
+      return NextResponse.json(
+        { success: false, error: 'No valid fields to update' },
+        { status: 400 }
+      );
+    }
+
+    if (!adminDb) {
+      return NextResponse.json(
+        { success: false, error: 'Server configuration error' },
+        { status: 500 }
+      );
+    }
+
+    // Add audit metadata
+    sanitizedData.updatedAt = new Date().toISOString();
+    sanitizedData.lastUpdatedBy = auth.uid;
+
+    // Update user document in Firestore
+    await adminDb.collection('users').doc(uid).update(sanitizedData);
+
+    return NextResponse.json({ success: true });
+
   } catch (error: any) {
-    console.error('Error updating user:', error);
-    return new Response(JSON.stringify({ 
-      success: false, 
-      error: error.message || 'Failed to update user' 
-    }), {
-      status: 500,
-      headers: { 'Content-Type': 'application/json' },
-    });
+    return NextResponse.json(
+      handleApiError(error, 'update-user', 'Failed to update user'),
+      { status: 500 }
+    );
   }
 }

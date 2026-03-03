@@ -26,7 +26,7 @@ export async function GET() {
             checks['supabase'] = {
                 status: 'error',
                 latency_ms: supabaseLatency,
-                message: error.message
+                message: 'Database connectivity error'
             };
         } else {
             checks['supabase'] = {
@@ -37,7 +37,7 @@ export async function GET() {
     } catch (e) {
         checks['supabase'] = {
             status: 'error',
-            message: e instanceof Error ? e.message : 'Unknown error'
+            message: 'Database connection failed'
         };
     }
 

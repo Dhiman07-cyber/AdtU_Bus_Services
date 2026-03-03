@@ -47,6 +47,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { PremiumPageLoader } from '@/components/LoadingSpinner';
 import { MoreHorizontal, Eye, Edit, Trash2, Search, Loader2, Plus, Filter, ArrowRightLeft, Users, RefreshCw } from "lucide-react";
 import { deleteDriver } from '@/lib/dataService';
 import Avatar from '@/components/Avatar';
@@ -89,10 +90,16 @@ export default function AdminDrivers() {
   // Manual refresh handler
   const handleRefresh = async () => {
     setIsRefreshing(true);
-    invalidateCollectionCache('drivers');
-    await Promise.all([refreshDrivers(), refreshBuses()]);
-    addToast('Data refreshed', 'success');
-    setIsRefreshing(false);
+    try {
+      invalidateCollectionCache('drivers');
+      await Promise.all([refreshDrivers(), refreshBuses()]);
+      addToast('Data refreshed', 'success');
+    } catch (error) {
+      console.error('Error refreshing drivers:', error);
+      addToast('Failed to refresh data', 'error');
+    } finally {
+      setIsRefreshing(false);
+    }
   };
 
   useEffect(() => {
@@ -236,15 +243,8 @@ export default function AdminDrivers() {
     return match ? match[0] : '0';
   };
 
-  if (authLoading || isLoading) {
-    return (
-      <div className="min-h-[70vh] flex items-center justify-center">
-        <div className="text-center space-y-4">
-          <Loader2 className="h-12 w-12 animate-spin text-blue-600 mx-auto" />
-          <p className="text-gray-600 dark:text-gray-400 text-lg">Loading drivers...</p>
-        </div>
-      </div>
-    );
+  if ((authLoading || isLoading) && drivers.length === 0) {
+    return <PremiumPageLoader message="Curating Driver Registry..." subMessage="Fetching driver profiles and assignments..." />;
   }
 
   if (!currentUser || !userData || userData.role !== 'admin') {
@@ -281,7 +281,7 @@ export default function AdminDrivers() {
             size="sm"
             onClick={handleRefresh}
             disabled={isRefreshing}
-            className="group h-8 px-4 bg-white hover:bg-gray-50 text-gray-600 hover:text-purple-600 border border-gray-200 hover:border-purple-200 shadow-sm hover:shadow-lg hover:shadow-purple-500/10 font-bold text-[10px] uppercase tracking-widest rounded-lg transition-all duration-300 active:scale-95"
+            className="group h-8 px-4 bg-white hover:bg-gray-50 text-black hover:text-purple-600 border border-gray-200 hover:border-purple-200 shadow-sm hover:shadow-lg hover:shadow-purple-500/10 font-bold text-[10px] uppercase tracking-widest rounded-lg transition-all duration-300 active:scale-95"
           >
             <RefreshCw className={`mr-2 h-3.5 w-3.5 transition-transform duration-500 ${isRefreshing ? 'animate-spin' : 'group-hover:rotate-180'}`} />
             Refresh

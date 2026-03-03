@@ -132,16 +132,6 @@ export default function AdminFeedbackPage() {
     const [loadingRecipients, setLoadingRecipients] = useState(false);
     const [sendingForward, setSendingForward] = useState(false);
 
-    // Verify Admin Access
-    useEffect(() => {
-        if (!authLoading) {
-            if (!currentUser) {
-                router.push('/login');
-            } else if (userData?.role !== 'admin') {
-                router.push('/dashboard');
-            }
-        }
-    }, [currentUser, userData, authLoading, router]);
 
     const fetchFeedback = useCallback(async () => {
         if (!currentUser) return;

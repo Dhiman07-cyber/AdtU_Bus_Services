@@ -139,14 +139,15 @@ export async function POST(request: Request) {
         .get();
 
       const fcmTokens: string[] = [];
+      const studentIds = studentsSnapshot.docs.map((doc: any) => doc.id);
 
-      for (const doc of studentsSnapshot.docs) {
-        const tokensSnapshot = await adminDb
-          .collection('fcm_tokens')
-          .where('userUid', '==', doc.id)
-          .get();
+      // Fetch FCM tokens concurrently to prevent N+1 query slow down
+      const tokenSnapshots = await Promise.all(
+        studentIds.map((uid: string) => adminDb.collection('fcm_tokens').where('userUid', '==', uid).get())
+      );
 
-        tokensSnapshot.docs.forEach((tokenDoc: any) => {
+      for (const snapshot of tokenSnapshots) {
+        snapshot.docs.forEach((tokenDoc: any) => {
           fcmTokens.push(tokenDoc.data().deviceToken);
         });
       }
@@ -198,7 +199,7 @@ export async function POST(request: Request) {
   } catch (error: any) {
     console.error('Error swapping bus:', error);
     return NextResponse.json(
-      { error: error.message || 'Failed to swap bus' },
+      { error: 'Failed to swap bus' },
       { status: 500 }
     );
   }

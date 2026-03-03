@@ -41,6 +41,6 @@ export async function POST(request: Request) {
 
     } catch (error: any) {
         console.error('❌ Error responding to wait request:', error);
-        return NextResponse.json({ error: error.message }, { status: 500 });
+        return NextResponse.json({ error: 'An unexpected error occurred' }, { status: 500 });
     }
 }

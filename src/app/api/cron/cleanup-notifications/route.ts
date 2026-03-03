@@ -18,11 +18,16 @@ import { deleteExpiredNotifications } from '@/lib/notification-expiry';
  */
 export async function GET(request: NextRequest) {
   try {
-    // Verify cron secret (in production)
+    // SECURITY: Verify cron secret (fail-closed: deny if not configured)
     const authHeader = request.headers.get('Authorization');
     const cronSecret = process.env.CRON_SECRET;
 
-    if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
+    if (!cronSecret) {
+      console.error('🚫 CRON_SECRET not configured — blocking cron request');
+      return NextResponse.json({ error: 'Server configuration error' }, { status: 500 });
+    }
+
+    if (authHeader !== `Bearer ${cronSecret}`) {
       console.warn('⚠️ Unauthorized cron request');
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
@@ -48,7 +53,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json(
       {
         success: false,
-        error: `${error.message} (Project: ${process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID})`
+        error: 'Cron job failed'
       },
       { status: 500 }
     );
@@ -91,7 +96,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(
       {
         success: false,
-        error: `${error.message || 'Manual trigger failed'} (Project: ${process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID})`
+        error: 'Manual trigger failed'
       },
       { status: 500 }
     );

@@ -39,7 +39,7 @@ export async function POST(request: NextRequest) {
   } catch (error: any) {
     console.error('Manual cleanup error:', error);
     return NextResponse.json(
-      { success: false, error: error.message },
+      { success: false, error: 'An unexpected error occurred' },
       { status: 500 }
     );
   }
@@ -92,7 +92,7 @@ export async function GET(request: NextRequest) {
   } catch (error: any) {
     console.error('Collection stats error:', error);
     return NextResponse.json(
-      { success: false, error: error.message },
+      { success: false, error: 'An unexpected error occurred' },
       { status: 500 }
     );
   }

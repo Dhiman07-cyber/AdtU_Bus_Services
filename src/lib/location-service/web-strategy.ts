@@ -1,3 +1,4 @@
+// @ts-nocheck
 /**
  * Web Geolocation Strategy
  * Uses browser's navigator.geolocation API

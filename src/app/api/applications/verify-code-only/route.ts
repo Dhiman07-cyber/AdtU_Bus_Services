@@ -113,7 +113,7 @@ export async function POST(request: NextRequest) {
   } catch (error: any) {
     console.error('Error verifying code:', error);
     return NextResponse.json(
-      { error: error.message || 'Failed to verify code' },
+      { error: 'Failed to verify code' },
       { status: 500 }
     );
   }

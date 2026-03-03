@@ -44,7 +44,7 @@ export async function DELETE(request: NextRequest) {
   } catch (error: any) {
     console.error('Error in delete route API:', error);
     return NextResponse.json(
-      { error: error.message || 'Failed to delete route' },
+      { error: 'Failed to delete route' },
       { status: 500 }
     );
   }

@@ -75,7 +75,7 @@ export async function POST(
     console.error('❌ Error ending swap:', error);
     console.error('Error stack:', error.stack);
     return NextResponse.json(
-      { error: error.message || 'Internal server error' },
+      { error: 'Internal server error' },
       { status: 500 }
     );
   }

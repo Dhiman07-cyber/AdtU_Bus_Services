@@ -120,7 +120,7 @@ export async function POST(request: Request) {
   } catch (error: any) {
     console.error('Error acknowledging waiting flag:', error);
     return NextResponse.json(
-      { error: error.message || 'Failed to acknowledge waiting flag' },
+      { error: 'Failed to acknowledge waiting flag' },
       { status: 500 }
     );
   }

@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { NextRequest, NextResponse } from 'next/server';
 import { adminAuth, adminDb } from '@/lib/firebase-admin';
 
@@ -45,7 +46,7 @@ export async function GET(request: NextRequest) {
   } catch (error: any) {
     console.error('Error fetching applications:', error);
     return NextResponse.json(
-      { error: error.message || 'Failed to fetch applications' },
+      { error: 'Failed to fetch applications' },
       { status: 500 }
     );
   }

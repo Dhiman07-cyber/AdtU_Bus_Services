@@ -6,7 +6,10 @@
  * The xlsx package had unpatched Prototype Pollution and ReDoS vulnerabilities.
  */
 
-import ExcelJS from 'exceljs';
+import type ExcelJSTypes from 'exceljs';
+// @ts-ignore
+import * as ExcelJSRuntime from 'exceljs/dist/exceljs.min.js';
+const ExcelJS: typeof ExcelJSTypes = ExcelJSRuntime.default || ExcelJSRuntime;
 
 /**
  * Export data to Excel file (client-side download)
@@ -340,7 +343,7 @@ export async function exportAllData(
 /**
  * Helper function to add data to a worksheet with styling
  */
-function addDataToWorksheet(workbook: ExcelJS.Workbook, sheetName: string, data: any[]) {
+function addDataToWorksheet(workbook: ExcelJSTypes.Workbook, sheetName: string, data: any[]) {
   const worksheet = workbook.addWorksheet(sheetName);
 
   if (data.length === 0) {

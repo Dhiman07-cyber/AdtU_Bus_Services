@@ -112,7 +112,7 @@ export async function GET(req: NextRequest) {
   } catch (error: any) {
     console.error('❌ Error checking driver-bus link:', error);
     return NextResponse.json(
-      { success: false, error: error.message },
+      { success: false, error: 'An unexpected error occurred' },
       { status: 500 }
     );
   }

@@ -44,7 +44,7 @@ export async function GET(request: NextRequest) {
     } catch (error: any) {
         console.error('Error loading deadline config:', error);
         return NextResponse.json(
-            { error: error.message || 'Failed to load config' },
+            { error: 'Failed to load config' },
             { status: 500 }
         );
     }

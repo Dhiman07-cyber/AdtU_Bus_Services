@@ -47,7 +47,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { MoreHorizontal, Eye, Edit, Trash2, Search, Plus, Filter, RefreshCw } from "lucide-react";
+import { PremiumPageLoader } from '@/components/LoadingSpinner';
+import { MoreHorizontal, Eye, Edit, Trash2, Search, Plus, Filter, RefreshCw, Shield } from "lucide-react";
 import { deleteModerator } from '@/lib/dataService';
 import { usePaginatedCollection, invalidateCollectionCache } from '@/hooks/usePaginatedCollection';
 import { useEventDrivenRefresh } from '@/hooks/useEventDrivenRefresh';
@@ -81,10 +82,16 @@ export default function AdminModerators() {
 
   const handleRefresh = async () => {
     setIsRefreshing(true);
-    invalidateCollectionCache('moderators');
-    await refreshModerators();
-    addToast('Data refreshed', 'success');
-    setIsRefreshing(false);
+    try {
+      invalidateCollectionCache('moderators');
+      await refreshModerators();
+      addToast('Data refreshed', 'success');
+    } catch (error) {
+      console.error('Error refreshing moderators:', error);
+      addToast('Failed to refresh data', 'error');
+    } finally {
+      setIsRefreshing(false);
+    }
   };
 
   const isLoading = authLoading || loadingModerators;
@@ -194,15 +201,8 @@ export default function AdminModerators() {
     return `${day}-${month}-${year}`;
   };
 
-  if (isLoading) {
-    return (
-      <div className="min-h-[70vh] flex items-center justify-center">
-        <div className="text-center space-y-4">
-          <div className="w-12 h-12 border-4 border-gray-200 dark:border-gray-700 rounded-full animate-spin border-t-blue-600 mx-auto"></div>
-          <p className="text-muted-foreground text-lg">Please wait...</p>
-        </div>
-      </div>
-    );
+  if (isLoading && moderators.length === 0) {
+    return <PremiumPageLoader message="Curating Moderator Directory..." subMessage="Fetching moderator profiles and status..." />;
   }
 
   if (!currentUser || !userData || userData.role !== 'admin') {
@@ -271,7 +271,7 @@ export default function AdminModerators() {
             size="sm"
             onClick={handleRefresh}
             disabled={isRefreshing}
-            className="group h-8 px-4 bg-white hover:bg-gray-50 text-gray-600 hover:text-purple-600 border border-gray-200 hover:border-purple-200 shadow-sm hover:shadow-lg hover:shadow-purple-500/10 font-bold text-[10px] uppercase tracking-widest rounded-lg transition-all duration-300 active:scale-95"
+            className="group h-8 px-4 bg-white hover:bg-gray-50 text-black hover:text-purple-600 border border-gray-200 hover:border-purple-200 shadow-sm hover:shadow-lg hover:shadow-purple-500/10 font-bold text-[10px] uppercase tracking-widest rounded-lg transition-all duration-300 active:scale-95"
           >
             <RefreshCw className={`mr-2 h-3.5 w-3.5 transition-transform duration-500 ${isRefreshing ? 'animate-spin' : 'group-hover:rotate-180'}`} />
             Refresh
@@ -451,6 +451,12 @@ export default function AdminModerators() {
                                 <Link href={`/admin/moderators/edit/${moderator.id}`} className="text-white hover:bg-gray-700 dark:hover:bg-gray-800 focus:bg-gray-700 dark:focus:bg-gray-800 px-2 py-1.5 !text-white text-[11px]">
                                   <Edit className="mr-1.5 h-3 w-3 text-yellow-400" />
                                   Edit
+                                </Link>
+                              </DropdownMenuItem>
+                              <DropdownMenuItem asChild>
+                                <Link href={`/admin/moderators/config/${moderator.id}`} className="text-white hover:bg-gray-700 dark:hover:bg-gray-800 focus:bg-gray-700 dark:focus:bg-gray-800 px-2 py-1.5 !text-white text-[11px]">
+                                  <Shield className="mr-1.5 h-3 w-3 text-emerald-400" />
+                                  Mod Config
                                 </Link>
                               </DropdownMenuItem>
                               <DropdownMenuSeparator className="bg-gray-600" />

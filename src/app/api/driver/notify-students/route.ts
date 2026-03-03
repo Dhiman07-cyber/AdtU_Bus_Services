@@ -44,7 +44,7 @@ export async function POST(request: Request) {
 
     // Get all students assigned to this bus
     console.log('🔍 Looking for students assigned to bus:', busId);
-    
+
     let studentsSnapshot = await adminDb
       .collection('students')
       .where('assignedBusId', '==', busId)
@@ -57,12 +57,12 @@ export async function POST(request: Request) {
     if (studentsSnapshot.empty) {
       // Try alternative field names
       console.log('🔍 Trying alternative field names...');
-      
+
       const altSnapshot1 = await adminDb
         .collection('students')
         .where('busId', '==', busId)
         .get();
-      
+
       const altSnapshot2 = await adminDb
         .collection('students')
         .where('bus_id', '==', busId)
@@ -71,8 +71,8 @@ export async function POST(request: Request) {
       console.log(`📊 Alternative searches: busId=${altSnapshot1.size}, bus_id=${altSnapshot2.size}`);
 
       if (altSnapshot1.empty && altSnapshot2.empty) {
-        return NextResponse.json({ 
-          success: true, 
+        return NextResponse.json({
+          success: true,
           message: 'No students found for this bus',
           notifiedCount: 0,
           debug: {
@@ -81,26 +81,28 @@ export async function POST(request: Request) {
           }
         });
       }
-      
+
       // Use the first non-empty result
       const finalSnapshot = altSnapshot1.empty ? altSnapshot2 : altSnapshot1;
       console.log(`✅ Using alternative field, found ${finalSnapshot.size} students`);
-      
+
       // Process the alternative snapshot
       const fcmTokens: string[] = [];
-      const studentPromises = finalSnapshot.docs.map(async (studentDoc: any) => {
-        const studentData = studentDoc.data();
-        console.log('👤 Student data:', { id: studentDoc.id, fcmToken: !!studentData.fcmToken });
-        if (studentData.fcmToken) {
-          fcmTokens.push(studentData.fcmToken);
-        }
-      });
+      const studentIds = finalSnapshot.docs.map((doc: any) => doc.id);
 
-      await Promise.all(studentPromises);
-      
+      // Fetch FCM tokens concurrently
+      const tokenSnapshots = await Promise.all(
+        studentIds.map((uid: string) => adminDb.collection('fcm_tokens').where('userUid', '==', uid).get())
+      );
+      for (const snapshot of tokenSnapshots) {
+        snapshot.docs.forEach((tokenDoc: any) => {
+          fcmTokens.push(tokenDoc.data().deviceToken);
+        });
+      }
+
       if (fcmTokens.length === 0) {
-        return NextResponse.json({ 
-          success: true, 
+        return NextResponse.json({
+          success: true,
           message: 'Students found but no FCM tokens available',
           notifiedCount: 0,
           debug: {
@@ -156,7 +158,7 @@ export async function POST(request: Request) {
       try {
         const response = await messaging.sendEachForMulticast(message);
         console.log(`✅ FCM notifications sent: ${response.successCount} successful, ${response.failureCount} failed`);
-        
+
         return NextResponse.json({
           success: true,
           message: 'Students notified successfully',
@@ -173,7 +175,7 @@ export async function POST(request: Request) {
         return NextResponse.json({
           success: false,
           error: 'Failed to send notifications',
-          details: fcmError.message
+          details: 'FCM delivery error'
         }, { status: 500 });
       }
     }
@@ -199,20 +201,23 @@ export async function POST(request: Request) {
 
     // Get FCM tokens for all students
     const fcmTokens: string[] = [];
-    const studentPromises = studentsSnapshot.docs.map(async (studentDoc: any) => {
-      const studentData = studentDoc.data();
-      if (studentData.fcmToken) {
-        fcmTokens.push(studentData.fcmToken);
-      }
-    });
+    const studentIds = studentsSnapshot.docs.map((doc: any) => doc.id);
 
-    await Promise.all(studentPromises);
+    // Fetch FCM tokens concurrently
+    const tokenSnapshots = await Promise.all(
+      studentIds.map((uid: string) => adminDb.collection('fcm_tokens').where('userUid', '==', uid).get())
+    );
+    for (const snapshot of tokenSnapshots) {
+      snapshot.docs.forEach((tokenDoc: any) => {
+        fcmTokens.push(tokenDoc.data().deviceToken);
+      });
+    }
 
     if (fcmTokens.length === 0) {
-      return NextResponse.json({ 
-        success: true, 
+      return NextResponse.json({
+        success: true,
         message: 'No FCM tokens found for students',
-        notifiedCount: 0 
+        notifiedCount: 0
       });
     }
 
@@ -245,7 +250,7 @@ export async function POST(request: Request) {
     try {
       const response = await messaging.sendEachForMulticast(message);
       console.log(`✅ FCM notifications sent: ${response.successCount} successful, ${response.failureCount} failed`);
-      
+
       return NextResponse.json({
         success: true,
         message: 'Students notified successfully',
@@ -258,14 +263,14 @@ export async function POST(request: Request) {
       return NextResponse.json({
         success: false,
         error: 'Failed to send notifications',
-        details: fcmError.message
+        details: 'FCM delivery error'
       }, { status: 500 });
     }
 
   } catch (error: any) {
     console.error('Error notifying students:', error);
     return NextResponse.json(
-      { error: error.message || 'Failed to notify students' },
+      { error: 'Failed to notify students' },
       { status: 500 }
     );
   }

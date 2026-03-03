@@ -65,6 +65,7 @@ import { deleteRoute } from "@/lib/dataService";
 // SPARK PLAN SAFETY: Migrated to usePaginatedCollection
 import { usePaginatedCollection, invalidateCollectionCache } from '@/hooks/usePaginatedCollection';
 import { useEventDrivenRefresh } from '@/hooks/useEventDrivenRefresh';
+import { useModeratorPermissions } from '@/hooks/useModeratorPermissions';
 
 // Use local interfaces to avoid type conflicts
 interface RouteItem {
@@ -114,6 +115,7 @@ interface DriverItem {
 export default function RoutesPage() {
   const router = useRouter();
   const { addToast } = useToast();
+  const { canRouteAdd, canRouteEdit, canRouteDelete } = useModeratorPermissions();
 
   // Real-time data listeners
   // Fetch routes from the canonical 'routes' collection
@@ -289,13 +291,15 @@ export default function RoutesPage() {
           </p>
         </div>
         <div className="flex gap-2">
-          <Button
-            className="w-full md:w-auto cursor-pointer bg-blue-600 hover:bg-blue-700 text-white border border-blue-700 transition-all duration-200 hover:scale-105 hover:shadow-lg rounded-md px-2.5 py-1.5 text-xs h-8"
-            onClick={() => router.push('/moderator/routes/add')}
-          >
-            <Plus className="mr-1.5 h-3.5 w-3.5" />
-            Add New Route
-          </Button>
+          {canRouteAdd && (
+            <Button
+              className="w-full md:w-auto cursor-pointer bg-blue-600 hover:bg-blue-700 text-white border border-blue-700 transition-all duration-200 hover:scale-105 hover:shadow-lg rounded-md px-2.5 py-1.5 text-xs h-8"
+              onClick={() => router.push('/moderator/routes/add')}
+            >
+              <Plus className="mr-1.5 h-3.5 w-3.5" />
+              Add New Route
+            </Button>
+          )}
           <ExportButton
             onClick={() => handleExportRoutes()}
             label="Export Routes"
@@ -424,21 +428,27 @@ export default function RoutesPage() {
                               <Eye className="mr-2 h-3.5 w-3.5 text-blue-400" />
                               View Details
                             </DropdownMenuItem>
-                            <DropdownMenuItem
-                              className="text-white hover:bg-gray-700 dark:hover:bg-gray-800 focus:bg-gray-700 dark:focus:bg-gray-800 px-2 py-1.5 text-sm !text-white cursor-pointer"
-                              onClick={() => router.push(`/moderator/routes/edit/${route.id}`)}
-                            >
-                              <Edit className="mr-2 h-3.5 w-3.5 text-yellow-400" />
-                              Edit Route
-                            </DropdownMenuItem>
-                            <DropdownMenuSeparator className="bg-gray-600" />
-                            <DropdownMenuItem
-                              className="text-white hover:!bg-red-600 focus:!bg-red-600 px-2 py-1.5 text-sm !text-white cursor-pointer transition-colors"
-                              onClick={() => handleDelete(route.id, route.routeName)}
-                            >
-                              <Trash2 className="mr-2 h-3.5 w-3.5" />
-                              Delete Route
-                            </DropdownMenuItem>
+                            {canRouteEdit && (
+                              <DropdownMenuItem
+                                className="text-white hover:bg-gray-700 dark:hover:bg-gray-800 focus:bg-gray-700 dark:focus:bg-gray-800 px-2 py-1.5 text-sm !text-white cursor-pointer"
+                                onClick={() => router.push(`/moderator/routes/edit/${route.id}`)}
+                              >
+                                <Edit className="mr-2 h-3.5 w-3.5 text-yellow-400" />
+                                Edit Route
+                              </DropdownMenuItem>
+                            )}
+                            {canRouteDelete && (
+                              <>
+                                <DropdownMenuSeparator className="bg-gray-600" />
+                                <DropdownMenuItem
+                                  className="text-white hover:!bg-red-600 focus:!bg-red-600 px-2 py-1.5 text-sm !text-white cursor-pointer transition-colors"
+                                  onClick={() => handleDelete(route.id, route.routeName)}
+                                >
+                                  <Trash2 className="mr-2 h-3.5 w-3.5" />
+                                  Delete Route
+                                </DropdownMenuItem>
+                              </>
+                            )}
                           </DropdownMenuContent>
                         </DropdownMenu>
                       </TableCell>

@@ -401,7 +401,7 @@ export async function POST(request: NextRequest) {
   } catch (error: any) {
     console.error('Error approving application:', error);
     return NextResponse.json(
-      { error: error.message || 'Failed to approve application' },
+      { error: 'Failed to approve application' },
       { status: 500 }
     );
   }

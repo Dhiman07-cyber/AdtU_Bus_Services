@@ -55,7 +55,7 @@ export async function POST(request: NextRequest) {
   } catch (error: any) {
     console.error('Error updating profile photo URL:', error);
     return NextResponse.json(
-      { error: error.message || 'Failed to update profile photo URL' },
+      { error: 'Failed to update profile photo URL' },
       { status: 500 }
     );
   }

@@ -1738,14 +1738,14 @@ function ApplicationFormContent() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50 dark:from-gray-950 dark:via-blue-950/20 dark:to-purple-950/20">
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-slate-50 to-indigo-50 dark:from-gray-950 dark:via-blue-950/20 dark:to-slate-900/20">
       <ApplyFormNavbar />
       <div className="py-4 sm:py-6 lg:py-8">
         {/* Header */}
         <div className="max-w-7xl mx-auto px-2 sm:px-3">
           <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2 sm:gap-3 mb-3 sm:mb-4">
             <div>
-              <h1 className="text-lg sm:text-xl font-bold bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 bg-clip-text text-transparent">Bus Service Application</h1>
+              <h1 className="text-lg sm:text-xl font-bold bg-gradient-to-r from-blue-600 via-indigo-600 to-cyan-600 bg-clip-text text-transparent">Bus Service Application</h1>
               <p className="text-[11px] sm:text-xs text-gray-700 dark:text-gray-300 mt-0.5 font-medium leading-relaxed">
                 Complete all sections and get verified to submit your application
               </p>
@@ -1774,7 +1774,7 @@ function ApplicationFormContent() {
         {/* Main Content */}
         <div className="max-w-7xl mx-auto px-2 sm:px-3">
           <Card className="bg-white/95 dark:bg-gray-900/95 backdrop-blur-sm border border-indigo-100 dark:border-indigo-900/30 shadow-lg overflow-hidden pt-0">
-            <CardHeader className="bg-gradient-to-r from-indigo-50 via-purple-50 to-pink-50 dark:from-indigo-950/40 dark:via-purple-950/40 dark:to-pink-950/40 border-b border-indigo-100 dark:border-indigo-900/30 p-4 sm:p-6 mb-0">
+            <CardHeader className="bg-gradient-to-r from-indigo-50 via-blue-50 to-cyan-50 dark:from-indigo-950/40 dark:via-blue-950/40 dark:to-cyan-950/40 border-b border-indigo-100 dark:border-indigo-900/30 p-4 sm:p-6 mb-0">
               <div className="flex justify-between items-center gap-4">
                 <div className="flex-1 min-w-0">
                   <CardTitle className="text-base md:text-2xl font-bold bg-gradient-to-r from-blue-600 to-cyan-600 dark:from-blue-400 dark:to-cyan-400 bg-clip-text text-transparent mb-1 truncate">New Application</CardTitle>
@@ -2219,7 +2219,7 @@ function ApplicationFormContent() {
                 <div>
                   <div className="pb-2 border-b-2 border-indigo-300 dark:border-indigo-900/30 pt-5 md:pt-0">
                     <h3 className="text-base md:text-xl font-bold text-indigo-700 dark:text-indigo-400 flex items-center gap-1.5">
-                      <div className="p-1 rounded-md bg-gradient-to-br from-indigo-500 to-purple-500 text-white shadow-sm">
+                      <div className="p-1 rounded-md bg-gradient-to-br from-indigo-500 to-blue-500 text-white shadow-sm">
                         <svg className="w-3 h-3 md:w-5 md:h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />
                         </svg>
@@ -2328,9 +2328,9 @@ function ApplicationFormContent() {
 
                 {/* Declarations */}
                 <div>
-                  <div className="pb-2 border-b-2 border-rose-300 dark:border-rose-900/30 mb-3 pt-5 md:pt-0">
-                    <h3 className="text-base md:text-xl font-bold text-rose-700 dark:text-rose-400 flex items-center gap-1.5">
-                      <div className="p-1 rounded-md bg-gradient-to-br from-rose-500 to-pink-500 text-white shadow-sm">
+                  <div className="pb-2 border-b-2 border-blue-300 dark:border-blue-900/30 mb-3 pt-5 md:pt-0">
+                    <h3 className="text-base md:text-xl font-bold text-blue-700 dark:text-blue-400 flex items-center gap-1.5">
+                      <div className="p-1 rounded-md bg-gradient-to-br from-blue-500 to-cyan-500 text-white shadow-sm">
                         <svg className="w-3 h-3 md:w-5 md:h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
                         </svg>
@@ -2433,10 +2433,10 @@ function ApplicationFormContent() {
               </div>
             </CardContent>
           </Card>
-        </div>
+        </div >
 
         {/* Note Dialog */}
-        <Dialog open={showNoteDialog} onOpenChange={setShowNoteDialog}>
+        < Dialog open={showNoteDialog} onOpenChange={setShowNoteDialog} >
           <DialogContent className="sm:max-w-lg bg-gradient-to-br from-white to-gray-50 dark:from-gray-900 dark:to-gray-800 border-0 shadow-2xl">
             <DialogHeader className="space-y-4 pb-4">
               <div className="flex items-center gap-3">
@@ -2751,7 +2751,7 @@ function ApplicationFormContent() {
             </DialogFooter>
           </DialogContent>
         </Dialog>
-      </div>
+      </div >
     </div >
   );
 }

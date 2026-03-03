@@ -146,7 +146,7 @@ export async function POST(request: NextRequest) {
   } catch (error: any) {
     console.error('Error rejecting application:', error);
     return NextResponse.json(
-      { error: error.message || 'Failed to reject application' },
+      { error: 'Failed to reject application' },
       { status: 500 }
     );
   }

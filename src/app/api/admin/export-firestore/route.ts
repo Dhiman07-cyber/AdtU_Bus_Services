@@ -141,8 +141,7 @@ export async function GET(request: NextRequest) {
                 exportData.collections[collectionName] = {
                     documents: {},
                     count: 0,
-                    error: error.message
-                };
+                    error: 'An unexpected error occurred' };
             }
         }
 
@@ -164,8 +163,7 @@ export async function GET(request: NextRequest) {
         return NextResponse.json(
             {
                 error: 'Failed to export Firestore data',
-                details: error.message
-            },
+                details: 'Internal error' },
             { status: 500 }
         );
     }

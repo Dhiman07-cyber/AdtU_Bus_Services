@@ -69,7 +69,7 @@ export async function POST(request: Request) {
     } catch (error: any) {
         console.error('Error in heartbeat:', error);
         return NextResponse.json(
-            { error: error.message || 'Failed to update heartbeat' },
+            { error: 'Failed to update heartbeat' },
             { status: 500 }
         );
     }

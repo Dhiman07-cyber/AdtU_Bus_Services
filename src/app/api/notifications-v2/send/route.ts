@@ -7,6 +7,7 @@ import { headers } from 'next/headers';
 import { getApps, initializeApp } from 'firebase-admin/app';
 import { getFirestore, Timestamp, FieldValue } from 'firebase-admin/firestore';
 import { getAuth } from 'firebase-admin/auth';
+import { getMessaging } from 'firebase-admin/messaging';
 import { cert } from 'firebase-admin/app';
 import {
   NotificationSender,
@@ -146,13 +147,19 @@ export async function POST(request: Request) {
     }
 
     const userDataMap = new Map();
-    for (const userId of allRecipientIds) {
-      const userDocSnap = await db.collection('users').doc(userId).get();
+
+    // Fetch user documents concurrently
+    const userDocSnaps = await Promise.all(
+      allRecipientIds.map((userId: string) => db.collection('users').doc(userId).get())
+    );
+
+    for (const userDocSnap of userDocSnaps) {
       if (userDocSnap.exists) {
         const data = userDocSnap.data();
-        userDataMap.set(userId, {
-          role: data.role,
-          routeId: data.routeId,
+        // data will always be defined if it exists, but Typescript might complain
+        userDataMap.set(userDocSnap.id, {
+          role: data?.role,
+          routeId: data?.routeId,
         });
       }
     }
@@ -188,6 +195,56 @@ export async function POST(request: Request) {
     // Save to Firestore
     const docRef = await db.collection('notifications_v2').add(notificationData);
 
+    // Send FCM push notifications to all resolved recipients
+    try {
+      const fcmTokens: string[] = [];
+      const tokenSnaps = await Promise.all(
+        allRecipientIds.map((uid: string) => db.collection('fcm_tokens').where('userUid', '==', uid).get())
+      );
+
+      for (const snap of tokenSnaps) {
+        snap.docs.forEach((doc: any) => {
+          const token = doc.data().deviceToken;
+          if (token) fcmTokens.push(token);
+        });
+      }
+
+      if (fcmTokens.length > 0) {
+        const messaging = getMessaging(adminApp);
+
+        const title = 'New Notification';
+        // Basic HTML tag stripping
+        const rawText = content.replace(/<[^>]+>/g, '').trim();
+        const bodyText = rawText.substring(0, 100);
+        const text = bodyText.length > 0 ? bodyText + (rawText.length > 100 ? '...' : '') : 'You have a new message';
+
+        const payload = {
+          notification: {
+            title: title,
+            body: text
+          },
+          data: {
+            type: 'system_notification',
+            notificationId: docRef.id
+          }
+        };
+
+        // FCM limits multicast to 500 tokens per call
+        const chunkSize = 500;
+        for (let i = 0; i < fcmTokens.length; i += chunkSize) {
+          const chunk = fcmTokens.slice(i, i + chunkSize);
+          await messaging.sendEachForMulticast({
+            ...payload,
+            tokens: chunk,
+          });
+        }
+        console.log(`✅ Sent FCM notifications to ${fcmTokens.length} devices.`);
+      }
+    } catch (fcmError) {
+      console.error('❌ Error sending FCM notifications:', fcmError);
+      // Non-blocking: continue execution to return success for dashboard
+    }
+
     return Response.json({
       success: true,
       messageId: docRef.id,
@@ -203,7 +260,7 @@ export async function POST(request: Request) {
     console.error('Error sending notification:', error);
     return Response.json({
       success: false,
-      error: error.message || 'Failed to send notification',
+      error: 'Failed to send notification',
     }, { status: 500 });
   }
 }

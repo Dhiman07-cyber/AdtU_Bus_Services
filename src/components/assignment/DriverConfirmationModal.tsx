@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -91,22 +91,6 @@ export function DriverConfirmationModal({
     removedNoOpInfo = [],
     processing = false,
 }: DriverConfirmationModalProps) {
-    // Sync with internal row state for local status updates
-    const [localRows, setLocalRows] = useState<ConfirmationTableRow[]>(confirmationRows);
-    const [rowStatuses, setRowStatuses] = useState<Map<number, "pending" | "success" | "error">>(new Map());
-
-    // Initial row sync
-    useEffect(() => {
-        setLocalRows(confirmationRows);
-    }, [confirmationRows]);
-
-    // Reset state when modal opens
-    useEffect(() => {
-        if (isOpen) {
-            setRowStatuses(new Map());
-        }
-    }, [isOpen]);
-
     // Handle Cancel from review step
     const handleCancel = () => {
         onClose();

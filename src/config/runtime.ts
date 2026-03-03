@@ -17,7 +17,7 @@
 // ============================================================================
 
 /**
- * Master kill switch for Firestore realtime listeners.
+ * Master toggle for Firestore realtime listeners.
  * When false, all realtime listeners MUST fall back to polling/getDocs.
  * 
  * Set via environment variable NEXT_PUBLIC_ENABLE_FIRESTORE_REALTIME=true
@@ -40,19 +40,16 @@ export const DEFAULT_PAGE_SIZE = 50;
 /**
  * Polling interval for non-realtime fallback mode (in milliseconds)
  */
-export const POLLING_INTERVAL_MS = 300_000; // 5 minutes (was 2 min, increased for Spark safety)
+export const POLLING_INTERVAL_MS = 86_400_000; // 24 hours (effectively off, rely on manual refresh)
 
 /**
  * Fast polling interval for notifications (in milliseconds)
  */
-export const NOTIFICATION_POLLING_INTERVAL_MS = 600_000; // 10 minutes (was 5 min, increased for Spark safety)
+export const NOTIFICATION_POLLING_INTERVAL_MS = 120_000; // 2 minutes (custom logic for notifications)
 
 /**
  * Auto-refresh interval for admin/moderator management pages (in milliseconds)
- * Set to 10 minutes to conserve Firestore Spark plan quota while still providing near-realtime updates
- * Pages using this: Student Management, Driver Management, Applications, View Applications
- */
-export const MANAGEMENT_PAGE_REFRESH_INTERVAL_MS = 600_000; // 10 minutes - Spark plan safe
+export const MANAGEMENT_PAGE_REFRESH_INTERVAL_MS = 86_400_000; // 24 hours (effectively off, rely on manual refresh)
 
 /**
  * System signals polling interval (in milliseconds)

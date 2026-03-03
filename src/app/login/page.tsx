@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/contexts/auth-context";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
@@ -22,6 +22,7 @@ export default function LoginPage() {
   const [isVisible, setIsVisible] = useState(false);
   const { signInWithGoogle, currentUser, userData, needsApplication } = useAuth();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const isRedirectingRef = useRef(false);
 
   // Animation on mount
@@ -45,13 +46,22 @@ export default function LoginPage() {
       // Set redirecting flag to prevent loading state reset
       console.log('🚀 Setting redirecting flag and redirecting to:', userData.role);
       isRedirectingRef.current = true;
-      
-      // Check for saved return URL
-      const returnUrl = sessionStorage.getItem('returnUrl');
-      
+
+      // Priority 1: URL Query Param 'redirect'
+      // Priority 2: Session Storage 'returnUrl'
+      let queryRedirect = searchParams?.get('redirect');
+      if (!queryRedirect && typeof window !== 'undefined') {
+        const urlParams = new URLSearchParams(window.location.search);
+        queryRedirect = urlParams.get('redirect');
+      }
+      const sessionRedirect = typeof window !== 'undefined' ? sessionStorage.getItem('returnUrl') : null;
+      const returnUrl = queryRedirect || sessionRedirect;
+
       if (returnUrl) {
         console.log('🔄 Redirecting to saved URL:', returnUrl);
-        sessionStorage.removeItem('returnUrl'); // Clear after use
+        if (typeof window !== 'undefined') {
+          sessionStorage.removeItem('returnUrl'); // Clear after use
+        }
         router.push(returnUrl);
       } else {
         // Default role-based redirect
@@ -105,9 +115,9 @@ export default function LoginPage() {
         }
         // Filter out permission errors and sign-in cancelled messages
         if (result.error &&
-            result.error !== "Sign in was cancelled" &&
-            !result.error.includes("permission") &&
-            !result.error.includes("Missing or insufficient permissions")) {
+          result.error !== "Sign in was cancelled" &&
+          !result.error.includes("permission") &&
+          !result.error.includes("Missing or insufficient permissions")) {
           setError(result.error || "Failed to sign in");
         } else if (result.error === "Sign in was cancelled") {
           // User cancelled sign-in - this is normal behavior, don't show error
@@ -144,18 +154,17 @@ export default function LoginPage() {
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_20%_50%,rgba(59,130,246,0.1),transparent_50%)]"></div>
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_80%_20%,rgba(147,51,234,0.1),transparent_50%)]"></div>
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_40%_80%,rgba(16,185,129,0.1),transparent_50%)]"></div>
-      
+
       {/* Floating Elements */}
       <div className="absolute top-20 left-20 w-32 h-32 bg-blue-500/10 rounded-full blur-xl animate-pulse"></div>
       <div className="absolute bottom-20 right-20 w-40 h-40 bg-purple-500/10 rounded-full blur-xl animate-pulse delay-1000"></div>
       <div className="absolute top-1/2 left-10 w-24 h-24 bg-green-500/10 rounded-full blur-xl animate-pulse delay-500"></div>
-      
-      <Card 
-        className={`w-full max-w-md relative z-10 backdrop-blur-xl bg-white/5 border border-white/10 shadow-2xl transition-all duration-700 ${
-          isVisible 
-            ? 'opacity-100 translate-y-0 scale-100' 
-            : 'opacity-0 translate-y-8 scale-95'
-        }`}
+
+      <Card
+        className={`w-full max-w-md relative z-10 backdrop-blur-xl bg-white/5 border border-white/10 shadow-2xl transition-all duration-700 ${isVisible
+          ? 'opacity-100 translate-y-0 scale-100'
+          : 'opacity-0 translate-y-8 scale-95'
+          }`}
       >
         <CardHeader className="text-center space-y-6">
           <div className="flex justify-center">
@@ -185,7 +194,7 @@ export default function LoginPage() {
             </div>
           )}
           <div className="space-y-4">
-            <Button 
+            <Button
               onClick={handleGoogleSignIn}
               className="w-full h-12 text-base font-semibold bg-gradient-to-r from-blue-500 to-indigo-600 hover:from-blue-600 hover:to-indigo-700 text-white border-0 rounded-lg shadow-lg hover:shadow-xl transform hover:scale-[1.02] transition-all duration-200 disabled:opacity-70 disabled:cursor-not-allowed disabled:transform-none"
               disabled={loading}

@@ -28,6 +28,6 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
     });
   } catch (error: any) {
     console.error('Error fetching bus data:', error);
-    return NextResponse.json({ error: error.message || 'Failed to fetch bus data' }, { status: 500 });
+    return NextResponse.json({ error: 'Failed to fetch bus data' }, { status: 500 });
   }
 }

@@ -44,7 +44,7 @@ export async function POST(
   } catch (error: any) {
     console.error('Error rejecting swap request:', error);
     return NextResponse.json(
-      { error: error.message || 'Internal server error' },
+      { error: 'Internal server error' },
       { status: 500 }
     );
   }

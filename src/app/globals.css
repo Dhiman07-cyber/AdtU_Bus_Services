@@ -1007,7 +1007,7 @@ body {
 
 /* Apply to all Loader2 spinners globally */
 .animate-spin {
-  animation: spin 1s linear infinite, loaderColorChange 4s ease-in-out infinite;
+  animation: spin 1s linear infinite;
 }
 
 /* ============================================================================

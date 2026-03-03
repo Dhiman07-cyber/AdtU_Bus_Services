@@ -40,7 +40,7 @@ export async function POST(request: Request) {
     if (!auth) {
       return NextResponse.json({ error: 'Firebase Admin not initialized' }, { status: 500 });
     }
-    
+
     const decodedToken = await auth.verifyIdToken(idToken);
     const driverUid = decodedToken.uid;
 
@@ -69,14 +69,13 @@ export async function POST(request: Request) {
       const moderatorsSnapshot = await adminDb.collection('moderators').get();
       const moderatorTokens: string[] = [];
 
-      for (const doc of moderatorsSnapshot.docs) {
-        // Get FCM tokens for this moderator
-        const tokensSnapshot = await adminDb
-          .collection('fcm_tokens')
-          .where('userUid', '==', doc.id)
-          .get();
+      const moderatorIds = moderatorsSnapshot.docs.map((doc: any) => doc.id);
+      const tokenSnapshots = await Promise.all(
+        moderatorIds.map((uid: string) => adminDb.collection('fcm_tokens').where('userUid', '==', uid).get())
+      );
 
-        tokensSnapshot.docs.forEach((tokenDoc: any) => {
+      for (const snapshot of tokenSnapshots) {
+        snapshot.docs.forEach((tokenDoc: any) => {
           moderatorTokens.push(tokenDoc.data().deviceToken);
         });
       }
@@ -97,13 +96,13 @@ export async function POST(request: Request) {
       console.error('Error sending FCM notifications to moderators:', fcmError);
     }
 
-    return NextResponse.json({ 
+    return NextResponse.json({
       success: true,
       message: 'Bus issue reported successfully',
       issueId: issueRef.id
     });
   } catch (error: any) {
     console.error('Error reporting bus issue:', error);
-    return NextResponse.json({ error: error.message || 'Failed to report bus issue' }, { status: 500 });
+    return NextResponse.json({ error: 'Failed to report bus issue' }, { status: 500 });
   }
 }

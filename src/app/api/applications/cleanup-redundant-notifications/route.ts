@@ -59,8 +59,7 @@ export async function POST(request: NextRequest) {
     console.error('Error cleaning up redundant notifications:', error);
     return NextResponse.json({ 
       error: 'Failed to cleanup redundant notifications',
-      details: error.message 
-    }, { status: 500 });
+      details: 'Internal error' }, { status: 500 });
   }
 }
 

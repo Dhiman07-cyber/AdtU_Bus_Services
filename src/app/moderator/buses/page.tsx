@@ -65,6 +65,7 @@ import { usePaginatedCollection, invalidateCollectionCache } from '@/hooks/usePa
 import { useEventDrivenRefresh } from '@/hooks/useEventDrivenRefresh';
 import { useAuth } from '@/contexts/auth-context';
 import { RefreshCw } from "lucide-react";
+import { useModeratorPermissions } from '@/hooks/useModeratorPermissions';
 
 // Use local interfaces to avoid type conflicts
 interface BusItem {
@@ -125,6 +126,7 @@ export default function BusesPage() {
   const router = useRouter();
   const { addToast } = useToast();
   const { currentUser, userData, loading: authLoading } = useAuth();
+  const { canBusAdd, canBusEdit, canBusDelete, canBusReassign } = useModeratorPermissions();
 
   // SPARK PLAN SAFETY: Using paginated queries instead of real-time listeners
   const { data: buses, loading: loadingBuses, refresh: refreshBuses } = usePaginatedCollection('buses', {
@@ -378,21 +380,25 @@ export default function BusesPage() {
           </p>
         </div>
         <div className="flex gap-2">
-          <Button
-            className="w-full md:w-auto cursor-pointer bg-blue-600 hover:bg-blue-700 text-white border border-blue-700 transition-all duration-200 hover:scale-105 hover:shadow-lg rounded-md px-2.5 py-1.5 text-xs h-8"
-            onClick={() => router.push('/moderator/buses/add')}
-          >
-            <Plus className="mr-1.5 h-3.5 w-3.5" />
-            Add New Bus
-          </Button>
-          <Button
-            className="w-full md:w-auto cursor-pointer bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white border-0 transition-all duration-200 hover:scale-105 hover:shadow-lg hover:shadow-purple-500/25 rounded-md px-2.5 py-1.5 text-xs h-8"
-            onClick={() => router.push('/moderator/route-allocation')}
-            title="Manage route reassignments for buses"
-          >
-            <RouteIcon className="mr-1.5 h-3.5 w-3.5" />
-            Bus Reassignment
-          </Button>
+          {canBusAdd && (
+            <Button
+              className="w-full md:w-auto cursor-pointer bg-blue-600 hover:bg-blue-700 text-white border border-blue-700 transition-all duration-200 hover:scale-105 hover:shadow-lg rounded-md px-2.5 py-1.5 text-xs h-8"
+              onClick={() => router.push('/moderator/buses/add')}
+            >
+              <Plus className="mr-1.5 h-3.5 w-3.5" />
+              Add New Bus
+            </Button>
+          )}
+          {canBusReassign && (
+            <Button
+              className="w-full md:w-auto cursor-pointer bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white border-0 transition-all duration-200 hover:scale-105 hover:shadow-lg hover:shadow-purple-500/25 rounded-md px-2.5 py-1.5 text-xs h-8"
+              onClick={() => router.push('/moderator/route-allocation')}
+              title="Manage route reassignments for buses"
+            >
+              <RouteIcon className="mr-1.5 h-3.5 w-3.5" />
+              Bus Reassignment
+            </Button>
+          )}
           <ExportButton
             onClick={() => handleExportBuses()}
             label="Export Buses"
@@ -536,21 +542,27 @@ export default function BusesPage() {
                               <Eye className="mr-2 h-3.5 w-3.5 text-blue-400" />
                               View Details
                             </DropdownMenuItem>
-                            <DropdownMenuItem
-                              className="text-white hover:bg-gray-700 dark:hover:bg-gray-800 focus:bg-gray-700 dark:focus:bg-gray-800 px-2 py-1.5 text-sm cursor-pointer"
-                              onClick={() => router.push(`/moderator/buses/edit/${bus.id}`)}
-                            >
-                              <Edit className="mr-2 h-3.5 w-3.5 text-yellow-400" />
-                              Edit Bus
-                            </DropdownMenuItem>
-                            <DropdownMenuSeparator className="bg-gray-600" />
-                            <DropdownMenuItem
-                              className="text-white hover:!bg-red-600 focus:!bg-red-600 px-2 py-1.5 text-sm cursor-pointer transition-colors"
-                              onClick={() => handleDelete(bus.id, bus.busNumber)}
-                            >
-                              <Trash2 className="mr-2 h-3.5 w-3.5" />
-                              Delete Bus
-                            </DropdownMenuItem>
+                            {canBusEdit && (
+                              <DropdownMenuItem
+                                className="text-white hover:bg-gray-700 dark:hover:bg-gray-800 focus:bg-gray-700 dark:focus:bg-gray-800 px-2 py-1.5 text-sm cursor-pointer"
+                                onClick={() => router.push(`/moderator/buses/edit/${bus.id}`)}
+                              >
+                                <Edit className="mr-2 h-3.5 w-3.5 text-yellow-400" />
+                                Edit Bus
+                              </DropdownMenuItem>
+                            )}
+                            {canBusDelete && (
+                              <>
+                                <DropdownMenuSeparator className="bg-gray-600" />
+                                <DropdownMenuItem
+                                  className="text-white hover:!bg-red-600 focus:!bg-red-600 px-2 py-1.5 text-sm cursor-pointer transition-colors"
+                                  onClick={() => handleDelete(bus.id, bus.busNumber)}
+                                >
+                                  <Trash2 className="mr-2 h-3.5 w-3.5" />
+                                  Delete Bus
+                                </DropdownMenuItem>
+                              </>
+                            )}
                           </DropdownMenuContent>
                         </DropdownMenu>
                       </TableCell>

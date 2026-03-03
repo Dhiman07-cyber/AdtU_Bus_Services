@@ -164,7 +164,7 @@ export async function POST(request: Request) {
   } catch (error: any) {
     console.error('Error creating swap request:', error);
     return NextResponse.json(
-      { error: error.message || 'Failed to create swap request' },
+      { error: 'Failed to create swap request' },
       { status: 500 }
     );
   }

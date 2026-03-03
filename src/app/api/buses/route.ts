@@ -33,7 +33,7 @@ export async function GET(request: Request) {
     return NextResponse.json({ buses });
   } catch (error: any) {
     console.error('Error fetching buses:', error);
-    return NextResponse.json({ error: error.message || 'Failed to fetch buses' }, { status: 500 });
+    return NextResponse.json({ error: 'Failed to fetch buses' }, { status: 500 });
   }
 }
 
@@ -73,6 +73,6 @@ export async function POST(request: Request) {
     }, { status: 201 });
   } catch (error: any) {
     console.error('Error creating bus:', error);
-    return NextResponse.json({ error: error.message || 'Failed to create bus' }, { status: 500 });
+    return NextResponse.json({ error: 'Failed to create bus' }, { status: 500 });
   }
 }

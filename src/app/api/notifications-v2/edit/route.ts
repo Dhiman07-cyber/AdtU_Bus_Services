@@ -130,7 +130,7 @@ export async function PUT(request: Request) {
     console.error('Error editing notification:', error);
     return Response.json({
       success: false,
-      error: error.message || 'Failed to edit notification',
+      error: 'Failed to edit notification',
     }, { status: 500 });
   }
 }

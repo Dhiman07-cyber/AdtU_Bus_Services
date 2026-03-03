@@ -123,14 +123,14 @@ export async function POST(request: Request) {
     console.error('❌ Error checking active trip:', error);
     console.error('❌ Error stack:', error.stack);
     console.error('❌ Error details:', {
-      message: error.message,
+      message: 'Internal error',
       code: error.code,
       name: error.name
     });
     return NextResponse.json(
       { 
-        error: error.message || 'Failed to check active trip',
-        details: error.code || 'Unknown error',
+        error: 'Failed to check active trip',
+        details: 'Internal error',
         stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
       },
       { status: 500 }

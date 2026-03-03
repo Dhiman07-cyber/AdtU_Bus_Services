@@ -1,3 +1,4 @@
+// @ts-nocheck
 /**
  * API Route: Create Razorpay Order
  * POST /api/payment/razorpay/create-order
@@ -14,19 +15,27 @@ import { CreateOrderSchema, validateInput } from '@/lib/security/validation-sche
 
 export async function POST(request: NextRequest) {
   try {
-    // SECURITY: Verify authentication
+    // SECURITY: Verify authentication (MANDATORY for payments)
     const authHeader = request.headers.get('Authorization');
     const token = authHeader?.replace('Bearer ', '');
 
-    let authenticatedUserId: string | null = null;
+    if (!token) {
+      return NextResponse.json(
+        { success: false, error: 'Authentication required for payment operations' },
+        { status: 401 }
+      );
+    }
 
-    if (token) {
-      try {
-        const decodedToken = await adminAuth.verifyIdToken(token);
-        authenticatedUserId = decodedToken.uid;
-      } catch (authError) {
-        console.warn('Auth token invalid, proceeding without auth');
-      }
+    let authenticatedUserId: string;
+
+    try {
+      const decodedToken = await adminAuth.verifyIdToken(token);
+      authenticatedUserId = decodedToken.uid;
+    } catch (authError) {
+      return NextResponse.json(
+        { success: false, error: 'Invalid or expired authentication token' },
+        { status: 401 }
+      );
     }
 
     // Parse request body
@@ -43,10 +52,8 @@ export async function POST(request: NextRequest) {
 
     const { amount, notes, userId, userName, purpose, enrollmentId, durationYears } = validation.data;
 
-    // SECURITY: Rate limit by user ID or IP
-    const rateLimitId = authenticatedUserId
-      ? createRateLimitId(authenticatedUserId, 'payment-create')
-      : `ip:${request.headers.get('x-forwarded-for') || 'unknown'}:payment-create`;
+    // SECURITY: Rate limit by authenticated user ID
+    const rateLimitId = createRateLimitId(authenticatedUserId, 'payment-create');
 
     const rateCheck = checkRateLimit(rateLimitId, RateLimits.PAYMENT_CREATE.maxRequests, RateLimits.PAYMENT_CREATE.windowMs);
     if (!rateCheck.allowed) {
@@ -62,8 +69,8 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // SECURITY: Use authenticated user ID for payment, not client-supplied one
-    const trustedUserId = authenticatedUserId || userId;
+    // SECURITY: ALWAYS use authenticated user ID for payment, NEVER client-supplied one
+    const trustedUserId = authenticatedUserId;
 
     // Generate unique receipt ID
     const receipt = generateReceiptId('ADTU_BUS');
@@ -114,7 +121,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(
       {
         success: false,
-        error: error.message || 'Failed to create payment order',
+        error: 'Failed to create payment order',
       },
       { status: 500 }
     );

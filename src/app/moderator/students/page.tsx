@@ -46,6 +46,7 @@ import {
     SelectTrigger,
     SelectValue,
 } from "@/components/ui/select";
+import { PremiumPageLoader } from '@/components/LoadingSpinner';
 import { MoreHorizontal, Eye, Edit, Trash2, Search, Loader2, Plus, RefreshCw, Filter, X, Users, ArrowRightLeft, QrCode } from "lucide-react";
 import { deleteStudent } from '@/lib/dataService';
 import { useToast } from '@/contexts/toast-context';
@@ -53,10 +54,12 @@ import Avatar from '@/components/Avatar';
 // SPARK PLAN SAFETY: Event-driven refresh - only fetches when mutations occur
 import { usePaginatedCollection, invalidateCollectionCache } from '@/hooks/usePaginatedCollection';
 import { useEventDrivenRefresh } from '@/hooks/useEventDrivenRefresh';
+import { useModeratorPermissions } from '@/hooks/useModeratorPermissions';
 
 export default function AdminStudents() {
     const { currentUser, userData, loading: authLoading } = useAuth();
     const { addToast } = useToast();
+    const { canStudentAdd, canStudentEdit, canStudentDelete, canStudentReassign } = useModeratorPermissions();
     const router = useRouter();
 
     // SPARK PLAN SAFETY: Event-driven refresh - only fetches when mutations occur
@@ -313,14 +316,7 @@ export default function AdminStudents() {
     const showFullPageLoader = authLoading || (isLoading && students.length === 0 && !searchResults);
 
     if (showFullPageLoader) {
-        return (
-            <div className="min-h-[70vh] flex items-center justify-center">
-                <div className="text-center space-y-4">
-                    <div className="w-12 h-12 border-4 border-gray-200 dark:border-gray-700 rounded-full animate-spin border-t-blue-600 mx-auto"></div>
-                    <p className="text-muted-foreground text-lg">Loading students...</p>
-                </div>
-            </div>
-        );
+        return <PremiumPageLoader message="Curating Student Directory..." subMessage="Fetching student profiles and status..." />;
     }
 
     if (!currentUser || !userData || userData.role !== 'moderator') {
@@ -336,19 +332,23 @@ export default function AdminStudents() {
                     <p className="text-muted-foreground mt-1">View and manage all students</p>
                 </div>
                 <div className="flex gap-2">
-                    <Link href="/moderator/students/add">
-                        <Button className="bg-blue-600 hover:bg-blue-700 text-white border border-blue-700 transition-all duration-200 hover:scale-105 hover:shadow-lg rounded-md px-2.5 py-1.5 text-xs h-8">
-                            <Plus className="mr-1.5 h-3.5 w-3.5" />
-                            Add New Student
-                        </Button>
-                    </Link>
+                    {canStudentAdd && (
+                        <Link href="/moderator/students/add">
+                            <Button className="bg-blue-600 hover:bg-blue-700 text-white border border-blue-700 transition-all duration-200 hover:scale-105 hover:shadow-lg rounded-md px-2.5 py-1.5 text-xs h-8">
+                                <Plus className="mr-1.5 h-3.5 w-3.5" />
+                                Add New Student
+                            </Button>
+                        </Link>
+                    )}
 
-                    <Link href="/moderator/smart-allocation">
-                        <Button className="bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white border-0 transition-all duration-200 hover:scale-105 hover:shadow-lg hover:shadow-purple-500/25 rounded-md px-2.5 py-1.5 text-xs h-8">
-                            <ArrowRightLeft className="mr-1.5 h-3.5 w-3.5" />
-                            Student Reassignment
-                        </Button>
-                    </Link>
+                    {canStudentReassign && (
+                        <Link href="/moderator/smart-allocation">
+                            <Button className="bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white border-0 transition-all duration-200 hover:scale-105 hover:shadow-lg hover:shadow-purple-500/25 rounded-md px-2.5 py-1.5 text-xs h-8">
+                                <ArrowRightLeft className="mr-1.5 h-3.5 w-3.5" />
+                                Student Reassignment
+                            </Button>
+                        </Link>
+                    )}
                     <Link href="/moderator/verification">
                         <Button className="bg-cyan-600 hover:bg-cyan-700 text-white border border-cyan-700 transition-all duration-200 hover:scale-105 hover:shadow-lg rounded-md px-2.5 py-1.5 text-xs h-8">
                             <QrCode className="mr-1.5 h-3.5 w-3.5" />
@@ -542,23 +542,29 @@ export default function AdminStudents() {
                                                                     View Details
                                                                 </Link>
                                                             </DropdownMenuItem>
-                                                            <DropdownMenuItem asChild>
-                                                                <Link href={`/moderator/students/edit/${student.id}`} className="text-white hover:bg-gray-700 dark:hover:bg-gray-800 focus:bg-gray-700 dark:focus:bg-gray-800 px-2 py-1.5 !text-white text-[11px]">
-                                                                    <Edit className="mr-1.5 h-3 w-3 text-yellow-400" />
-                                                                    Edit
-                                                                </Link>
-                                                            </DropdownMenuItem>
-                                                            <DropdownMenuSeparator className="bg-gray-600" />
-                                                            <DropdownMenuItem
-                                                                className="text-white hover:!bg-red-600 focus:!bg-red-600 px-2 py-1.5 !text-white text-[11px] cursor-pointer transition-colors"
-                                                                onClick={() => {
-                                                                    setDeleteItem({ id: student.id, name: student.name });
-                                                                    setIsDialogOpen(true);
-                                                                }}
-                                                            >
-                                                                <Trash2 className="mr-1.5 h-3 w-3" />
-                                                                Delete
-                                                            </DropdownMenuItem>
+                                                            {canStudentEdit && (
+                                                                <DropdownMenuItem asChild>
+                                                                    <Link href={`/moderator/students/edit/${student.id}`} className="text-white hover:bg-gray-700 dark:hover:bg-gray-800 focus:bg-gray-700 dark:focus:bg-gray-800 px-2 py-1.5 !text-white text-[11px]">
+                                                                        <Edit className="mr-1.5 h-3 w-3 text-yellow-400" />
+                                                                        Edit
+                                                                    </Link>
+                                                                </DropdownMenuItem>
+                                                            )}
+                                                            {canStudentDelete && (
+                                                                <>
+                                                                    <DropdownMenuSeparator className="bg-gray-600" />
+                                                                    <DropdownMenuItem
+                                                                        className="text-white hover:!bg-red-600 focus:!bg-red-600 px-2 py-1.5 !text-white text-[11px] cursor-pointer transition-colors"
+                                                                        onClick={() => {
+                                                                            setDeleteItem({ id: student.id, name: student.name });
+                                                                            setIsDialogOpen(true);
+                                                                        }}
+                                                                    >
+                                                                        <Trash2 className="mr-1.5 h-3 w-3" />
+                                                                        Delete
+                                                                    </DropdownMenuItem>
+                                                                </>
+                                                            )}
                                                         </DropdownMenuContent>
                                                     </DropdownMenu>
                                                 </TableCell>

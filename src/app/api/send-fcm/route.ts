@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import admin from 'firebase-admin';
 import { db } from '@/lib/firebase';
 import { collection, query, where, getDocs, doc, getDoc, updateDoc } from 'firebase/firestore';
+import { verifyApiAuth } from '@/lib/security/api-auth';
+import { checkRateLimit, RateLimits, createRateLimitId } from '@/lib/security/rate-limiter';
 
 // Initialize Firebase Admin SDK if not already initialized
 if (!admin.apps.length) {
@@ -16,6 +18,20 @@ if (!admin.apps.length) {
 
 export async function POST(request: NextRequest) {
   try {
+    // SECURITY: Verify authentication (admin, moderator, or driver can send notifications)
+    const auth = await verifyApiAuth(request, ['admin', 'moderator', 'driver']);
+    if (!auth.authenticated) return auth.response;
+
+    // SECURITY: Rate limit notification sending
+    const rateLimitId = createRateLimitId(auth.uid, 'send-fcm');
+    const rateCheck = checkRateLimit(rateLimitId, RateLimits.NOTIFICATION_CREATE.maxRequests, RateLimits.NOTIFICATION_CREATE.windowMs);
+    if (!rateCheck.allowed) {
+      return NextResponse.json(
+        { success: false, error: 'Too many notification requests. Please wait.' },
+        { status: 429 }
+      );
+    }
+
     const { userId, title, body, data, notificationId } = await request.json();
 
     if (!userId || (!title && !notificationId)) {
@@ -49,11 +65,11 @@ export async function POST(request: NextRequest) {
     // Send notification to all devices
     const tokens = querySnapshot.docs.map(doc => doc.data().deviceToken);
     const messaging = admin.messaging();
-    
+
     // Send to each token individually to avoid token limit issues
     let successCount = 0;
     let failureCount = 0;
-    
+
     for (const token of tokens) {
       try {
         await messaging.send({

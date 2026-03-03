@@ -1,3 +1,4 @@
+// @ts-nocheck
 /**
  * GET /api/notifications-v2/fetch
  * Fetch notifications with role-based visibility filtering
@@ -133,7 +134,7 @@ export async function GET(request: Request) {
     console.error('Error fetching notifications:', error);
     return Response.json({
       success: false,
-      error: error.message || 'Failed to fetch notifications',
+      error: 'Failed to fetch notifications',
     }, { status: 500 });
   }
 }

@@ -156,7 +156,7 @@ export async function POST(request: Request) {
   } catch (error: any) {
     console.error('❌ Firestore cleanup error:', error);
     return NextResponse.json(
-      { error: error.message || 'Failed to cleanup Firestore data' },
+      { error: 'Failed to cleanup Firestore data' },
       { status: 500 }
     );
   }
@@ -219,7 +219,7 @@ export async function GET(request: Request) {
   } catch (error: any) {
     console.error('❌ Stats error:', error);
     return NextResponse.json(
-      { error: error.message || 'Failed to get stats' },
+      { error: 'Failed to get stats' },
       { status: 500 }
     );
   }

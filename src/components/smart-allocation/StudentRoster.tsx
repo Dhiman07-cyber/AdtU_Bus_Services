@@ -155,7 +155,7 @@ export default function StudentRoster({
       <div className="p-3 border-b">
         <div className="flex items-center gap-2">
           {/* Search - wider */}
-          <div className="relative flex-1 max-w-sm">
+          <div className="relative flex-1">
             <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
             <Input
               value={searchQuery}

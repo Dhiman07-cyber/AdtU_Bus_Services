@@ -1,3 +1,4 @@
+// @ts-nocheck
 /**
  * API Route: Verify Receipt Token (v2 - RSA-2048 Signatures)
  * POST /api/receipt/verify

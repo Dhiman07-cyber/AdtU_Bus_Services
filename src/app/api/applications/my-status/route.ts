@@ -71,7 +71,7 @@ export async function GET(request: NextRequest) {
   } catch (error: any) {
     console.error('Error checking application status:', error);
     return NextResponse.json(
-      { error: error.message || 'Failed to check application status' },
+      { error: 'Failed to check application status' },
       { status: 500 }
     );
   }

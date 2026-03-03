@@ -36,7 +36,7 @@ The system is built on **four core invariants**:
         *   Bus definitions
         *   In-app notifications
 
-3.  **Real-Time Safety**: Firestore listeners are strictly bounded to prevent quota exhaustion. Kill-switches exist for emergency shutdowns.
+3.  **Real-Time Data Conservation**: Extensive `onSnapshot` listeners and auto-polling intervals have been replaced by a 24-hour Fetch-Once Caching approach supplemented by Event-Driven UI refresh triggers, rigorously adhering to free-tier (Spark Plan) quotas.
 
 4.  **Deterministic & Reversible**: Critical admin actions (like mass reassignment) are designed to be atomic with ready-to-use **Rollback** options.
 
@@ -197,9 +197,10 @@ CRON_SECRET=...
 ```
 
 ### Runbook Highlights
-1.  **Daily**: Cron jobs check for "Soft Blocks".
-2.  **Yearly**: "Archival Export" runs to encrypt and store old data, then purges Supabase tables.
-3.  **Emergency**: If Firestore usage spikes, toggle `ENABLE_FIRESTORE_REALTIME` to `false` in the config.
+1.  **Minutely & Hourly**: Cron jobs release orphaned hardware locks (`api/cron/cleanup-stale-locks`) and clear expired driver assignments & missed bus alerts (`api/cron/cleanup-swaps`, `api/cron/cleanup-missed-bus`).
+2.  **Daily**: Automated lifecycle sweeps enforce session downgrades (`api/cron/expiry-check`), prune outdated users (`api/cron/cleanup-expired-students`), and flush old notifications (`api/cron/cleanup-notifications`).
+3.  **Yearly**: Submits the `api/cron/annual-export` sequence to archive logs and recycle storage capacities.
+4.  **Emergency**: If unexpected DB usage spikes, toggle `ENABLE_FIRESTORE_REALTIME` to `false` in the config.
 
 ---
 

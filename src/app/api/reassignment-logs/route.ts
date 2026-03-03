@@ -98,7 +98,7 @@ export async function GET(request: NextRequest) {
 
         if (error) {
             console.error('[reassignment-logs GET] Query error:', error);
-            return NextResponse.json({ error: error.message }, { status: 500 });
+            return NextResponse.json({ error: 'An unexpected error occurred' }, { status: 500 });
         }
 
         return NextResponse.json({
@@ -187,7 +187,7 @@ export async function POST(request: NextRequest) {
         if (error) {
             console.error('[reassignment-logs POST] Insert error:', error);
             return NextResponse.json({ 
-                error: error.message,
+                error: 'An unexpected error occurred',
                 code: error.code
             }, { status: 500 });
         }

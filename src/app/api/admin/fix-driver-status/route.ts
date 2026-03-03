@@ -53,7 +53,7 @@ export async function POST(req: NextRequest) {
   } catch (error: any) {
     console.error('❌ Error fixing driver status:', error);
     return NextResponse.json(
-      { success: false, error: error.message },
+      { success: false, error: 'An unexpected error occurred' },
       { status: 500 }
     );
   }

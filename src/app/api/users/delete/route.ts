@@ -55,7 +55,7 @@ export async function DELETE(request: NextRequest) {
   } catch (error: any) {
     console.error('Error in delete user API:', error);
     return NextResponse.json(
-      { error: error.message || 'Failed to delete user' },
+      { error: 'Failed to delete user' },
       { status: 500 }
     );
   }

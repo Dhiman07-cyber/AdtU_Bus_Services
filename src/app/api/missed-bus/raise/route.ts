@@ -134,7 +134,7 @@ export async function POST(request: Request) {
                 success: false,
                 stage: 'maintenance',
                 toast: MESSAGES.MAINTENANCE_TOAST,
-                error: error.message || 'Internal server error'
+                error: 'Internal server error'
             },
             { status: 500 }
         );

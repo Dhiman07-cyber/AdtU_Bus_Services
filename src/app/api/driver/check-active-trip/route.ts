@@ -56,7 +56,7 @@ export async function POST(request: Request) {
     } catch (authError: any) {
       console.error('❌ Token verification failed:', authError.message);
       return NextResponse.json(
-        { error: 'Invalid or expired token', details: authError.message },
+        { error: 'Invalid or expired token' },
         { status: 401 }
       );
     }
@@ -149,8 +149,7 @@ export async function POST(request: Request) {
       return NextResponse.json({
         hasActiveTrip: false,
         tripData: null,
-        error: 'Server configuration error',
-        debug: { missingCredentials: true }
+        error: 'Server configuration error'
       }, { status: 200 }); // Return 200 with error info instead of 500
     }
 
@@ -171,11 +170,7 @@ export async function POST(request: Request) {
         // Don't throw - return graceful response
         return NextResponse.json({
           hasActiveTrip: false,
-          tripData: null,
-          debug: {
-            supabaseError: statusError.message,
-            code: statusError.code
-          }
+          tripData: null
         });
       }
 
@@ -184,8 +179,7 @@ export async function POST(request: Request) {
       console.error('❌ Supabase query exception:', queryError);
       return NextResponse.json({
         hasActiveTrip: false,
-        tripData: null,
-        debug: { queryException: queryError.message }
+        tripData: null
       });
     }
 
@@ -231,30 +225,19 @@ export async function POST(request: Request) {
     return NextResponse.json({
       hasActiveTrip: false,
       tripData: null,
-      debug: statusData ? {
-        foundRow: true,
-        status: statusData.status,
-        driverMatch: statusData.driver_uid === driverUid,
-        driverUid: statusData.driver_uid // Be careful returning this if insensitive, but driverUid is just an ID
-      } : {
-        foundRow: false,
-        busIdChecked: busId
-      }
     });
 
   } catch (error: any) {
     console.error('❌ Error checking active trip:', error);
     // console.error('❌ Error stack:', error.stack); // Reduce noise
     console.error('❌ Error details:', {
-      message: error.message,
+      message: 'Internal error',
       code: error.code || 'unknown',
       name: error.name
     });
     return NextResponse.json(
       {
-        error: error.message || 'Failed to check active trip',
-        details: error.code || 'Unknown error',
-        // stack: process.env.NODE_ENV === 'development' ? error.stack : undefined // Don't expose stack
+        error: 'Failed to check active trip'
       },
       { status: 500 }
     );

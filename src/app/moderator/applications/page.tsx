@@ -30,10 +30,12 @@ import {
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 import { PremiumPageLoader } from '@/components/LoadingSpinner';
+import { useModeratorPermissions } from '@/hooks/useModeratorPermissions';
 
 export default function ModeratorApplicationsPage() {
   const { currentUser, userData } = useAuth();
   const router = useRouter();
+  const { canApplicationApprove, canApplicationReject } = useModeratorPermissions();
 
   // SPARK PLAN SAFETY: Manual refresh only - no auto-polling to conserve quota
   const { data: pendingApplications, loading, refresh: refreshApplications } = usePaginatedCollection('applications', {
@@ -72,15 +74,21 @@ export default function ModeratorApplicationsPage() {
   // Manual refresh handler - refreshes both applications and verifications sections
   const handleRefresh = async () => {
     setIsRefreshing(true);
-    invalidateCollectionCache('applications');
-    invalidateCollectionCache('verificationCodes');
-    await Promise.all([
-      refreshApplications(),
-      refreshVerificationCodes(),
-      refreshRoutes(),
-      refreshBuses()
-    ]);
-    setIsRefreshing(false);
+    try {
+      invalidateCollectionCache('applications');
+      invalidateCollectionCache('verificationCodes');
+      await Promise.all([
+        refreshApplications(),
+        refreshVerificationCodes(),
+        refreshRoutes(),
+        refreshBuses()
+      ]);
+    } catch (error) {
+      console.error('Error refreshing applications:', error);
+      setError("Failed to refresh data");
+    } finally {
+      setIsRefreshing(false);
+    }
   };
 
   // Filter & Search States
@@ -801,30 +809,34 @@ export default function ModeratorApplicationsPage() {
                             View
                           </Button>
 
-                          <Button
-                            className={cn(
-                              "w-full h-10 gap-2 font-medium shadow-lg shadow-emerald-900/20 hover:shadow-emerald-900/40 hover:scale-[1.02] active:scale-[0.98] transition-all",
-                              needsCapacityReview
-                                ? "bg-emerald-600/50 text-white/50 cursor-not-allowed"
-                                : "bg-emerald-600 hover:bg-emerald-500 text-white"
-                            )}
-                            onClick={() => handleApprove(item.applicationId)}
-                            disabled={needsCapacityReview || approving === item.applicationId}
-                          >
-                            {approving === item.applicationId ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
-                            Approve
-                          </Button>
+                          {canApplicationApprove && (
+                            <Button
+                              className={cn(
+                                "w-full h-10 gap-2 font-medium shadow-lg shadow-emerald-900/20 hover:shadow-emerald-900/40 hover:scale-[1.02] active:scale-[0.98] transition-all",
+                                needsCapacityReview
+                                  ? "bg-emerald-600/50 text-white/50 cursor-not-allowed"
+                                  : "bg-emerald-600 hover:bg-emerald-500 text-white"
+                              )}
+                              onClick={() => handleApprove(item.applicationId)}
+                              disabled={needsCapacityReview || approving === item.applicationId}
+                            >
+                              {approving === item.applicationId ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
+                              Approve
+                            </Button>
+                          )}
 
-                          <Button
-                            variant="outline"
-                            className="w-full h-10 gap-2 border-red-500/20 text-red-400 bg-red-500/5 hover:bg-red-500/10 hover:text-red-300 hover:border-red-500/30 transition-all hover:scale-[1.02] active:scale-[0.98]"
-                            onClick={() => handleRejectClick(item.applicationId)}
-                            disabled={rejecting === item.applicationId}
-                          >
-                            {rejecting === item.applicationId ? <Loader2 className="h-4 w-4 animate-spin" /> : <X className="h-4 w-4" />}
+                          {canApplicationReject && (
+                            <Button
+                              variant="outline"
+                              className="w-full h-10 gap-2 border-red-500/20 text-red-400 bg-red-500/5 hover:bg-red-500/10 hover:text-red-300 hover:border-red-500/30 transition-all hover:scale-[1.02] active:scale-[0.98]"
+                              onClick={() => handleRejectClick(item.applicationId)}
+                              disabled={rejecting === item.applicationId}
+                            >
+                              {rejecting === item.applicationId ? <Loader2 className="h-4 w-4 animate-spin" /> : <X className="h-4 w-4" />}
 
-                            Reject
-                          </Button>
+                              Reject
+                            </Button>
+                          )}
                         </div>
 
                       </div>

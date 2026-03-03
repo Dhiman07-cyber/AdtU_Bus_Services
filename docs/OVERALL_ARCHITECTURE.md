@@ -21,14 +21,14 @@ The core ecosystem interacts with four primary user tiers and leverages several 
 ## 3. Architecture Principles
 *   **"Zero-Deployment" Configuration Engine:** The system is entirely independent of static configuration files or codebase constants. Global settings (e.g., academic year boundaries, global bus fees, UI toggles) belong natively to Firestore. Administrative changes take effect in real-time across all active user sessions globally without requiring a codebase rebuild or server bounce.
 *   **Server-Authoritative Trust Model:** The frontend is treated strictly as a vulnerable presentation layer. All systemic validations (ETA parsing, payment verifications, trip-locking algorithms, geo-spatial distance checks) execute solely within the secure enclave of the Next.js Serverless Edge/Node APIs.
-*   **Distributed Resilience & Observability:** Background tasks and maintenance loops are entirely non-blocking, orchestrated via Vercel Cron. Fallback mechanisms are wired deeply into the core; for example, a "Master Kill Switch" can instantly sever volatile WebSocket listener topologies to gracefully degrade into standard HTTP polling, protecting the infrastructure from DDOS or severe quota exhaustion.
+*   **Distributed Resilience & Observability:** Background tasks and maintenance loops are entirely non-blocking, orchestrated via Vercel Cron. Fallback mechanisms are wired deeply into the core; for example, a master toggle can instantly sever volatile WebSocket listener topologies to gracefully degrade into standard HTTP polling, protecting the infrastructure from DDOS or severe quota exhaustion.
 
 ## 4. Component Diagram & Technology Stack
 
 ### Frontend (Presentation Layer)
 *   **Framework:** Next.js (React 18+) leveraging the `app/` Directory Router.
 *   **Styling & Theming:** Custom CSS and TailwindCSS focusing heavily on Glassmorphism, deep layered shadows, liquid micro-animations via Framer Motion, and deeply integrated, high-contrast Dark/Light theme switching.
-*   **State Alignment:** React Context and specialized hooks (`useTripLock`) partnered with SWR/React Query and Firebase Web SDK `onSnapshot` listeners. This guarantees absolute synchronization between the client’s local state and the server’s authoritative state.
+*   **State Alignment:** React Context and specialized hooks (`useTripLock`) partnered with an Event-Driven Memory Cache (`usePaginatedCollection`). This drops reliance on leaky `onSnapshot` sockets in favor of rapid, 24-hour cached views forced to synchronize dynamically upon user mutation broadcasts, successfully solving data-drift without penalty.
 
 ### Backend (API & Business Logic)
 *   **Runtime Environment:** Fully Serverless ecosystem deployed as Edge and Node Functions via Next.js Route Handlers.

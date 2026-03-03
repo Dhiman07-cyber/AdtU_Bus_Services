@@ -155,13 +155,14 @@ const nextConfig: NextConfig = {
             value: 'unsafe-none',
           },
           // CSP headers for Firebase Auth, Razorpay, and mobile compatibility
-          // Note: 'unsafe-inline' and 'unsafe-eval' required by Firebase/Razorpay SDKs
+          // Note: 'unsafe-inline' and 'unsafe-eval' are required by Firebase Auth SDK and Razorpay checkout
+          // They cannot be removed without breaking those integrations
           {
             key: 'Content-Security-Policy',
             value: [
               "default-src 'self'",
               // Scripts: Firebase, Razorpay, Google APIs, Vercel Feedback
-              "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://checkout.razorpay.com https://*.razorpay.com https://apis.google.com https://www.gstatic.com https://vercel.live https://*.vercel.live",
+              "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://checkout.razorpay.com https://*.razorpay.com https://apis.google.com https://www.gstatic.com https://vercel.live https://*.vercel.live https://va.vercel-scripts.com",
               // Styles: Allow all for Firebase UI
               "style-src 'self' 'unsafe-inline' https://checkout.razorpay.com https://fonts.googleapis.com https://vercel.live https://*.vercel.live",
               // Images: Cloudinary, Google, Razorpay, Dicebear avatars
@@ -170,8 +171,8 @@ const nextConfig: NextConfig = {
               "font-src 'self' data: https://checkout.razorpay.com https://fonts.gstatic.com https://vercel.live https://*.vercel.live",
               // Connect: Firebase, Razorpay, Supabase, Google, Cloudinary, Vercel - restrict to specific domains in production
               isProduction
-                ? "connect-src 'self' https://*.razorpay.com https://api.razorpay.com wss://*.supabase.co https://*.supabase.co https://*.supabase.in https://firestore.googleapis.com https://securetoken.googleapis.com https://identitytoolkit.googleapis.com https://*.googleapis.com https://apis.google.com https://accounts.google.com https://www.google.com https://api.cloudinary.com https://*.cloudinary.com https://vercel.live https://*.vercel.live"
-                : "connect-src 'self' http://localhost:* http://127.0.0.1:* https://*.razorpay.com https://api.razorpay.com wss://*.supabase.co https://*.supabase.co https://*.supabase.in https://firestore.googleapis.com https://securetoken.googleapis.com https://identitytoolkit.googleapis.com https://*.googleapis.com https://apis.google.com https://accounts.google.com https://www.google.com https://api.cloudinary.com https://*.cloudinary.com https://vercel.live https://*.vercel.live",
+                ? "connect-src 'self' https://*.razorpay.com https://api.razorpay.com wss://*.supabase.co https://*.supabase.co https://*.supabase.in https://firestore.googleapis.com https://securetoken.googleapis.com https://identitytoolkit.googleapis.com https://*.googleapis.com https://apis.google.com https://accounts.google.com https://www.google.com https://api.cloudinary.com https://*.cloudinary.com https://vercel.live https://*.vercel.live https://vitals.vercel-insights.com"
+                : "connect-src 'self' http://localhost:* http://127.0.0.1:* https://*.razorpay.com https://api.razorpay.com wss://*.supabase.co https://*.supabase.co https://*.supabase.in https://firestore.googleapis.com https://securetoken.googleapis.com https://identitytoolkit.googleapis.com https://*.googleapis.com https://apis.google.com https://accounts.google.com https://www.google.com https://api.cloudinary.com https://*.cloudinary.com https://vercel.live https://*.vercel.live https://vitals.vercel-insights.com",
               // Frames: Google OAuth, Razorpay checkout, Vercel
               "frame-src 'self' https://api.razorpay.com https://checkout.razorpay.com https://accounts.google.com https://*.firebaseapp.com https://vercel.live https://*.vercel.live",
               // Media: Allow videos from ALL Supabase subdomains
@@ -205,7 +206,21 @@ const nextConfig: NextConfig = {
           // Permissions Policy - restrict browser features
           {
             key: 'Permissions-Policy',
-            value: 'camera=(self), microphone=(), geolocation=(self), payment=(self)',
+            value: 'camera=(self), microphone=(), geolocation=(self), payment=(self), usb=(), bluetooth=(), serial=(), hid=(), magnetometer=(), gyroscope=(), accelerometer=(self)',
+          },
+          // Prevent MIME-type sniffing
+          {
+            key: 'Cross-Origin-Resource-Policy',
+            value: 'same-origin',
+          },
+          // Prevent browser from caching sensitive pages
+          {
+            key: 'Cache-Control',
+            value: 'no-store, no-cache, must-revalidate, proxy-revalidate',
+          },
+          {
+            key: 'Pragma',
+            value: 'no-cache',
           },
         ],
       },

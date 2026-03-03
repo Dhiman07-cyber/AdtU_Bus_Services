@@ -30,7 +30,7 @@ export const useSidebar = () => useContext(SidebarContext);
 
 export default function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
-  const { currentUser, userData } = useAuth();
+  const { currentUser, userData, loading: authLoading } = useAuth();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
 
@@ -58,10 +58,11 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   // Hide navbar/footer on landing page, login page, apply form page, terms page, and privacy page
   // Show navbar for all authenticated users (including those needing application)
   // This ensures navbar is always visible for logged-in users
-  const showNavAndFooter = !isLandingPage && !isLoginPage && !isApplyFormPage && !isTermsPage && !isPrivacyPage && currentUser;
+  // Ensure we don't flash UI elements before auth is ready
+  const showNavAndFooter = !authLoading && !isLandingPage && !isLoginPage && !isApplyFormPage && !isTermsPage && !isPrivacyPage && currentUser;
 
-  // Show sidebar for admin/moderator
-  const showSidebar = (isAdminArea || isModeratorArea) && currentUser && userData;
+  // Show sidebar for admin/moderator only after auth is ready
+  const showSidebar = !authLoading && (isAdminArea || isModeratorArea) && currentUser && userData;
 
   // Handle mobile menu toggle
   const handleMenuToggle = useCallback(() => {

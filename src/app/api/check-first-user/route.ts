@@ -94,7 +94,7 @@ export async function GET() {
     console.error('Error checking first user:', error);
     return new Response(JSON.stringify({ 
       success: false, 
-      error: error.message || 'Failed to check if this is the first user' 
+      error: 'Failed to check if this is the first user' 
     }), {
       status: 500,
       headers: { 'Content-Type': 'application/json' },

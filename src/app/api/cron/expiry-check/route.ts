@@ -20,6 +20,10 @@ export async function GET(request: NextRequest) {
     if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
+    if (!cronSecret) {
+      console.error('🚫 CRON_SECRET not configured — blocking cron request');
+      return NextResponse.json({ error: 'Server configuration error' }, { status: 500 });
+    }
 
     // Check query params for which check to run
     const searchParams = request.nextUrl.searchParams;
@@ -45,7 +49,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json(
       {
         success: false,
-        error: error.message || 'Expiry check failed'
+        error: 'Expiry check failed'
       },
       { status: 500 }
     );
@@ -89,7 +93,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(
       {
         success: false,
-        error: error.message || 'Manual trigger failed'
+        error: 'Manual trigger failed'
       },
       { status: 500 }
     );

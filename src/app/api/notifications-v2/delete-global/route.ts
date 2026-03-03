@@ -133,7 +133,7 @@ export async function DELETE(request: Request) {
     console.error('Error deleting notification globally:', error);
     return Response.json({
       success: false,
-      error: error.message || 'Failed to delete notification',
+      error: 'Failed to delete notification',
     }, { status: 500 });
   }
 }

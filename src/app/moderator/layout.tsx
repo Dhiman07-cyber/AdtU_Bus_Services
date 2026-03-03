@@ -3,6 +3,7 @@
 import { useAuth } from '@/contexts/auth-context';
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { PremiumPageLoader } from '@/components/LoadingSpinner';
 
 export default function ModeratorLayout({
   children,
@@ -14,50 +15,48 @@ export default function ModeratorLayout({
   const [isReady, setIsReady] = useState(false);
 
   useEffect(() => {
-    // Wait for auth to fully load before making decisions
-    if (loading) {
-      return;
-    }
+    // Wait for auth to fully load
+    if (loading) return;
 
-    // If no user, redirect to login
-    if (!currentUser) {
-      router.push('/login');
-      return;
-    }
-
-    // Wait for userData to be available (it may load after currentUser)
-    if (!userData) {
-      // Give it a moment to load
-      const timeout = setTimeout(() => {
-        // If still no userData after waiting, it's a problem
-        if (!userData) {
-          console.warn('ModeratorLayout: userData not available');
+    // Only redirect if auth is finished and we're sure there's no user
+    // Added a small delay to handle hydration settle-down
+    const timeout = setTimeout(() => {
+      if (!currentUser) {
+        console.log('ModeratorLayout: No user, redirecting to login');
+        // Save current path to return to after login
+        if (typeof window !== 'undefined') {
+          sessionStorage.setItem('returnUrl', window.location.pathname);
         }
-      }, 2000);
-      return () => clearTimeout(timeout);
-    }
+        router.push('/login');
+        return;
+      }
 
-    // If user has wrong role, redirect to their proper dashboard
-    if (userData.role !== 'moderator') {
-      router.push(`/${userData.role}`);
-      return;
-    }
+      // Role check logic - Allow BOTH admin and moderator
+      if (userData) {
+        const isAuthorized = userData.role === 'moderator' || userData.role === 'admin';
 
-    // All checks passed, mark as ready
-    setIsReady(true);
+        if (!isAuthorized) {
+          console.log(`ModeratorLayout: User is ${userData.role}, redirecting to their dashboard`);
+          router.push(`/${userData.role}`);
+          return;
+        }
+
+        // All checks passed
+        setIsReady(true);
+      }
+    }, 200);
+
+    return () => clearTimeout(timeout);
   }, [currentUser, userData, loading, router]);
 
   // Show loading spinner while auth is loading OR while waiting for userData
   if (loading || (!isReady && currentUser && !userData)) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500"></div>
-      </div>
-    );
+    return <PremiumPageLoader message="Moderator Services" subMessage="Secure Session Initialization" />;
   }
 
-  // If not ready and we have user data but wrong role, don't render
-  if (!currentUser || (userData && userData.role !== 'moderator')) {
+  // Final gate - Allow both admin and moderator
+  const isAuthorized = userData?.role === 'admin' || userData?.role === 'moderator';
+  if (!currentUser || !isAuthorized) {
     return null;
   }
 
