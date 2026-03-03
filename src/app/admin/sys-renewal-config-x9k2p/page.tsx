@@ -181,11 +181,11 @@ function DateTimeField({
         <div className="space-y-3">
             <div className="flex items-center justify-between">
                 <Label className="text-sm font-medium text-gray-300">{label}</Label>
-                {hasChanged && (
-                    <span className="px-2 py-0.5 text-[10px] font-medium bg-amber-500/20 text-amber-400 rounded">
+                <div className="flex items-center h-6">
+                    <span className={`px-2 py-0.5 text-[10px] font-medium bg-amber-500/20 text-amber-400 rounded transition-opacity duration-200 ${hasChanged ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
                         Modified
                     </span>
-                )}
+                </div>
             </div>
             <div className="grid grid-cols-2 gap-3">
                 <MonthDayPicker
@@ -235,23 +235,20 @@ function TextField({
     return (
         <div className="space-y-2">
             <div className="flex items-center justify-between">
-                <Label className="text-sm font-medium text-gray-300">{label}</Label>
-                <div className="flex items-center gap-2">
-                    {hasChanged && (
-                        <span className="px-2 py-0.5 text-[10px] font-medium bg-amber-500/20 text-amber-400 rounded">
-                            Modified
-                        </span>
-                    )}
-                    {hasChanged && (
-                        <button
-                            type="button"
-                            onClick={() => onChange(originalValue)}
-                            className="p-1 text-gray-500 hover:text-white hover:bg-white/10 rounded transition-colors"
-                            title="Restore"
-                        >
-                            <RotateCcw className="h-3.5 w-3.5" />
-                        </button>
-                    )}
+                <Label htmlFor={id} className="text-sm font-medium text-gray-300">{label}</Label>
+                <div className="flex items-center gap-2 h-6">
+                    <span className={`px-2 py-0.5 text-[10px] font-medium bg-amber-500/20 text-amber-400 rounded transition-opacity duration-200 ${hasChanged ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
+                        Modified
+                    </span>
+                    <button
+                        type="button"
+                        onClick={() => onChange(originalValue)}
+                        className={`p-1 text-gray-500 hover:text-white hover:bg-white/10 rounded transition-all duration-200 ${hasChanged ? 'opacity-100 scale-100' : 'opacity-0 scale-95 pointer-events-none'}`}
+                        title="Restore"
+                        disabled={!hasChanged}
+                    >
+                        <RotateCcw className="h-3.5 w-3.5" />
+                    </button>
                 </div>
             </div>
             <div className="relative">
@@ -287,7 +284,7 @@ function SectionHeader({ icon, title, badge }: { icon: React.ReactNode; title: s
             <div className="p-2 bg-white/5 rounded-lg">
                 {icon}
             </div>
-            <h3 className="text-white font-semibold">{title}</h3>
+            <h2 className="text-white font-semibold text-lg">{title}</h2>
             {badge && (
                 <span className="px-2 py-0.5 text-[10px] font-bold bg-red-500/20 text-red-400 rounded uppercase">
                     {badge}
@@ -472,8 +469,16 @@ export default function SystemRenewalConfigPage() {
         try {
             setLoading(true);
 
-            // Load deadline config
-            const deadlineResponse = await fetch('/api/settings/deadline-config');
+            // Fetch all configs in parallel to drastically improve load time
+            const [deadlineResponse, uiResponse, systemResponse, termsResponse, privacyResponse] = await Promise.all([
+                fetch('/api/settings/deadline-config'),
+                fetch('/api/settings/ui-config'),
+                fetch('/api/settings/system-config'),
+                fetch('/api/settings/terms-config'),
+                fetch('/api/settings/privacy-config')
+            ]);
+
+            // Process deadline config
             if (deadlineResponse.ok) {
                 const data = await deadlineResponse.json();
                 const config = data.config as DeadlineConfig;
@@ -507,8 +512,7 @@ export default function SystemRenewalConfigPage() {
                 setOriginalHardDeleteWarning(config.hardDelete.criticalWarningText);
             }
 
-            // Load UI config
-            const uiResponse = await fetch('/api/settings/ui-config');
+            // Process UI config
             if (uiResponse.ok) {
                 const uiData = await uiResponse.json();
                 const uiConfig = uiData.config as UIConfig;
@@ -536,8 +540,7 @@ export default function SystemRenewalConfigPage() {
                 }
             }
 
-            // Load system config
-            const systemResponse = await fetch('/api/settings/system-config');
+            // Process system config
             if (systemResponse.ok) {
                 const data = await systemResponse.json();
                 const config = data.config;
@@ -554,8 +557,7 @@ export default function SystemRenewalConfigPage() {
                 setOriginalSystemConfig(newSystemConfig);
             }
 
-            // Load Terms config
-            const termsResponse = await fetch('/api/settings/terms-config');
+            // Process Terms config
             if (termsResponse.ok) {
                 const termsData = await termsResponse.json();
                 const config = termsData.config as TermsConfig;
@@ -563,8 +565,7 @@ export default function SystemRenewalConfigPage() {
                 setOriginalTermsConfig(JSON.parse(JSON.stringify(config)));
             }
 
-            // Load Privacy config
-            const privacyResponse = await fetch('/api/settings/privacy-config');
+            // Process Privacy config
             if (privacyResponse.ok) {
                 const privacyData = await privacyResponse.json();
                 const config = privacyData.config as TermsConfig;

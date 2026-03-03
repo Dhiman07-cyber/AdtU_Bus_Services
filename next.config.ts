@@ -55,7 +55,7 @@ const nextConfig: NextConfig = {
 
   // Turbopack configuration (moved from experimental.turbo)
   turbopack: {
-    root: __dirname, // Explicitly set the project root to fix multiple lockfile warning
+    root: __dirname, // Expicitly set the project root to fix multiple lockfile warning
     rules: {
       '*.svg': {
         loaders: ['@svgr/webpack'],

@@ -47,6 +47,7 @@ interface ReassignmentItem {
     toBusId: string;
     toBusNumber: string;
     shift: 'Morning' | 'Evening';
+    stopId?: string;
     stopName?: string;
 }
 
@@ -122,11 +123,18 @@ export async function POST(request: NextRequest) {
             const targetBusData = targetBusSnap.data()!;
 
             // Update student
-            batch.update(studentRef, {
+            const studentUpdateData: any = {
                 busId: toBusId,
                 routeId: targetBusData.route?.routeId || targetBusData.routeId || '',
                 updatedAt: FieldValue.serverTimestamp(),
-            });
+            };
+            if (assignment.stopId) {
+                studentUpdateData.stopId = assignment.stopId;
+            }
+            if (assignment.stopName) {
+                studentUpdateData.stopName = assignment.stopName;
+            }
+            batch.update(studentRef, studentUpdateData);
 
             // Track load changes for source bus (decrement)
             if (!busLoadChanges.has(fromBusId)) {

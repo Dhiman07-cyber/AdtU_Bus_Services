@@ -1,12 +1,5 @@
 {
     "city": "Guwahati",
-    "meta": {
-        "notes": "Only plain location names (no colleges, no hospitals, no parentheses). Compiled from ASTC city stoppages and public timetables/lists.",
-        "sources": [
-            "ASTC City Bus Stoppages (Guwahati)",
-            "ASTC timetables / public route lists"
-        ]
-    },
     "bus_stops": [
         "AdtU Campus",
         "Paltan Bazaar",

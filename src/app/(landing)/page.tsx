@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useRef } from "react";
 import { useRouter } from "next/navigation";
+import Image from "next/image";
 import { useAuth } from "@/contexts/auth-context";
 import PWAInstallPrompt from "@/components/PWAInstallPrompt";
 import { useSystemConfig } from '@/contexts/SystemConfigContext';
@@ -1126,7 +1127,7 @@ export default function PremiumLanding() {
             {/* Branding */}
             <div className="space-y-3 sm:space-y-4">
               <div className="space-y-2 sm:space-y-3">
-                <img src="/adtu-new-logo.svg" alt="AdtU Logo" className="w-36 sm:w-44 h-12 sm:h-16" />
+                <Image src="/adtu-new-logo.svg" alt="AdtU Logo" width={176} height={64} className="w-36 sm:w-44 h-full" priority />
                 <div>
                   <h3 className="text-lg sm:text-xl font-bold text-white">AdtU Bus Services</h3>
                   <p className="text-xs sm:text-sm text-[#9CA3AF]">Official Real-Time Campus Transportation Management Platform</p>

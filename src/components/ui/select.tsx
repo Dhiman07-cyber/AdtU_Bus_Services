@@ -81,6 +81,10 @@ const SelectContent = React.forwardRef<
         className
       )}
       position={position}
+      data-lenis-prevent
+      data-lenis-prevent-touch
+      onWheel={(e) => e.stopPropagation()}
+      onTouchMove={(e) => e.stopPropagation()}
       {...props}
     >
       <SelectScrollUpButton />
@@ -88,8 +92,9 @@ const SelectContent = React.forwardRef<
         className={cn(
           "p-1",
           position === "popper" &&
-          "h-[var(--radix-select-trigger-height)] w-full min-w-[var(--radix-select-trigger-width)]"
+          "h-[var(--radix-select-content-available-height)] w-full min-w-[var(--radix-select-trigger-width)]"
         )}
+        data-lenis-prevent
       >
         {children}
       </SelectPrimitive.Viewport>
@@ -132,7 +137,7 @@ const SelectItem = React.forwardRef<
     <SelectPrimitive.ItemText>{children}</SelectPrimitive.ItemText>
   </SelectPrimitive.Item>
 ))
-SelectItem.displayName = SelectPrimitive.Item.displayName
+SelectItem.displayName = SelectItem.displayName
 
 const SelectSeparator = React.forwardRef<
   React.ElementRef<typeof SelectPrimitive.Separator>,

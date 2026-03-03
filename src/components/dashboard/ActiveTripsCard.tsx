@@ -33,7 +33,7 @@ export function ActiveTripsCard({ trips, className }: ActiveTripsCardProps) {
                         </div>
                         <div>
                             <CardTitle className="text-xs font-semibold text-gray-900 dark:text-white group-hover:text-green-500 transition-colors pt-2.5">
-                                Active Trips
+                                Active trips
                             </CardTitle>
                             <CardDescription className="text-[9px] text-gray-500 leading-tight">
                                 Real-time operational overview
@@ -48,9 +48,9 @@ export function ActiveTripsCard({ trips, className }: ActiveTripsCardProps) {
                 </div>
             </CardHeader>
 
-            <CardContent className="p-0 flex-1 min-h-0 bg-transparent">
-                <ScrollArea className="h-[250px] w-full px-0">
-                    {trips.length > 0 ? (
+            <CardContent className="p-0 flex-1 min-h-0 bg-transparent flex flex-col">
+                {trips.length > 0 ? (
+                    <ScrollArea className="flex-1 h-[250px] w-full px-0">
                         <div className="space-y-0.5 pb-2 pt-0.5">
                             {trips.map((trip) => (
                                 <div
@@ -113,20 +113,20 @@ export function ActiveTripsCard({ trips, className }: ActiveTripsCardProps) {
                                 </div>
                             ))}
                         </div>
-                    ) : (
-                        <div className="h-full flex flex-col items-center justify-center text-center py-4 space-y-2 min-h-[150px]">
-                            <div className="h-8 w-8 rounded-full bg-gray-800/50 flex items-center justify-center">
-                                <Activity className="h-4 w-4 text-gray-600" />
-                            </div>
-                            <div>
-                                <p className="text-[10px] font-medium text-gray-400">No Active Trips</p>
-                                <p className="text-[9px] text-gray-600 max-w-[120px] mx-auto">
-                                    Buses are currently idle.
-                                </p>
-                            </div>
+                    </ScrollArea>
+                ) : (
+                    <div className="flex-1 flex flex-col items-center justify-center text-center p-8 pt-0 space-y-4">
+                        <div className="h-12 w-12 rounded-2xl bg-gray-800/30 flex items-center justify-center border border-gray-800/50 group-hover:scale-110 group-hover:bg-gray-800/50 transition-all duration-500">
+                            <Activity className="h-6 w-6 text-gray-600 group-hover:text-green-500 transition-colors" />
                         </div>
-                    )}
-                </ScrollArea>
+                        <div className="space-y-1.5">
+                            <p className="text-sm font-semibold text-gray-400 group-hover:text-gray-300 transition-colors">No active trips</p>
+                            <p className="text-[11px] text-gray-600 max-w-[200px] mx-auto group-hover:text-gray-500 transition-colors leading-relaxed">
+                                All buses are currently idle or parked at their respective terminals.
+                            </p>
+                        </div>
+                    </div>
+                )}
             </CardContent>
         </Card>
     );

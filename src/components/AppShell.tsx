@@ -106,7 +106,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
           mobileOpen,
           setMobileOpen
         }}>
-          <div className="app-shell">
+          <div className="app-shell tabular-nums">
             {showNavAndFooter && (
               <div id="app-navbar">
                 <Navbar

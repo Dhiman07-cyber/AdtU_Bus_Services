@@ -62,6 +62,7 @@ import ReassignmentSnackbar, {
   type RevertBufferData,
 } from "@/components/smart-allocation/ReassignmentSnackbar";
 import { ReassignmentHistoryModal } from "@/components/assignment/ReassignmentHistoryModal";
+import { PremiumPageLoader } from "@/components/LoadingSpinner";
 
 // Hooks
 // SPARK PLAN SAFETY: Routes data now uses paginated fetch
@@ -719,16 +720,7 @@ export default function SmartAllocationPage() {
   };
 
   if (loading) {
-    return (
-      <div className="flex items-center justify-center min-h-screen bg-[#020617]">
-        <div className="flex flex-col items-center gap-4 sm:gap-6">
-          <div className="pink-purple-spinner bg-dark-blue"></div>
-          <p className="text-base sm:text-lg font-semibold bg-gradient-to-r from-pink-400 via-purple-400 to-pink-400 bg-clip-text text-transparent animate-pulse px-4 text-center">
-            Loading allocation system...
-          </p>
-        </div>
-      </div>
-    );
+    return <PremiumPageLoader message="Smart Stop Allocation" subMessage="Loading allocation system..." />;
   }
 
   return (

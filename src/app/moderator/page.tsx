@@ -51,7 +51,8 @@ import {
   Moon,
   Info,
   AlertTriangle,
-  Wallet
+  Wallet,
+  ArrowRight
 } from 'lucide-react';
 import {
   BarChart,
@@ -908,26 +909,26 @@ export default function EnhancedModeratorDashboard() {
         <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
           {/* System Health */}
           <Card className="bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl border border-slate-200 dark:border-slate-800 shadow-sm hover:shadow-md hover:border-blue-500/30 transition-all duration-300 group cursor-pointer">
-            <CardHeader className="px-2.5">
+            <CardHeader className="px-5">
               <CardTitle className="text-xs text-gray-900 dark:text-white flex items-center gap-1 group-hover:text-blue-400 transition-colors">
                 <Shield className="h-3 w-3 group-hover:scale-110 transition-transform" />
-                RENEWAL INFORMATION
+                Renewal information
               </CardTitle>
               <CardDescription className="text-[10px]">Critical timeline alerts</CardDescription>
             </CardHeader>
-            <CardContent className="px-2.5">
+            <CardContent className="px-5">
               <div className="space-y-0.5">
-                <div className="flex justify-between text-[10px] mb-1">
+                <div className="flex items-center justify-between text-[10px] mb-1">
                   <span className="text-gray-500 dark:text-gray-400">Academic Year End:</span>
-                  <span className="text-red-400 font-semibold">{getDeadlineDisplay('academicYearEnd')}</span>
+                  <span className="text-red-400 font-bold">{getDeadlineDisplay('academicYearEnd')}</span>
                 </div>
-                <div className="flex justify-between text-[10px] mb-1">
+                <div className="flex items-center justify-between text-[10px] mb-1">
                   <span className="text-gray-500 dark:text-gray-400">Renewal Reminder:</span>
-                  <span className="text-orange-400 font-semibold">{getDeadlineDisplay('renewalReminder')}</span>
+                  <span className="text-orange-400 font-bold">{getDeadlineDisplay('renewalReminder')}</span>
                 </div>
-                <div className="flex justify-between text-[10px]">
+                <div className="flex items-center justify-between text-[10px]">
                   <span className="text-gray-500 dark:text-gray-400">Renewal Deadline:</span>
-                  <span className="text-green-400 font-semibold">{getDeadlineDisplay('renewalDeadline')}</span>
+                  <span className="text-green-400 font-bold">{getDeadlineDisplay('renewalDeadline')}</span>
                 </div>
               </div>
             </CardContent>
@@ -935,31 +936,31 @@ export default function EnhancedModeratorDashboard() {
 
           {/* Enrollment Overview */}
           <Card className="bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl border border-slate-200 dark:border-slate-800 shadow-sm hover:shadow-md hover:border-green-500/30 transition-all duration-300 group cursor-pointer">
-            <CardHeader className="px-2.5">
+            <CardHeader className="px-5">
               <CardTitle className="text-xs text-gray-900 dark:text-white flex items-center gap-1 group-hover:text-green-400 transition-colors">
                 <Users className="h-3 w-3 group-hover:scale-110 transition-transform" />
-                Enrollment Overview
+                Enrollment overview
               </CardTitle>
               <CardDescription className="text-[10px]">Current capacity status</CardDescription>
             </CardHeader>
-            <CardContent className="px-2.5">
+            <CardContent className="px-5">
               <div className="space-y-0.5">
-                <div className="flex justify-between text-[10px] mb-1">
+                <div className="flex items-center justify-between text-[10px] mb-1">
                   <span className="text-gray-500 dark:text-gray-400">Total Capacity:</span>
-                  <span className="text-gray-900 dark:text-white font-semibold">{buses.reduce((acc, b: any) => {
+                  <span className="text-gray-900 dark:text-white font-bold">{buses.reduce((acc, b: any) => {
                     const capacity = typeof b.capacity === 'string' && b.capacity.includes('/')
                       ? parseInt(b.capacity.split('/')[1])
                       : b.totalCapacity || 50;
                     return acc + capacity;
                   }, 0)} seats</span>
                 </div>
-                <div className="flex justify-between text-[10px] mb-1">
+                <div className="flex items-center justify-between text-[10px] mb-1">
                   <span className="text-gray-500 dark:text-gray-400">Students Enrolled:</span>
-                  <span className="text-green-400 font-semibold">{stats.totalStudents}</span>
+                  <span className="text-green-400 font-bold">{stats.totalStudents}</span>
                 </div>
-                <div className="flex justify-between text-[10px]">
+                <div className="flex items-center justify-between text-[10px]">
                   <span className="text-gray-500 dark:text-gray-400">Occupancy Rate:</span>
-                  <span className="text-cyan-400 font-semibold">
+                  <span className="text-cyan-400 font-bold">
                     {buses.reduce((acc, b: any) => {
                       const capacity = typeof b.capacity === 'string' && b.capacity.includes('/')
                         ? parseInt(b.capacity.split('/')[1])
@@ -981,14 +982,14 @@ export default function EnhancedModeratorDashboard() {
 
           {/* Priority Tasks */}
           <Card className="bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl border border-slate-200 dark:border-slate-800 shadow-sm hover:shadow-md hover:border-purple-500/30 transition-all duration-300 group cursor-pointer">
-            <CardHeader className="px-2.5">
+            <CardHeader className="px-5">
               <CardTitle className="text-xs text-gray-900 dark:text-white flex items-center gap-1 group-hover:text-purple-400 transition-colors">
-                <Shield className="h-3 w-3 group-hover:scale-110 transition-transform" />
-                Academic Year Info
+                <Clock className="h-3 w-3 group-hover:scale-110 transition-transform" />
+                Academic year info
               </CardTitle>
-              <CardDescription className="text-[10px]">Critical Deadlines</CardDescription>
+              <CardDescription className="text-[10px]">Critical deadlines</CardDescription>
             </CardHeader>
-            <CardContent className="px-2.5">
+            <CardContent className="px-5">
               <div className="space-y-0.5">
                 <div className="flex items-center justify-between text-[10px] mb-1">
                   <span className="text-gray-500 dark:text-gray-400">Academic Year End:</span>
@@ -1014,45 +1015,61 @@ export default function EnhancedModeratorDashboard() {
           <ActiveTripsCard trips={activeTrips} className="lg:col-span-2" />
 
           {/* Quick Actions */}
-          <Card className="bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl border border-slate-200 dark:border-slate-800 shadow-sm hover:shadow-md hover:border-cyan-500/30 transition-all duration-300 group cursor-pointer">
-            <CardHeader className="px-2.5">
-              <CardTitle className="text-xs text-gray-900 dark:text-white group-hover:text-cyan-400 transition-colors">Quick Actions</CardTitle>
+          <Card className="bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl border border-slate-200 dark:border-slate-800 shadow-sm hover:shadow-md hover:border-cyan-500/30 transition-all duration-300 group cursor-pointer overflow-hidden">
+            <CardHeader className="px-5">
+              <CardTitle className="text-xs text-gray-900 dark:text-white group-hover:text-cyan-400 transition-colors">Quick actions</CardTitle>
               <CardDescription className="text-[10px]">Moderation shortcuts</CardDescription>
             </CardHeader>
-            <CardContent className="flex flex-col gap-1.5 px-2.5">
-              <Link href="/moderator/renewal-service" className="group/btn">
-                <Button className="w-full bg-gradient-to-r from-blue-600 to-cyan-600 hover:from-blue-700 hover:to-cyan-700 cursor-pointer h-7 text-[10px] transition-all group-hover/btn:shadow-md group-hover/btn:shadow-blue-500/30 group-hover/btn:-translate-y-0.5">
-                  <RefreshCw className="h-3 w-3 mr-1 group-hover/btn:scale-110 transition-transform" />
-                  <span className="group-hover/btn:text-gray-900 dark:text-white transition-colors">Renewal Management</span>
-                </Button>
-              </Link>
-              <Link href="/moderator/smart-allocation" className="group/btn">
-                <Button className="w-full bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 cursor-pointer h-7 text-[10px] transition-all group-hover/btn:shadow-md group-hover/btn:shadow-purple-500/30 group-hover/btn:-translate-y-0.5">
-                  <UserIcon className="h-3 w-3 mr-1 group-hover/btn:scale-110 transition-transform" />
-                  <span className="group-hover/btn:text-gray-900 dark:text-white transition-colors">Student Reassignment</span>
-                </Button>
-              </Link>
-              <Link href="/moderator/driver-assignment" className="group/btn">
-                <Button className="w-full bg-gradient-to-r from-orange-600 to-amber-600 hover:from-orange-700 hover:to-amber-700 cursor-pointer h-7 text-[10px] transition-all group-hover/btn:shadow-md group-hover/btn:shadow-orange-500/30 group-hover/btn:-translate-y-0.5">
-                  <UserCheck className="h-3 w-3 mr-1 group-hover/btn:scale-110 transition-transform" />
-                  <span className="group-hover/btn:text-gray-900 dark:text-white transition-colors">Driver Management</span>
-                </Button>
-              </Link>
+            <CardContent className="px-5 space-y-4 pb-6">
+              <div className="space-y-2">
+                <p className="text-[10px] font-bold text-gray-500 dark:text-gray-400 uppercase tracking-widest">Management</p>
+                <div className="flex flex-col gap-2">
+                  <Link href="/moderator/renewal-service" className="group/action flex items-center justify-between p-2 rounded-xl bg-blue-500/5 border border-blue-500/10 hover:bg-blue-500/10 hover:border-blue-500/20 transition-all duration-300">
+                    <div className="flex items-center gap-2.5">
+                      <div className="p-1.5 bg-blue-500/20 rounded-lg text-blue-400 group-hover/action:scale-110 transition-all">
+                        <RefreshCw className="h-3.5 w-3.5" />
+                      </div>
+                      <span className="text-xs font-semibold text-gray-700 dark:text-gray-200">Renewal Service</span>
+                    </div>
+                    <ArrowRight className="h-3 w-3 text-gray-500 opacity-0 group-hover/action:opacity-100 group-hover/action:translate-x-1 transition-all" />
+                  </Link>
 
-              <div className="pt-1.5 border-t border-gray-800">
-                <p className="text-[10px] text-gray-500 dark:text-gray-400 mb-1 font-medium">System Information</p>
-                <div className="flex items-center justify-between">
-                  <div className="text-center">
-                    <div className="text-sm font-bold text-green-400">₹{systemConfig?.busFee?.amount || '...'}</div>
-                    <p className="text-[9px] text-gray-500">Bus Fee</p>
+                  <Link href="/moderator/smart-allocation" className="group/action flex items-center justify-between p-2 rounded-xl bg-purple-500/5 border border-purple-500/10 hover:bg-purple-500/10 hover:border-purple-500/20 transition-all duration-300">
+                    <div className="flex items-center gap-2.5">
+                      <div className="p-1.5 bg-purple-500/20 rounded-lg text-purple-400 group-hover/action:scale-110 transition-all">
+                        <UserIcon className="h-3.5 w-3.5" />
+                      </div>
+                      <span className="text-xs font-semibold text-gray-700 dark:text-gray-200">Student Allocation</span>
+                    </div>
+                    <ArrowRight className="h-3 w-3 text-gray-500 opacity-0 group-hover/action:opacity-100 group-hover/action:translate-x-1 transition-all" />
+                  </Link>
+
+                  <Link href="/moderator/driver-assignment" className="group/action flex items-center justify-between p-2 rounded-xl bg-orange-500/5 border border-orange-500/10 hover:bg-orange-500/10 hover:border-orange-500/20 transition-all duration-300">
+                    <div className="flex items-center gap-2.5">
+                      <div className="p-1.5 bg-orange-500/20 rounded-lg text-orange-400 group-hover/action:scale-110 transition-all">
+                        <UserCheck className="h-3.5 w-3.5" />
+                      </div>
+                      <span className="text-xs font-semibold text-gray-700 dark:text-gray-200">Driver Assignment</span>
+                    </div>
+                    <ArrowRight className="h-3 w-3 text-gray-500 opacity-0 group-hover/action:opacity-100 group-hover/action:translate-x-1 transition-all" />
+                  </Link>
+                </div>
+              </div>
+
+              <div className="pt-4 border-t border-slate-800">
+                <p className="text-[10px] font-bold text-gray-500 dark:text-gray-400 uppercase tracking-widest mb-3">System status</p>
+                <div className="grid grid-cols-3 gap-2">
+                  <div className="bg-slate-900/40 p-2 rounded-xl border border-slate-800/50 flex flex-col items-center gap-1">
+                    <span className="text-[10px] font-bold text-green-400">₹{systemConfig?.busFee?.amount || '...'}</span>
+                    <span className="text-[8px] text-gray-500 uppercase font-medium">Bus Fee</span>
                   </div>
-                  <div className="text-center">
-                    <div className="text-sm font-bold text-blue-400">{stats.last30DaysPayments || 0}</div>
-                    <p className="text-[9px] text-gray-500">30d Payments</p>
+                  <div className="bg-slate-900/40 p-2 rounded-xl border border-slate-800/50 flex flex-col items-center gap-1">
+                    <span className="text-[10px] font-bold text-blue-400">{stats.last30DaysPayments || 0}</span>
+                    <span className="text-[8px] text-gray-500 uppercase font-medium">Payments</span>
                   </div>
-                  <div className="text-center">
-                    <div className="text-sm font-bold text-yellow-400">{stats.activeBuses}</div>
-                    <p className="text-[9px] text-gray-500">Active Trips</p>
+                  <div className="bg-slate-900/40 p-2 rounded-xl border border-slate-800/50 flex flex-col items-center gap-1">
+                    <span className="text-[10px] font-bold text-yellow-400">{stats.activeBuses}</span>
+                    <span className="text-[8px] text-gray-500 uppercase font-medium">Trips</span>
                   </div>
                 </div>
               </div>

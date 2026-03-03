@@ -419,38 +419,48 @@ export default function StudentTrackBusPage() {
 
         setStudentData(student);
 
+        // Run subsequent queries in parallel to significantly reduce waterfall loading
+        const queries = [];
+
+        let busPromise = Promise.resolve(null);
         if (student.busId) {
-          const bus = await getBusById(student.busId);
-          if (bus) {
-            setBusData(bus);
-          }
+          busPromise = getBusById(student.busId).then(bus => {
+            if (bus) setBusData(bus);
+            return bus;
+          });
+          queries.push(busPromise);
+        }
 
-          if (student.routeId) {
-            const route = await getRouteById(student.routeId);
-            if (route) {
-              setRouteData(route);
-
-              // Initial map center will be driven by live locations
-            }
-          }
+        let routePromise = Promise.resolve(null);
+        if (student.routeId) {
+          routePromise = getRouteById(student.routeId).then(route => {
+            if (route) setRouteData(route);
+            return route;
+          });
+          queries.push(routePromise);
         }
 
         // Check for existing waiting flag
-        const { data: existingFlags, error: flagError } = await supabase
+        const waitingFlagPromise = supabase
           .from("waiting_flags")
           .select("*")
           .eq("student_uid", currentUser.uid)
           .in("status", ["waiting", "raised", "acknowledged"])
-          .maybeSingle();
+          .maybeSingle()
+          .then(({ data: existingFlags, error: flagError }) => {
+            if (!flagError && existingFlags) {
+              setIsWaiting(true);
+              setCurrentFlagId(existingFlags.id);
+              if (existingFlags && existingFlags.stop_lat && existingFlags.stop_lng) {
+                setStudentLocation({ lat: existingFlags.stop_lat, lng: existingFlags.stop_lng, accuracy: 50 });
+              }
+              console.log("✅ Existing waiting flag found:", existingFlags);
+            }
+          });
+        queries.push(waitingFlagPromise);
 
-        if (!flagError && existingFlags) {
-          setIsWaiting(true);
-          setCurrentFlagId(existingFlags.id);
-          if (existingFlags && existingFlags.stop_lat && existingFlags.stop_lng) {
-            setStudentLocation({ lat: existingFlags.stop_lat, lng: existingFlags.stop_lng, accuracy: 50 });
-          }
-          console.log("✅ Existing waiting flag found:", existingFlags);
-        }
+        // Fetch all independently
+        await Promise.all(queries);
 
         setDataLoading(false);
       } catch (error) {

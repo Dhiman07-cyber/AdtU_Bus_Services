@@ -137,7 +137,7 @@ export default function ModeratorSidebar() {
               <span className="text-[12px] font-bold text-zinc-100 leading-none tracking-tight">
                 Operations
               </span>
-              <span className="text-[10px] text-zinc-500 font-medium">Moderator Hub</span>
+              <span className="text-[10px] text-zinc-400 font-medium">Moderator Hub</span>
             </div>
           </div>
         )}
@@ -171,7 +171,7 @@ export default function ModeratorSidebar() {
             collapsed ? "mt-2 space-y-0" : "mt-2 space-y-0.5"
           )}>
             {!collapsed && (
-              <h3 className="px-2 text-[9px] uppercase tracking-widest font-semibold text-zinc-600 font-mono">
+              <h3 className="px-2 text-[9px] uppercase tracking-widest font-semibold text-zinc-400 font-mono">
                 {group.name}
               </h3>
             )}
@@ -253,13 +253,13 @@ export default function ModeratorSidebar() {
           <div className="mt-1 px-2 flex items-center justify-between">
             <div className="flex items-center gap-1.5 opacity-60 hover:opacity-100 transition-opacity">
               <div className="h-1.5 w-1.5 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)] animate-pulse" />
-              <span className="text-[9px] text-zinc-500 uppercase tracking-wider font-semibold">Active</span>
+              <span className="text-[9px] text-zinc-400 uppercase tracking-wider font-semibold">Active</span>
             </div>
-            <span className="text-[9px] text-zinc-700 font-mono tracking-tighter">Moderator</span>
+            <span className="text-[9px] text-zinc-400 font-mono tracking-tighter">Moderator</span>
           </div>
         ) : (
           <div className="flex justify-center mt-1 opacity-60">
-            <span className="text-[8px] text-zinc-600 font-mono tracking-tighter">
+            <span className="text-[8px] text-zinc-400 font-mono tracking-tighter">
               {config?.version || 'v2.4.0'}
             </span>
           </div>
