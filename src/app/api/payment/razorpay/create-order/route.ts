@@ -1,132 +1,62 @@
-// @ts-nocheck
-/**
- * API Route: Create Razorpay Order
- * POST /api/payment/razorpay/create-order
- * 
- * SECURITY: Requires authentication, applies rate limiting
- * Creates a new payment order using Razorpay API
- */
-
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse, NextRequest } from 'next/server';
 import { createRazorpayOrder, generateReceiptId } from '@/lib/payment/razorpay.service';
-import { adminAuth } from '@/lib/firebase-admin';
-import { checkRateLimit, RateLimits, createRateLimitId } from '@/lib/security/rate-limiter';
-import { CreateOrderSchema, validateInput } from '@/lib/security/validation-schemas';
+import { withSecurity } from '@/lib/security/api-security';
+import { CreateOrderSchema } from '@/lib/security/validation-schemas';
+import { RateLimits } from '@/lib/security/rate-limiter';
 
-export async function POST(request: NextRequest) {
-  try {
-    // SECURITY: Verify authentication (MANDATORY for payments)
-    const authHeader = request.headers.get('Authorization');
-    const token = authHeader?.replace('Bearer ', '');
+export const POST = withSecurity(
+    async (request, { auth, body }) => {
+        const { amount, notes, userName, purpose, enrollmentId, durationYears } = body as any;
+        const trustedUserId = auth.uid;
 
-    if (!token) {
-      return NextResponse.json(
-        { success: false, error: 'Authentication required for payment operations' },
-        { status: 401 }
-      );
+        // Generate unique receipt ID
+        const receipt = generateReceiptId('ADTU_BUS');
+
+        // Create order notes - IMPORTANT: These are used by webhook/verification
+        // SECURITY: Use trustedUserId (from auth) instead of client-supplied userId
+        const orderNotes = {
+            ...notes,
+            userId: trustedUserId || 'unknown',
+            enrollmentId: enrollmentId || notes?.enrollmentId || '',
+            studentId: enrollmentId || notes?.enrollmentId || trustedUserId || '',
+            studentName: userName || 'Unknown',
+            userName: userName || 'Unknown',
+            durationYears: durationYears?.toString() || notes?.duration?.toString() || '1',
+            purpose: purpose || 'Bus Service Payment',
+            type: purpose === 'renewal' ? 'renewal' : 'new_registration',
+            timestamp: new Date().toISOString(),
+        };
+
+        // Create Razorpay order
+        const order = await createRazorpayOrder(amount, receipt, orderNotes);
+
+        console.log('📝 Order created:', {
+            orderId: order.id,
+            amount: order.amount,
+            currency: order.currency,
+            receipt: order.receipt,
+        });
+
+        return NextResponse.json({
+            success: true,
+            order: {
+                id: order.id,
+                amount: order.amount,
+                currency: order.currency,
+                receipt: order.receipt,
+                status: order.status,
+                notes: order.notes,
+            },
+            key_id: process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID,
+        });
+    },
+    {
+        requiredRoles: [], // Any authenticated user can create an order
+        schema: CreateOrderSchema,
+        rateLimit: RateLimits.PAYMENT_CREATE,
+        allowBodyToken: true
     }
-
-    let authenticatedUserId: string;
-
-    try {
-      const decodedToken = await adminAuth.verifyIdToken(token);
-      authenticatedUserId = decodedToken.uid;
-    } catch (authError) {
-      return NextResponse.json(
-        { success: false, error: 'Invalid or expired authentication token' },
-        { status: 401 }
-      );
-    }
-
-    // Parse request body
-    const body = await request.json();
-
-    // SECURITY: Validate input with Zod schema
-    const validation = validateInput(CreateOrderSchema, body);
-    if (!validation.success) {
-      return NextResponse.json(
-        { success: false, error: validation.error },
-        { status: 400 }
-      );
-    }
-
-    const { amount, notes, userId, userName, purpose, enrollmentId, durationYears } = validation.data;
-
-    // SECURITY: Rate limit by authenticated user ID
-    const rateLimitId = createRateLimitId(authenticatedUserId, 'payment-create');
-
-    const rateCheck = checkRateLimit(rateLimitId, RateLimits.PAYMENT_CREATE.maxRequests, RateLimits.PAYMENT_CREATE.windowMs);
-    if (!rateCheck.allowed) {
-      return NextResponse.json(
-        { success: false, error: 'Too many payment requests. Please wait before trying again.' },
-        {
-          status: 429,
-          headers: {
-            'X-RateLimit-Remaining': '0',
-            'X-RateLimit-Reset': String(Math.ceil(rateCheck.resetIn / 1000))
-          }
-        }
-      );
-    }
-
-    // SECURITY: ALWAYS use authenticated user ID for payment, NEVER client-supplied one
-    const trustedUserId = authenticatedUserId;
-
-    // Generate unique receipt ID
-    const receipt = generateReceiptId('ADTU_BUS');
-
-    // Create order notes - IMPORTANT: These are used by webhook/verification
-    // SECURITY: Use trustedUserId (from auth) instead of client-supplied userId
-    const orderNotes = {
-      ...notes, // Spread custom notes first
-      // Then override with trusted values
-      userId: trustedUserId || 'unknown', // SECURITY: Use authenticated user ID
-      enrollmentId: enrollmentId || notes?.enrollmentId || '',
-      studentId: enrollmentId || notes?.enrollmentId || trustedUserId || '',
-      studentName: userName || 'Unknown',
-      userName: userName || 'Unknown',
-      durationYears: durationYears?.toString() || notes?.duration?.toString() || '1',
-      purpose: purpose || 'Bus Service Payment',
-      type: purpose === 'renewal' ? 'renewal' : 'new_registration',
-      timestamp: new Date().toISOString(),
-    };
-
-    // Create Razorpay order
-    const order = await createRazorpayOrder(amount, receipt, orderNotes);
-
-    // Log order creation for testing
-    console.log('📝 Order created:', {
-      orderId: order.id,
-      amount: order.amount,
-      currency: order.currency,
-      receipt: order.receipt,
-    });
-
-    // Return success response
-    return NextResponse.json({
-      success: true,
-      order: {
-        id: order.id,
-        amount: order.amount,
-        currency: order.currency,
-        receipt: order.receipt,
-        status: order.status,
-        notes: order.notes,
-      },
-      key_id: process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID,
-    });
-
-  } catch (error: any) {
-    console.error('❌ Error in create-order API:', error);
-    return NextResponse.json(
-      {
-        success: false,
-        error: 'Failed to create payment order',
-      },
-      { status: 500 }
-    );
-  }
-}
+);
 
 // OPTIONS method for CORS - Production safe
 export async function OPTIONS(request: NextRequest) {

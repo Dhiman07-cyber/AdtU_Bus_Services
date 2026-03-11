@@ -5,18 +5,8 @@
  * 1. Driver live location sharing (only one device can broadcast at a time)
  * 2. Student live location viewing (only one device can view at a time)
  * 
- * Uses Supabase to track active sessions per user/feature combination.
+ * Uses server-side API route with Supabase service_role key to bypass RLS.
  */
-
-import { supabase } from '@/lib/supabase-client';
-
-interface DeviceSession {
-    userId: string;
-    deviceId: string;
-    feature: 'driver_location_share' | 'student_location_view';
-    createdAt: string;
-    lastActiveAt: string;
-}
 
 /**
  * Generate a unique device ID for the current browser/device
@@ -42,6 +32,58 @@ export function getOrCreateDeviceId(): string {
 }
 
 /**
+ * Helper to get the current user's ID token for API calls
+ */
+async function getIdToken(): Promise<string | null> {
+    try {
+        // Try to get token from Firebase Auth
+        const { getAuth } = await import('firebase/auth');
+        const auth = getAuth();
+        const user = auth.currentUser;
+        if (user) {
+            return await user.getIdToken();
+        }
+    } catch {
+        // Firebase not initialized or user not signed in
+    }
+    return null;
+}
+
+/**
+ * Make API call to device-session endpoint
+ */
+async function callDeviceSessionAPI(
+    action: string,
+    userId: string,
+    feature: 'driver_location_share' | 'student_location_view',
+    idToken?: string | null
+): Promise<any> {
+    const deviceId = getOrCreateDeviceId();
+
+    if (!idToken) {
+        idToken = await getIdToken();
+    }
+
+    if (!idToken) {
+        console.warn('No ID token available for device session API');
+        return null;
+    }
+
+    const response = await fetch('/api/driver/device-session', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            idToken,
+            action,
+            feature,
+            deviceId
+        })
+    });
+
+    return response.json();
+}
+
+/**
  * Check if current device has an active session for a feature
  * Returns: { isCurrentDevice: boolean, hasActiveSession: boolean, otherDeviceId?: string }
  */
@@ -49,47 +91,19 @@ export async function checkDeviceSession(
     userId: string,
     feature: 'driver_location_share' | 'student_location_view'
 ): Promise<{ isCurrentDevice: boolean; hasActiveSession: boolean; otherDeviceId?: string; sessionAge?: number }> {
-    const currentDeviceId = getOrCreateDeviceId();
-
     try {
-        // Query for active sessions for this user and feature
-        const { data, error } = await supabase
-            .from('device_sessions')
-            .select('*')
-            .eq('user_id', userId)
-            .eq('feature', feature)
-            .order('last_active_at', { ascending: false })
-            .limit(1)
-            .maybeSingle();
+        const result = await callDeviceSessionAPI('check', userId, feature);
 
-        if (error) {
-            console.error('Error checking device session:', error);
+        if (!result) {
             // On error, allow the operation to proceed (fail-open for better UX)
             return { isCurrentDevice: true, hasActiveSession: false };
         }
 
-        if (!data) {
-            // No active session found
-            return { isCurrentDevice: true, hasActiveSession: false };
-        }
-
-        // Check if session is still valid (within last 30 seconds for location tracking)
-        const sessionAge = Date.now() - new Date(data.last_active_at).getTime();
-        const SESSION_TIMEOUT_MS = 30000; // 30 seconds
-
-        if (sessionAge > SESSION_TIMEOUT_MS) {
-            // Session expired, can take over
-            return { isCurrentDevice: true, hasActiveSession: false };
-        }
-
-        // Active session exists
-        const isCurrentDevice = data.device_id === currentDeviceId;
-
         return {
-            isCurrentDevice,
-            hasActiveSession: true,
-            otherDeviceId: isCurrentDevice ? undefined : data.device_id,
-            sessionAge
+            isCurrentDevice: result.isCurrentDevice ?? true,
+            hasActiveSession: result.hasActiveSession ?? false,
+            otherDeviceId: result.otherDeviceId,
+            sessionAge: result.sessionAge
         };
     } catch (err) {
         console.error('Exception checking device session:', err);
@@ -105,30 +119,14 @@ export async function registerDeviceSession(
     userId: string,
     feature: 'driver_location_share' | 'student_location_view'
 ): Promise<{ success: boolean; error?: string }> {
-    const deviceId = getOrCreateDeviceId();
-    const now = new Date().toISOString();
-
     try {
-        // Upsert the session (creates or updates)
-        const { error } = await supabase
-            .from('device_sessions')
-            .upsert({
-                user_id: userId,
-                device_id: deviceId,
-                feature: feature,
-                last_active_at: now,
-                created_at: now
-            }, {
-                onConflict: 'user_id,feature',
-                ignoreDuplicates: false
-            });
+        const result = await callDeviceSessionAPI('register', userId, feature);
 
-        if (error) {
-            console.error('Error registering device session:', error);
-            return { success: false, error: error.message };
+        if (!result) {
+            return { success: false, error: 'No response from server' };
         }
 
-        return { success: true };
+        return { success: result.success ?? false, error: result.error };
     } catch (err: any) {
         console.error('Exception registering device session:', err);
         return { success: false, error: err.message };
@@ -143,22 +141,9 @@ export async function heartbeatDeviceSession(
     userId: string,
     feature: 'driver_location_share' | 'student_location_view'
 ): Promise<boolean> {
-    const deviceId = getOrCreateDeviceId();
-
     try {
-        const { error } = await supabase
-            .from('device_sessions')
-            .update({ last_active_at: new Date().toISOString() })
-            .eq('user_id', userId)
-            .eq('feature', feature)
-            .eq('device_id', deviceId);
-
-        if (error) {
-            console.error('Error heartbeating session:', error);
-            return false;
-        }
-
-        return true;
+        const result = await callDeviceSessionAPI('heartbeat', userId, feature);
+        return result?.success ?? false;
     } catch (err) {
         console.error('Exception heartbeating session:', err);
         return false;
@@ -172,15 +157,8 @@ export async function releaseDeviceSession(
     userId: string,
     feature: 'driver_location_share' | 'student_location_view'
 ): Promise<void> {
-    const deviceId = getOrCreateDeviceId();
-
     try {
-        await supabase
-            .from('device_sessions')
-            .delete()
-            .eq('user_id', userId)
-            .eq('feature', feature)
-            .eq('device_id', deviceId);
+        await callDeviceSessionAPI('release', userId, feature);
     } catch (err) {
         console.error('Exception releasing session:', err);
     }

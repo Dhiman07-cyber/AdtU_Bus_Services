@@ -47,7 +47,7 @@ export default function EditModeratorPage({ params }: { params: Promise<{ id: st
     address: '',
     status: 'active' as 'active' | 'inactive',
   });
-  
+
   // Debounced storage to prevent input lag
   const storage = useDebouncedStorage('moderatorEditFormData', {
     debounceMs: 500,
@@ -219,8 +219,13 @@ export default function EditModeratorPage({ params }: { params: Promise<{ id: st
           const formDataUpload = new FormData();
           formDataUpload.append('file', formData.profilePhoto);
 
+          // SECURITY: Get auth token for the secured upload route
+          const { auth } = await import('@/lib/firebase');
+          const idToken = await auth.currentUser?.getIdToken();
+
           const response = await fetch('/api/upload', {
             method: 'POST',
+            headers: idToken ? { 'Authorization': `Bearer ${idToken}` } : {},
             body: formDataUpload,
           });
 

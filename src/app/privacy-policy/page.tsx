@@ -45,7 +45,7 @@ export default function PrivacyPolicyPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-[#08090C]">
+      <div className="flex-1 min-h-[calc(100dvh-120px)] flex items-center justify-center bg-[#08090C]">
         <div className="flex flex-col items-center gap-4">
           <Loader2 className="h-10 w-10 animate-spin text-indigo-500/50" />
           <p className="text-slate-500 font-bold tracking-widest uppercase text-[10px] animate-pulse">Loading Policies</p>
@@ -56,7 +56,7 @@ export default function PrivacyPolicyPage() {
 
   if (!config) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-[#08090C]">
+      <div className="flex-1 min-h-[calc(100dvh-120px)] flex items-center justify-center bg-[#08090C]">
         <div className="text-center p-8 rounded-3xl bg-white/[0.02] border border-white/5 max-w-sm mx-6 backdrop-blur-2xl">
           <div className="w-16 h-16 bg-red-500/10 rounded-2xl flex items-center justify-center mx-auto mb-6">
             <ArrowLeft className="text-red-500 h-6 w-6" />
@@ -74,7 +74,7 @@ export default function PrivacyPolicyPage() {
   }
 
   return (
-    <div className="min-h-screen bg-[#08090C] text-slate-400 font-sans selection:bg-indigo-500/20">
+    <div className="flex-1 min-h-[calc(100dvh-120px)] bg-[#08090C] text-slate-400 font-sans selection:bg-indigo-500/20">
       {/* Background Gradients - Subtle */}
       <div className="fixed inset-0 pointer-events-none overflow-hidden z-0">
         <div className="absolute top-0 left-0 w-[40%] h-[40%] bg-indigo-500/[0.04] rounded-full blur-[100px]" />

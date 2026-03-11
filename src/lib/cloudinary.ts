@@ -1,33 +1,23 @@
-// This file is kept for backward compatibility but is no longer used for uploads
-// Uploads are now handled directly through the Cloudinary API endpoint
+/**
+ * Cloudinary Client-Side Configuration Check
+ * ────────────────────────────────────────────
+ * This file exists for backward compatibility.
+ *
+ * SECURITY: All Cloudinary operations (upload, delete, URL signing) happen
+ * server-side via src/lib/cloudinary-server.ts.
+ * The client NEVER has access to CLOUDINARY_API_SECRET.
+ *
+ * If you need the Cloudinary SDK, import from '@/lib/cloudinary-server'
+ * (server-only — API routes).
+ */
 
-// Add validation to check if Cloudinary is properly configured
-if (!process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME) {
-  console.warn('Cloudinary cloud name is not set in environment variables');
-}
-
-if (!process.env.CLOUDINARY_API_KEY) {
-  console.warn('Cloudinary API key is not set in environment variables');
-}
-
-if (!process.env.CLOUDINARY_API_SECRET) {
-  console.warn('Cloudinary API secret is not set in environment variables');
-}
-
-// Log configuration for debugging (without exposing secrets)
-console.log('Cloudinary configuration check:', {
-  cloud_name: process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME || 'NOT SET',
-  api_key: process.env.CLOUDINARY_API_KEY ? 'SET' : 'NOT SET',
-  upload_preset: process.env.NEXT_PUBLIC_CLOUDINARY_UPLOAD_PRESET || 'NOT SET'
-});
-
-// Export a dummy object to maintain compatibility
+// Re-export nothing meaningful — prevents accidental client-side SDK usage.
 export default {
-  config: () => {},
+  config: () => { },
   uploader: {
-    upload_stream: () => {}
+    upload_stream: () => { },
   },
   api: {
-    ping: () => Promise.resolve({ status: 'ok' })
-  }
+    ping: () => Promise.resolve({ status: 'ok' }),
+  },
 };

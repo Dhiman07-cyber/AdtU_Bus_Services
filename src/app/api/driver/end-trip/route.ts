@@ -4,8 +4,7 @@
  * End a trip cleanly, releasing the lock.
  * 
  * Request body:
- * - idToken: string (Firebase ID token)
- * - tripId: string
+ * - tripId?: string
  * - busId: string
  * 
  * Response:
@@ -14,44 +13,17 @@
  */
 
 import { NextResponse } from 'next/server';
-import { auth, db as adminDb } from '@/lib/firebase-admin';
 import { tripLockService } from '@/lib/services/trip-lock-service';
 import { createClient } from '@supabase/supabase-js';
+import { withSecurity } from '@/lib/security/api-security';
+import { EndTripSchema } from '@/lib/security/validation-schemas';
+import { RateLimits } from '@/lib/security/rate-limiter';
 
-export async function POST(request: Request) {
-    const startTime = Date.now();
-
-    try {
-        const body = await request.json();
-        const { idToken, tripId, busId } = body;
-
-        // Validate required fields
-        if (!idToken || !busId) {
-            return NextResponse.json(
-                { error: 'Missing required fields: idToken, busId' },
-                { status: 400 }
-            );
-        }
-
-        // Verify Firebase token
-        if (!auth) {
-            return NextResponse.json(
-                { error: 'Firebase Admin not initialized' },
-                { status: 500 }
-            );
-        }
-
-        const decodedToken = await auth.verifyIdToken(idToken);
-        const driverId = decodedToken.uid;
-
-        // Verify user is a driver
-        const userDoc = await adminDb.collection('users').doc(driverId).get();
-        if (!userDoc.exists || userDoc.data()?.role !== 'driver') {
-            return NextResponse.json(
-                { error: 'User is not authorized as a driver' },
-                { status: 403 }
-            );
-        }
+export const POST = withSecurity(
+    async (request, { auth, body }) => {
+        const startTime = Date.now();
+        const { tripId, busId } = body as any;
+        const driverId = auth.uid;
 
         console.log(`🏁 Ending trip for driver ${driverId}, bus ${busId}...`);
 
@@ -66,7 +38,7 @@ export async function POST(request: Request) {
             }
         }
 
-        // End trip using TripLockService
+        // End trip using TripLock सर्विस
         if (activeTripId) {
             const result = await tripLockService.endTrip(
                 activeTripId,
@@ -98,12 +70,18 @@ export async function POST(request: Request) {
                 .delete()
                 .eq('bus_id', busId);
 
-            // Delete waiting flags - DISABLED as per new requirement: flags should persist after trip end
-            // await supabase
-            //     .from('waiting_flags')
-            //     .delete()
-            //     .eq('bus_id', busId)
-            //     .in('status', ['raised', 'acknowledged']);
+            // Delete all waiting flags for this bus
+            await supabase
+                .from('waiting_flags')
+                .delete()
+                .eq('bus_id', busId);
+
+            // Delete driver location updates for this driver & bus
+            await supabase
+                .from('driver_location_updates')
+                .delete()
+                .eq('driver_uid', driverId)
+                .eq('bus_id', busId);
 
             // Broadcast trip end
             const channels = [
@@ -139,12 +117,11 @@ export async function POST(request: Request) {
             timestamp: new Date().toISOString(),
             processingTimeMs: elapsed
         });
-
-    } catch (error: any) {
-        console.error('❌ Error ending trip:', error);
-        return NextResponse.json(
-            { error: 'Failed to end trip' },
-            { status: 500 }
-        );
+    },
+    {
+        requiredRoles: ['driver', 'admin'],
+        schema: EndTripSchema,
+        rateLimit: RateLimits.CREATE, // Prevent spam
+        allowBodyToken: true
     }
-}
+);

@@ -1,40 +1,27 @@
-/**
- * API Route: Student Renewal Application (Offline Payment)
- * POST /api/student/renew-application
- * 
- * Creates a renewal application for offline payment processing
- */
-
-import { NextRequest, NextResponse } from 'next/server';
-import { adminDb, adminAuth } from '@/lib/firebase-admin';
+import { NextResponse } from 'next/server';
+import { db as adminDb } from '@/lib/firebase-admin';
 import { FieldValue } from 'firebase-admin/firestore';
 import { getCurrentBusFee } from '@/lib/bus-fee-service';
 import { calculateRenewalDate } from '@/lib/utils/renewal-utils';
 import { getDeadlineConfig } from '@/lib/deadline-config-service';
+import { withSecurity } from '@/lib/security/api-security';
+import { RenewApplicationSchema } from '@/lib/security/validation-schemas';
+import { RateLimits } from '@/lib/security/rate-limiter';
 
-export async function POST(request: NextRequest) {
-  try {
-    // Verify authentication
-    const authHeader = request.headers.get('Authorization');
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return NextResponse.json(
-        { success: false, error: 'Unauthorized' },
-        { status: 401 }
-      );
-    }
-
-    const token = authHeader.split(' ')[1];
-    const decodedToken = await adminAuth.verifyIdToken(token);
-    const userId = decodedToken.uid;
-
-    // Parse request body
-    const body = await request.json();
-    const { studentId, duration, paymentMode, sessionInfo: clientSessionInfo } = body;
+/**
+ * POST /api/student/renew-application
+ * 
+ * Creates a renewal application for offline payment processing.
+ */
+export const POST = withSecurity(
+  async (request, { auth, body }) => {
+    const { studentId, duration, paymentMode } = body as any;
+    const userId = auth.uid;
 
     // Validate student ID matches token
     if (studentId !== userId) {
       return NextResponse.json(
-        { success: false, error: 'Student ID mismatch' },
+        { error: 'Forbidden: Student ID mismatch' },
         { status: 403 }
       );
     }
@@ -45,7 +32,7 @@ export async function POST(request: NextRequest) {
 
     if (!studentDoc.exists) {
       return NextResponse.json(
-        { success: false, error: 'Student not found' },
+        { error: 'Student not found' },
         { status: 404 }
       );
     }
@@ -61,19 +48,12 @@ export async function POST(request: NextRequest) {
 
     if (!existingApplications.empty) {
       return NextResponse.json(
-        {
-          success: false,
-          error: 'You already have a pending renewal application'
-        },
+        { error: 'You already have a pending renewal application' },
         { status: 400 }
       );
     }
 
-    // -----------------------------------------------------
-    // AUTHORITATIVE CALCULATION (Source of Truth)
-    // -----------------------------------------------------
-
-    // 1. Fetch Fee
+    // 1. Fetch Authoritative Fee
     const busFeeData = await getCurrentBusFee();
     const currentBusFee = busFeeData.amount;
     const calculatedFee = currentBusFee * duration;
@@ -82,9 +62,7 @@ export async function POST(request: NextRequest) {
     const deadlineConfig = await getDeadlineConfig();
 
     // 3. Calculate Valid Until
-    // Use student's current validUntil as base
     const currentValidUntil = studentData.validUntil;
-    // Handle Firestore Timestamp or String
     let currentValidUntilStr: string | null = null;
     if (currentValidUntil) {
       if (typeof currentValidUntil === 'string') currentValidUntilStr = currentValidUntil;
@@ -94,25 +72,14 @@ export async function POST(request: NextRequest) {
     const renewalResult = calculateRenewalDate(currentValidUntilStr, duration, deadlineConfig);
     const newValidUntil = renewalResult.newValidUntil;
 
-    // Calculate session years based on newValidUntil
+    // 4. Derive Session Years
     const newValidUntilDate = new Date(newValidUntil);
-    const sessionEndYear = newValidUntilDate.getFullYear();
-    // Start year is typically duration years back? 
-    // Or just sessionEndYear - duration? 
-    // Actually, usually academic session is defined by end year.
-    // Let's assume start year is relative to current validity or now.
-    // For simplicity, we can trust client's start year OR derive it.
-    // Let's try to derive it: 
-    // If renewing for 1 year, session is (end-1) to end.
-    // But `sessionInfo` usually displays e.g. "2025-2026".
-    // Let's just store the validUntil which is the most critical part. 
-    // We can populate sessionStart/End for display.
-    const derivedSessionEndYear = sessionEndYear;
-    const derivedSessionStartYear = derivedSessionEndYear - duration; // Rough approximation
+    const derivedSessionEndYear = newValidUntilDate.getFullYear();
+    const derivedSessionStartYear = derivedSessionEndYear - duration; 
 
     console.log(`📝 Creating renewal application for ${studentId}: Fee=${calculatedFee}, ValidUntil=${newValidUntil}`);
 
-    // Create renewal application
+    // Create renewal application record
     const renewalApplication = {
       studentId,
       studentName: studentData.fullName || studentData.name,
@@ -122,7 +89,6 @@ export async function POST(request: NextRequest) {
       currentValidUntil: studentData.validUntil,
       requestedDuration: duration,
       sessionInfo: {
-        // Use authoritative values primarily
         sessionStartYear: derivedSessionStartYear,
         sessionEndYear: derivedSessionEndYear,
         validUntil: newValidUntil,
@@ -131,6 +97,7 @@ export async function POST(request: NextRequest) {
       paymentMode: paymentMode || 'offline',
       paymentStatus: 'pending',
       applicationStatus: 'pending',
+      status: 'pending', // Added for consistency with queries
       createdAt: FieldValue.serverTimestamp(),
       updatedAt: FieldValue.serverTimestamp(),
     };
@@ -138,10 +105,6 @@ export async function POST(request: NextRequest) {
     const applicationRef = await adminDb
       .collection('renewal_applications')
       .add(renewalApplication);
-
-    // ... Update student doc ... (unchanged logic below)
-
-
 
     // Update student document to indicate pending renewal
     await studentRef.update({
@@ -178,15 +141,11 @@ export async function POST(request: NextRequest) {
         paymentMode,
       },
     });
-
-  } catch (error: any) {
-    console.error('❌ Error creating renewal application:', error);
-    return NextResponse.json(
-      {
-        success: false,
-        error: 'Failed to submit renewal application',
-      },
-      { status: 500 }
-    );
+  },
+  {
+    requiredRoles: ['student'],
+    schema: RenewApplicationSchema,
+    rateLimit: RateLimits.CREATE,
+    allowBodyToken: true
   }
-}
+);

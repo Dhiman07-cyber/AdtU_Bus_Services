@@ -10,6 +10,126 @@
 
 import { z } from 'zod';
 
+export const UidOnlySchema = z.object({
+    uid: z.string().min(1).max(128),
+});
+
+export const DeleteStudentSchema = z.object({
+    uid: z.string().min(1).max(128),
+});
+
+export const UpdateStudentSchema = z.object({
+    uid: z.string().min(1).max(128),
+}).passthrough();
+
+export const BusFeeQuerySchema = z.object({
+    history: z.string().optional().transform(v => v === 'true'),
+});
+
+export const BusFeeUpdateSchema = z.object({
+    amount: z.number().min(0).max(1000000),
+});
+
+export const InvalidTokensQuerySchema = z.object({
+    olderThan: z.string().optional().transform(v => parseInt(v || '30')),
+});
+
+export const ReassignStudentsSchema = z.object({
+    assignments: z.array(z.object({
+        studentId: z.string().min(1).max(128),
+        studentName: z.string().min(1).max(200),
+        fromBusId: z.string().min(1).max(100),
+        toBusId: z.string().min(1).max(100),
+        toBusNumber: z.string().min(1).max(50),
+        shift: z.enum(['Morning', 'Evening']),
+        stopId: z.string().max(100).optional(),
+        stopName: z.string().max(200).optional(),
+    })),
+    sourceBusId: z.string().min(1).max(100),
+    actorId: z.string().min(1).max(128),
+    actorName: z.string().min(1).max(200),
+});
+
+export const AdminSwapBusSchema = z.object({
+    routeId: z.string().min(1).max(100),
+    fromBusId: z.string().min(1).max(100),
+    toBusId: z.string().min(1).max(100),
+});
+
+export const UpdateProfilePhotoSchema = z.object({
+    studentUid: z.string().min(1).max(128),
+    newProfilePhotoUrl: z.string().url(),
+});
+
+export const CreateUserSchema = z.object({
+    email: z.string().email(),
+    name: z.string().min(1).max(200),
+    role: z.enum(['student', 'driver', 'moderator', 'admin']),
+    phone: z.string().max(20).optional(),
+    alternatePhone: z.string().max(20).optional(),
+    profilePhotoUrl: z.string().url().optional().or(z.literal('')),
+    enrollmentId: z.string().max(50).optional(),
+    gender: z.string().max(20).optional(),
+    age: z.union([z.string(), z.number()]).optional(),
+    faculty: z.string().max(100).optional(),
+    department: z.string().max(100).optional(),
+    semester: z.string().max(50).optional(),
+    parentName: z.string().max(200).optional(),
+    parentPhone: z.string().max(20).optional(),
+    dob: z.string().max(50).optional(),
+    licenseNumber: z.string().max(100).optional(),
+    joiningDate: z.string().max(50).optional(),
+    aadharNumber: z.string().max(20).optional(),
+    driverId: z.string().max(100).optional(),
+    employeeId: z.string().max(100).optional(),
+    staffId: z.string().max(100).optional(),
+    assignedRouteId: z.string().max(100).optional(),
+    routeId: z.string().max(100).optional(),
+    assignedBusId: z.string().max(100).optional(),
+    busId: z.string().max(100).optional(),
+    address: z.string().max(500).optional(),
+    bloodGroup: z.string().max(10).optional(),
+    shift: z.string().max(100).optional(),
+    durationYears: z.number().int().min(1).max(10).optional(),
+    sessionDuration: z.union([z.string(), z.number()]).optional(),
+    sessionStartYear: z.number().int().optional(),
+    sessionEndYear: z.number().int().optional(),
+    validUntil: z.string().optional(),
+    pickupPoint: z.string().max(200).optional(),
+    stopId: z.string().max(100).optional(),
+    status: z.string().max(50).optional(),
+});
+
+export const AckWaitingSchema = z.object({
+    waitingFlagId: z.string().uuid(),
+});
+
+export const FirestoreCleanupSchema = z.object({
+    cleanupType: z.enum(['active_trips', 'reassignment_logs', 'driver_location_updates', 'waiting_flags', 'missed_bus_requests', 'all']),
+    daysOld: z.number().int().min(1).max(3650).optional(),
+});
+
+export const DebugDriverBusLinkSchema = z.object({
+    driverUID: z.string().min(1),
+});
+
+export const SaveFCMTokenSchema = z.object({
+    userUid: z.string().min(1),
+    token: z.string().min(10),
+    platform: z.string().optional(),
+});
+
+export const SimulateDeadlinesSchema = z.object({
+    simulatedDate: z.string(),
+    dryRun: z.boolean().optional(),
+    execute: z.boolean().optional(),
+    manualMode: z.boolean().optional(),
+    selectedForSoftBlock: z.array(z.string()).optional(),
+    selectedForHardDelete: z.array(z.string()).optional(),
+    customDeadlines: z.any().optional(),
+    syncSessionYear: z.boolean().optional(),
+});
+
 // ============================================================================
 // Common Validators
 // ============================================================================
@@ -18,7 +138,14 @@ export const UIDSchema = z.string().min(1).max(128).regex(/^[a-zA-Z0-9_-]+$/, 'I
 export const EmailSchema = z.string().email().max(255);
 export const PhoneSchema = z.string().regex(/^[+]?[0-9]{10,15}$/, 'Invalid phone number');
 export const DateSchema = z.coerce.date();
-export const SafeStringSchema = z.string().max(1000).transform(s => s.trim());
+export const ProxyORSSchema = z.object({
+    action: z.enum(['directions', 'geocode']),
+    coordinates: z.array(z.array(z.number())).optional(),
+    profile: z.string().max(50).optional(),
+    routeId: z.string().max(100).optional(),
+    address: z.string().max(500).optional(),
+    forceRefresh: z.boolean().optional(),
+});
 export const ShortStringSchema = z.string().max(200).transform(s => s.trim());
 
 // ============================================================================
@@ -167,6 +294,152 @@ export const DriverSwapRequestSchema = z.object({
 });
 
 // ============================================================================
+// Trip & Journey Schemas
+// ============================================================================
+
+export const StartTripSchema = z.object({
+    busId: z.string().min(1).max(100),
+    routeId: z.string().min(1).max(100),
+});
+
+export const NotifyStudentsSchema = z.object({
+    busId: z.string().min(1).max(100),
+    routeId: z.string().min(1).max(100),
+    tripId: z.string().min(1).max(200),
+});
+
+export const EndTripSchema = z.object({
+    busId: z.string().min(1).max(100),
+    tripId: z.string().max(200).optional(),
+});
+
+export const HeartbeatSchema = z.object({
+    tripId: z.string().min(1).max(200),
+    busId: z.string().min(1).max(100),
+});
+
+// ============================================================================
+// Device Session Schema
+// ============================================================================
+
+export const DeviceSessionSchema = z.object({
+    action: z.enum(['check', 'register', 'heartbeat', 'release']),
+    feature: z.string().min(1).max(100),
+    deviceId: z.string().min(1).max(200),
+});
+
+// ============================================================================
+// Driver Action Schemas (body-only, idToken stripped by wrapper)
+// ============================================================================
+
+export const MarkBoardedSchema = z.object({
+    flagId: z.string().min(1).max(200),
+});
+
+export const BusIdSchema = z.object({
+    busId: z.string().min(1).max(100),
+});
+
+export const EmptySchema = z.object({});
+
+/** Swap request body (idToken removed by security wrapper) */
+export const SwapRequestBodySchema = z.object({
+    busId: z.string().min(1).max(100),
+    toDriverUid: z.string().min(1).max(128),
+});
+
+export const AcceptSwapSchema = z.object({
+    swapRequestId: z.string().min(1).max(200),
+});
+
+export const HandleProfileUpdateSchema = z.object({
+    requestId: z.string().min(1).max(200),
+    action: z.enum(['approve', 'reject']),
+});
+
+export const RequestProfileUpdateSchema = z.object({
+    newImageUrl: z.string().url().min(1),
+    fullName: z.string().max(200).optional(),
+});
+
+export const TripStatusQuerySchema = z.object({
+    busId: z.string().min(1).max(100),
+});
+
+export const PaymentHistoryQuerySchema = z.object({
+    uid: z.string().min(1).max(128).optional(),
+    limit: z.string().optional().transform(v => Math.min(parseInt(v || '50'), 100)),
+    offset: z.string().optional().transform(v => parseInt(v || '0')),
+});
+
+export const RenewApplicationSchema = z.object({
+    studentId: z.string().min(1).max(128),
+    duration: z.number().int().min(1).max(10),
+    paymentMode: z.string().max(50).optional(),
+    sessionInfo: z.any().optional(),
+});
+
+export const RenewServiceV2Schema = z.object({
+    durationYears: z.number().int().min(1).max(10),
+    paymentMode: z.enum(['online', 'offline']),
+    transactionId: z.string().max(200).optional(),
+    receiptImageUrl: z.string().url().optional().or(z.literal('')),
+});
+
+export const NotifyDriverSchema = z.object({
+    busId: z.string().min(1).max(100),
+    studentName: z.string().min(1).max(200),
+    message: z.string().max(500).optional(),
+});
+
+export const CheckPendingStatusSchema = z.object({
+    requestId: z.string().min(1).max(200),
+});
+
+// ============================================================================
+// Waiting Flag POST Schema (body-only)
+// ============================================================================
+
+export const WaitingFlagPostSchema = z.object({
+    busId: z.string().min(1).max(100),
+    lat: z.number().min(-90).max(90).optional(),
+    lng: z.number().min(-180).max(180).optional(),
+    accuracy: z.number().min(0).max(10000).optional(),
+    message: z.string().max(500).optional(),
+    timestamp: z.number().optional(),
+    routeId: z.string().max(100).optional(),
+    stopName: z.string().max(200).optional(),
+    stopId: z.string().max(100).optional(),
+    stopLat: z.number().min(-90).max(90).optional(),
+    stopLng: z.number().min(-180).max(180).optional(),
+});
+
+export const WaitingFlagQuerySchema = z.object({
+    studentUid: z.string().min(1).max(128),
+});
+
+export const WaitingFlagDeleteSchema = z.object({
+    flagId: z.string().min(1).max(100),
+    busId: z.string().min(1).max(100),
+});
+
+// ============================================================================
+// Location Update Body Schema (body-only)
+// ============================================================================
+
+export const LocationUpdateBodySchema = z.object({
+    busId: z.string().min(1).max(100),
+    routeId: z.string().min(1).max(100),
+    lat: z.union([z.number(), z.string().transform(Number)]).optional(),
+    lng: z.union([z.number(), z.string().transform(Number)]).optional(),
+    accuracy: z.union([z.number(), z.string().transform(Number)]),
+    speed: z.union([z.number(), z.string().transform(Number)]).optional(),
+    heading: z.union([z.number(), z.string().transform(Number)]).optional(),
+    timestamp: z.union([z.number(), z.string()]).optional(),
+    tripId: z.string().max(200).optional(),
+});
+
+// ============================================================================
 // Admin/Moderator Schemas
 // ============================================================================
 
@@ -183,6 +456,19 @@ export const RejectRenewalSchema = z.object({
     rejectorId: UIDSchema,
     rejectorName: z.string().max(200),
     reason: z.string().max(500),
+});
+
+export const RequestWaitSchema = z.object({
+    busId: z.string().min(1).max(100),
+    studentId: z.string().min(1).max(128),
+    studentName: z.string().min(1).max(200).optional(),
+    stopName: z.string().min(1).max(200).optional(),
+});
+
+export const RespondWaitSchema = z.object({
+    studentId: z.string().min(1).max(128),
+    response: z.enum(['accepted', 'rejected']),
+    busId: z.string().min(1).max(100),
 });
 
 // ============================================================================

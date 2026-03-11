@@ -1,17 +1,13 @@
 import { NextResponse } from 'next/server';
-import { auth, db as adminDb } from '@/lib/firebase-admin';
+import { db as adminDb } from '@/lib/firebase-admin';
 import { createClient } from '@supabase/supabase-js';
-import { FieldValue } from 'firebase-admin/firestore';
-
-// Initialize Supabase client with service role
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL || '',
-  process.env.SUPABASE_SERVICE_ROLE_KEY || ''
-);
+import { withSecurity } from '@/lib/security/api-security';
+import { LocationUpdateBodySchema } from '@/lib/security/validation-schemas';
+import { RateLimits } from '@/lib/security/rate-limiter';
 
 // Anti-spoofing constants
-const MAX_SPEED_KMH = 200; // Maximum allowed speed in km/h
-const MAX_JUMP_METERS = 5000; // Maximum jump in 5 seconds (1 km/s = 3600 km/h)
+const MAX_SPEED_KMH = 200; // Maximum allowed speed in km/h 
+const MAX_JUMP_METERS = 5000; // Maximum jump in 5 seconds
 const TIME_WINDOW_SECONDS = 5;
 
 /**
@@ -37,77 +33,23 @@ function calculateDistance(
   return R * c;
 }
 
-/**
- * POST /api/driver/update-location
- * 
- * Body: { busId, routeId, lat, lng, speed?, heading?, timestamp?, idToken }
- * 
- * Validates:
- * - Driver identity and ownership of bus
- * - Anti-spoof rules: reject if jump > X km in Y seconds or speed > 200 km/h
- * 
- * Actions:
- * - Insert to bus_locations in Supabase
- * - Update buses/{busId}.lastLocation in Firestore
- * - Broadcast to bus:busId channel
- * - Log to audit_logs
- */
-export async function POST(request: Request) {
-  try {
-    const body = await request.json();
-    const { idToken, busId, routeId, lat, lng, speed, heading, timestamp } = body;
+export const POST = withSecurity(
+  async (request, { auth, body }) => {
+    const { busId, routeId, lat, lng, speed, heading, timestamp } = body as any;
+    const driverUid = auth.uid;
 
-    // Validate required fields
-    if (!idToken || !busId || !routeId || lat === undefined || lng === undefined) {
-      return NextResponse.json(
-        { error: 'Missing required fields: idToken, busId, routeId, lat, lng' },
-        { status: 400 }
-      );
-    }
+    const latNum = Number(lat);
+    const lngNum = Number(lng);
 
-    // Validate coordinates
-    if (lat < -90 || lat > 90 || lng < -180 || lng > 180) {
-      return NextResponse.json(
-        { error: 'Invalid coordinates' },
-        { status: 400 }
-      );
-    }
-
-    // Validate speed if provided
-    if (speed !== undefined && speed > MAX_SPEED_KMH) {
+    // Initial speed verification (schema handles basic bounds, this handles custom bounds)
+    if (speed !== undefined && Number(speed) > MAX_SPEED_KMH) {
       return NextResponse.json(
         { error: `Speed exceeds maximum allowed limit (${MAX_SPEED_KMH} km/h)` },
         { status: 400 }
       );
     }
 
-    // Verify Firebase ID token
-    if (!auth) {
-      return NextResponse.json(
-        { error: 'Firebase Admin not initialized' },
-        { status: 500 }
-      );
-    }
-
-    const decodedToken = await auth.verifyIdToken(idToken);
-    const driverUid = decodedToken.uid;
-
-    // Verify user exists and is a driver
-    const userDoc = await adminDb.collection('users').doc(driverUid).get();
-    if (!userDoc.exists) {
-      return NextResponse.json({ error: 'User not found' }, { status: 404 });
-    }
-
-    const userData = userDoc.data();
-    if (userData?.role !== 'driver') {
-      return NextResponse.json(
-        { error: 'User is not authorized as a driver' },
-        { status: 403 }
-      );
-    }
-
     // Verify driver is assigned to this bus
-    // First check if the driver document claims this bus
     const driverDoc = await adminDb.collection('drivers').doc(driverUid).get();
     if (!driverDoc.exists) {
       return NextResponse.json({ error: 'Driver profile not found' }, { status: 404 });
@@ -118,21 +60,13 @@ export async function POST(request: Request) {
       driverData?.assignedBusId === busId ||
       driverData?.busId === busId;
 
-    // Also verify the bus exists
+    // Verify the bus exists
     const busDoc = await adminDb.collection('buses').doc(busId).get();
     if (!busDoc.exists) {
       return NextResponse.json({ error: 'Bus not found' }, { status: 404 });
     }
 
-    const busData = busDoc.data();
-
-    // Check if bus also claims this driver (bidirectional validation)
-    const busClaimsDriver =
-      busData?.assignedDriverId === driverUid ||
-      busData?.activeDriverId === driverUid ||
-      busData?.driverUID === driverUid;
-
-    // Driver must claim the bus (primary validation)
+    // Driver must claim the bus
     if (!driverClaimsBus) {
       console.error('Driver assignment validation failed:', {
         driverUid,
@@ -149,6 +83,12 @@ export async function POST(request: Request) {
     }
 
     const now = timestamp ? new Date(timestamp) : new Date();
+
+    // Initialize Supabase client
+    const supabase = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL || '',
+      process.env.SUPABASE_SERVICE_ROLE_KEY || ''
+    );
 
     // ===== Anti-spoofing checks =====
 
@@ -167,8 +107,13 @@ export async function POST(request: Request) {
       const timeDiff = (currentTime - lastTime) / 1000; // seconds
 
       if (timeDiff > 0 && timeDiff < TIME_WINDOW_SECONDS * 2) {
-        // Use default distance calculation
-        const distance = Math.random() * 5; // Random distance for demo
+        // Use ACTUAL distance calculation instead of Math.random
+        const distance = calculateDistance(
+          Number(lastLoc.lat),
+          Number(lastLoc.lng),
+          latNum,
+          lngNum
+        );
 
         // Check for unrealistic jumps
         if (distance > MAX_JUMP_METERS && timeDiff < TIME_WINDOW_SECONDS) {
@@ -192,10 +137,10 @@ export async function POST(request: Request) {
         bus_id: busId,
         route_id: routeId,
         driver_uid: driverUid,
-        lat,
-        lng,
-        speed: speed || null,
-        heading: heading || null,
+        lat: latNum,
+        lng: lngNum,
+        speed: speed ? Number(speed) : null,
+        heading: heading ? Number(heading) : null,
         timestamp: now.toISOString(),
         is_snapshot: false
       });
@@ -211,8 +156,8 @@ export async function POST(request: Request) {
     // 2. Update buses/{busId}.lastLocation in Firestore
     await adminDb.collection('buses').doc(busId).update({
       lastLocation: {
-        lat,
-        lng,
+        lat: latNum,
+        lng: lngNum,
         timestamp: now.toISOString()
       }
     });
@@ -223,10 +168,10 @@ export async function POST(request: Request) {
       .insert({
         driver_uid: driverUid,
         bus_id: busId,
-        lat,
-        lng,
-        speed: speed || null,
-        heading: heading || null,
+        lat: latNum,
+        lng: lngNum,
+        speed: speed ? Number(speed) : null,
+        heading: heading ? Number(heading) : null,
         timestamp: now.toISOString()
       });
 
@@ -235,31 +180,24 @@ export async function POST(request: Request) {
       // Don't fail the request
     }
 
-    // 4. Broadcast to route channel - use realtime table updates instead for better performance
-    // Students subscribe to postgres_changes on bus_locations table
-    // No need for manual broadcast since Supabase realtime will handle it automatically
-
-
-
     return NextResponse.json({
       success: true,
       message: 'Location updated successfully',
       data: {
         busId,
         routeId,
-        lat,
-        lng,
-        speed: speed || 0,
-        heading: heading || 0,
+        lat: latNum,
+        lng: lngNum,
+        speed: speed ? Number(speed) : 0,
+        heading: heading ? Number(heading) : 0,
         timestamp: now.toISOString()
       }
     });
-
-  } catch (error: any) {
-    console.error('Error updating location:', error);
-    return NextResponse.json(
-      { error: 'Failed to update location' },
-      { status: 500 }
-    );
+  },
+  {
+    requiredRoles: ['driver'],
+    schema: LocationUpdateBodySchema,
+    rateLimit: RateLimits.LOCATION_UPDATE, // 60 requests per minute
+    allowBodyToken: true
   }
-}
+);

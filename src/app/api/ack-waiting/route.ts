@@ -1,36 +1,9 @@
-import { NextResponse } from 'next/server';
-import { getApps, initializeApp } from 'firebase-admin/app';
-import { getAuth } from 'firebase-admin/auth';
-import { getFirestore } from 'firebase-admin/firestore';
+import { NextRequest, NextResponse } from 'next/server';
+import { adminAuth, adminDb } from '@/lib/firebase-admin';
 import { createClient } from '@supabase/supabase-js';
-
-// Initialize Firebase Admin SDK
-let adminApp: any;
-let auth: any;
-let adminDb: any;
-
-try {
-  if (process.env.FIREBASE_CLIENT_EMAIL && process.env.FIREBASE_PRIVATE_KEY) {
-    if (!getApps().length) {
-      // Fix private key parsing issue
-      const privateKey = process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n');
-      adminApp = initializeApp({
-        credential: require('firebase-admin').cert({
-          projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
-          clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
-          privateKey: privateKey,
-        }),
-      });
-    } else {
-      adminApp = getApps()[0];
-    }
-
-    auth = getAuth(adminApp);
-    adminDb = getFirestore(adminApp);
-  }
-} catch (error) {
-  console.log('Failed to initialize Firebase Admin SDK:', error);
-}
+import { withSecurity } from '@/lib/security/api-security';
+import { AckWaitingSchema } from '@/lib/security/validation-schemas';
+import { RateLimits } from '@/lib/security/rate-limiter';
 
 // Initialize Supabase client
 const supabase = createClient(
@@ -38,90 +11,109 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY || ''
 );
 
-export async function POST(request: Request) {
-  try {
-    const body = await request.json();
-    const { idToken, waitingFlagId } = body;
+export const POST = withSecurity(
+  async (request, { auth, body, requestId }) => {
+    const { waitingFlagId } = body;
+    const driverUid = auth.uid;
 
-    // Verify Firebase ID token
-    if (!auth) {
-      return NextResponse.json({ error: 'Firebase Admin not initialized' }, { status: 500 });
-    }
-    
-    const decodedToken = await auth.verifyIdToken(idToken);
-    const driverUid = decodedToken.uid;
-
-    // Verify that the driver exists
-    const driverDoc = await adminDb.collection('drivers').doc(driverUid).get();
-    if (!driverDoc.exists) {
-      return NextResponse.json({ error: 'Driver not found' }, { status: 404 });
-    }
-
-    // Get the waiting flag from Supabase
-    const { data: waitingFlag, error: selectError } = await supabase
-      .from('waiting_flags')
-      .select('*')
-      .eq('id', waitingFlagId)
-      .single();
-
-    if (selectError || !waitingFlag) {
-      return NextResponse.json({ error: 'Waiting flag not found' }, { status: 404 });
-    }
-
-    // Verify that the driver is assigned to the same bus
-    const driverData = driverDoc.data();
-    if (driverData?.assignedBusId !== waitingFlag.bus_id) {
-      return NextResponse.json({ error: 'Driver is not assigned to this bus' }, { status: 403 });
-    }
-
-    // Update waiting flag status to acknowledged
-    const { error: updateError } = await supabase
-      .from('waiting_flags')
-      .update({ status: 'acknowledged' })
-      .eq('id', waitingFlagId);
-
-    if (updateError) {
-      return NextResponse.json({ error: 'Failed to acknowledge waiting flag' }, { status: 500 });
-    }
-
-    // Send FCM notification to student
     try {
-      // Get FCM tokens for this student
-      const tokensSnapshot = await adminDb
-        .collection('fcm_tokens')
-        .where('userUid', '==', waitingFlag.student_uid)
-        .get();
+      // 1. Verify that the driver exists in Firestore and get their assigned bus
+      const driverDoc = await adminDb.collection('drivers').doc(driverUid).get();
+      if (!driverDoc.exists) {
+        return NextResponse.json({ success: false, error: 'Driver not found', requestId }, { status: 404 });
+      }
 
-      const studentTokens: string[] = [];
-      tokensSnapshot.docs.forEach((tokenDoc: any) => {
-        studentTokens.push(tokenDoc.data().deviceToken);
+      const driverData = driverDoc.data();
+      const driverBusId = driverData?.assignedBusId;
+
+      // 2. Get the waiting flag from Supabase
+      const { data: waitingFlag, error: selectError } = await supabase
+        .from('waiting_flags')
+        .select('*')
+        .eq('id', waitingFlagId)
+        .single();
+
+      if (selectError || !waitingFlag) {
+        console.warn(`[${requestId}] Waiting flag ${waitingFlagId} not found`);
+        return NextResponse.json({ success: false, error: 'Waiting flag not found', requestId }, { status: 404 });
+      }
+
+      // 3. Authorization check: Is this the driver for this bus?
+      // Check both assigned bus and any temporary assignments if necessary
+      // For now, matching the original logic: driverData.assignedBusId === waitingFlag.bus_id
+      if (driverBusId !== waitingFlag.bus_id) {
+        console.warn(`[${requestId}] Driver ${driverUid} unauthorized for flag on bus ${waitingFlag.bus_id} (assigned to ${driverBusId})`);
+        return NextResponse.json({ success: false, error: 'Authorization failed: Driver-bus mismatch', requestId }, { status: 403 });
+      }
+
+      // 4. Update waiting flag status to acknowledged
+      const { error: updateError } = await supabase
+        .from('waiting_flags')
+        .update({ 
+            status: 'acknowledged',
+            ack_by_driver_uid: driverUid 
+        })
+        .eq('id', waitingFlagId);
+
+      if (updateError) {
+        console.error(`[${requestId}] Failed to update flag status:`, updateError);
+        return NextResponse.json({ success: false, error: 'Database update failed', requestId }, { status: 500 });
+      }
+
+      // 5. Asynchronous FCM notification to student (don't block the response)
+      const notifyStudent = async () => {
+        try {
+          // Get FCM tokens for this student
+          const tokensSnapshot = await adminDb
+            .collection('fcm_tokens')
+            .where('userUid', '==', waitingFlag.student_uid)
+            .get();
+
+          const studentTokens = tokensSnapshot.docs
+            .map((doc: any) => doc.data().deviceToken)
+            .filter((token: string) => token);
+
+          if (studentTokens.length > 0) {
+            const message = {
+              notification: {
+                title: 'Bus Acknowledged 🚌',
+                body: `Driver ${driverData?.fullName || 'the bus driver'} has acknowledged your waiting request. Get ready!`
+              },
+              tokens: studentTokens,
+              data: {
+                type: 'waiting_flag_ack',
+                flagId: waitingFlagId,
+                busId: waitingFlag.bus_id
+              }
+            };
+
+            await adminAuth!.messaging().sendEachForMulticast(message);
+          }
+        } catch (fcmError) {
+          console.error(`[${requestId}] Background FCM notification failed:`, fcmError);
+        }
+      };
+
+      // Execute notification in background (opportunistic)
+      notifyStudent();
+
+      return NextResponse.json({ 
+        success: true,
+        message: 'Waiting flag acknowledged successfully',
+        requestId
       });
 
-      // Send FCM notification
-      if (studentTokens.length > 0) {
-        const message = {
-          notification: {
-            title: 'Bus Acknowledged',
-            body: `The bus driver has acknowledged your waiting request`
-          },
-          tokens: studentTokens
-        };
-
-        await auth.messaging().sendMulticast(message);
-      }
-    } catch (fcmError) {
-      console.error('Error sending FCM notification:', fcmError);
+    } catch (error: any) {
+      console.error(`[${requestId}] Unexpected error in ack-waiting:`, error);
+      return NextResponse.json(
+        { success: false, error: 'An internal error occurred', requestId },
+        { status: 500 }
+      );
     }
-
-    return NextResponse.json({ 
-      success: true,
-      message: 'Waiting flag acknowledged successfully'
-    });
-  } catch (error: any) {
-    console.error('Error acknowledging waiting flag:', error);
-    return NextResponse.json(
-      { error: 'Failed to acknowledge waiting flag' },
-      { status: 500 }
-    );
+  },
+  {
+    requiredRoles: ['driver'],
+    schema: AckWaitingSchema,
+    rateLimit: RateLimits.CREATE
   }
-}
+);

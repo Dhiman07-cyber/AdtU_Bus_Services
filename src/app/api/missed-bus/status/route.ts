@@ -28,7 +28,7 @@ export async function GET(request: NextRequest) {
         const studentId = decodedToken.uid;
 
         // Get student's current request status
-        const requestStatus = await missedBusService.getStudentRequestStatus(studentId);
+        const requestStatus = await missedBusService.getStatus(studentId);
 
         if (!requestStatus) {
             return NextResponse.json({

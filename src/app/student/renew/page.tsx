@@ -356,7 +356,7 @@ export default function StudentRenewalPage() {
 
   if (loading || loadingStudent || loadingFee) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50 dark:from-gray-950 dark:via-slate-900 dark:to-gray-950">
+      <div className="flex-1 min-h-[calc(100dvh-120px)] flex items-center justify-center bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50 dark:from-gray-950 dark:via-slate-900 dark:to-gray-950">
         <div className="text-center">
           <Loader2 className="h-10 w-10 animate-spin text-blue-600 mx-auto mb-4" />
           <p className="text-sm text-gray-600 dark:text-gray-400">Loading renewal service...</p>
@@ -375,7 +375,7 @@ export default function StudentRenewalPage() {
   const daysUntilExpiry = daysUntil(validUntilDate);
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50 dark:from-gray-950 dark:via-slate-900 dark:to-gray-950 mt-12 pb-12">
+    <div className="flex-1 min-h-[calc(100dvh-120px)] bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50 dark:from-gray-950 dark:via-slate-900 dark:to-gray-950 pb-12">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8 lg:py-12">
         {/* Header Section */}
         <div className="flex items-center justify-between gap-4 mb-8 sm:mb-12">

@@ -361,8 +361,13 @@ export default function EditStudentPage({ params }: { params: Promise<{ id: stri
             const formDataUpload = new FormData();
             formDataUpload.append('file', formData.profilePhoto);
 
+            // SECURITY: Get auth token for the secured upload route
+            const { auth } = await import('@/lib/firebase');
+            const idToken = await auth.currentUser?.getIdToken();
+
             const response = await fetch('/api/upload', {
               method: 'POST',
+              headers: idToken ? { 'Authorization': `Bearer ${idToken}` } : {},
               body: formDataUpload,
             });
 

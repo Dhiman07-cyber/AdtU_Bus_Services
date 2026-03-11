@@ -54,12 +54,12 @@ export default function Home() {
 
   // Show loading spinner only while checking auth
   if (loading) {
-    return <PremiumPageLoader message="Loading..." />;
+    return <PremiumPageLoader message="Loading..." fullScreen />;
   }
 
   // Show redirecting state only when we're actually redirecting
   if (isRedirecting && !redirectFailed) {
-    return <PremiumPageLoader message={needsApplication ? 'Redirecting to application...' : 'Redirecting...'} />;
+    return <PremiumPageLoader message={needsApplication ? 'Redirecting to application...' : 'Redirecting...'} fullScreen />;
   }
 
   // Show landing page for:

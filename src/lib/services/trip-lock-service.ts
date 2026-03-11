@@ -267,13 +267,10 @@ export class TripLockService {
         try {
             const now = new Date();
 
-            // Update active_trips status
+            // Delete active_trips row
             const { error: updateError } = await this.supabase
                 .from('active_trips')
-                .update({
-                    status: 'ended',
-                    end_time: now.toISOString()
-                })
+                .delete()
                 .eq('trip_id', tripId)
                 .eq('driver_id', driverId);
 

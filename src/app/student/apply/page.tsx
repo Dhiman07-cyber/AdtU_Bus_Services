@@ -14,7 +14,7 @@ export default function StudentApplyPage() {
       router.push('/login');
       return;
     }
-    
+
     // Redirect to main apply page
     if (!loading && currentUser) {
       router.push('/apply');
@@ -22,7 +22,7 @@ export default function StudentApplyPage() {
   }, [currentUser, userData, loading, router]);
 
   return (
-    <div className="min-h-screen flex items-center justify-center">
+    <div className="flex-1 min-h-[calc(100dvh-120px)] flex items-center justify-center">
       <Loader2 className="h-12 w-12 animate-spin text-blue-600" />
     </div>
   );

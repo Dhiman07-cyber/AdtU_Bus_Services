@@ -88,6 +88,7 @@ CREATE INDEX IF NOT EXISTS idx_waiting_flags_trip ON waiting_flags(trip_id);
 CREATE INDEX IF NOT EXISTS idx_waiting_flags_active ON waiting_flags(bus_id, status);
 CREATE INDEX IF NOT EXISTS idx_waiting_flags_student_active ON waiting_flags(student_uid, status);
 CREATE INDEX IF NOT EXISTS idx_waiting_flags_bus_student ON waiting_flags(bus_id, student_uid);
+CREATE INDEX IF NOT EXISTS idx_waiting_flags_active_raised ON waiting_flags(bus_id, student_uid) WHERE status = 'raised';
 
 -- driver_location_updates table (historical breadcrumbs)
 CREATE TABLE IF NOT EXISTS driver_location_updates (
@@ -204,6 +205,7 @@ CREATE INDEX IF NOT EXISTS idx_swap_requests_bus ON driver_swap_requests(bus_id)
 CREATE INDEX IF NOT EXISTS idx_swap_requests_status ON driver_swap_requests(status);
 CREATE INDEX IF NOT EXISTS idx_swap_requests_created ON driver_swap_requests(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_swap_requests_active ON driver_swap_requests(status) WHERE status IN ('pending', 'accepted');
+CREATE INDEX IF NOT EXISTS idx_swap_requests_pending_expires ON driver_swap_requests(status, expires_at) WHERE status = 'pending';
 
 -- temporary_assignments table
 CREATE TABLE IF NOT EXISTS temporary_assignments (
@@ -329,7 +331,9 @@ CREATE TABLE IF NOT EXISTS public.payments (
   
   -- Constraints
   CONSTRAINT chk_payment_method CHECK (method IN ('Online', 'Offline') OR method IS NULL),
-  CONSTRAINT chk_payment_status CHECK (status IN ('Pending', 'Completed') OR status IS NULL)
+  CONSTRAINT chk_payment_status CHECK (status IN ('Pending', 'Completed') OR status IS NULL),
+  CONSTRAINT chk_payment_amount_positive CHECK (amount IS NULL OR amount > 0),
+  CONSTRAINT chk_payment_session_year CHECK (session_start_year IS NULL OR (session_start_year >= 2020 AND session_start_year <= 2050))
 );
 
 -- Ensure columns exist (for existing tables)
@@ -362,6 +366,8 @@ CREATE INDEX IF NOT EXISTS idx_payments_method ON public.payments (method);
 CREATE INDEX IF NOT EXISTS idx_payments_year ON public.payments (session_start_year, session_end_year);
 CREATE INDEX IF NOT EXISTS idx_payments_created_at ON public.payments (created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_payments_signature ON public.payments ((document_signature IS NOT NULL));
+CREATE INDEX IF NOT EXISTS idx_payments_razorpay_id ON public.payments(razorpay_payment_id) WHERE razorpay_payment_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_payments_date_status ON public.payments(transaction_date DESC, status);
 
 -- Payment exports table
 CREATE TABLE IF NOT EXISTS public.payment_exports (
@@ -544,6 +550,39 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
+-- Function to delete old bus location breadcrumbs (older than 24 hours)
+CREATE OR REPLACE FUNCTION cleanup_old_bus_locations(p_retention_hours INTEGER DEFAULT 24)
+RETURNS INTEGER AS $$
+DECLARE
+  deleted_count INTEGER := 0;
+BEGIN
+  DELETE FROM bus_locations
+  WHERE timestamp < NOW() - (p_retention_hours || ' hours')::INTERVAL
+    AND id NOT IN (
+      SELECT DISTINCT ON (bus_id) id
+      FROM bus_locations
+      ORDER BY bus_id, timestamp DESC
+    );
+  
+  GET DIAGNOSTICS deleted_count = ROW_COUNT;
+  RETURN deleted_count;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+
+-- Function to delete old driver location updates (older than 48 hours)
+CREATE OR REPLACE FUNCTION cleanup_old_driver_location_updates(p_retention_hours INTEGER DEFAULT 48)
+RETURNS INTEGER AS $$
+DECLARE
+  deleted_count INTEGER := 0;
+BEGIN
+  DELETE FROM driver_location_updates
+  WHERE timestamp < NOW() - (p_retention_hours || ' hours')::INTERVAL;
+  
+  GET DIAGNOSTICS deleted_count = ROW_COUNT;
+  RETURN deleted_count;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+
 -- =====================================================
 -- SECTION 6: ROW LEVEL SECURITY (HARDENED)
 -- =====================================================
@@ -563,12 +602,18 @@ ALTER TABLE public.payment_exports ENABLE ROW LEVEL SECURITY;
 -- ========== bus_locations policies ==========
 DROP POLICY IF EXISTS "bus_locations_select_all" ON bus_locations;
 DROP POLICY IF EXISTS "bus_locations_select_authenticated" ON bus_locations;
-CREATE POLICY "bus_locations_select_authenticated" ON bus_locations
-  FOR SELECT TO authenticated USING (true);
+DROP POLICY IF EXISTS "bus_locations_select_anon" ON bus_locations;
+CREATE POLICY "bus_locations_select_anon" ON bus_locations
+  FOR SELECT TO anon, authenticated USING (true);
 
 DROP POLICY IF EXISTS "bus_locations_insert_service" ON bus_locations;
 CREATE POLICY "bus_locations_insert_service" ON bus_locations
   FOR INSERT WITH CHECK (auth.role() = 'service_role');
+
+DROP POLICY IF EXISTS "drivers_can_insert_own_location" ON bus_locations;
+CREATE POLICY "drivers_can_insert_own_location" ON bus_locations
+  FOR INSERT TO authenticated
+  WITH CHECK (driver_uid = auth.uid()::text);
 
 DROP POLICY IF EXISTS "bus_locations_update_service" ON bus_locations;
 CREATE POLICY "bus_locations_update_service" ON bus_locations
@@ -581,38 +626,46 @@ CREATE POLICY "bus_locations_delete_service" ON bus_locations
 -- ========== driver_status policies ==========
 DROP POLICY IF EXISTS "driver_status_select_all" ON driver_status;
 DROP POLICY IF EXISTS "driver_status_select_authenticated" ON driver_status;
--- Allow all users (including anon) to read driver_status for trip tracking
-CREATE POLICY "driver_status_select_all" ON driver_status
-  FOR SELECT USING (true);
+DROP POLICY IF EXISTS "driver_status_select_anon" ON driver_status;
+CREATE POLICY "driver_status_select_anon" ON driver_status
+  FOR SELECT TO anon, authenticated USING (true);
 
 DROP POLICY IF EXISTS "driver_status_insert_service" ON driver_status;
 CREATE POLICY "driver_status_insert_service" ON driver_status
   FOR INSERT WITH CHECK (auth.role() = 'service_role');
 
+DROP POLICY IF EXISTS "drivers_can_upsert_own_status" ON driver_status;
+CREATE POLICY "drivers_can_upsert_own_status" ON driver_status
+  FOR INSERT TO authenticated
+  WITH CHECK (driver_uid = auth.uid()::text);
+
 DROP POLICY IF EXISTS "driver_status_update_service" ON driver_status;
 CREATE POLICY "driver_status_update_service" ON driver_status
   FOR UPDATE USING (auth.role() = 'service_role');
+
+DROP POLICY IF EXISTS "drivers_can_update_own_status" ON driver_status;
+CREATE POLICY "drivers_can_update_own_status" ON driver_status
+  FOR UPDATE TO authenticated
+  USING (driver_uid = auth.uid()::text);
 
 DROP POLICY IF EXISTS "driver_status_delete_service" ON driver_status;
 CREATE POLICY "driver_status_delete_service" ON driver_status
   FOR DELETE USING (auth.role() = 'service_role');
 
--- Add index on bus_id for faster lookups
+-- Add index on bus_id and driver_uid for faster lookups
 CREATE INDEX IF NOT EXISTS idx_driver_status_bus_id ON driver_status(bus_id);
+CREATE INDEX IF NOT EXISTS idx_driver_status_bus_driver ON driver_status(bus_id, driver_uid);
 
 -- ========== waiting_flags policies (SECURED) ==========
 DROP POLICY IF EXISTS "waiting_flags_select_all" ON waiting_flags;
 DROP POLICY IF EXISTS "waiting_flags_select_restricted" ON waiting_flags;
-CREATE POLICY "waiting_flags_select_restricted" ON waiting_flags
-  FOR SELECT TO authenticated
+DROP POLICY IF EXISTS "waiting_flags_select_anon" ON waiting_flags;
+CREATE POLICY "waiting_flags_select_anon" ON waiting_flags
+  FOR SELECT TO anon, authenticated
   USING (
-    student_uid = auth.uid()::text
-    OR EXISTS (
-      SELECT 1 FROM driver_status 
-      WHERE driver_status.driver_uid = auth.uid()::text
-      AND driver_status.bus_id = waiting_flags.bus_id
-    )
-    OR auth.role() = 'service_role'
+    status = 'raised'
+    OR status = 'acknowledged'
+    OR student_uid = auth.uid()::text
   );
 
 DROP POLICY IF EXISTS "waiting_flags_insert_service" ON waiting_flags;
@@ -662,6 +715,11 @@ DROP POLICY IF EXISTS "driver_location_updates_insert_service" ON driver_locatio
 CREATE POLICY "driver_location_updates_insert_service" ON driver_location_updates
   FOR INSERT WITH CHECK (auth.role() = 'service_role');
 
+DROP POLICY IF EXISTS "drivers_can_insert_own_updates" ON driver_location_updates;
+CREATE POLICY "drivers_can_insert_own_updates" ON driver_location_updates
+  FOR INSERT TO authenticated
+  WITH CHECK (driver_uid = auth.uid()::text);
+
 DROP POLICY IF EXISTS "driver_location_updates_delete_service" ON driver_location_updates;
 CREATE POLICY "driver_location_updates_delete_service" ON driver_location_updates
   FOR DELETE USING (auth.role() = 'service_role');
@@ -669,7 +727,9 @@ CREATE POLICY "driver_location_updates_delete_service" ON driver_location_update
 
 -- ========== route_cache policies ==========
 DROP POLICY IF EXISTS "route_cache_select_all" ON route_cache;
-CREATE POLICY "route_cache_select_all" ON route_cache FOR SELECT USING (true);
+DROP POLICY IF EXISTS "route_cache_select_anon" ON route_cache;
+CREATE POLICY "route_cache_select_anon" ON route_cache
+  FOR SELECT TO anon, authenticated USING (true);
 
 DROP POLICY IF EXISTS "route_cache_insert_service" ON route_cache;
 CREATE POLICY "route_cache_insert_service" ON route_cache
@@ -774,9 +834,23 @@ CREATE POLICY "payment_exports_insert_service" ON public.payment_exports
   FOR INSERT WITH CHECK (auth.role() = 'service_role');
 
 -- =====================================================
--- SECTION 7: GRANTS
+-- SECTION 7: GRANTS & REVOKES
 -- =====================================================
 
+-- 1. Tighten default access
+REVOKE ALL ON ALL TABLES IN SCHEMA public FROM anon;
+REVOKE ALL ON ALL FUNCTIONS IN SCHEMA public FROM anon;
+REVOKE ALL ON ALL SEQUENCES IN SCHEMA public FROM anon;
+
+-- 2. Explicitly allow anon/authenticated read access to tracking tables
+GRANT SELECT ON public.waiting_flags TO anon, authenticated;
+GRANT SELECT ON public.active_trips TO anon, authenticated;
+GRANT SELECT ON public.bus_locations TO anon, authenticated;
+GRANT SELECT ON public.driver_status TO anon, authenticated;
+GRANT SELECT ON public.route_cache TO anon, authenticated;
+GRANT SELECT ON public.missed_bus_requests TO anon, authenticated;
+
+-- 3. Core application grants
 GRANT SELECT ON driver_swap_requests TO authenticated;
 GRANT INSERT ON driver_swap_requests TO authenticated;
 GRANT UPDATE ON driver_swap_requests TO authenticated;
@@ -864,8 +938,9 @@ CREATE TRIGGER active_trips_updated_at
 ALTER TABLE public.active_trips ENABLE ROW LEVEL SECURITY;
 
 DROP POLICY IF EXISTS "active_trips_select_authenticated" ON public.active_trips;
-CREATE POLICY "active_trips_select_authenticated" ON public.active_trips
-  FOR SELECT TO authenticated USING (true);
+DROP POLICY IF EXISTS "active_trips_select_anon" ON public.active_trips;
+CREATE POLICY "active_trips_select_anon" ON public.active_trips
+  FOR SELECT TO anon, authenticated USING (status = 'active');
 
 DROP POLICY IF EXISTS "active_trips_insert_service" ON public.active_trips;
 CREATE POLICY "active_trips_insert_service" ON public.active_trips
@@ -990,9 +1065,9 @@ CREATE INDEX IF NOT EXISTS idx_missed_bus_requests_trip_candidates ON public.mis
 ALTER TABLE public.missed_bus_requests ENABLE ROW LEVEL SECURITY;
 
 DROP POLICY IF EXISTS "missed_bus_requests_select_own" ON public.missed_bus_requests;
-CREATE POLICY "missed_bus_requests_select_own" ON public.missed_bus_requests
-  FOR SELECT TO authenticated
-  USING (student_id = auth.uid()::text OR auth.role() = 'service_role');
+DROP POLICY IF EXISTS "missed_bus_requests_select_anon" ON public.missed_bus_requests;
+CREATE POLICY "missed_bus_requests_select_anon" ON public.missed_bus_requests
+  FOR SELECT TO anon, authenticated USING (true);
 
 DROP POLICY IF EXISTS "missed_bus_requests_insert_service" ON public.missed_bus_requests;
 CREATE POLICY "missed_bus_requests_insert_service" ON public.missed_bus_requests
@@ -1104,6 +1179,8 @@ BEGIN
     END LOOP;
 END $$;
 
+-- device_sessions policies (SECURED)
+-- These ensure that users can only manage their own device sessions
 CREATE POLICY "device_sessions_select_own" ON public.device_sessions
   FOR SELECT TO authenticated
   USING (user_id = auth.uid()::text OR auth.role() = 'service_role');

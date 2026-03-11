@@ -99,6 +99,12 @@ interface DashboardCache {
     pendingVerifications: number;
     renewalRequests: number;
     totalRevenue: number;
+    configDates: {
+      academicYearEnd: any;
+      softBlock: any;
+      hardBlock: any;
+      busFee: number;
+    };
   };
   paymentTrends: { days: any[]; months: any[] };
   allBuses: any[];
@@ -166,7 +172,13 @@ export default function EnhancedAdminDashboard() {
 
     pendingVerifications: 0,
     renewalRequests: 0,
-    totalRevenue: 0
+    totalRevenue: 0,
+    configDates: {
+      academicYearEnd: null,
+      softBlock: null,
+      hardBlock: null,
+      busFee: 0
+    }
   });
 
   const [allBuses, setAllBuses] = useState<any[]>(cachedData?.allBuses || []);
@@ -286,6 +298,38 @@ export default function EnhancedAdminDashboard() {
       const allRoutesData = allRoutesSnap.docs.map(d => ({ ...d.data(), id: d.id, routeId: d.id }));
       setAllRoutes(allRoutesData);
 
+      // 7. System & Deadline Configuration - Fetch via API to avoid client-side permission issues
+      let system_data: any = null;
+      let deadline_data: any = null;
+
+      try {
+        if (currentUser) {
+          const token = await currentUser.getIdToken();
+          const [systemRes, deadlineRes] = await Promise.all([
+            fetch('/api/settings/system-config', { headers: { 'Authorization': `Bearer ${token}` } }),
+            fetch('/api/settings/deadline-config', { headers: { 'Authorization': `Bearer ${token}` } })
+          ]);
+
+          if (systemRes.ok) {
+            const data = await systemRes.json();
+            system_data = data.config;
+          }
+          if (deadlineRes.ok) {
+            const data = await deadlineRes.json();
+            deadline_data = data.config;
+          }
+        }
+      } catch (e) {
+        console.error("Config fetch error", e);
+      }
+
+      const configDates = {
+        academicYearEnd: deadline_data?.academicYear ? `${deadline_data.academicYear.anchorYear || new Date().getFullYear()}-${(deadline_data.academicYear.anchorMonth + 1).toString().padStart(2, '0')}-${deadline_data.academicYear.anchorDay.toString().padStart(2, '0')}` : (system_data?.academicYearEnd || null),
+        softBlock: deadline_data?.softBlock ? `${new Date().getFullYear()}-${(deadline_data.softBlock.month + 1).toString().padStart(2, '0')}-${deadline_data.softBlock.day.toString().padStart(2, '0')}` : (system_data?.softBlock || null),
+        hardBlock: deadline_data?.hardDelete ? `${new Date().getFullYear()}-${(deadline_data.hardDelete.month + 1).toString().padStart(2, '0')}-${deadline_data.hardDelete.day.toString().padStart(2, '0')}` : (system_data?.hardBlock || null),
+        busFee: system_data?.busFee?.amount || 0
+      };
+
       const newRealCounts = {
         totalStudents: totalStudentsSnap.data().count,
         activeStudents: activeCount,
@@ -297,7 +341,8 @@ export default function EnhancedAdminDashboard() {
         pendingApplications: pendingAppsSnap.data().count,
         pendingVerifications: verificationSnap.data().count,
         renewalRequests: renewalRequestsSnap.data().count,
-        totalRevenue: totalRevenue
+        totalRevenue: totalRevenue,
+        configDates: configDates
       };
 
       setRealCounts(newRealCounts);
@@ -362,7 +407,11 @@ export default function EnhancedAdminDashboard() {
     rejectedToday: 0,
     morningStudents: 0,
     eveningStudents: 0,
-    totalRevenue: 0
+    totalRevenue: 0,
+    academicYearEnd: null as any,
+    softBlock: null as any,
+    hardBlock: null as any,
+    systemBusFee: 0
   });
 
   // Manual refresh handler
@@ -476,7 +525,11 @@ export default function EnhancedAdminDashboard() {
       rejectedToday: rejectedToday.length,
       morningStudents: realCounts.morningStudents,
       eveningStudents: realCounts.eveningStudents,
-      totalRevenue: realCounts.totalRevenue
+      totalRevenue: realCounts.totalRevenue,
+      academicYearEnd: realCounts.configDates.academicYearEnd,
+      softBlock: realCounts.configDates.softBlock,
+      hardBlock: realCounts.configDates.hardBlock,
+      systemBusFee: realCounts.configDates.busFee
     });
   }, [students, drivers, buses, routes, applications, notifications, realCounts]);
 
@@ -679,7 +732,7 @@ export default function EnhancedAdminDashboard() {
 
 
   if (allDataLoading && students.length === 0 && drivers.length === 0 && buses.length === 0) {
-    return <PremiumPageLoader message="Curating Dashboard Experience..." subMessage="Fetching system status and analytics..." />;
+    return <PremiumPageLoader fullScreen message="Curating Dashboard Experience..." subMessage="Fetching system status and analytics..." />;
   }
 
   // Get first name from user data
@@ -751,7 +804,7 @@ export default function EnhancedAdminDashboard() {
               </div>
             </CardHeader>
             <CardContent className="px-2.5">
-              <div className="text-xl font-bold text-gray-900 dark:text-white group-hover:text-fuchsia-400 transition-colors">₹{systemConfig?.busFee?.amount || '...'}</div>
+              <div className="text-xl font-bold text-gray-900 dark:text-white group-hover:text-fuchsia-400 transition-colors">₹{stats.systemBusFee || '...'}</div>
               <p className="text-[8px] text-gray-500 mt-0.5">Fixed Rate</p>
             </CardContent>
           </Card>
@@ -943,9 +996,9 @@ export default function EnhancedAdminDashboard() {
             <CardContent className="px-2.5 pt-0">
               <div className="space-y-1.5">
                 {[
-                  { label: 'Academic Year End', value: systemConfig?.academicYearEnd, color: 'text-green-400', icon: CheckCircle },
-                  { label: 'Soft Block', value: systemConfig?.softBlock, color: 'text-yellow-400', icon: Info },
-                  { label: 'Hard Block', value: systemConfig?.hardBlock, color: 'text-red-400', icon: AlertTriangle }
+                  { label: 'Academic Year End', value: stats.academicYearEnd, color: 'text-green-400', icon: CheckCircle },
+                  { label: 'Soft Block', value: stats.softBlock, color: 'text-yellow-400', icon: Info },
+                  { label: 'Hard Block', value: stats.hardBlock, color: 'text-red-400', icon: AlertTriangle }
                 ].map((item, idx) => {
                   const date = parseFirestoreDate(item.value);
                   return (

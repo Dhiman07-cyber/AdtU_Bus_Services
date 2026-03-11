@@ -125,7 +125,17 @@ export default function AdminRenewalServicePage() {
   const router = useRouter();
   const isAdmin = userData?.role === 'admin';
 
-  const [activeTab, setActiveTab] = useState('dashboard');
+  const [activeTab, setActiveTab] = useState('approval');
+  
+  // Set default tab based on role
+  useEffect(() => {
+    if (userData?.role === 'admin') {
+      setActiveTab('dashboard');
+    } else {
+      setActiveTab('approval');
+    }
+  }, [userData?.role]);
+
   const [renewalRequests, setRenewalRequests] = useState<RenewalRequest[]>([]);
   const [loadingRequests, setLoadingRequests] = useState(false);
   const [selectedRequest, setSelectedRequest] = useState<RenewalRequest | null>(null);
@@ -579,7 +589,7 @@ export default function AdminRenewalServicePage() {
           </div>
         </div>
 
-        <Tabs defaultValue="dashboard" value={activeTab} onValueChange={setActiveTab}>
+        <Tabs defaultValue={isAdmin ? "dashboard" : "approval"} value={activeTab} onValueChange={setActiveTab}>
           <div className="hidden">
             <TabsList>
               {isAdmin && <TabsTrigger value="dashboard">Dashboard</TabsTrigger>}

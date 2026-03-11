@@ -1,30 +1,33 @@
-
 import { NextResponse } from 'next/server';
-import { auth, db as adminDb } from '@/lib/firebase-admin';
 import { createClient } from '@supabase/supabase-js';
+import { withSecurity } from '@/lib/security/api-security';
+import { RequestWaitSchema } from '@/lib/security/validation-schemas';
+import { RateLimits } from '@/lib/security/rate-limiter';
 
-const supabase = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL || '',
-    process.env.SUPABASE_SERVICE_ROLE_KEY || ''
-);
+/**
+ * POST /api/driver/request-wait
+ * 
+ * Sends a wait request from a student to a driver's live dashboard.
+ */
+export const POST = withSecurity(
+    async (request, { auth, body }) => {
+        const { busId, studentId, studentName, stopName } = body as any;
 
-export async function POST(request: Request) {
-    try {
-        const body = await request.json();
-        const { idToken, busId, studentId, studentName, stopName } = body;
-
-        // Validate
-        if (!idToken || !busId || !studentId) {
-            return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
-        }
-
-        // Verify token
-        const decodedToken = await auth.verifyIdToken(idToken);
-        if (decodedToken.uid !== studentId) {
-            return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
+        // Security check: Student can only request wait for themselves
+        if (auth.uid !== studentId) {
+            return NextResponse.json(
+                { error: 'Forbidden: You can only request a wait for your own account' },
+                { status: 403 }
+            );
         }
 
         console.log(`📣 Requesting wait for student ${studentId} on bus ${busId}`);
+
+        // Initialize Supabase client
+        const supabase = createClient(
+            process.env.NEXT_PUBLIC_SUPABASE_URL || '',
+            process.env.SUPABASE_SERVICE_ROLE_KEY || ''
+        );
 
         // Broadcast to driver channel
         // Channel name: driver_wait_request_{busId}
@@ -42,9 +45,11 @@ export async function POST(request: Request) {
         });
 
         return NextResponse.json({ success: true });
-
-    } catch (error: any) {
-        console.error('❌ Error requesting wait:', error);
-        return NextResponse.json({ error: 'An unexpected error occurred' }, { status: 500 });
+    },
+    {
+        requiredRoles: ['student'],
+        schema: RequestWaitSchema,
+        rateLimit: RateLimits.WAITING_FLAG,
+        allowBodyToken: true
     }
-}
+);

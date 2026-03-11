@@ -226,7 +226,7 @@ export default function DriverStudentsPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-950">
+      <div className="flex-1 min-h-[calc(100dvh-120px)] flex items-center justify-center bg-gray-50 dark:bg-gray-950">
         <div className="text-center space-y-8 relative z-10">
           <div className="relative flex items-center justify-center">
             <div className="absolute w-20 h-20 rounded-full bg-gradient-to-r from-blue-500 via-purple-500 to-blue-500 animate-spin"></div>
@@ -250,7 +250,7 @@ export default function DriverStudentsPage() {
 
   if (error) {
     return (
-      <div className="min-h-screen flex items-center justify-center p-4">
+      <div className="flex-1 min-h-[calc(100dvh-120px)] flex items-center justify-center p-4">
         <Card className="w-full max-w-md">
           <CardHeader>
             <CardTitle>Students List</CardTitle>
@@ -268,7 +268,7 @@ export default function DriverStudentsPage() {
 
   if (!driverData) {
     return (
-      <div className="min-h-screen flex items-center justify-center p-4">
+      <div className="flex-1 min-h-[calc(100dvh-120px)] flex items-center justify-center p-4">
         <Card className="w-full max-w-md">
           <CardHeader>
             <CardTitle>Students List</CardTitle>

@@ -441,14 +441,16 @@ export default function StudentTrackBusPage() {
         }
 
         // Check for existing waiting flag
-        const waitingFlagPromise = supabase
-          .from("waiting_flags")
-          .select("*")
-          .eq("student_uid", currentUser.uid)
-          .in("status", ["waiting", "raised", "acknowledged"])
-          .maybeSingle()
-          .then(({ data: existingFlags, error: flagError }) => {
-            if (!flagError && existingFlags) {
+        const idToken = await currentUser.getIdToken();
+        const waitingFlagPromise = fetch(`/api/student/waiting-flag?studentUid=${currentUser.uid}`, {
+          headers: {
+            'Authorization': `Bearer ${idToken}`
+          }
+        })
+          .then(res => res.json())
+          .then((result) => {
+            const existingFlags = result.data;
+            if (existingFlags) {
               setIsWaiting(true);
               setCurrentFlagId(existingFlags.id);
               if (existingFlags && existingFlags.stop_lat && existingFlags.stop_lng) {
@@ -456,6 +458,9 @@ export default function StudentTrackBusPage() {
               }
               console.log("✅ Existing waiting flag found:", existingFlags);
             }
+          })
+          .catch(err => {
+            console.error("Error fetching wait flag via api:", err);
           });
         queries.push(waitingFlagPromise);
 
@@ -518,26 +523,19 @@ export default function StudentTrackBusPage() {
   // Use the optimized bus location hook
   const {
     currentLocation: hookBusLocation,
-    interpolatedLocation: hookInterpolatedLocation,
     loading: busLocationLoading
-  } = useBusLocation(tripActive ? (studentData?.busId || studentData?.assignedBusId || '') : '');
+  } = useBusLocation(tripActive ? (busData?.busId || studentData?.busId || studentData?.assignedBusId || '') : '');
 
   // Update local busLocation state whenever hook location changes
   useEffect(() => {
-    if (hookInterpolatedLocation) {
-      setBusLocation({
-        ...hookBusLocation,
-        lat: hookInterpolatedLocation.lat,
-        lng: hookInterpolatedLocation.lng
-      });
-    } else if (hookBusLocation) {
+    if (hookBusLocation) {
       setBusLocation(hookBusLocation);
     }
-  }, [hookBusLocation, hookInterpolatedLocation]);
+  }, [hookBusLocation]);
 
-  // Subscribe to trip end notifications explicitly (still needed for some UI resets)
+  // Subscribe to trip end broadcast — UI state reset only (FCM handles user toast)
   useEffect(() => {
-    const busId = studentData?.busId || studentData?.assignedBusId;
+    const busId = busData?.busId || studentData?.busId || studentData?.assignedBusId;
     if (!busId) return;
 
     const tripEndChannel = supabase
@@ -553,6 +551,7 @@ export default function StudentTrackBusPage() {
         setCurrentFlagId(null);
         setTripActive(false);
         setIsFullScreenMap(false);
+        setBusLocation(null); // Clear location on trip end
 
         const toastMessage = payload.payload?.message || `Your trip for Bus ${payload.payload?.busNumber || ''} has ended successfully!`;
         addToast(toastMessage, "success");
@@ -562,7 +561,7 @@ export default function StudentTrackBusPage() {
     return () => {
       supabase.removeChannel(tripEndChannel);
     };
-  }, [studentData?.busId, studentData?.assignedBusId, addToast]);
+  }, [busData?.busId, studentData?.busId, studentData?.assignedBusId, addToast]);
 
   // Check for active trip with realtime subscription
   useEffect(() => {
@@ -617,6 +616,7 @@ export default function StudentTrackBusPage() {
           if (payload.eventType === "DELETE") {
             // Driver ended trip (deleted their status)
             setTripActive(false);
+            setBusLocation(null);
             console.log("🛑 Trip ended - driver_status deleted");
           } else if (payload.new) {
             const newStatus = (payload.new as any).status;
@@ -632,7 +632,7 @@ export default function StudentTrackBusPage() {
         }
       });
 
-    // Also subscribe to trip_started broadcast events (instant notification)
+    // Also subscribe to trip_started/ended broadcast (instant WebSocket notification)
     const tripNotificationChannel = supabase
       .channel(`trip-status-${busData.busId}`)
       .on("broadcast", { event: "trip_started" }, (payload) => {
@@ -643,6 +643,7 @@ export default function StudentTrackBusPage() {
       .on("broadcast", { event: "trip_ended" }, (payload) => {
         console.log("🛑 Trip ended broadcast received:", payload);
         setTripActive(false);
+        setBusLocation(null);
         addToast("🏁 Trip has ended", "info");
       })
       .subscribe();
@@ -1129,7 +1130,7 @@ export default function StudentTrackBusPage() {
 
   if (dataLoading) {
     return (
-      <div className="flex items-center justify-center min-h-screen bg-gray-900 dark:bg-gray-950 relative overflow-hidden">
+      <div className="flex-1 min-h-[calc(100dvh-120px)] flex items-center justify-center bg-gray-900 dark:bg-gray-950 relative overflow-hidden">
         {/* Animated road lines */}
         <div className="absolute inset-0 overflow-hidden opacity-20">
           <div className="absolute top-0 left-1/2 w-1 h-full bg-gradient-to-b from-transparent via-white to-transparent animate-pulse"></div>
@@ -1288,6 +1289,8 @@ export default function StudentTrackBusPage() {
                 showStatsOnMobile={isFullScreenMap}
                 studentLocation={studentLocation}
                 onShowQrCode={() => setShowQrCode(true)}
+                currentLocation={busLocation}
+                loading={busLocationLoading}
                 primaryActionLabel={
                   submittingFlag
                     ? "Processing..."

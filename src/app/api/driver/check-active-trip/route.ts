@@ -1,82 +1,24 @@
 import { NextResponse } from 'next/server';
-import { auth, db as adminDb } from '@/lib/firebase-admin';
+import { db as adminDb } from '@/lib/firebase-admin';
 import { createClient } from '@supabase/supabase-js';
+import { withSecurity } from '@/lib/security/api-security';
+import { BusIdSchema } from '@/lib/security/validation-schemas';
+import { RateLimits } from '@/lib/security/rate-limiter';
 
 /**
  * POST /api/driver/check-active-trip
  * 
- * Body: { busId, idToken }
+ * Body: { busId }
  * 
  * Checks if there's an active trip for the driver and bus
  * Returns trip data if found, null if not
  */
-export async function POST(request: Request) {
-  try {
-    console.log('🔄 Check active trip API called');
+export const POST = withSecurity(
+  async (request, { auth, body }) => {
+    const { busId } = body as any;
+    const driverUid = auth.uid;
 
-    const body = await request.json();
-    const { idToken, busId } = body;
-
-    console.log('📋 Request data:', { hasIdToken: !!idToken, busId });
-
-    // Get token from either body or Authorization header
-    let token = idToken;
-    if (!token) {
-      const authHeader = request.headers.get('authorization');
-      if (authHeader && authHeader.startsWith('Bearer ')) {
-        token = authHeader.substring(7);
-      }
-    }
-
-    // Validate required fields
-    if (!token || !busId) {
-      console.error('❌ Missing required fields:', { hasToken: !!token, busId });
-      return NextResponse.json(
-        { error: 'Missing required fields: idToken (or Authorization header), busId' },
-        { status: 400 }
-      );
-    }
-
-    // Verify Firebase ID token
-    if (!auth) {
-      console.error('❌ Firebase Admin not initialized');
-      return NextResponse.json(
-        { error: 'Firebase Admin not initialized' },
-        { status: 500 }
-      );
-    }
-
-    console.log('✅ Firebase Admin initialized, verifying token...');
-
-    let driverUid: string;
-    try {
-      const decodedToken = await auth.verifyIdToken(token);
-      driverUid = decodedToken.uid;
-      console.log('✅ Token verified, driver UID:', driverUid);
-    } catch (authError: any) {
-      console.error('❌ Token verification failed:', authError.message);
-      return NextResponse.json(
-        { error: 'Invalid or expired token' },
-        { status: 401 }
-      );
-    }
-
-    // Verify user exists and is a driver
-    const userDoc = await adminDb.collection('users').doc(driverUid).get();
-    if (!userDoc.exists) {
-      console.error('❌ User not found in users collection:', driverUid);
-      return NextResponse.json({ error: 'User not found' }, { status: 404 });
-    }
-
-    console.log('✅ User found, checking for active trips...');
-
-    const userData = userDoc.data();
-    if (userData?.role !== 'driver') {
-      return NextResponse.json(
-        { error: 'User is not authorized as a driver' },
-        { status: 403 }
-      );
-    }
+    console.log(`🔄 Check active trip API called for bus ${busId}`);
 
     // Verify driver is assigned to this bus
     const driverDoc = await adminDb.collection('drivers').doc(driverUid).get();
@@ -123,7 +65,7 @@ export async function POST(request: Request) {
 
     // If another driver has an active, NON-EXPIRED lock on this bus
     if (lock?.active && lock.driverId && lock.driverId !== driverUid && !isLockExpired) {
-      console.log(`🔒 Bus ${busId} is locked by driver ${lock.driverId}, current driver is ${driverUid}`);
+      console.log(`🔒 Bus ${busId} is locked by driver ${lock.driverId}`);
       return NextResponse.json({
         hasActiveTrip: false,
         tripData: null,
@@ -137,10 +79,7 @@ export async function POST(request: Request) {
       });
     }
 
-    // Check for active trip using Supabase (matching start-journey-v2 logic)
-    console.log('🔍 Querying Supabase driver_status for active trip:', { busId });
-
-    // Initialize Supabase
+    // Check for active trip using Supabase
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
     const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
@@ -150,53 +89,55 @@ export async function POST(request: Request) {
         hasActiveTrip: false,
         tripData: null,
         error: 'Server configuration error'
-      }, { status: 200 }); // Return 200 with error info instead of 500
+      });
     }
 
     const supabase = createClient(supabaseUrl, supabaseKey);
 
     let statusData = null;
-    try {
-      const { data, error: statusError } = await supabase
-        .from('driver_status')
-        .select('id, status, driver_uid, bus_id, started_at') // Select only needed fields
-        .eq('driver_uid', driverUid)
-        .order('last_updated_at', { ascending: false })
-        .limit(1)
-        .maybeSingle();
+    let retryCount = 0;
+    while (retryCount < 2) {
+      try {
+        const { data, error: statusError } = await supabase
+          .from('driver_status')
+          .select('id, status, driver_uid, bus_id, started_at')
+          .eq('driver_uid', driverUid)
+          .order('last_updated_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
 
-      if (statusError) {
-        console.error('❌ Error querying Supabase driver_status:', statusError);
-        // Don't throw - return graceful response
-        return NextResponse.json({
-          hasActiveTrip: false,
-          tripData: null
-        });
+        if (statusError) {
+          if (statusError.message?.includes('fetch failed') || statusError.details?.includes('ECONNRESET')) {
+            throw statusError;
+          }
+          console.error('❌ Error querying Supabase driver_status:', statusError);
+          return NextResponse.json({
+            hasActiveTrip: false,
+            tripData: null
+          });
+        }
+
+        statusData = data;
+        break;
+      } catch (queryError: any) {
+        console.error(`❌ Supabase query exception (attempt ${retryCount + 1}):`, queryError);
+        retryCount++;
+        if (retryCount >= 2) {
+          return NextResponse.json({
+            hasActiveTrip: false,
+            tripData: null
+          });
+        }
+        await new Promise(resolve => setTimeout(resolve, 500));
       }
-
-      statusData = data;
-    } catch (queryError: any) {
-      console.error('❌ Supabase query exception:', queryError);
-      return NextResponse.json({
-        hasActiveTrip: false,
-        tripData: null
-      });
     }
 
     if (statusData) {
-      console.log('🚌 Driver status data:', {
-        driverUid: statusData.driver_uid,
-        status: statusData.status,
-        startedAt: statusData.started_at
-      });
-
-      // Check if status is on_trip or enroute and driver matches
-      // Note: we check driver_uid from the status record to ensure the current driver is the one on the trip
-      if ((statusData.status === 'on_trip' || statusData.status === 'enroute') && statusData.driver_uid === driverUid && statusData.bus_id === busId) {
+      if ((statusData.status === 'on_trip' || statusData.status === 'enroute') && 
+          statusData.driver_uid === driverUid && statusData.bus_id === busId) {
         console.log('✅ Active trip found in Supabase');
 
         const startTime = statusData.started_at ? new Date(statusData.started_at).getTime() : Date.now();
-        // Construct a consistent tripId based on start time
         const tripId = `trip_${busId}_${startTime}`;
 
         return NextResponse.json({
@@ -209,16 +150,7 @@ export async function POST(request: Request) {
             busStatus: 'enroute'
           }
         });
-      } else if (statusData) {
-        console.warn(`⚠️ Trip found but conditions failed:`, {
-          status: statusData.status,
-          driverMatch: statusData.driver_uid === driverUid,
-          expectedDriver: driverUid,
-          actualDriver: statusData.driver_uid
-        });
       }
-    } else {
-      console.log(`ℹ️ No row found in driver_status for bus_id: ${busId}`);
     }
 
     console.log('ℹ️ No active trip found in Supabase');
@@ -226,21 +158,12 @@ export async function POST(request: Request) {
       hasActiveTrip: false,
       tripData: null,
     });
-
-  } catch (error: any) {
-    console.error('❌ Error checking active trip:', error);
-    // console.error('❌ Error stack:', error.stack); // Reduce noise
-    console.error('❌ Error details:', {
-      message: 'Internal error',
-      code: error.code || 'unknown',
-      name: error.name
-    });
-    return NextResponse.json(
-      {
-        error: 'Failed to check active trip'
-      },
-      { status: 500 }
-    );
+  },
+  {
+    requiredRoles: ['driver'],
+    schema: BusIdSchema,
+    rateLimit: RateLimits.READ,
+    allowBodyToken: true
   }
-}
+);
 

@@ -27,9 +27,6 @@ const BrowserCompatibilityBanner = dynamic(() => import('@/components/BrowserCom
 const PWAInstallPrompt = dynamic(() => import('@/components/PWAInstallPrompt'), {
   ssr: false,
 });
-const NotificationPermissionBanner = dynamic(() => import('@/components/NotificationPermissionBanner'), {
-  ssr: false,
-});
 
 // Dynamically import Uber-like driver map
 const UberLikeDriverMap = dynamic(() => import('@/components/UberLikeDriverMap'), {
@@ -1095,72 +1092,7 @@ export default function DriverLiveTrackingPage() {
     };
   }, [tripActive]);
 
-  // ==========================================
-  // AUTO-DISMISS WAITING FLAGS WHEN DRIVER REACHES STUDENT
-  // ==========================================
-  // When the driver's distance to a waiting student is less than 50 meters,
-  // automatically mark the flag as 'picked_up' to clear it from both UIs
-  useEffect(() => {
-    if (!tripActive || !currentLocation || waitingFlags.length === 0) return;
-
-    // Calculate distance between driver and each waiting student
-    const checkProximity = async () => {
-      for (const flag of waitingFlags) {
-        const studentLat = flag.stop_lat || flag.lat;
-        const studentLng = flag.stop_lng || flag.lng;
-
-        if (!studentLat || !studentLng) continue;
-
-        // Haversine formula to calculate distance
-        const R = 6371000; // Earth's radius in meters
-        const dLat = (studentLat - currentLocation.lat) * Math.PI / 180;
-        const dLon = (studentLng - currentLocation.lng) * Math.PI / 180;
-        const a = Math.sin(dLat / 2) ** 2 +
-          Math.cos(currentLocation.lat * Math.PI / 180) *
-          Math.cos(studentLat * Math.PI / 180) *
-          Math.sin(dLon / 2) ** 2;
-        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-        const distance = R * c; // Distance in meters
-
-        // If within 50 meters, auto-dismiss the flag
-        if (distance <= 50) {
-          console.log(`🎯 Driver reached student ${flag.student_name} (${distance.toFixed(0)}m) - auto-dismissing flag`);
-
-          try {
-            // Update flag status to 'picked_up' in Supabase
-            const { error } = await supabase
-              .from('waiting_flags')
-              .update({ status: 'picked_up' })
-              .eq('id', flag.id);
-
-            if (!error) {
-              // Remove from local state
-              setWaitingFlags(prev => prev.filter(f => f.id !== flag.id));
-
-              // Broadcast removal to student
-              const channel = supabase.channel(`student_${flag.student_uid}`);
-              await channel.subscribe();
-              await channel.send({
-                type: 'broadcast',
-                event: 'flag_acknowledged',
-                payload: { flagId: flag.id, status: 'picked_up', message: 'Driver has arrived!' }
-              });
-              await supabase.removeChannel(channel);
-
-              addToast(`🎉 Reached ${flag.student_name}!`, 'success');
-              console.log(`✅ Auto-dismissed flag for ${flag.student_name}`);
-            } else {
-              console.error('❌ Failed to auto-dismiss flag:', error);
-            }
-          } catch (err) {
-            console.error('❌ Error auto-dismissing flag:', err);
-          }
-        }
-      }
-    };
-
-    checkProximity();
-  }, [tripActive, currentLocation, waitingFlags]);
+  // Auto pickup logic is handled below in the "Distance-based auto-pickup" effect.
 
 
   // Manage persistent location channel for better performance
@@ -1535,20 +1467,7 @@ export default function DriverLiveTrackingPage() {
         console.warn("⚠️ Failed to broadcast trip start:", broadcastError);
       }
 
-      // Notify students via FCM
-      await fetch("/api/driver/notify-students", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${idToken}`,
-        },
-        body: JSON.stringify({
-          idToken,
-          busId: busData.busId,
-          routeId: routeData.routeId,
-          tripId: result.tripId,
-        }),
-      });
+      // FCM notifications are sent automatically by start-journey-v2
 
       console.log("✅ Trip started:", result);
     } catch (error: any) {
@@ -1704,7 +1623,7 @@ export default function DriverLiveTrackingPage() {
 
   if (loading || swapRequestLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-[#020817]">
+      <div className="flex-1 min-h-[calc(100dvh-120px)] flex items-center justify-center bg-gray-50 dark:bg-[#020817]">
         <PremiumPageLoader
           message="Initiating Real-time Tracking..."
           subMessage="Connecting to GPS and route services..."
@@ -1737,7 +1656,7 @@ export default function DriverLiveTrackingPage() {
     };
 
     return (
-      <div className={`min-h-screen flex items-center justify-center p-4 ${swapRole === 'sender' && swapType === 'assignment'
+      <div className={`flex-1 min-h-[calc(100dvh-120px)] flex items-center justify-center p-4 ${swapRole === 'sender' && swapType === 'assignment'
         ? 'bg-gradient-to-br from-green-50 via-emerald-50 to-teal-50 dark:from-gray-950 dark:via-green-950/30 dark:to-emerald-950/20'
         : 'bg-gradient-to-br from-amber-50 via-orange-50 to-yellow-50 dark:from-gray-950 dark:via-amber-950/30 dark:to-orange-950/20'
         }`}>
@@ -2547,7 +2466,7 @@ export default function DriverLiveTrackingPage() {
       <PWAInstallPrompt />
 
       {/* Notification Permission Banner */}
-      <NotificationPermissionBanner />
+
 
       {/* Fullscreen overlay to cover navbar when scanner is open */}
       {isScannerOpen && isFullScreenMap && (

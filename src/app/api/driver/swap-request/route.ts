@@ -1,52 +1,26 @@
 import { NextResponse } from 'next/server';
-import { auth, db as adminDb } from '@/lib/firebase-admin';
+import { db as adminDb, auth as adminAuth } from '@/lib/firebase-admin';
 import { FieldValue } from 'firebase-admin/firestore';
+import { withSecurity } from '@/lib/security/api-security';
+import { SwapRequestBodySchema } from '@/lib/security/validation-schemas';
+import { RateLimits } from '@/lib/security/rate-limiter';
+import crypto from 'crypto';
 
 /**
  * POST /api/driver/swap-request
  * 
- * Body: { busId, toDriverUid, idToken }
+ * Body: { busId, toDriverUid }
  * 
  * Creates a swap request from current driver to another driver
  * Notifies the target driver via FCM
  */
-export async function POST(request: Request) {
-  try {
-    const body = await request.json();
-    const { idToken, busId, toDriverUid } = body;
+export const POST = withSecurity(
+  async (request, { auth, body }) => {
+    const { busId, toDriverUid } = body as any;
+    const fromDriverUid = auth.uid;
 
-    // Validate required fields
-    if (!idToken || !busId || !toDriverUid) {
-      return NextResponse.json(
-        { error: 'Missing required fields: idToken, busId, toDriverUid' },
-        { status: 400 }
-      );
-    }
-
-    // Verify Firebase ID token
-    if (!auth) {
-      return NextResponse.json(
-        { error: 'Firebase Admin not initialized' },
-        { status: 500 }
-      );
-    }
-
-    const decodedToken = await auth.verifyIdToken(idToken);
-    const fromDriverUid = decodedToken.uid;
-
-    // Verify user exists and is a driver
-    const userDoc = await adminDb.collection('users').doc(fromDriverUid).get();
-    if (!userDoc.exists) {
-      return NextResponse.json({ error: 'User not found' }, { status: 404 });
-    }
-
-    const userData = userDoc.data();
-    if (userData?.role !== 'driver') {
-      return NextResponse.json(
-        { error: 'User is not authorized as a driver' },
-        { status: 403 }
-      );
-    }
+    // Verify user is a driver (already done by withSecurity, but double-checking role if needed)
+    // Actually withSecurity with requiredRoles: ['driver'] takes care of this.
 
     // Verify target user is also a driver
     const toUserDoc = await adminDb.collection('users').doc(toDriverUid).get();
@@ -65,7 +39,7 @@ export async function POST(request: Request) {
 
     const busData = busDoc.data();
 
-    // Check both new fields (assignedDriverId, activeDriverId) and legacy field (driverUID)
+    // Check assignment
     const isAssignedDriver =
       busData?.assignedDriverId === fromDriverUid ||
       busData?.activeDriverId === fromDriverUid ||
@@ -93,7 +67,7 @@ export async function POST(request: Request) {
       );
     }
 
-    const requestId = `swap_${busId}_${new Date().getTime()}`;
+    const requestId = `swap_${busId}_${crypto.randomUUID()}`;
 
     // Create swap request
     await adminDb.collection('swap_requests').doc(requestId).set({
@@ -107,10 +81,8 @@ export async function POST(request: Request) {
       handledBy: null
     });
 
-    // Log operation (audit_logs moved to Supabase)
     console.log('📝 Swap request created:', {
       actorUid: fromDriverUid,
-      action: 'driver_create_swap_request',
       requestId, busId, toDriverUid,
       timestamp: new Date().toISOString()
     });
@@ -127,13 +99,13 @@ export async function POST(request: Request) {
         driverTokens.push(tokenDoc.data().deviceToken);
       });
 
-      if (driverTokens.length > 0 && auth.messaging) {
-        await auth.messaging().sendEach(
+      if (driverTokens.length > 0 && adminAuth.messaging) {
+        await adminAuth.messaging().sendEach(
           driverTokens.map(token => ({
             token,
             notification: {
               title: 'Driver Swap Request',
-              body: `${userData?.name || 'A driver'} wants to swap bus duty with you`
+              body: `A driver wants to swap bus duty with you`
             },
             data: {
               type: 'swap_request',
@@ -146,7 +118,6 @@ export async function POST(request: Request) {
       }
     } catch (fcmError) {
       console.error('Error sending FCM notification:', fcmError);
-      // Don't fail the request
     }
 
     return NextResponse.json({
@@ -160,12 +131,11 @@ export async function POST(request: Request) {
         status: 'pending'
       }
     });
-
-  } catch (error: any) {
-    console.error('Error creating swap request:', error);
-    return NextResponse.json(
-      { error: 'Failed to create swap request' },
-      { status: 500 }
-    );
+  },
+  {
+    requiredRoles: ['driver'],
+    schema: SwapRequestBodySchema,
+    rateLimit: RateLimits.CREATE,
+    allowBodyToken: true
   }
-}
+);

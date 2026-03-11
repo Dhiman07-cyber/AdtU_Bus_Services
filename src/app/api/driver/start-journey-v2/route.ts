@@ -1,10 +1,15 @@
 import { NextResponse } from 'next/server';
-import { auth, db as adminDb } from '@/lib/firebase-admin';
+import { db as adminDb } from '@/lib/firebase-admin';
+import { notifyRoute } from '@/lib/services/fcm-notification-service';
 import { createClient } from '@supabase/supabase-js';
 import { FieldValue, Timestamp } from 'firebase-admin/firestore';
 import { snapStops, type SnapResult } from '@/lib/coordinate-snapping';
 import { getRobustRoute } from '@/lib/ors-robust-client';
 import { resolveStopCoordinate } from '@/lib/geocoding-service';
+import { withSecurity } from '@/lib/security/api-security';
+import { StartTripSchema } from '@/lib/security/validation-schemas';
+import { RateLimits } from '@/lib/security/rate-limiter';
+import crypto from 'crypto';
 
 const ORS_API_KEY = process.env.ORS_API_KEY || '';
 
@@ -23,50 +28,15 @@ const ORS_API_KEY = process.env.ORS_API_KEY || '';
  * 7. Send FCM notifications to students
  * 8. Broadcast realtime event
  * 
- * Body: { idToken, busId, routeId }
+ * Body: { busId, routeId }
  */
-export async function POST(request: Request) {
-  const startTime = Date.now();
-
-  try {
-    const body = await request.json();
-    const requestData = JSON.parse(JSON.stringify(body)); // Deep clone
-    const { idToken, busId, routeId } = requestData;
-
-    // Validate required fields
-    if (!idToken || !busId || !routeId) {
-      return NextResponse.json(
-        { error: 'Missing required fields: idToken, busId, routeId' },
-        { status: 400 }
-      );
-    }
+export const POST = withSecurity(
+  async (request, { auth, body }) => {
+    const startTime = Date.now();
+    const { busId, routeId } = body as any;
+    const driverUid = auth.uid;
 
     console.log(`🚀 Starting journey for bus ${busId}, route ${routeId}...`);
-
-    // Verify Firebase ID token
-    if (!auth) {
-      return NextResponse.json(
-        { error: 'Firebase Admin not initialized' },
-        { status: 500 }
-      );
-    }
-
-    const decodedToken = await auth.verifyIdToken(idToken);
-    const driverUid = decodedToken.uid;
-
-    // Verify user exists and is a driver
-    const userDoc = await adminDb.collection('users').doc(driverUid).get();
-    if (!userDoc.exists) {
-      return NextResponse.json({ error: 'User not found' }, { status: 404 });
-    }
-
-    const userData = userDoc.data();
-    if (userData?.role !== 'driver') {
-      return NextResponse.json(
-        { error: 'User is not authorized as a driver' },
-        { status: 403 }
-      );
-    }
 
     // Get driver document to check bus assignment
     const driverDoc = await adminDb.collection('drivers').doc(driverUid).get();
@@ -124,7 +94,7 @@ export async function POST(request: Request) {
     // Prevents multiple drivers from operating the same bus
     // =====================================================
     const now = new Date();
-    const tripId = `trip_${busId}_${now.getTime()}`;
+    const tripId = crypto.randomUUID(); // Cryptographically secure UUID
     const LOCK_TTL_SECONDS = 300;
     const expiresAt = new Date(now.getTime() + LOCK_TTL_SECONDS * 1000);
 
@@ -216,14 +186,8 @@ export async function POST(request: Request) {
 
     // Fetch route data from bus document (route is nested inside bus)
     console.log(`📍 Fetching route from bus ${busId}...`);
-    console.log(`🔍 Bus data structure:`, {
-      hasRoute: !!busData?.route,
-      hasStops: !!busData?.stops,
-      routeStopsCount: busData?.route?.stops?.length || 0,
-      directStopsCount: busData?.stops?.length || 0
-    });
-
-    const stops = busData?.route?.stops || busData?.stops || [];
+    
+    let stops = busData?.route?.stops || busData?.stops || [];
     const routeName = busData?.route?.routeName || busData?.routeName || routeId;
 
     // Attempt to fetch from 'routes' collection if bus data is missing stops
@@ -237,28 +201,18 @@ export async function POST(request: Request) {
           const routeStops = routeDocData?.stops || [];
 
           if (routeStops.length >= 2) {
-            console.log(`✅ Found ${routeStops.length} stops in independent route document.`);
-            // We can't easily reassign 'stops' because it's a const.
-            // But we can proceed by just pushing to it if it was a let, or we can't.
-            // Since 'stops' is const, we have to proceed without snapping or rely on client data?
-            // Actually, simplest fix is to allow the trip to start even without stops.
-            // The routing/snapping logic depends on stops, but we can wrap that in a check.
-          } else {
-            console.warn(`⚠️ Route document also has insufficient stops (${routeStops.length})`);
+            console.log(`✅ Found ${routeStops.length} stops in independent route document. Using these stops.`);
+            stops = routeStops;
           }
         }
       } catch (err) {
         console.warn(`⚠️ Failed to fetch route document:`, err);
       }
-
-      // PROCEED ANYWAY (Don't block trip start)
-      console.warn("⚠️ proceeding with trip start despite insufficient stops (Map snapping will be skipped)");
     }
 
     console.log(`📍 Route has ${stops.length} stops`);
 
     // STEP 1: Bus lock already acquired above via transaction
-    // tripId and now already defined above
     console.log(`\n⚡ STEP 1: Bus lock acquired successfully.`);
 
     // Initialize Supabase client
@@ -266,7 +220,6 @@ export async function POST(request: Request) {
     const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
     if (!supabaseUrl || !supabaseKey) {
-      console.error("❌ Missing Supabase credentials in start-journey-v2");
       return NextResponse.json(
         { error: 'Server configuration error: Missing Supabase credentials' },
         { status: 500 }
@@ -285,30 +238,62 @@ export async function POST(request: Request) {
         route_id: routeId,
         status: 'on_trip',
         started_at: now.toISOString(),
-        last_updated_at: now.toISOString()
+        last_updated_at: now.toISOString(),
+        trip_id: tripId
       }, {
         onConflict: 'driver_uid',
         ignoreDuplicates: false
       });
 
     if (driverStatusError) {
-      console.error('❌ Error inserting driver_status:', driverStatusError);
       return NextResponse.json(
         { error: 'Failed to update driver status' },
         { status: 500 }
       );
     }
 
+    // Insert into active_trips table for lock management
+    const { error: activeTripError } = await supabase
+      .from('active_trips')
+      .insert({
+        bus_id: busId,
+        driver_id: driverUid,
+        route_id: routeId,
+        shift: 'both',
+        status: 'active',
+        start_time: now.toISOString(),
+        last_heartbeat: now.toISOString(),
+        metadata: {
+          appTripId: tripId,
+          routeName: routeName,
+          busNumber: busData?.busNumber || busId,
+          stopsCount: stops.length
+        }
+      });
+
+    // Insert initial bus_locations row for this trip
+    await supabase
+      .from('bus_locations')
+      .insert({
+        bus_id: busId,
+        route_id: routeId,
+        driver_uid: driverUid,
+        lat: 0,
+        lng: 0,
+        speed: 0,
+        heading: 0,
+        accuracy: 0,
+        timestamp: now.toISOString(),
+        is_snapshot: true,
+        trip_id: tripId
+      });
+
     // STEP 2: Resolve coordinates (Efficiently)
     console.log(`\n🔄 STEP 2: Resolving ${stops.length} stop coordinates...`);
 
-    // First, try geocoding by place name for better accuracy
     const resolvedStops: any[] = [];
-    let needsGeocoding = false;
-
     for (let i = 0; i < stops.length; i++) {
       const stop = stops[i];
-      // Skip geocoding if we already have coordinates
       if (stop.lat && stop.lng && stop.lat !== 0 && stop.lng !== 0) {
         resolvedStops.push({
           ...stop,
@@ -320,9 +305,6 @@ export async function POST(request: Request) {
         });
         continue;
       }
-
-      console.log(`\n📍 Stop ${i + 1}/${stops.length}: ${stop.name} (Geocoding needed)`);
-      needsGeocoding = true;
 
       const resolved = await resolveStopCoordinate(
         stop.name,
@@ -339,37 +321,19 @@ export async function POST(request: Request) {
         workingLat: resolved.lat,
         workingLng: resolved.lng
       });
-
-      // Minimal rate limit only if we actually hit the API
       await new Promise(resolve => setTimeout(resolve, 200));
     }
 
     // STEP 3: Snapping and Routing (Optimized)
     console.log(`\n🔄 STEP 3: Snapping and routing...`);
-
-    let routeGeometry: any = null;
-    let routeGeometrySource: string = 'none';
     let snappedStops: any[] = [];
-    let snapSuccessRate = 0;
 
     try {
-      // Only snap if we have ORS key
       if (ORS_API_KEY) {
         const snapResults = await snapStops(
           resolvedStops.map(s => ({ lat: s.workingLat || 0, lng: s.workingLng || 0, ...s })),
-          {
-            apiKey: ORS_API_KEY,
-            radii: [350, 700], // Reduced radii steps for speed
-            maxDistance: 500,
-            enableNominatim: false
-          },
-          (index, total, result) => {
-            // Quiet logs
-          }
+          { apiKey: ORS_API_KEY, radii: [350, 700], maxDistance: 500, enableNominatim: false }
         );
-
-        const successfulSnaps = snapResults.filter(r => r.success).length;
-        snapSuccessRate = stops.length > 0 ? (successfulSnaps / stops.length) * 100 : 0;
 
         snappedStops = resolvedStops.map((stop, index) => {
           const snapResult = snapResults[index];
@@ -385,100 +349,43 @@ export async function POST(request: Request) {
             snappingMethod: snapResult.method || 'none'
           };
         });
-
-        // Calculate Route
-        if (snapSuccessRate >= 50) {
-          const routeResult = await getRobustRoute(
-            snappedStops.map(s => ({ lat: s.snappedLat, lng: s.snappedLng })),
-            'driving-car',
-            {
-              apiKey: ORS_API_KEY,
-              radiusSteps: [500],
-              enableSnapping: false,
-              logRequests: false
-            }
-          );
-
-          if (routeResult.success) {
-            routeGeometry = routeResult.geometry;
-            routeGeometrySource = 'ors-computed';
-          }
-        }
       }
     } catch (routingError) {
-      console.warn("⚠️ Routing calculation failed (non-critical):", routingError);
-      // Continue without geometry - vital trip data is already saved
+      console.warn("⚠️ Routing calculation failed:", routingError);
     }
 
     // STEP 4: Update trip session with calculated data - SKIPPED per user request
     console.log(`\n🔄 STEP 4: Skipped updating trip geometry in Firestore (no trip_sessions doc).`);
-    // If we wanted to store geometry, we'd put it in buses/{busId} or Supabase here.
-    // For now, removing to comply with "no trip related data stored".
 
-    // STEP 5: Notify Students (Async/Parallel)
+    // STEP 5: Notify Students via centralized FCM service
     console.log(`\n📢 STEP 5: Sending notifications...`);
 
-    // Broadcast immediately
-    const studentChannel = supabase.channel(`trip-status-${busId}`);
-    studentChannel.subscribe(async (status) => {
-      if (status === 'SUBSCRIBED') {
-        await studentChannel.send({
-          type: 'broadcast',
-          event: 'trip_started',
-          payload: {
-            busId,
-            routeId,
-            driverUid,
-            tripId,
-            routeName: routeName,
-            timestamp: now.toISOString()
-          }
-        });
-        await supabase.removeChannel(studentChannel);
-      }
-    });
+    try {
+      const studentChannel = supabase.channel(`trip-status-${busId}`);
+      await studentChannel.httpSend('trip_started', {
+        busId,
+        routeId,
+        driverUid,
+        tripId,
+        routeName: routeName,
+        timestamp: now.toISOString()
+      });
+    } catch (broadcastError) {
+      // Non critical
+    }
 
-    // Send FCM in background (don't await loop)
-    (async () => {
-      try {
-        let studentsSnapshot = await adminDb.collection('students').where('assignedBusId', '==', busId).get();
-
-        if (studentsSnapshot.empty) {
-          const altSnapshot1 = await adminDb.collection('students').where('busId', '==', busId).get();
-          const altSnapshot2 = await adminDb.collection('students').where('bus_id', '==', busId).get();
-          studentsSnapshot = altSnapshot1.empty ? altSnapshot2 : altSnapshot1;
-        }
-
-        const fcmTokens: string[] = [];
-        const studentIds = studentsSnapshot.docs.map((doc: any) => doc.id);
-        const tokenSnapshots = await Promise.all(
-          studentIds.map((uid: string) => adminDb.collection('fcm_tokens').where('userUid', '==', uid).get())
-        );
-        for (const tokens of tokenSnapshots) {
-          tokens.forEach((t: any) => fcmTokens.push(t.data().deviceToken));
-        }
-
-        if (fcmTokens.length > 0 && auth.messaging) {
-          const busNum = busData.busNumber || busId;
-          await auth.messaging().sendEach(
-            fcmTokens.map(token => ({
-              token,
-              notification: {
-                title: `${routeName} - Trip Started`,
-                body: `Bus ${busNum} has started its journey`
-              },
-              data: { type: 'trip_started', busId, tripId }
-            }))
-          );
-        }
-      } catch (err) {
-        console.error("Background FCM error:", err);
-      }
-    })();
+    try {
+      await notifyRoute({
+        routeId,
+        tripId,
+        routeName: routeName as string,
+        busId,
+      });
+    } catch (err) {
+      console.error('❌ FCM notification error:', err);
+    }
 
     const elapsed = Date.now() - startTime;
-    console.log(`\n✅ Journey start sequence completed in ${elapsed}ms`);
-
     return NextResponse.json({
       success: true,
       message: 'Journey started successfully',
@@ -488,13 +395,11 @@ export async function POST(request: Request) {
       timestamp: now.toISOString(),
       processingTimeMs: elapsed
     });
-
-
-  } catch (error: any) {
-    console.error('❌ Error starting journey:', error);
-    return NextResponse.json(
-      { error: 'Failed to start journey' },
-      { status: 500 }
-    );
+  },
+  {
+    requiredRoles: ['driver', 'admin'],
+    schema: StartTripSchema,
+    rateLimit: RateLimits.CREATE, // Start trip shouldn't be spammed
+    allowBodyToken: true
   }
-}
+);

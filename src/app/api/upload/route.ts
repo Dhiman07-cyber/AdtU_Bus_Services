@@ -1,146 +1,158 @@
-// @ts-nocheck
-import { NextRequest, NextResponse } from 'next/server';
-import { v2 as cloudinary } from 'cloudinary';
+/**
+ * POST /api/upload — Secure Image Upload
+ * ────────────────────────────────────────
+ * SECURITY HARDENING (March 2026):
+ *  1. ✅ Authentication required (Firebase token verified server-side)
+ *  2. ✅ Rate-limited (5 uploads / 60 s per user)
+ *  3. ✅ MIME-type allow-list (jpg, png, webp only — no gif)
+ *  4. ✅ File size capped at 5 MB
+ *  5. ✅ Folder allow-list — client cannot choose arbitrary folders
+ *  6. ✅ Server-generated unique public_id (client cannot set it)
+ *  7. ✅ Overwrite disabled (prevents replacing existing assets)
+ *  8. ✅ EXIF/metadata stripped from uploads
+ *  9. ✅ Old image deleted (via SDK, not by sending API_SECRET in a form!)
+ * 10. ✅ Error messages sanitised in production
+ *
+ * Accepts multipart/form-data with fields:
+ *   file        – the image file (required)
+ *   folder      – target folder, validated against allow-list (default: "adtu")
+ *   oldImageUrl – previous Cloudinary URL to delete (optional)
+ */
 
-// Configure Cloudinary
-if (process.env.CLOUDINARY_API_KEY && process.env.CLOUDINARY_API_SECRET && process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME) {
-  cloudinary.config({
-    cloud_name: process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME,
-    api_key: process.env.CLOUDINARY_API_KEY,
-    api_secret: process.env.CLOUDINARY_API_SECRET,
-  });
-}
+import { NextRequest, NextResponse } from 'next/server';
+import cloudinary, {
+  sanitizeFolder,
+  isAllowedMimeType,
+  isAllowedSize,
+  extractPublicId,
+  deleteAsset,
+  MAX_FILE_SIZE,
+} from '@/lib/cloudinary-server';
+import { verifyTokenOnly } from '@/lib/security/api-auth';
+import { checkRateLimit, createRateLimitId } from '@/lib/security/rate-limiter';
+import { handleApiError } from '@/lib/security/safe-error';
 
 export async function POST(request: NextRequest) {
   try {
-    console.log('📥 [Upload API] Request received');
+    // ── 1. Authentication ─────────────────────────────────────────────────
+    // SECURITY: Every upload must come from an authenticated user.
+    const user = await verifyTokenOnly(request);
+    if (!user) {
+      return NextResponse.json(
+        { error: 'Authentication required' },
+        { status: 401 }
+      );
+    }
 
-    // Mobile optimization: Add request timeout handling
-    const timeoutPromise = new Promise((_, reject) =>
-      setTimeout(() => reject(new Error('Server timeout')), 25000) // 25 second server timeout
-    );
+    // ── 2. Rate Limiting ──────────────────────────────────────────────────
+    // SECURITY: Prevent upload flooding — 5 requests per 60 seconds per user.
+    const rateLimitId = createRateLimitId(user.uid, 'upload');
+    const rateCheck = checkRateLimit(rateLimitId, 5, 60_000);
+    if (!rateCheck.allowed) {
+      return NextResponse.json(
+        { error: 'Too many uploads. Please wait before trying again.' },
+        {
+          status: 429,
+          headers: {
+            'Retry-After': String(Math.ceil(rateCheck.resetIn / 1000)),
+          },
+        }
+      );
+    }
 
-    const processRequest = async () => {
-      const formData = await request.formData();
-      const file = formData.get('file') as File;
-      const oldImageUrl = formData.get('oldImageUrl') as string || '';
+    // ── 3. Parse Form Data ────────────────────────────────────────────────
+    const formData = await request.formData();
+    const file = formData.get('file') as File | null;
+    const rawFolder = formData.get('folder') as string | null;
+    const oldImageUrl = (formData.get('oldImageUrl') as string) || '';
 
-      if (!file) {
-        return NextResponse.json({ error: 'No file provided' }, { status: 400 });
-      }
+    if (!file) {
+      return NextResponse.json({ error: 'No file provided' }, { status: 400 });
+    }
 
-      console.log('📁 [Upload API] File details:', {
-        name: file.name,
-        size: `${(file.size / 1024 / 1024).toFixed(2)} MB`,
-        type: file.type
-      });
+    // ── 4. Validate MIME Type ─────────────────────────────────────────────
+    // SECURITY: Allowlist-only — blocks everything that isn't jpg/png/webp.
+    if (!isAllowedMimeType(file.type)) {
+      return NextResponse.json(
+        { error: 'Invalid file type. Only JPEG, PNG, and WebP images are allowed.' },
+        { status: 400 }
+      );
+    }
 
-      // Validate file type
-      const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp'];
-      if (!allowedTypes.includes(file.type)) {
-        return NextResponse.json({
-          error: 'Invalid file type. Only JPEG, PNG, GIF, and WebP images are allowed.'
-        }, { status: 400 });
-      }
+    // ── 5. Validate File Size ─────────────────────────────────────────────
+    // SECURITY: Hard cap at 5 MB.
+    if (!isAllowedSize(file.size)) {
+      return NextResponse.json(
+        {
+          error: `File size too large. Maximum is ${MAX_FILE_SIZE / 1024 / 1024} MB.`,
+        },
+        { status: 400 }
+      );
+    }
 
-      // Validate file size (max 5MB)
-      if (file.size > 5 * 1024 * 1024) {
-        return NextResponse.json({
-          error: 'File size too large. Maximum file size is 5MB.'
-        }, { status: 400 });
-      }
+    // ── 6. Sanitise Folder ────────────────────────────────────────────────
+    // SECURITY: Only permitted folder names are accepted.
+    const folder = sanitizeFolder(rawFolder);
 
-      // Delete old image from Cloudinary if it exists
-      if (oldImageUrl && cloudinary.config().api_key) {
-        try {
-          // Extract public ID from old Cloudinary URL
-          const url = new URL(oldImageUrl);
-          const pathParts = url.pathname.split('/');
-          const fileName = pathParts.filter(part => part.length > 0).pop();
-          if (fileName) {
-            const publicId = fileName.split('.').slice(0, -1).join('.');
-            const fullPublicId = `ADTU/${publicId}`;
-
-            // Delete from Cloudinary
-            await cloudinary.uploader.destroy(fullPublicId);
-            console.log(`✅ [Upload API] Deleted old image: ${fullPublicId}`);
-          }
-        } catch (cloudinaryError) {
-          console.error('⚠️ [Upload API] Error deleting old image:', cloudinaryError);
+    // ── 7. Delete Old Image (if provided) ─────────────────────────────────
+    // SECURITY: Deletion is done via the SDK which keeps API_SECRET on the
+    // server — the old route sent api_secret in a FormData POST (bad!).
+    if (oldImageUrl) {
+      const oldPublicId = extractPublicId(oldImageUrl);
+      if (oldPublicId) {
+        const deleted = await deleteAsset(oldPublicId);
+        if (deleted) {
+          console.log(`✅ [Upload] Deleted old image: ${oldPublicId}`);
+        } else {
+          console.warn(`⚠️ [Upload] Could not delete old image: ${oldPublicId}`);
         }
       }
+    }
 
-      // Get Cloudinary configuration from environment variables
-      const cloudName = process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME;
-      const uploadPreset = process.env.NEXT_PUBLIC_CLOUDINARY_UPLOAD_PRESET;
+    // ── 8. Upload to Cloudinary (server-side SDK) ─────────────────────────
+    // SECURITY:
+    //  - unique_filename: true  → Cloudinary generates a random name
+    //  - use_filename: false    → Ignores the original filename
+    //  - overwrite: false       → Cannot replace an existing asset
+    //  - strip_profile flag     → Removes EXIF / GPS metadata
+    const arrayBuffer = await file.arrayBuffer();
+    const base64 = Buffer.from(arrayBuffer).toString('base64');
+    const dataURI = `data:${file.type};base64,${base64}`;
 
-      if (!cloudName || !uploadPreset) {
-        console.error('❌ [Upload API] Cloudinary config missing:', {
-          cloudName: !!cloudName,
-          uploadPreset: !!uploadPreset
-        });
-        return NextResponse.json({
-          error: 'Cloudinary configuration is missing. Please check your environment variables.'
-        }, { status: 500 });
-      }
+    const result = await cloudinary.uploader.upload(dataURI, {
+      folder,
+      use_filename: false,
+      unique_filename: true,
+      overwrite: false,
+      // SECURITY: Strip all metadata (EXIF, GPS) from uploaded images
+      transformation: [{ flags: 'strip_profile' }],
+      // Restrict to image resource type only
+      resource_type: 'image',
+    });
 
-      const folder = (formData.get('folder') as string) || "ADTU";
-
-      // Create new FormData for Cloudinary API request
-      const cloudinaryFormData = new FormData();
-      cloudinaryFormData.append("file", file);
-      cloudinaryFormData.append("upload_preset", uploadPreset);
-      cloudinaryFormData.append("folder", folder);
-      cloudinaryFormData.append("public_id", `profile_${Date.now()}_${Math.floor(Math.random() * 10000)}`);
-
-      console.log('🚀 [Upload API] Uploading to Cloudinary...');
-
-      // Upload directly to Cloudinary API with mobile-friendly timeout
-      const res = await fetch(`https://api.cloudinary.com/v1_1/${cloudName}/image/upload`, {
-        method: "POST",
-        body: cloudinaryFormData,
-        // Mobile optimization: Add signal for timeout
-        signal: AbortSignal.timeout(20000) // 20 second timeout for Cloudinary
-      });
-
-      if (!res.ok) {
-        const errorText = await res.text();
-        console.error('❌ [Upload API] Cloudinary upload failed:', {
-          status: res.status,
-          statusText: res.statusText,
-          errorText: errorText.substring(0, 200)
-        });
-        throw new Error(`Cloudinary upload failed with status ${res.status}`);
-      }
-
-      const data = await res.json();
-      console.log('✅ [Upload API] Upload successful');
-
-      // Validate the result
-      if (!data.secure_url) {
-        throw new Error('Upload succeeded but no URL was returned');
-      }
-
-      return NextResponse.json({
-        url: data.secure_url,
-        public_id: data.public_id
-      });
-    };
-
-    // Race between processing and timeout
-    return (await Promise.race([processRequest(), timeoutPromise])) as NextResponse;
-
-  } catch (error: any) {
-    console.error('❌ [Upload API] Error:', error);
-
-    if (error.name === 'AbortError' || error.message === 'Server timeout') {
-      return NextResponse.json({
-        error: 'Upload timed out. Please try with a smaller image or better network connection.'
-      }, { status: 408 });
+    // Validate we got a URL back
+    if (!result.secure_url) {
+      throw new Error('Cloudinary upload succeeded but returned no URL');
     }
 
     return NextResponse.json({
-      error: 'Upload failed'
-    }, { status: 500 });
+      url: result.secure_url,
+      public_id: result.public_id,
+    });
+  } catch (error: any) {
+    console.error('❌ [Upload] Error:', error);
+
+    // Handle timeout / network errors with specific status
+    if (error.name === 'AbortError' || error.message?.includes('timeout')) {
+      return NextResponse.json(
+        { error: 'Upload timed out. Please try with a smaller image.' },
+        { status: 408 }
+      );
+    }
+
+    return NextResponse.json(
+      handleApiError(error, 'upload', 'Failed to upload image'),
+      { status: 500 }
+    );
   }
 }

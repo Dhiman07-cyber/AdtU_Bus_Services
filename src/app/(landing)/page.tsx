@@ -125,7 +125,7 @@ export default function PremiumLanding() {
 
   if (loading) {
     return (
-      <div className="loading-screen min-h-screen flex items-center justify-center">
+      <div className="loading-screen flex-1 min-h-[calc(100dvh-120px)] flex items-center justify-center">
         <div className="flex flex-col items-center gap-4">
           <div className="loading-spinner w-12 h-12"></div>
           <p className="text-lg font-semibold">Please wait...</p>

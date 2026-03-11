@@ -1,13 +1,36 @@
 import { getApps, initializeApp, cert } from 'firebase-admin/app';
 import { getFirestore, FieldValue } from 'firebase-admin/firestore';
 import { getAuth } from 'firebase-admin/auth';
+import { getMessaging, type Messaging } from 'firebase-admin/messaging';
+
+// ─── Env Validation ──────────────────────────────────────────────────────────
+// Fail-fast if critical env vars are missing (only check server-side)
+const REQUIRED_ENV_VARS = [
+  'NEXT_PUBLIC_FIREBASE_PROJECT_ID',
+  'FIREBASE_CLIENT_EMAIL',
+  'FIREBASE_PRIVATE_KEY',
+] as const;
+
+function validateEnvVars(): void {
+  const missing = REQUIRED_ENV_VARS.filter(key => !process.env[key]);
+  if (missing.length > 0) {
+    const msg = `❌ Missing required Firebase Admin env vars: ${missing.join(', ')}`;
+    if (process.env.NODE_ENV === 'production') {
+      throw new Error(msg);
+    } else {
+      console.warn(msg);
+    }
+  }
+}
 
 let adminApp: any;
 let auth: any;
 let db: any;
+let messaging: Messaging | null = null;
 
 // Try to initialize Firebase Admin SDK
 try {
+  validateEnvVars();
   const isProduction = process.env.NODE_ENV === 'production';
 
   if (!isProduction) {
@@ -39,6 +62,11 @@ try {
 
     auth = getAuth(adminApp);
     db = getFirestore(adminApp);
+    try {
+      messaging = getMessaging(adminApp);
+    } catch (msgError: any) {
+      console.warn('⚠️ Firebase Admin Messaging init failed:', msgError.message);
+    }
   } else if (!isProduction) {
     console.warn('⚠️ Firebase Admin credentials not found');
   }
@@ -58,5 +86,6 @@ export async function verifyToken(token: string) {
 export const adminAuth = auth || null;
 export const adminDb = db || null;
 export const admin = adminApp || null;
+export const adminMessaging = messaging;
 
-export { adminApp, auth, db, FieldValue };
+export { adminApp, auth, db, messaging, FieldValue };

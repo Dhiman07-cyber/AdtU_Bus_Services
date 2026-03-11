@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/contexts/auth-context";
 import { Button } from "@/components/ui/button";
@@ -15,7 +15,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 
-export default function LoginPage() {
+function LoginContent() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [showApplyModal, setShowApplyModal] = useState(false);
@@ -149,7 +149,7 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-[#0E0F12] via-[#12141A] to-[#0E0F12] p-4 transition-all duration-300 relative overflow-hidden">
+    <div className="flex-1 min-h-[100dvh] flex items-center justify-center bg-gradient-to-br from-[#0E0F12] via-[#12141A] to-[#0E0F12] p-4 transition-all duration-300 relative overflow-hidden">
       {/* Background Effects */}
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_20%_50%,rgba(59,130,246,0.1),transparent_50%)]"></div>
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_80%_20%,rgba(147,51,234,0.1),transparent_50%)]"></div>
@@ -254,5 +254,13 @@ export default function LoginPage() {
         </DialogContent>
       </Dialog>
     </div>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense fallback={<div className="flex-1 min-h-[100dvh] flex items-center justify-center bg-[#0E0F12]"></div>}>
+      <LoginContent />
+    </Suspense>
   );
 }

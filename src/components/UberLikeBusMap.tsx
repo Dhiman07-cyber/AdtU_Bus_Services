@@ -9,7 +9,6 @@
 import { useEffect, useState, useRef } from 'react';
 import dynamic from 'next/dynamic';
 import 'leaflet/dist/leaflet.css';
-import { useBusLocation } from '@/hooks/useBusLocation';
 import { Loader2, Navigation, MapPin, Maximize2, Minimize2, QrCode } from 'lucide-react';
 import { Button } from './ui/button';
 
@@ -56,6 +55,8 @@ interface UberLikeBusMapProps {
   primaryActionDisabled?: boolean; // Disable the primary action button
   studentLocation?: { lat: number; lng: number; accuracy?: number } | null; // Student's own location
   onShowQrCode?: () => void; // Callback to show student's QR code (replaces speed indicator)
+  currentLocation?: any; // The bus location from the parent
+  loading?: boolean;     // The loading state from the parent
 }
 
 export default function UberLikeBusMap({
@@ -70,9 +71,10 @@ export default function UberLikeBusMap({
   primaryActionColor = 'orange',
   primaryActionDisabled = false,
   studentLocation = null,
-  onShowQrCode
+  onShowQrCode,
+  currentLocation: busLocation,
+  loading = false,
 }: UberLikeBusMapProps) {
-  const { currentLocation: busLocation, interpolatedLocation, loading } = useBusLocation(journeyActive ? busId : '');
   const [mapReady, setMapReady] = useState(false);
   const [busIcon, setBusIcon] = useState<any>(null);
   const [studentIcon, setStudentIcon] = useState<any>(null);
@@ -80,9 +82,9 @@ export default function UberLikeBusMap({
   const mapRef = useRef<any>(null);
   const mapContainerRef = useRef<HTMLDivElement>(null);
 
-  // Use interpolated location for the marker, fallback to raw location
-  const displayLat = interpolatedLocation?.lat || busLocation?.lat;
-  const displayLng = interpolatedLocation?.lng || busLocation?.lng;
+  // Use raw location (parent handles updates)
+  const displayLat = busLocation?.lat;
+  const displayLng = busLocation?.lng;
 
   // Default center (ADTU Campus area)
   const defaultCenter: [number, number] = [26.1445, 91.7362];
@@ -611,46 +613,69 @@ export default function UberLikeBusMap({
 
       {/* Optimized No bus location warning */}
       {!busLocation && journeyActive && !loading && (
-        <div className="absolute inset-0 bg-black/60 z-[999] flex items-center justify-center p-4">
-          <div className="bg-white/95 dark:bg-gray-900/95 rounded-3xl p-8 max-w-sm mx-4 text-center shadow-lg backdrop-blur-sm border border-white/20 dark:border-gray-700/20">
-            <div className="relative mb-6">
-              <div className={`w-20 h-20 bg-gradient-to-br ${waitingTooLong ? 'from-red-400 to-red-600' : 'from-yellow-400 to-orange-500'} rounded-full flex items-center justify-center mx-auto shadow-xl`}>
-                <MapPin className="w-10 h-10 text-white" />
+        isFullScreen ? (
+          <div className="absolute inset-0 bg-black/80 z-[999] flex items-center justify-center p-4 backdrop-blur-sm">
+            <div className="bg-white/95 dark:bg-gray-900/95 rounded-3xl p-8 max-w-sm mx-4 text-center shadow-2xl border border-white/20 dark:border-gray-700/20">
+              <div className="relative mb-6">
+                <div className={`w-20 h-20 bg-gradient-to-br ${waitingTooLong ? 'from-red-400 to-red-600' : 'from-yellow-400 to-orange-500'} rounded-full flex items-center justify-center mx-auto shadow-xl`}>
+                  <MapPin className="w-10 h-10 text-white" />
+                </div>
+                <div className="absolute -top-2 -right-2 w-6 h-6 bg-red-500 rounded-full flex items-center justify-center animate-pulse shadow-lg">
+                  <span className="text-xs font-bold text-white">!</span>
+                </div>
               </div>
-              <div className="absolute -top-2 -right-2 w-6 h-6 bg-red-500 rounded-full flex items-center justify-center animate-pulse">
-                <span className="text-xs font-bold text-white">!</span>
-              </div>
-            </div>
-            <h3 className="text-xl font-bold bg-gradient-to-r from-gray-900 to-gray-600 dark:from-white dark:to-gray-300 bg-clip-text text-transparent mb-3">
-              {waitingTooLong ? 'Driver Not Sharing Location' : 'Searching for Bus...'}
-            </h3>
-            <p className="text-gray-600 dark:text-gray-400 leading-relaxed mb-4">
-              {waitingTooLong
-                ? 'The driver may not have enabled location sharing or the app may be closed. Please wait or contact the driver.'
-                : 'Waiting for the bus to share its location. This may take a moment.'}
-            </p>
+              <h3 className="text-xl font-bold bg-gradient-to-r from-gray-900 to-gray-600 dark:from-white dark:to-gray-300 bg-clip-text text-transparent mb-3">
+                {waitingTooLong ? 'Driver Not Sharing Location' : 'Searching for Bus...'}
+              </h3>
+              <p className="text-gray-600 dark:text-gray-400 leading-relaxed mb-4">
+                {waitingTooLong
+                  ? 'The driver may not have enabled location sharing or the app may be closed. Please wait or contact the driver.'
+                  : 'Waiting for the bus to share its location. This may take a moment.'}
+              </p>
 
-            {/* Status indicator */}
-            <div className={`flex items-center justify-center gap-2 px-4 py-2 rounded-full ${waitingTooLong
-              ? 'bg-red-100 dark:bg-red-900/30 text-red-800 dark:text-red-400'
-              : 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-800 dark:text-yellow-400'
-              } text-sm font-medium`}>
-              <div className={`w-2 h-2 ${waitingTooLong ? 'bg-red-500' : 'bg-yellow-500'} rounded-full animate-pulse`}></div>
-              {waitingTooLong ? 'Location Unavailable' : 'Searching...'}
-            </div>
-
-            {waitingTooLong && (
-              <div className="mt-4 text-xs text-gray-500 dark:text-gray-400 space-y-1">
-                <p>💡 <strong>Possible reasons:</strong></p>
-                <ul className="text-left list-disc list-inside space-y-0.5">
-                  <li>Driver's app is closed or in background</li>
-                  <li>Driver hasn't enabled location permissions</li>
-                  <li>Poor network connection</li>
-                </ul>
+              {/* Status indicator */}
+              <div className={`flex items-center justify-center gap-2 px-4 py-2 rounded-full ${waitingTooLong
+                ? 'bg-red-100 dark:bg-red-900/30 text-red-800 dark:text-red-400'
+                : 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-800 dark:text-yellow-400'
+                } text-sm font-medium`}>
+                <div className={`w-2 h-2 ${waitingTooLong ? 'bg-red-500' : 'bg-yellow-500'} rounded-full animate-pulse`}></div>
+                {waitingTooLong ? 'Location Unavailable' : 'Searching...'}
               </div>
-            )}
+
+              {waitingTooLong && (
+                <div className="mt-4 text-xs text-gray-500 dark:text-gray-400 space-y-1">
+                  <p>💡 <strong>Possible reasons:</strong></p>
+                  <ul className="text-left list-disc list-inside space-y-0.5">
+                    <li>Driver's app is closed or in background</li>
+                    <li>Driver hasn't enabled location permissions</li>
+                    <li>Poor network connection</li>
+                  </ul>
+                </div>
+              )}
+            </div>
           </div>
-        </div>
+        ) : (
+          <div className="absolute top-4 left-4 right-4 z-[999] flex justify-center pointer-events-none drop-shadow-md">
+            <div className="bg-white/95 dark:bg-gray-900/95 rounded-2xl p-3 shadow-lg backdrop-blur-sm border border-white/20 dark:border-gray-700/20 pointer-events-auto w-full max-w-sm flex items-center gap-3">
+              <div className={`w-10 h-10 shrink-0 bg-gradient-to-br ${waitingTooLong ? 'from-red-400 to-red-600' : 'from-yellow-400 to-orange-500'} rounded-full flex items-center justify-center shadow-[0_2px_10px_rgba(0,0,0,0.1)] relative`}>
+                <MapPin className="w-5 h-5 text-white" />
+                <div className="absolute -top-1 -right-1 w-3.5 h-3.5 bg-red-500 rounded-full flex items-center justify-center animate-pulse">
+                  <span className="text-[9px] font-bold text-white">!</span>
+                </div>
+              </div>
+              <div className="flex-1 min-w-0">
+                <h3 className="text-sm font-bold text-gray-900 dark:text-white truncate">
+                  {waitingTooLong ? 'Location Unavailable' : 'Searching for Bus'}
+                </h3>
+                <p className="text-[11px] text-gray-500 dark:text-gray-400 line-clamp-1">
+                  {waitingTooLong
+                    ? 'Driver may be offline or location disabled'
+                    : 'Waiting for live coordinates...'}
+                </p>
+              </div>
+            </div>
+          </div>
+        )
       )}
     </div>
   );

@@ -1,15 +1,19 @@
 import { NextResponse } from 'next/server';
-import { readFileSync } from 'fs';
-import { join } from 'path';
+import facultiesData from '@/data/faculties_departments.json';
 
 export async function GET() {
   try {
-    // Read the JSON file directly from the filesystem
-    const filePath = join(process.cwd(), 'src', 'data', 'faculties_departments.json');
-    const fileContents = readFileSync(filePath, 'utf8');
-    const facultiesData = JSON.parse(fileContents);
-    
-    return NextResponse.json(facultiesData);
+    // SECURITY: Use static import to avoid filesystem issues in serverless/proxy environments
+    if (!facultiesData || !Array.isArray(facultiesData)) {
+      throw new Error('Faculties data is malformed or missing');
+    }
+
+    return NextResponse.json(facultiesData, {
+      headers: {
+        'Cache-Control': 'public, max-age=3600, stale-while-revalidate=86400',
+        'X-Content-Type-Options': 'nosniff'
+      }
+    });
   } catch (error) {
     console.error('Error loading faculties data:', error);
     return NextResponse.json(

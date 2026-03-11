@@ -1,252 +1,164 @@
-/**
- * POST /api/waiting-flag/create
- * 
- * Create a waiting flag for student with:
- * - Duplicate prevention
- * - Rate limiting
- * - GPS validation
- * - Real-time broadcast to driver
- */
-
-import { NextResponse } from 'next/server';
-import { auth, db as adminDb } from '@/lib/firebase-admin';
+import { NextRequest, NextResponse } from 'next/server';
+import { adminDb } from '@/lib/firebase-admin';
 import { createClient } from '@supabase/supabase-js';
+import { withSecurity } from '@/lib/security/api-security';
+import { WaitingFlagPostSchema } from '@/lib/security/validation-schemas';
+import { RateLimits } from '@/lib/security/rate-limiter';
 
+// Initialize Supabase client
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL || '',
   process.env.SUPABASE_SERVICE_ROLE_KEY || ''
 );
 
-// Rate limiting cache (in-memory for now, use Redis in production)
-const rateLimitCache = new Map<string, { count: number; resetAt: number }>();
-
 /**
- * Check rate limit for user
+ * GPS Accuracy Validator
  */
-function checkRateLimit(uid: string, maxRequests: number = 5, windowMs: number = 60000): boolean {
-  const now = Date.now();
-  const entry = rateLimitCache.get(uid);
+const isValidAccuracy = (accuracy: number) => accuracy >= 0 && accuracy <= 1000;
 
-  if (!entry || entry.resetAt < now) {
-    // Create new window
-    rateLimitCache.set(uid, {
-      count: 1,
-      resetAt: now + windowMs
-    });
-    return true;
-  }
-
-  if (entry.count >= maxRequests) {
-    return false; // Rate limit exceeded
-  }
-
-  // Increment count
-  entry.count++;
-  return true;
-}
-
-/**
- * Validate GPS coordinates
- */
-function validateCoordinates(accuracy: number): boolean {
-  // Check valid accuracy range
-  if (accuracy < 0 || accuracy > 1000) {
-    return false;
-  }
-  return true;
-}
-
-export async function POST(request: Request) {
-  const startTime = Date.now();
-
-  try {
-    const body = await request.json();
+export const POST = withSecurity(
+  async (request, { auth, body, requestId }) => {
+    const startTime = Date.now();
+    const studentUid = auth.uid;
     const {
-      idToken,
-      stopName,
-      accuracy,
-      message,
-      busId,
-      routeId
-    } = body;
-
-    // Validate required fields
-    if (!idToken || !accuracy || !busId || !routeId) {
-      return NextResponse.json(
-        { error: 'Missing required fields' },
-        { status: 400 }
-      );
-    }
-
-    // Validate coordinates
-    if (!validateCoordinates(accuracy)) {
-      return NextResponse.json(
-        { error: 'Invalid GPS accuracy' },
-        { status: 400 }
-      );
-    }
-
-    // Verify Firebase token
-    const decodedToken = await auth.verifyIdToken(idToken);
-    const studentUid = decodedToken.uid;
-
-    // Check rate limit
-    if (!checkRateLimit(studentUid, 5, 60000)) { // 5 flags per minute
-      return NextResponse.json(
-        { error: 'Rate limit exceeded. Please wait before creating another flag.' },
-        { status: 429 }
-      );
-    }
-
-    // Verify user is a student
-    const userDoc = await adminDb.collection('users').doc(studentUid).get();
-    if (!userDoc.exists || userDoc.data()?.role !== 'student') {
-      return NextResponse.json(
-        { error: 'User is not authorized as a student' },
-        { status: 403 }
-      );
-    }
-
-    // Get student details
-    const studentDoc = await adminDb.collection('students').doc(studentUid).get();
-    if (!studentDoc.exists) {
-      return NextResponse.json(
-        { error: 'Student profile not found' },
-        { status: 404 }
-      );
-    }
-
-    const studentData = studentDoc.data();
-    const studentName = studentData?.fullName || studentData?.name || 'Student';
-
-    // Verify student is assigned to this bus
-    if (studentData?.assignedBusId !== busId && studentData?.busId !== busId) {
-      return NextResponse.json(
-        { error: 'Student is not assigned to this bus' },
-        { status: 403 }
-      );
-    }
-
-    // Check if trip is active
-    const tripQuery = await adminDb
-      .collection('trip_sessions')
-      .where('busId', '==', busId)
-      .where('tripStatus', '==', 'active')
-      .limit(1)
-      .get();
-
-    if (tripQuery.empty) {
-      return NextResponse.json(
-        { error: 'No active trip for this bus' },
-        { status: 400 }
-      );
-    }
-
-    const tripId = tripQuery.docs[0].id;
-
-    // Check for duplicate flag
-    const { data: existingFlags, error: checkError } = await supabase
-      .from('waiting_flags')
-      .select('id, status')
-      .eq('student_uid', studentUid)
-      .eq('bus_id', busId)
-      .in('status', ['raised', 'acknowledged']);
-
-    if (checkError) {
-      console.error('❌ Error checking existing flags:', checkError);
-    }
-
-    if (existingFlags && existingFlags.length > 0) {
-      return NextResponse.json(
-        {
-          error: 'You already have an active waiting flag',
-          existingFlagId: existingFlags[0].id
-        },
-        { status: 409 }
-      );
-    }
-
-    // Create waiting flag
-    const now = new Date();
-    const expiresAt = new Date(now.getTime() + 15 * 60000); // 15 minutes
-
-    const flagData = {
-      student_uid: studentUid,
-      student_name: studentName,
-      bus_id: busId,
-      route_id: routeId,
-      stop_name: stopName || 'Current Location',
-      accuracy: accuracy,
-      status: 'raised',
-      message: message || null,
-      trip_id: tripId,
-      created_at: now.toISOString(),
-      expires_at: expiresAt.toISOString()
-    };
-
-    const { data: flag, error: insertError } = await supabase
-      .from('waiting_flags')
-      .insert(flagData)
-      .select()
-      .single();
-
-    if (insertError) {
-      console.error('❌ Error creating waiting flag:', insertError);
-      return NextResponse.json(
-        { error: 'Failed to create waiting flag' },
-        { status: 500 }
-      );
-    }
-
-    // Broadcast to driver via channel
-    const driverChannel = supabase.channel(`waiting_flags_${busId}`);
-    await driverChannel.send({
-      type: 'broadcast',
-      event: 'waiting_flag_created',
-      payload: {
-        flagId: flag.id,
-        studentUid,
-        studentName,
-        stopName: stopName || 'Current Location',
-        accuracy: accuracy,
-        message,
-        timestamp: now.toISOString()
-      }
-    });
-
-    // Also store in Firestore for backup/persistence
-    await adminDb.collection('waiting_flags').doc(flag.id).set({
-      ...flagData,
-      supabaseId: flag.id
-    });
-
-    // Log operation (audit_logs moved to Supabase - this is operational logging)
-    console.log('📝 Waiting flag created:', {
-      actorUid: studentUid,
-      action: 'waiting_flag_created',
-      flagId: flag.id,
       busId,
       routeId,
-      tripId,
-      accuracy: accuracy,
-      timestamp: now.toISOString()
-    });
+      stopName,
+      accuracy,
+      message
+    } = body;
 
-    const elapsed = Date.now() - startTime;
-    console.log(`✅ Waiting flag created in ${elapsed}ms: ${flag.id}`);
+    try {
+      // 1. Validate GPS accuracy (trusted from body)
+      if (!isValidAccuracy(accuracy)) {
+        return NextResponse.json({ success: false, error: 'Invalid GPS accuracy (must be 0-1000m)', requestId }, { status: 400 });
+      }
 
-    return NextResponse.json({
-      success: true,
-      flagId: flag.id,
-      message: 'Waiting flag created successfully',
-      expiresAt: expiresAt.toISOString()
-    });
+      // 2. Resolve student profile and verify role
+      const studentDoc = await adminDb.collection('students').doc(studentUid).get();
+      if (!studentDoc.exists) {
+        console.warn(`[${requestId}] Student profile not found for ${studentUid}`);
+        return NextResponse.json({ success: false, error: 'Student profile not found', requestId }, { status: 404 });
+      }
 
-  } catch (error: any) {
-    console.error('❌ Error in waiting-flag/create:', error);
-    return NextResponse.json(
-      { error: 'Internal server error' },
-      { status: 500 }
-    );
+      const studentData = studentDoc.data();
+      const studentName = studentData?.fullName || studentData?.name || 'Student';
+
+      // 3. Authorization: Is student assigned to this bus?
+      const isAssigned = studentData?.assignedBusId === busId || studentData?.busId === busId;
+      if (!isAssigned) {
+        return NextResponse.json({ success: false, error: 'Authorization failed: Student not assigned to this bus', requestId }, { status: 403 });
+      }
+
+      // 4. Check for active trip in Supabase (authoritative source)
+      const { data: activeTrip, error: tripError } = await supabase
+        .from('active_trips')
+        .select('trip_id')
+        .eq('bus_id', busId)
+        .eq('status', 'active')
+        .single();
+
+      if (tripError || !activeTrip) {
+        return NextResponse.json({ success: false, error: 'This bus is not currently on an active trip', requestId }, { status: 400 });
+      }
+
+      const tripId = activeTrip.trip_id;
+
+      // 5. Duplicate Check
+      const { data: existingFlags } = await supabase
+        .from('waiting_flags')
+        .select('id')
+        .eq('student_uid', studentUid)
+        .eq('bus_id', busId)
+        .in('status', ['raised', 'acknowledged'])
+        .limit(1);
+
+      if (existingFlags && existingFlags.length > 0) {
+        return NextResponse.json({ 
+          success: false, 
+          error: 'You already have an active waiting flag for this bus', 
+          requestId,
+          flagId: existingFlags[0].id 
+        }, { status: 409 });
+      }
+
+      // 6. Create Waiting Flag
+      const now = new Date();
+      const expiresAt = new Date(now.getTime() + 15 * 60 * 1000); // 15 min expiry
+
+      const flagData = {
+        student_uid: studentUid,
+        student_name: studentName,
+        bus_id: busId,
+        route_id: routeId,
+        stop_name: stopName || 'Current Location',
+        accuracy,
+        status: 'raised',
+        message: message || null,
+        trip_id: tripId,
+        created_at: now.toISOString(),
+        expires_at: expiresAt.toISOString()
+      };
+
+      const { data: flag, error: insertError } = await supabase
+        .from('waiting_flags')
+        .insert(flagData)
+        .select()
+        .single();
+
+      if (insertError) {
+        console.error(`[${requestId}] Supabase insert error:`, insertError);
+        return NextResponse.json({ success: false, error: 'Failed to record waiting flag', requestId }, { status: 500 });
+      }
+
+      // 7. Real-time Broadcast to Driver
+      try {
+        const channel = supabase.channel(`waiting_flags_${busId}`);
+        await channel.send({
+          type: 'broadcast',
+          event: 'waiting_flag_created',
+          payload: {
+            flagId: flag.id,
+            studentUid,
+            studentName,
+            stopName: flagData.stop_name,
+            accuracy,
+            message: flagData.message,
+            timestamp: flagData.created_at
+          }
+        });
+      } catch (broadcastError) {
+        console.warn(`[${requestId}] Real-time broadcast failed (non-critical):`, broadcastError);
+      }
+
+      // 8. Legacy Backup (Firestore) - opportunistic
+      try {
+        adminDb.collection('waiting_flags').doc(flag.id).set({
+          ...flagData,
+          supabaseId: flag.id,
+          syncedAt: now.toISOString()
+        }).catch(() => {});
+      } catch (e) {}
+
+      const elapsed = Date.now() - startTime;
+      console.log(`✅ [${requestId}] Waiting flag ${flag.id} created in ${elapsed}ms`);
+
+      return NextResponse.json({
+        success: true,
+        flagId: flag.id,
+        message: 'Waiting flag raised successfully. The driver has been notified.',
+        expiresAt: expiresAt.toISOString(),
+        requestId
+      });
+
+    } catch (error: any) {
+      console.error(`[${requestId}] Internal error in waiting-flag/create:`, error);
+      return NextResponse.json({ success: false, error: 'An unexpected error occurred', requestId }, { status: 500 });
+    }
+  },
+  {
+    requiredRoles: ['student'],
+    schema: WaitingFlagPostSchema,
+    rateLimit: RateLimits.CREATE
   }
-}
+);

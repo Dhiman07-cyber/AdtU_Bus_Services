@@ -74,8 +74,12 @@ service cloud.firestore {
     // ============================================================================
     
     match /users/{userId} {
-      // Allow authenticated users to read their own document
-      allow read: if request.auth != null && request.auth.uid == userId;
+      // Allow authenticated users to read their own document (by ID)
+      // AND allow querying by their own email (for new signups finding their invite)
+      allow read: if request.auth != null && (
+        request.auth.uid == userId ||
+        request.auth.token.email == resource.data.email
+      );
       
       // Allow authenticated users to create their own document (for new signups)
       // Allow admins to create documents for other users
@@ -184,7 +188,9 @@ service cloud.firestore {
     
     match /moderators/{moderatorId} {
       allow read: if request.auth != null && (
-        isModerator(request.auth.uid) || isAdmin(request.auth.uid)
+        request.auth.uid == moderatorId || 
+        isModerator(request.auth.uid) || 
+        isAdmin(request.auth.uid)
       );
       
       // Only admins can create/delete moderators

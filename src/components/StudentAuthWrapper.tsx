@@ -27,7 +27,7 @@ export default function StudentAuthWrapper({ children }: StudentAuthWrapperProps
 
   // Loading state
   if (loading) {
-    return <PremiumPageLoader message="Student Center" subMessage="Verifying student credentials..." />;
+    return null; // Auth context will handle its own loading, then dashboard will show its loader
   }
 
   // Not authenticated

@@ -1,39 +1,12 @@
-
-import { NextRequest, NextResponse } from 'next/server';
-import { adminAuth, adminDb } from '@/lib/firebase-admin';
+import { NextResponse } from 'next/server';
+import { withSecurity } from '@/lib/security/api-security';
+import { EmptySchema } from '@/lib/security/validation-schemas';
+import { RateLimits } from '@/lib/security/rate-limiter';
 import { paymentsSupabaseService } from '@/lib/services/payments-supabase';
 
-export const dynamic = 'force-dynamic';
-
-export async function GET(request: NextRequest) {
-    try {
-        // 1. Verify Admin Authentication
-        const authHeader = request.headers.get('Authorization');
-        if (!authHeader?.startsWith('Bearer ')) {
-            return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-        }
-
-        const token = authHeader.split('Bearer ')[1];
-        let decodedToken;
-        try {
-            decodedToken = await adminAuth.verifyIdToken(token);
-        } catch (e) {
-            return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
-        }
-
-        // Check if user is admin in Firestore
-        const adminDoc = await adminDb.collection('admins').doc(decodedToken.uid).get();
-        if (!adminDoc.exists) {
-            // Fallback: check users collection role
-            const userDoc = await adminDb.collection('users').doc(decodedToken.uid).get();
-            const userData = userDoc.data();
-            if (userData?.role !== 'admin') {
-                return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
-            }
-        }
-
-        // 2. Fetch Payment Stats from Supabase
-        // Get general stats
+export const GET = withSecurity(
+    async () => {
+        // Fetch Payment Stats from Supabase
         const stats = await paymentsSupabaseService.getPaymentStats();
 
         // Get monthly data for current year
@@ -52,7 +25,6 @@ export async function GET(request: NextRequest) {
             const monthTotal = yearPayments.reduce((sum, p) => {
                 const date = p.transaction_date ? new Date(p.transaction_date) :
                     (p.created_at ? new Date(p.created_at) : new Date());
-                // Check if payment belongs to this month (local time approximation)
                 return (date.getMonth() === i) ? sum + (p.amount || 0) : sum;
             }, 0);
             return { name: m, amount: monthTotal };
@@ -67,12 +39,10 @@ export async function GET(request: NextRequest) {
                 monthlyData: monthlyData
             }
         });
-
-    } catch (error: any) {
-        console.error('Error fetching payment analytics:', error);
-        return NextResponse.json(
-            { error: 'Internal Server Error' },
-            { status: 500 }
-        );
+    },
+    {
+        requiredRoles: ['admin'],
+        schema: EmptySchema,
+        rateLimit: RateLimits.READ
     }
-}
+);

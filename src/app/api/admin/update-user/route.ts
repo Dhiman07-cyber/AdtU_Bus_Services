@@ -1,166 +1,120 @@
-
-import { headers } from 'next/headers';
+import { NextResponse } from 'next/server';
 import { adminAuth, adminDb } from '@/lib/firebase-admin';
 import { FieldValue, Transaction, DocumentSnapshot, DocumentReference } from 'firebase-admin/firestore';
 import { createUpdatedByEntry } from '@/lib/utils/updatedBy';
+import { withSecurity } from '@/lib/security/api-security';
+import { UpdateStudentSchema } from '@/lib/security/validation-schemas';
+import { RateLimits } from '@/lib/security/rate-limiter';
 
-export async function POST(request: Request) {
-    try {
-        // 1. Authentication Check
-        const authHeader = (await headers()).get('authorization');
-        if (!authHeader || !authHeader.startsWith('Bearer ')) {
-            return new Response(JSON.stringify({ success: false, error: 'Unauthorized' }), { status: 401 });
-        }
-
-        const token = authHeader.substring(7);
-        let currentUserRole = '';
-        let currentUserName = 'System';
+export const POST = withSecurity(
+    async (request, { auth, body }) => {
+        const currentUserUid = auth.uid;
+        const currentUserRole = auth.role;
+        let currentUserName = auth.name || 'System';
         let currentUserEmployeeId = 'ADMIN';
 
-        try {
-            const decodedToken = await adminAuth.verifyIdToken(token);
-            const uid = decodedToken.uid;
-
-            // Check admin/moderator role
-            const adminDoc = await adminDb.collection('admins').doc(uid).get();
+        // Fetch extra info for moderators/admins for audit logs
+        if (currentUserRole === 'moderator') {
+            const modDoc = await adminDb.collection('moderators').doc(currentUserUid).get();
+            if (modDoc.exists) {
+                currentUserName = modDoc.data()?.fullName || modDoc.data()?.name || currentUserName;
+                currentUserEmployeeId = modDoc.data()?.employeeId || modDoc.data()?.staffId || 'MOD';
+            }
+        } else if (currentUserRole === 'admin') {
+            const adminDoc = await adminDb.collection('admins').doc(currentUserUid).get();
             if (adminDoc.exists) {
-                currentUserRole = 'admin';
-                currentUserName = adminDoc.data()?.name || 'Admin';
+                currentUserName = adminDoc.data()?.name || currentUserName;
                 currentUserEmployeeId = adminDoc.data()?.employeeId || 'ADMIN';
-            } else {
-                const modDoc = await adminDb.collection('moderators').doc(uid).get();
-                if (modDoc.exists) {
-                    currentUserRole = 'moderator';
-                    currentUserName = modDoc.data()?.fullName || 'Moderator';
-                    currentUserEmployeeId = modDoc.data()?.employeeId || 'MOD';
+            }
+        }
+
+        const { uid, ...updateData } = body as any;
+
+        try {
+            await adminDb.runTransaction(async (transaction: Transaction) => {
+                const studentRef = adminDb.collection('students').doc(uid) as DocumentReference;
+                const studentDoc = await transaction.get(studentRef) as DocumentSnapshot;
+
+                if (!studentDoc.exists) {
+                    throw new Error('Student not found');
                 }
-            }
 
-            if (!currentUserRole) {
-                return new Response(JSON.stringify({ success: false, error: 'Forbidden' }), { status: 403 });
-            }
-        } catch (error) {
-            return new Response(JSON.stringify({ success: false, error: 'Invalid token' }), { status: 401 });
-        }
+                const currentData = studentDoc.data() || {};
+                const oldBusId = currentData.busId;
+                const oldShift = currentData.shift || 'Morning';
 
-        // 2. Parse Request Body
-        const body = await request.json();
-        const { uid, ...updateData } = body;
+                const newBusId = updateData.busId !== undefined ? updateData.busId : oldBusId;
+                const newShift = updateData.shift !== undefined ? updateData.shift : oldShift;
 
-        if (!uid) {
-            return new Response(JSON.stringify({ success: false, error: 'Student UID is required' }), { status: 400 });
-        }
+                const cleanedUpdateData = Object.entries(updateData).reduce((acc, [key, value]) => {
+                    if (value !== undefined) acc[key] = value;
+                    return acc;
+                }, {} as any);
 
-        console.log(`📝 Update request for student ${uid} by ${currentUserRole}`);
+                cleanedUpdateData.updatedAt = new Date().toISOString();
+                cleanedUpdateData.updatedBy = FieldValue.arrayUnion(createUpdatedByEntry(currentUserName, currentUserEmployeeId));
 
-        // 3. Run Transaction
-        await adminDb.runTransaction(async (transaction: Transaction) => {
-            // Get current student doc
-            const studentRef = adminDb.collection('students').doc(uid) as DocumentReference;
-            const studentDoc = await transaction.get(studentRef) as DocumentSnapshot;
+                const busChanged = oldBusId !== newBusId;
+                const shiftChanged = oldShift !== newShift;
 
-            if (!studentDoc.exists) {
-                throw new Error('Student not found');
-            }
-
-            const currentData = studentDoc.data() || {};
-            const oldBusId = currentData.busId;
-            const oldShift = currentData.shift || 'Morning';
-
-            // Determine new values (fallback to old if not provided)
-            const newBusId = updateData.busId !== undefined ? updateData.busId : oldBusId;
-            const newShift = updateData.shift !== undefined ? updateData.shift : oldShift;
-
-            // Clean undefined values from updateData to avoid Firestore errors
-            const cleanedUpdateData = Object.entries(updateData).reduce((acc, [key, value]) => {
-                if (value !== undefined) acc[key] = value;
-                return acc;
-            }, {} as any);
-
-            // Add audit trail
-            cleanedUpdateData.updatedAt = new Date().toISOString();
-            cleanedUpdateData.updatedBy = FieldValue.arrayUnion(createUpdatedByEntry(currentUserName, currentUserEmployeeId));
-
-            // Check if Bus or Shift changed
-            const busChanged = oldBusId !== newBusId;
-            const shiftChanged = oldShift !== newShift;
-
-            // Handle Capacity Logic
-            if (busChanged || shiftChanged) {
-                console.log(`🚌 Bus/Shift change detected for ${uid}`);
-                console.log(`   Old: Bus ${oldBusId} (${oldShift})`);
-                console.log(`   New: Bus ${newBusId} (${newShift})`);
-
-                // 1. Decrement from Old Bus (if it existed)
-                if (oldBusId) {
-                    const oldBusRef = adminDb.collection('buses').doc(oldBusId) as DocumentReference;
-                    const oldBusDoc = await transaction.get(oldBusRef) as DocumentSnapshot;
-
-                    if (oldBusDoc.exists) {
-                        const updates: any = {};
-                        // Only decrement members if bus actually changed (if just shift changed, members count stays same)
-                        if (busChanged) {
-                            updates.currentMembers = FieldValue.increment(-1);
+                if (busChanged || shiftChanged) {
+                    if (oldBusId) {
+                        const oldBusRef = adminDb.collection('buses').doc(oldBusId) as DocumentReference;
+                        const oldBusDoc = await transaction.get(oldBusRef) as DocumentSnapshot;
+                        if (oldBusDoc.exists) {
+                            const updates: any = {};
+                            if (busChanged) {
+                                updates.currentMembers = FieldValue.increment(-1);
+                                updates['load.totalCount'] = FieldValue.increment(-1);
+                            }
+                            if (oldShift === 'Morning' || oldShift === 'Both') {
+                                updates['load.morningCount'] = FieldValue.increment(-1);
+                            }
+                            if (oldShift === 'Evening' || oldShift === 'Both') {
+                                updates['load.eveningCount'] = FieldValue.increment(-1);
+                            }
+                            transaction.update(oldBusRef, updates);
                         }
+                    }
 
-                        // Handle load decrement based on OLD shift
-                        if (oldShift === 'Morning' || oldShift === 'Both') {
-                            updates['load.morningCount'] = FieldValue.increment(-1);
+                    if (newBusId) {
+                        const newBusRef = adminDb.collection('buses').doc(newBusId) as DocumentReference;
+                        const newBusDoc = await transaction.get(newBusRef) as DocumentSnapshot;
+                        if (newBusDoc.exists) {
+                            const updates: any = {};
+                            if (busChanged) {
+                                updates.currentMembers = FieldValue.increment(1);
+                                updates['load.totalCount'] = FieldValue.increment(1);
+                            }
+                            if (newShift === 'Morning' || newShift === 'Both') {
+                                updates['load.morningCount'] = FieldValue.increment(1);
+                            }
+                            if (newShift === 'Evening' || newShift === 'Both') {
+                                updates['load.eveningCount'] = FieldValue.increment(1);
+                            }
+                            transaction.update(newBusRef, updates);
                         }
-                        if (oldShift === 'Evening' || oldShift === 'Both') {
-                            updates['load.eveningCount'] = FieldValue.increment(-1);
-                        }
-
-                        // Safety check to ensure counts don't go below 0 (though FieldValue.increment handles negative, logic ensures correctness)
-                        transaction.update(oldBusRef, updates);
                     }
                 }
 
-                // 2. Increment to New Bus (if it exists)
-                if (newBusId) {
-                    const newBusRef = adminDb.collection('buses').doc(newBusId) as DocumentReference;
-                    const newBusDoc = await transaction.get(newBusRef) as DocumentSnapshot;
+                transaction.update(studentRef, cleanedUpdateData);
+            });
 
-                    if (newBusDoc.exists) {
-                        const updates: any = {};
-                        // Only increment members if bus actually changed
-                        if (busChanged) {
-                            updates.currentMembers = FieldValue.increment(1);
-                        }
-
-                        // Handle load increment based on NEW shift
-                        if (newShift === 'Morning' || newShift === 'Both') {
-                            updates['load.morningCount'] = FieldValue.increment(1);
-                        }
-                        if (newShift === 'Evening' || newShift === 'Both') {
-                            updates['load.eveningCount'] = FieldValue.increment(1);
-                        }
-
-                        transaction.update(newBusRef, updates);
-                    }
-                }
-            }
-
-            // 3. Update Student Document
-            transaction.update(studentRef, cleanedUpdateData);
-        });
-
-        return new Response(JSON.stringify({
-            success: true,
-            message: 'Student updated successfully'
-        }), {
-            status: 200,
-            headers: { 'Content-Type': 'application/json' }
-        });
-
-    } catch (error: any) {
-        console.error('Error updating user:', error);
-        return new Response(JSON.stringify({
-            success: false,
-            error: 'Internal Server Error'
-        }), {
-            status: 500,
-            headers: { 'Content-Type': 'application/json' }
-        });
+            return NextResponse.json({
+                success: true,
+                message: 'Student updated successfully'
+            });
+        } catch (error: any) {
+            return NextResponse.json({
+                success: false,
+                error: error.message || 'Internal Server Error'
+            }, { status: error.message === 'Student not found' ? 404 : 500 });
+        }
+    },
+    {
+        requiredRoles: ['admin', 'moderator'],
+        schema: UpdateStudentSchema,
+        rateLimit: RateLimits.CREATE,
+        allowBodyToken: true
     }
-}
+);

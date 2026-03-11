@@ -5,6 +5,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { toast } from 'sonner';
+import { useAuth } from '@/contexts/auth-context';
 
 // Types
 export interface RazorpayOptions {
@@ -77,6 +78,7 @@ declare global {
  * Custom hook for Razorpay payment integration
  */
 export function useRazorpay() {
+  const { currentUser } = useAuth();
   const [isScriptLoaded, setIsScriptLoaded] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -120,10 +122,12 @@ export function useRazorpay() {
    */
   const createOrder = useCallback(async (config: PaymentConfig) => {
     try {
+      const token = await currentUser?.getIdToken();
       const response = await fetch('/api/payment/razorpay/create-order', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
         },
         body: JSON.stringify({
           amount: config.amount,
@@ -155,7 +159,7 @@ export function useRazorpay() {
       console.error('❌ Error creating order:', error);
       throw error;
     }
-  }, []);
+  }, [currentUser]);
 
   /**
    * Verify payment after successful transaction
@@ -176,6 +180,7 @@ export function useRazorpay() {
 
     try {
       console.log('🚀 Calling /api/payment/razorpay/verify-payment...');
+      const token = await currentUser?.getIdToken();
 
       const requestBody = {
         razorpay_payment_id: response.razorpay_payment_id,
@@ -199,6 +204,7 @@ export function useRazorpay() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
         },
         body: JSON.stringify(requestBody),
       });
@@ -237,7 +243,7 @@ export function useRazorpay() {
         error: error.message || 'Payment verification failed',
       };
     }
-  }, []);
+  }, [currentUser]);
 
   /**
    * Process payment

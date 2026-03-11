@@ -132,7 +132,7 @@ export default function ModeratorNotificationsPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
+      <div className="flex-1 min-h-[calc(100dvh-120px)] flex items-center justify-center">
         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500"></div>
       </div>
     );
@@ -140,7 +140,7 @@ export default function ModeratorNotificationsPage() {
 
   if (error) {
     return (
-      <div className="mt-12 min-h-screen flex items-center justify-center">
+      <div className="flex-1 min-h-[calc(100dvh-120px)] flex items-center justify-center">
         <div className="text-center">
           <p className="text-red-500">Error loading notifications</p>
           <Button onClick={refresh} className="mt-4">
@@ -152,7 +152,7 @@ export default function ModeratorNotificationsPage() {
   }
 
   return (
-    <div className="mt-12 py-4 px-3 sm:px-4 lg:px-6">
+    <div className="flex-1 py-4 px-3 sm:px-4 lg:px-6">
       <div className="max-w-7xl mx-auto">
         {/* Header */}
         <div className="flex justify-between items-center mb-4">

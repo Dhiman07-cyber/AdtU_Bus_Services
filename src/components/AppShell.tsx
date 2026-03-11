@@ -11,6 +11,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { useEffect, useState, createContext, useContext, useCallback } from 'react';
 
 import { SystemConfigProvider } from '@/contexts/SystemConfigContext';
+import { FCMTokenManager } from '@/components/FCMTokenManager';
 
 interface SidebarContextType {
   collapsed: boolean;
@@ -127,7 +128,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
                       ? 'var(--sidebar-width-collapsed) minmax(0, 1fr)'
                       : 'var(--sidebar-width-expanded) minmax(0, 1fr)',
                     gridTemplateRows: '1fr auto',
-                    minHeight: 'calc(100vh - 48px)', // Subtract navbar height
+                    minHeight: 'calc(100dvh - 48px)', // Subtract navbar height
                     transition: 'grid-template-columns 300ms cubic-bezier(0.2, 0.8, 0.2, 1)'
                   }}
                 >
@@ -139,7 +140,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
                       gridRow: '1 / 3',
                       position: 'sticky',
                       top: '48px', // Account for fixed navbar
-                      height: 'calc(100vh - 48px)',
+                      height: 'calc(100dvh - 48px)',
                       overflow: 'auto',
                       zIndex: 50
                     }}
@@ -173,7 +174,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
             ) : (
               // Standard layout without sidebar
               <>
-                <main className="flex-grow flex flex-col min-h-[calc(100vh-64px)]">
+                <main className={`flex-grow flex flex-col ${showNavAndFooter ? 'min-h-[calc(100dvh-48px)]' : 'min-h-dvh'}`}>
                   {children}
                 </main>
                 {showNavAndFooter && (
@@ -186,6 +187,8 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
 
             {/* PWA Install Prompt - Only shows on landing page */}
             <PWAInstallPrompt />
+
+            <FCMTokenManager />
 
             <style jsx global>{`
           :root {

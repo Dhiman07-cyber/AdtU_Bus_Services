@@ -2,10 +2,11 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { getRobustRoute, type ORSConfig } from '@/lib/ors-robust-client';
 import { validateCoordinates } from '@/lib/coordinate-validator';
-import { verifyApiAuth } from '@/lib/security/api-auth';
-import { checkRateLimit, RateLimits, createRateLimitId } from '@/lib/security/rate-limiter';
+import { withSecurity } from '@/lib/security/api-security';
+import { ProxyORSSchema, EmptySchema } from '@/lib/security/validation-schemas';
+import { RateLimits } from '@/lib/security/rate-limiter';
 
-// Initialize Supabase client with service role for caching
+// Initialize Supabase client
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL || '',
   process.env.SUPABASE_SERVICE_ROLE_KEY || ''
@@ -13,330 +14,204 @@ const supabase = createClient(
 
 const ORS_API_KEY = process.env.ORS_API_KEY || '';
 const ORS_BASE_URL = 'https://api.openrouteservice.org';
-
-// Cache expiry in hours
 const CACHE_EXPIRY_HOURS = 24;
 
-// ORS configuration
 const orsConfig: ORSConfig = {
   apiKey: ORS_API_KEY,
-  radiusSteps: [350, 700, 1500], // Incremental retry radii
-  enableSnapping: true, // Enable coordinate snapping
-  logRequests: true // Log all ORS requests for debugging
+  radiusSteps: [350, 700, 1500],
+  enableSnapping: true,
+  logRequests: true
 };
 
-/**
- * POST /api/proxy-ors
- * 
- * Proxies requests to OpenRouteService API with server-side API key
- * Caches route geometries in Supabase route_cache table
- * 
- * Body:
- * - action: 'directions' | 'geocode'
- * - coordinates: [[lng, lat], [lng, lat], ...] (for directions)
- * - profile: 'driving-car' | 'cycling-regular' | 'foot-walking' (default: driving-car)
- * - routeId?: string (optional, for caching by routeId)
- * - address?: string (for geocoding)
- */
-export async function POST(request: NextRequest) {
-  try {
-    // SECURITY: Require admin/moderator authentication
-    const auth = await verifyApiAuth(request, ['admin', 'moderator']);
-    if (!auth.authenticated) return auth.response;
-
-    // SECURITY: Rate limit ORS API calls
-    const rateLimitId = createRateLimitId(auth.uid, 'proxy-ors');
-    const rateCheck = checkRateLimit(rateLimitId, 30, 60000);
-    if (!rateCheck.allowed) {
-      return NextResponse.json({ error: 'Too many requests' }, { status: 429 });
-    }
-
-    // Clone request body to avoid mutation errors
-    const body = await request.json();
-    const requestData = JSON.parse(JSON.stringify(body)); // Deep clone to prevent read-only issues
-
-    const {
-      action,
-      coordinates,
-      profile = 'driving-car',
-      routeId,
-      address,
-      forceRefresh = false
-    } = requestData;
-
-    if (!ORS_API_KEY) {
-      console.error('❌ ORS_API_KEY not configured in environment');
-      return NextResponse.json(
-        { error: 'ORS API key not configured' },
-        { status: 500 }
-      );
-    }
-
-    // ===== DIRECTIONS ACTION =====
-    if (action === 'directions') {
-      // Validate input
-      if (!coordinates || !Array.isArray(coordinates)) {
-        return NextResponse.json(
-          { error: 'Invalid coordinates - must be an array' },
-          { status: 400 }
-        );
-      }
-
-      // Early validation using our validator
-      const validation = validateCoordinates(coordinates);
-
-      if (!validation.valid) {
-        console.error('❌ Coordinate validation failed:', {
-          routeId,
-          errors: validation.errors,
-          coordinates
-        });
-
-        return NextResponse.json(
-          {
-            error: 'Invalid coordinates',
-            details: validation.errors,
-            suggestion: 'Check that all coordinates are numeric and within valid lat/lng ranges'
-          },
-          { status: 400 }
-        );
-      }
-
-      if (validation.warnings.length > 0) {
-        console.warn('⚠️ Coordinate warnings:', validation.warnings);
-      }
-
-      // Check cache first (if routeId provided and not forcing refresh)
-      if (routeId && !forceRefresh) {
-        const { data: cachedData, error: cacheError } = await supabase
-          .from('route_cache')
-          .select('*')
-          .eq('route_id', routeId)
-          .gt('expires_at', new Date().toISOString())
-          .maybeSingle();
-
-        if (!cacheError && cachedData) {
-          console.log(`✅ Cache hit for route ${routeId}`);
-          return NextResponse.json({
-            success: true,
-            cached: true,
-            data: cachedData.geometry,
-            distance: cachedData.distance,
-            duration: cachedData.duration,
-            fallbackUsed: cachedData.fallback_used || false,
-            fallbackType: cachedData.fallback_type || 'none',
-            fallbackReason: cachedData.fallback_reason
-          });
-        }
-      }
-
-      console.log(`🔄 Fetching route from ORS for ${routeId || 'unknown route'}...`);
-
-      // Use robust ORS client with 3-tier fallback
-      const routeResult = await getRobustRoute(
+export const POST = withSecurity(
+  async (request, { body, requestId }) => {
+    try {
+      const {
+        action,
         coordinates,
-        profile,
-        orsConfig
-      );
+        profile = 'driving-car',
+        routeId,
+        address,
+        forceRefresh = false
+      } = body;
 
-      if (!routeResult.success) {
-        console.error('❌ Route fetching failed:', {
-          routeId,
-          reason: routeResult.fallbackReason,
-          attempts: routeResult.attempts
-        });
-
-        return NextResponse.json(
-          {
-            error: 'Failed to fetch route',
-            details: routeResult.fallbackReason,
-            attempts: routeResult.attempts,
-            suggestion: 'One or more coordinates may not be on routable roads. Check route configuration in admin panel.'
-          },
-          { status: 422 }
-        );
+      if (!ORS_API_KEY) {
+        console.error(`[${requestId}] ORS_API_KEY not configured`);
+        return NextResponse.json({ success: false, error: 'Routing service unavailable', requestId }, { status: 500 });
       }
 
-      // Log the result
-      if (routeResult.fallbackUsed) {
-        console.warn(`⚠️ Route ${routeId} using fallback: ${routeResult.fallbackType}`, {
-          reason: routeResult.fallbackReason,
-          attempts: routeResult.attempts?.length
-        });
-      } else {
-        console.log(`✅ Route ${routeId} fetched successfully from ORS`);
-      }
-
-      const { geometry, distance, duration, fallbackUsed, fallbackType, fallbackReason } = routeResult;
-
-      // Cache the result if routeId provided
-      if (routeId) {
-        const expiresAt = new Date();
-        expiresAt.setHours(expiresAt.getHours() + CACHE_EXPIRY_HOURS);
-
-        const { error: cacheWriteError } = await supabase
-          .from('route_cache')
-          .upsert({
-            route_id: routeId,
-            geometry,
-            distance,
-            duration,
-            fallback_used: fallbackUsed || false,
-            fallback_type: fallbackType || 'none',
-            fallback_reason: fallbackReason || null,
-            cached_at: new Date().toISOString(),
-            expires_at: expiresAt.toISOString()
-          });
-
-        if (cacheWriteError) {
-          console.error('❌ Error caching route:', cacheWriteError);
-          // Don't fail the request
-        } else {
-          console.log(`✅ Route ${routeId} cached successfully`);
+      // 1. Directions Action
+      if (action === 'directions') {
+        if (!coordinates || !Array.isArray(coordinates)) {
+          return NextResponse.json({ success: false, error: 'Invalid coordinates array provided', requestId }, { status: 400 });
         }
-      }
 
-      return NextResponse.json({
-        success: true,
-        cached: false,
-        data: geometry,
-        distance,
-        duration,
-        fallbackUsed: fallbackUsed || false,
-        fallbackType: fallbackType || 'none',
-        fallbackReason: fallbackReason || null,
-        attempts: routeResult.attempts
-      });
-    }
+        // Coordinate Validation
+        const validation = validateCoordinates(coordinates);
+        if (!validation.valid) {
+          return NextResponse.json({ 
+            success: false, 
+            error: 'Invalid coordinates format or range', 
+            details: validation.errors,
+            requestId 
+          }, { status: 400 });
+        }
 
-    // ===== GEOCODE ACTION =====
-    else if (action === 'geocode') {
-      if (!address) {
-        return NextResponse.json(
-          { error: 'Address is required for geocoding' },
-          { status: 400 }
-        );
-      }
+        // Cache Lookup
+        if (routeId && !forceRefresh) {
+          const { data: cachedData } = await supabase
+            .from('route_cache')
+            .select('*')
+            .eq('route_id', routeId)
+            .gt('expires_at', new Date().toISOString())
+            .maybeSingle();
 
-      const orsUrl = `${ORS_BASE_URL}/geocode/search`;
-
-      const orsResponse = await fetch(
-        `${orsUrl}?api_key=${ORS_API_KEY}&text=${encodeURIComponent(address)}`,
-        {
-          method: 'GET',
-          headers: {
-            'Accept': 'application/json'
+          if (cachedData) {
+            console.log(`✅ [${requestId}] Cache hit for route ${routeId}`);
+            return NextResponse.json({
+              success: true,
+              cached: true,
+              data: cachedData.geometry,
+              distance: cachedData.distance,
+              duration: cachedData.duration,
+              requestId
+            });
           }
         }
-      );
 
-      if (!orsResponse.ok) {
-        const errorText = await orsResponse.text();
-        console.error('ORS Geocode API error:', errorText);
-        return NextResponse.json(
-          { error: 'Failed to geocode address', details: errorText },
-          { status: orsResponse.status }
-        );
+        // Fetch from ORS
+        console.log(`🔄 [${requestId}] Fetching route from ORS for ${routeId || 'untracked route'}...`);
+        const routeResult = await getRobustRoute(coordinates, profile, orsConfig);
+
+        if (!routeResult.success) {
+          console.error(`[${requestId}] ORS routing failed:`, routeResult.fallbackReason);
+          return NextResponse.json({ 
+            success: false, 
+            error: 'Failed to calculate route', 
+            details: routeResult.fallbackReason,
+            requestId 
+          }, { status: 422 });
+        }
+
+        // Update Cache (opportunistic)
+        if (routeId) {
+          const expiresAt = new Date();
+          expiresAt.setHours(expiresAt.getHours() + CACHE_EXPIRY_HOURS);
+
+          supabase.from('route_cache').upsert({
+            route_id: routeId,
+            geometry: routeResult.geometry,
+            distance: routeResult.distance,
+            duration: routeResult.duration,
+            fallback_used: routeResult.fallbackUsed || false,
+            fallback_type: routeResult.fallbackType || 'none',
+            fallback_reason: routeResult.fallbackReason || null,
+            cached_at: new Date().toISOString(),
+            expires_at: expiresAt.toISOString()
+          }).then(({ error }) => {
+            if (error) console.error(`[${requestId}] Cache upsert error:`, error);
+          });
+        }
+
+        return NextResponse.json({
+          success: true,
+          cached: false,
+          data: routeResult.geometry,
+          distance: routeResult.distance,
+          duration: routeResult.duration,
+          requestId
+        });
       }
 
-      const geocodeData = await orsResponse.json();
+      // 2. Geocode Action
+      if (action === 'geocode') {
+        if (!address) {
+          return NextResponse.json({ success: false, error: 'Address required for geocoding', requestId }, { status: 400 });
+        }
 
-      if (!geocodeData.features || geocodeData.features.length === 0) {
-        return NextResponse.json(
-          { error: 'No results found for address' },
-          { status: 404 }
+        const orsUrl = `${ORS_BASE_URL}/geocode/search`;
+        const orsResponse = await fetch(
+          `${orsUrl}?api_key=${ORS_API_KEY}&text=${encodeURIComponent(address)}`,
+          { method: 'GET', headers: { 'Accept': 'application/json' } }
         );
+
+        if (!orsResponse.ok) {
+          const errorText = await orsResponse.text();
+          console.error(`[${requestId}] ORS Geocode error:`, errorText);
+          return NextResponse.json({ success: false, error: 'Geocoding service failed', requestId }, { status: orsResponse.status });
+        }
+
+        const geocodeData = await orsResponse.json();
+        if (!geocodeData.features?.length) {
+          return NextResponse.json({ success: false, error: 'No results found for address', requestId }, { status: 404 });
+        }
+
+        const result = geocodeData.features[0];
+        return NextResponse.json({
+          success: true,
+          data: {
+            coordinates: result.geometry?.coordinates,
+            label: result.properties?.label
+          },
+          requestId
+        });
       }
 
-      // Return the first result
-      const result = geocodeData.features[0];
-      const coordinates = result.geometry?.coordinates; // [lng, lat]
-      const label = result.properties?.label;
+      return NextResponse.json({ success: false, error: 'Invalid action provided', requestId }, { status: 400 });
+
+    } catch (error: any) {
+      console.error(`[${requestId}] Internal error in proxy-ors:`, error);
+      return NextResponse.json({ success: false, error: 'An unexpected error occurred', requestId }, { status: 500 });
+    }
+  },
+  {
+    requiredRoles: ['admin', 'moderator'],
+    schema: ProxyORSSchema,
+    rateLimit: RateLimits.READ
+  }
+);
+
+export const GET = withSecurity(
+  async (request, { auth, requestId }) => {
+    try {
+      const url = new URL(request.url);
+      const routeId = url.searchParams.get('routeId');
+
+      if (!routeId) {
+        return NextResponse.json({ success: false, error: 'routeId parameter required', requestId }, { status: 400 });
+      }
+
+      const { data: cachedData, error: cacheError } = await supabase
+        .from('route_cache')
+        .select('*')
+        .eq('route_id', routeId)
+        .maybeSingle();
+
+      if (cacheError || !cachedData) {
+        return NextResponse.json({ success: false, error: 'Cached route not found', requestId }, { status: 404 });
+      }
+
+      if (new Date(cachedData.expires_at) < new Date()) {
+        return NextResponse.json({ success: false, error: 'Cached route has expired', requestId }, { status: 410 });
+      }
 
       return NextResponse.json({
         success: true,
-        data: {
-          coordinates: coordinates, // [lng, lat]
-          lat: 0,
-          lng: 0,
-          label
-        }
+        data: cachedData.geometry,
+        distance: cachedData.distance,
+        duration: cachedData.duration,
+        cachedAt: cachedData.cached_at,
+        requestId
       });
-    }
 
-    // ===== INVALID ACTION =====
-    else {
-      return NextResponse.json(
-        { error: 'Invalid action - must be "directions" or "geocode"' },
-        { status: 400 }
-      );
+    } catch (error: any) {
+      console.error(`[${requestId}] Error retrieving cached route:`, error);
+      return NextResponse.json({ success: false, error: 'Failed to retrieve cache', requestId }, { status: 500 });
     }
-
-  } catch (error: any) {
-    console.error('Error in ORS proxy:', error);
-    return NextResponse.json(
-      { error: 'Failed to process ORS request' },
-      { status: 500 }
-    );
+  },
+  {
+    requiredRoles: ['admin', 'moderator', 'student', 'driver'],
+    schema: EmptySchema,
+    rateLimit: RateLimits.READ
   }
-}
-
-/**
- * GET /api/proxy-ors?routeId=xxx
- * 
- * Get cached route geometry
- */
-export async function GET(request: NextRequest) {
-  try {
-    // SECURITY: Require authentication
-    const auth = await verifyApiAuth(request, ['admin', 'moderator']);
-    if (!auth.authenticated) return auth.response;
-
-    const url = new URL(request.url);
-    const routeId = url.searchParams.get('routeId');
-
-    if (!routeId) {
-      return NextResponse.json(
-        { error: 'routeId parameter is required' },
-        { status: 400 }
-      );
-    }
-
-    // Get cached route
-    const { data: cachedData, error: cacheError } = await supabase
-      .from('route_cache')
-      .select('*')
-      .eq('route_id', routeId)
-      .maybeSingle();
-
-    if (cacheError || !cachedData) {
-      return NextResponse.json(
-        { error: 'Cached route not found' },
-        { status: 404 }
-      );
-    }
-
-    // Check if expired
-    if (new Date(cachedData.expires_at) < new Date()) {
-      return NextResponse.json(
-        { error: 'Cached route has expired', expired: true },
-        { status: 410 }
-      );
-    }
-
-    return NextResponse.json({
-      success: true,
-      data: cachedData.geometry,
-      distance: cachedData.distance,
-      duration: cachedData.duration,
-      cachedAt: cachedData.cached_at
-    });
-
-  } catch (error: any) {
-    console.error('Error getting cached route:', error);
-    return NextResponse.json(
-      { error: 'Failed to get cached route' },
-      { status: 500 }
-    );
-  }
-}
+);

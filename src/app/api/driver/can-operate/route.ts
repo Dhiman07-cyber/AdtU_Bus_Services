@@ -5,7 +5,6 @@
  * Returns whether the driver is allowed to open the Track Bus page.
  * 
  * Request body:
- * - idToken: string (Firebase ID token)
  * - busId: string (bus ID to check)
  * 
  * Response:
@@ -14,41 +13,16 @@
  */
 
 import { NextResponse } from 'next/server';
-import { auth, db as adminDb } from '@/lib/firebase-admin';
+import { db as adminDb } from '@/lib/firebase-admin';
 import { tripLockService } from '@/lib/services/trip-lock-service';
+import { withSecurity } from '@/lib/security/api-security';
+import { BusIdSchema } from '@/lib/security/validation-schemas';
+import { RateLimits } from '@/lib/security/rate-limiter';
 
-export async function POST(request: Request) {
-    try {
-        const body = await request.json();
-        const { idToken, busId } = body;
-
-        // Validate required fields
-        if (!idToken || !busId) {
-            return NextResponse.json(
-                { error: 'Missing required fields: idToken, busId' },
-                { status: 400 }
-            );
-        }
-
-        // Verify Firebase token
-        if (!auth) {
-            return NextResponse.json(
-                { error: 'Firebase Admin not initialized' },
-                { status: 500 }
-            );
-        }
-
-        const decodedToken = await auth.verifyIdToken(idToken);
-        const driverId = decodedToken.uid;
-
-        // Verify user is a driver
-        const userDoc = await adminDb.collection('users').doc(driverId).get();
-        if (!userDoc.exists || userDoc.data()?.role !== 'driver') {
-            return NextResponse.json(
-                { error: 'User is not authorized as a driver' },
-                { status: 403 }
-            );
-        }
+export const POST = withSecurity(
+    async (request, { auth, body }) => {
+        const { busId } = body as any;
+        const driverId = auth.uid;
 
         // Check driver assignment to this bus
         const driverDoc = await adminDb.collection('drivers').doc(driverId).get();
@@ -95,12 +69,11 @@ export async function POST(request: Request) {
             allowed: result.allowed,
             reason: result.allowed ? undefined : result.reason
         });
-
-    } catch (error: any) {
-        console.error('Error in can-operate:', error);
-        return NextResponse.json(
-            { error: 'Internal server error' },
-            { status: 500 }
-        );
+    },
+    {
+        requiredRoles: ['driver'],
+        schema: BusIdSchema,
+        rateLimit: RateLimits.READ,
+        allowBodyToken: true
     }
-}
+);

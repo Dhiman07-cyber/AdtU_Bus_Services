@@ -11,13 +11,18 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
+    if (!adminAuth) {
+      console.error('❌ Admin Auth not initialized');
+      return NextResponse.json({ error: 'Authentication service unavailable' }, { status: 503 });
+    }
+
     const decodedToken = await adminAuth.verifyIdToken(token);
     console.log('✅ Token verified for user:', decodedToken.uid);
 
     // Check if adminDb is available
     if (!adminDb) {
       console.error('❌ Admin Firestore not initialized');
-      return NextResponse.json({ error: 'Database not available' }, { status: 500 });
+      return NextResponse.json({ error: 'Database service unavailable' }, { status: 503 });
     }
 
     // Get all active moderators from moderators collection

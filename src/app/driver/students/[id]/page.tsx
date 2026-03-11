@@ -116,7 +116,7 @@ export default function DriverStudentDetailPage({ params }: { params: Promise<{ 
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-purple-50 via-pink-50 to-rose-50 dark:from-gray-900 dark:via-purple-900/20 dark:to-pink-900/20">
+      <div className="flex-1 min-h-[calc(100dvh-120px)] flex items-center justify-center bg-gradient-to-br from-purple-50 via-pink-50 to-rose-50 dark:from-gray-900 dark:via-purple-900/20 dark:to-pink-900/20">
         <div className="text-center">
           <Loader2 className="w-16 h-16 animate-spin text-purple-600 dark:text-purple-400 mx-auto mb-4" />
           <p className="text-sm font-medium text-gray-600 dark:text-gray-400">Loading student profile...</p>
@@ -127,7 +127,7 @@ export default function DriverStudentDetailPage({ params }: { params: Promise<{ 
 
   if (error || !student) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-purple-50 via-pink-50 to-rose-50 dark:from-gray-900 dark:via-purple-900/20 dark:to-pink-900/20">
+      <div className="flex-1 min-h-[calc(100dvh-120px)] flex items-center justify-center bg-gradient-to-br from-purple-50 via-pink-50 to-rose-50 dark:from-gray-900 dark:via-purple-900/20 dark:to-pink-900/20">
         <div className="text-center max-w-md mx-auto px-4">
           <div className="mb-8 inline-flex items-center justify-center w-24 h-24 rounded-full bg-gradient-to-br from-red-500 to-pink-500 shadow-2xl">
             <AlertCircle className="w-12 h-12 text-white" />
@@ -147,7 +147,7 @@ export default function DriverStudentDetailPage({ params }: { params: Promise<{ 
   }
 
   return (
-    <div className="min-h-screen pb-12 bg-gradient-to-br from-background via-background to-muted/20">
+    <div className="flex-1 min-h-[calc(100dvh-120px)] pb-12 bg-gradient-to-br from-background via-background to-muted/20">
       {/* Premium Header */}
       <div className="bg-gradient-to-r from-card via-card to-card/95 border-b border-border shadow-sm backdrop-blur-sm">
         <div className="max-w-7xl mx-auto px-4 py-3">

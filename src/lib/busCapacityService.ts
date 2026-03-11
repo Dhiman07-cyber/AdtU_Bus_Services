@@ -90,6 +90,7 @@ export async function incrementBusCapacity(busId: string, studentUid: string, sh
     // Prepare load updates
     const updates: any = {
       currentMembers: currentMembers,
+      'load.totalCount': currentMembers,
       updatedAt: new Date().toISOString()
     };
 
@@ -147,6 +148,7 @@ export async function decrementBusCapacity(busId: string, studentUid: string, sh
     // Prepare updates
     const updates: any = {
       currentMembers: currentMembers,
+      'load.totalCount': currentMembers,
       updatedAt: new Date().toISOString()
     };
 

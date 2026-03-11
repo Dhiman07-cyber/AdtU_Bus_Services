@@ -57,6 +57,7 @@ export interface AuditLogEntry {
 
 // Application Form Data
 export interface ApplicationFormData {
+  assignedBusId: any;
   // Personal Info
   fullName: string;
   email: string;

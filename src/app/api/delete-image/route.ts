@@ -1,54 +1,81 @@
+/**
+ * POST /api/delete-image — Secure Image Deletion
+ * ────────────────────────────────────────────────
+ * SECURITY HARDENING (March 2026):
+ *  - Previously this route sent CLOUDINARY_API_SECRET in a FormData POST to
+ *    Cloudinary's /destroy endpoint — that's a secret leak even though it
+ *    went server→Cloudinary (the code pattern was dangerous and could be
+ *    copy-pasted to client code).
+ *  - Now uses the Cloudinary SDK which keeps the secret internal.
+ *  - Requires Firebase authentication.
+ *  - Rate-limited (10 deletes / 60 s per user).
+ */
+
 import { NextRequest, NextResponse } from 'next/server';
-import { adminAuth } from '@/lib/firebase-admin';
+import { deleteAsset } from '@/lib/cloudinary-server';
+import { verifyTokenOnly } from '@/lib/security/api-auth';
+import { checkRateLimit, createRateLimitId } from '@/lib/security/rate-limiter';
+import { handleApiError } from '@/lib/security/safe-error';
 
 export async function POST(request: NextRequest) {
   try {
-    const token = request.headers.get('Authorization')?.replace('Bearer ', '');
-    
-    if (!token) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    // ── 1. Authentication ─────────────────────────────────────────────────
+    const user = await verifyTokenOnly(request);
+    if (!user) {
+      return NextResponse.json(
+        { error: 'Authentication required' },
+        { status: 401 }
+      );
     }
 
-    await adminAuth.verifyIdToken(token);
+    // ── 2. Rate Limiting ──────────────────────────────────────────────────
+    const rateLimitId = createRateLimitId(user.uid, 'delete-image');
+    const rateCheck = checkRateLimit(rateLimitId, 10, 60_000);
+    if (!rateCheck.allowed) {
+      return NextResponse.json(
+        { error: 'Too many requests. Please wait.' },
+        { status: 429 }
+      );
+    }
 
+    // ── 3. Parse & validate input ─────────────────────────────────────────
     const body = await request.json();
     const { publicId } = body;
 
-    if (!publicId) {
-      return NextResponse.json({ error: 'Missing public ID' }, { status: 400 });
+    if (!publicId || typeof publicId !== 'string' || publicId.length > 300) {
+      return NextResponse.json(
+        { error: 'Missing or invalid public ID' },
+        { status: 400 }
+      );
     }
 
-    // Call Cloudinary API to delete the image
-    const cloudinaryUrl = `https://api.cloudinary.com/v1_1/${process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME}/image/destroy`;
-    
-    const formData = new FormData();
-    formData.append('public_id', publicId);
-    formData.append('api_key', process.env.CLOUDINARY_API_KEY || '');
-    formData.append('api_secret', process.env.CLOUDINARY_API_SECRET || '');
-    formData.append('timestamp', Math.floor(Date.now() / 1000).toString());
+    // SECURITY: Basic path-traversal prevention — public_id should only
+    // contain alphanumerics, slashes, underscores, and hyphens.
+    if (!/^[a-zA-Z0-9/_-]+$/.test(publicId)) {
+      return NextResponse.json(
+        { error: 'Invalid public ID format' },
+        { status: 400 }
+      );
+    }
 
-    const response = await fetch(cloudinaryUrl, {
-      method: 'POST',
-      body: formData
-    });
+    // ── 4. Delete via SDK (never send api_secret in a form) ───────────────
+    const deleted = await deleteAsset(publicId);
 
-    if (response.ok) {
+    if (deleted) {
       return NextResponse.json({
         success: true,
-        message: 'Image deleted successfully'
+        message: 'Image deleted successfully',
       });
     } else {
-      const errorData = await response.json();
-      console.error('Cloudinary delete error:', errorData);
-      return NextResponse.json({
-        success: false,
-        message: 'Failed to delete image from Cloudinary'
-      }, { status: 500 });
+      return NextResponse.json(
+        { success: false, message: 'Image not found or already deleted' },
+        { status: 404 }
+      );
     }
   } catch (error: any) {
-    console.error('Error deleting image:', error);
+    console.error('❌ [delete-image] Error:', error);
     return NextResponse.json(
-      { error: 'Failed to delete image' },
+      handleApiError(error, 'delete-image', 'Failed to delete image'),
       { status: 500 }
     );
   }

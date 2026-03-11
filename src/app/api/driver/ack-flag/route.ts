@@ -1,65 +1,33 @@
 import { NextResponse } from 'next/server';
-import { auth, db as adminDb } from '@/lib/firebase-admin';
+import { db as adminDb } from '@/lib/firebase-admin';
 import { createClient } from '@supabase/supabase-js';
-import { FieldValue } from 'firebase-admin/firestore';
-
-// Initialize Supabase client with service role
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL || '',
-  process.env.SUPABASE_SERVICE_ROLE_KEY || ''
-);
+import { withSecurity } from '@/lib/security/api-security';
+import { MarkBoardedSchema } from '@/lib/security/validation-schemas';
+import { RateLimits } from '@/lib/security/rate-limiter';
 
 /**
  * POST /api/driver/ack-flag
  * 
- * Body: { flagId, idToken }
+ * Body: { flagId }
  * 
  * Validates:
  * - Driver is authenticated and assigned to the route/bus
  * 
  * Actions:
  * - Update waiting_flags.status = "acknowledged"
- * - Set ackByDriverUid
+ * - Set ackBy_driver_uid
  * - Broadcast update to route channel
- * - Send FCM notification to student
  */
-export async function POST(request: Request) {
-  try {
-    const body = await request.json();
-    const { idToken, flagId } = body;
+export const POST = withSecurity(
+  async (request, { auth, body }) => {
+    const { flagId } = body as any;
+    const driverUid = auth.uid;
 
-    // Validate required fields
-    if (!idToken || !flagId) {
-      return NextResponse.json(
-        { error: 'Missing required fields: idToken, flagId' },
-        { status: 400 }
-      );
-    }
-
-    // Verify Firebase ID token
-    if (!auth) {
-      return NextResponse.json(
-        { error: 'Firebase Admin not initialized' },
-        { status: 500 }
-      );
-    }
-
-    const decodedToken = await auth.verifyIdToken(idToken);
-    const driverUid = decodedToken.uid;
-
-    // Verify user exists and is a driver
-    const userDoc = await adminDb.collection('users').doc(driverUid).get();
-    if (!userDoc.exists) {
-      return NextResponse.json({ error: 'User not found' }, { status: 404 });
-    }
-
-    const userData = userDoc.data();
-    if (userData?.role !== 'driver') {
-      return NextResponse.json(
-        { error: 'User is not authorized as a driver' },
-        { status: 403 }
-      );
-    }
+    // Initialize Supabase client
+    const supabase = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL || '',
+      process.env.SUPABASE_SERVICE_ROLE_KEY || ''
+    );
 
     // Get waiting flag
     const { data: flagData, error: flagError } = await supabase
@@ -76,7 +44,6 @@ export async function POST(request: Request) {
     }
 
     // Verify driver is assigned to this bus/route
-    // First check if the driver document claims this bus
     const driverDoc = await adminDb.collection('drivers').doc(driverUid).get();
     if (!driverDoc.exists) {
       return NextResponse.json({ error: 'Driver profile not found' }, { status: 404 });
@@ -87,29 +54,10 @@ export async function POST(request: Request) {
       driverData?.assignedBusId === flagData.bus_id ||
       driverData?.busId === flagData.bus_id;
 
-    // Also verify the bus exists
-    const busDoc = await adminDb.collection('buses').doc(flagData.bus_id).get();
-    if (!busDoc.exists) {
-      return NextResponse.json({ error: 'Bus not found' }, { status: 404 });
-    }
-
-    const busData = busDoc.data();
-
-    // Check if bus also claims this driver (bidirectional validation)
-    const busClaimsDriver =
-      busData?.assignedDriverId === driverUid ||
-      busData?.activeDriverId === driverUid ||
-      busData?.driverUID === driverUid;
-
-    // Driver must claim the bus (primary validation)
     if (!driverClaimsBus) {
       console.error('Driver assignment validation failed:', {
         driverUid,
-        busId: flagData.bus_id,
-        driverData: {
-          assignedBusId: driverData?.assignedBusId,
-          busId: driverData?.busId
-        }
+        busId: flagData.bus_id
       });
       return NextResponse.json(
         { error: 'Driver is not assigned to this bus' },
@@ -183,16 +131,6 @@ export async function POST(request: Request) {
       console.error('Broadcast error (non-critical):', broadcastError);
     }
 
-    // Get active trip ID to link this log to the current journey
-    // Check BUS collection instead of trip_sessions
-    const activeBusDoc = await adminDb.collection('buses').doc(flagData.bus_id).get();
-    const tripId = activeBusDoc.exists ? activeBusDoc.data()?.activeTripId : null;
-
-    // Log to audit_logs - REMOVED per request
-
-
-    // NOTE: No FCM for flag acknowledgment - only in-app toast via broadcast
-    // Student will see instant toast via student_{uid} channel
     console.log('✅ Flag acknowledged - student will see in-app toast via broadcast');
 
     return NextResponse.json({
@@ -204,12 +142,11 @@ export async function POST(request: Request) {
         ackByDriverUid: driverUid
       }
     });
-
-  } catch (error: any) {
-    console.error('Error acknowledging flag:', error);
-    return NextResponse.json(
-      { error: 'Failed to acknowledge flag' },
-      { status: 500 }
-    );
+  },
+  {
+    requiredRoles: ['driver'],
+    schema: MarkBoardedSchema,
+    rateLimit: RateLimits.CREATE,
+    allowBodyToken: true
   }
-}
+);

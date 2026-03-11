@@ -8,7 +8,7 @@ const nextConfig: NextConfig = {
   },
 
   // Performance optimizations
-  serverExternalPackages: ['cloudinary'],
+  serverExternalPackages: ['cloudinary', 'razorpay', 'asynckit', 'axios'],
 
   experimental: {
     optimizePackageImports: [
@@ -136,92 +136,100 @@ const nextConfig: NextConfig = {
   async headers() {
     const isProduction = process.env.NODE_ENV === 'production';
 
+    // Shared security headers for all routes
+    const securityHeaders = [
+      // HSTS: Force HTTPS in production
+      ...(isProduction ? [{
+        key: 'Strict-Transport-Security',
+        value: 'max-age=31536000; includeSubDomains; preload',
+      }] : []),
+      // COOP header set to allow Firebase Auth popups
+      {
+        key: 'Cross-Origin-Opener-Policy',
+        value: 'same-origin-allow-popups',
+      },
+      {
+        key: 'Cross-Origin-Embedder-Policy',
+        value: 'unsafe-none',
+      },
+      // CSP headers for Firebase Auth, Razorpay, and mobile compatibility
+      {
+        key: 'Content-Security-Policy',
+        value: [
+          "default-src 'self'",
+          "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://checkout.razorpay.com https://*.razorpay.com https://apis.google.com https://www.gstatic.com https://vercel.live https://*.vercel.live https://va.vercel-scripts.com",
+          "style-src 'self' 'unsafe-inline' https://checkout.razorpay.com https://fonts.googleapis.com https://vercel.live https://*.vercel.live",
+          "img-src 'self' data: blob: https: https://res.cloudinary.com https://lh3.googleusercontent.com https://api.dicebear.com https://checkout.razorpay.com https://www.google.com https://vercel.live https://*.vercel.live",
+          "font-src 'self' data: https://checkout.razorpay.com https://fonts.gstatic.com https://vercel.live https://*.vercel.live",
+          isProduction
+            ? "connect-src 'self' https://*.razorpay.com https://api.razorpay.com wss://*.supabase.co https://*.supabase.co https://*.supabase.in https://firestore.googleapis.com https://securetoken.googleapis.com https://identitytoolkit.googleapis.com https://*.googleapis.com https://apis.google.com https://accounts.google.com https://www.google.com https://api.cloudinary.com https://*.cloudinary.com https://vercel.live https://*.vercel.live https://vitals.vercel-insights.com"
+            : "connect-src 'self' http://localhost:* http://127.0.0.1:* https://*.razorpay.com https://api.razorpay.com wss://*.supabase.co https://*.supabase.co https://*.supabase.in https://firestore.googleapis.com https://securetoken.googleapis.com https://identitytoolkit.googleapis.com https://*.googleapis.com https://apis.google.com https://accounts.google.com https://www.google.com https://api.cloudinary.com https://*.cloudinary.com https://vercel.live https://*.vercel.live https://vitals.vercel-insights.com",
+          "frame-src 'self' https://api.razorpay.com https://checkout.razorpay.com https://accounts.google.com https://*.firebaseapp.com https://vercel.live https://*.vercel.live",
+          "media-src 'self' blob: data: https://*.supabase.co https://*.supabase.in",
+          "base-uri 'self'",
+          "form-action 'self' https://api.razorpay.com https://accounts.google.com",
+          "object-src 'none'",
+          ...(isProduction ? ["upgrade-insecure-requests"] : []),
+        ].join('; '),
+      },
+      // Security headers
+      { key: 'X-Content-Type-Options', value: 'nosniff' },
+      { key: 'X-Frame-Options', value: 'DENY' },
+      { key: 'X-XSS-Protection', value: '1; mode=block' },
+      { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
+      {
+        key: 'Permissions-Policy',
+        value: 'camera=(self), microphone=(), geolocation=(self), payment=(self), usb=(), bluetooth=(), serial=(), hid=(), magnetometer=(), gyroscope=(), accelerometer=(self)',
+      },
+      { key: 'Cross-Origin-Resource-Policy', value: 'same-origin' },
+    ];
+
     return [
+      // ── Static assets: Long-lived immutable cache (JS, CSS, images, fonts) ──
+      {
+        source: '/_next/static/:path*',
+        headers: [
+          { key: 'Cache-Control', value: 'public, max-age=31536000, immutable' },
+        ],
+      },
+      // ── Optimized images: Long TTL with revalidation ──
+      {
+        source: '/_next/image/:path*',
+        headers: [
+          { key: 'Cache-Control', value: 'public, max-age=86400, stale-while-revalidate=604800' },
+        ],
+      },
+      // ── Public static files: cache with revalidation ──
+      {
+        source: '/manifest.json',
+        headers: [
+          { key: 'Cache-Control', value: 'public, max-age=3600, stale-while-revalidate=86400' },
+        ],
+      },
+      // ── API routes: Never cache sensitive data ──
+      {
+        source: '/api/:path*',
+        headers: [
+          ...securityHeaders,
+          { key: 'Cache-Control', value: 'no-store, no-cache, must-revalidate' },
+          { key: 'Pragma', value: 'no-cache' },
+        ],
+      },
+      // ── Health endpoint: Short cache for monitoring tools ──
+      {
+        source: '/api/health',
+        headers: [
+          ...securityHeaders,
+          { key: 'Cache-Control', value: 'no-cache, max-age=0, must-revalidate' },
+        ],
+      },
+      // ── All page routes: Security headers + short SWR for HTML pages ──
       {
         source: '/:path*',
         headers: [
-          // HSTS: Force HTTPS in production
-          ...(isProduction ? [{
-            key: 'Strict-Transport-Security',
-            value: 'max-age=31536000; includeSubDomains; preload',
-          }] : []),
-          // COOP header set to allow Firebase Auth popups
-          {
-            key: 'Cross-Origin-Opener-Policy',
-            value: 'same-origin-allow-popups',
-          },
-          {
-            key: 'Cross-Origin-Embedder-Policy',
-            value: 'unsafe-none',
-          },
-          // CSP headers for Firebase Auth, Razorpay, and mobile compatibility
-          // Note: 'unsafe-inline' and 'unsafe-eval' are required by Firebase Auth SDK and Razorpay checkout
-          // They cannot be removed without breaking those integrations
-          {
-            key: 'Content-Security-Policy',
-            value: [
-              "default-src 'self'",
-              // Scripts: Firebase, Razorpay, Google APIs, Vercel Feedback
-              "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://checkout.razorpay.com https://*.razorpay.com https://apis.google.com https://www.gstatic.com https://vercel.live https://*.vercel.live https://va.vercel-scripts.com",
-              // Styles: Allow all for Firebase UI
-              "style-src 'self' 'unsafe-inline' https://checkout.razorpay.com https://fonts.googleapis.com https://vercel.live https://*.vercel.live",
-              // Images: Cloudinary, Google, Razorpay, Dicebear avatars
-              "img-src 'self' data: blob: https: https://res.cloudinary.com https://lh3.googleusercontent.com https://api.dicebear.com https://checkout.razorpay.com https://www.google.com https://vercel.live https://*.vercel.live",
-              // Fonts: Google Fonts, Razorpay
-              "font-src 'self' data: https://checkout.razorpay.com https://fonts.gstatic.com https://vercel.live https://*.vercel.live",
-              // Connect: Firebase, Razorpay, Supabase, Google, Cloudinary, Vercel - restrict to specific domains in production
-              isProduction
-                ? "connect-src 'self' https://*.razorpay.com https://api.razorpay.com wss://*.supabase.co https://*.supabase.co https://*.supabase.in https://firestore.googleapis.com https://securetoken.googleapis.com https://identitytoolkit.googleapis.com https://*.googleapis.com https://apis.google.com https://accounts.google.com https://www.google.com https://api.cloudinary.com https://*.cloudinary.com https://vercel.live https://*.vercel.live https://vitals.vercel-insights.com"
-                : "connect-src 'self' http://localhost:* http://127.0.0.1:* https://*.razorpay.com https://api.razorpay.com wss://*.supabase.co https://*.supabase.co https://*.supabase.in https://firestore.googleapis.com https://securetoken.googleapis.com https://identitytoolkit.googleapis.com https://*.googleapis.com https://apis.google.com https://accounts.google.com https://www.google.com https://api.cloudinary.com https://*.cloudinary.com https://vercel.live https://*.vercel.live https://vitals.vercel-insights.com",
-              // Frames: Google OAuth, Razorpay checkout, Vercel
-              "frame-src 'self' https://api.razorpay.com https://checkout.razorpay.com https://accounts.google.com https://*.firebaseapp.com https://vercel.live https://*.vercel.live",
-              // Media: Allow videos from ALL Supabase subdomains
-              "media-src 'self' blob: data: https://*.supabase.co https://*.supabase.in",
-              "base-uri 'self'",
-              // Form action: Allow Google OAuth and Razorpay
-              "form-action 'self' https://api.razorpay.com https://accounts.google.com",
-              // Block object embedding
-              "object-src 'none'",
-              // Upgrade insecure requests in production
-              ...(isProduction ? ["upgrade-insecure-requests"] : []),
-            ].join('; '),
-          },
-          // Security headers
-          {
-            key: 'X-Content-Type-Options',
-            value: 'nosniff',
-          },
-          {
-            key: 'X-Frame-Options',
-            value: 'DENY',
-          },
-          {
-            key: 'X-XSS-Protection',
-            value: '1; mode=block',
-          },
-          {
-            key: 'Referrer-Policy',
-            value: 'strict-origin-when-cross-origin',
-          },
-          // Permissions Policy - restrict browser features
-          {
-            key: 'Permissions-Policy',
-            value: 'camera=(self), microphone=(), geolocation=(self), payment=(self), usb=(), bluetooth=(), serial=(), hid=(), magnetometer=(), gyroscope=(), accelerometer=(self)',
-          },
-          // Prevent MIME-type sniffing
-          {
-            key: 'Cross-Origin-Resource-Policy',
-            value: 'same-origin',
-          },
-          // Prevent browser from caching sensitive pages
-          {
-            key: 'Cache-Control',
-            value: 'no-store, no-cache, must-revalidate, proxy-revalidate',
-          },
-          {
-            key: 'Pragma',
-            value: 'no-cache',
-          },
+          ...securityHeaders,
+          // Pages use stale-while-revalidate for faster perceived load
+          { key: 'Cache-Control', value: 'private, no-cache, must-revalidate' },
         ],
       },
     ];

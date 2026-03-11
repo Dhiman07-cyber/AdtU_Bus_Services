@@ -1,18 +1,15 @@
 import { NextResponse } from 'next/server';
-import { auth, db as adminDb } from '@/lib/firebase-admin';
+import { db as adminDb, auth as adminAuth } from '@/lib/firebase-admin';
 import { createClient } from '@supabase/supabase-js';
 import { FieldValue } from 'firebase-admin/firestore';
-
-// Initialize Supabase client with service role
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL || '',
-  process.env.SUPABASE_SERVICE_ROLE_KEY || ''
-);
+import { withSecurity } from '@/lib/security/api-security';
+import { AcceptSwapSchema } from '@/lib/security/validation-schemas';
+import { RateLimits } from '@/lib/security/rate-limiter';
 
 /**
  * POST /api/driver/accept-swap
  * 
- * Body: { swapRequestId, idToken }
+ * Body: { swapRequestId }
  * 
  * Validates:
  * - Requester is the toDriverUid
@@ -23,43 +20,10 @@ const supabase = createClient(
  * - Append audit_logs
  * - Broadcast to students & moderators
  */
-export async function POST(request: Request) {
-  try {
-    const body = await request.json();
-    const { idToken, swapRequestId } = body;
-
-    // Validate required fields
-    if (!idToken || !swapRequestId) {
-      return NextResponse.json(
-        { error: 'Missing required fields: idToken, swapRequestId' },
-        { status: 400 }
-      );
-    }
-
-    // Verify Firebase ID token
-    if (!auth) {
-      return NextResponse.json(
-        { error: 'Firebase Admin not initialized' },
-        { status: 500 }
-      );
-    }
-
-    const decodedToken = await auth.verifyIdToken(idToken);
-    const toDriverUid = decodedToken.uid;
-
-    // Verify user exists and is a driver
-    const userDoc = await adminDb.collection('users').doc(toDriverUid).get();
-    if (!userDoc.exists) {
-      return NextResponse.json({ error: 'User not found' }, { status: 404 });
-    }
-
-    const userData = userDoc.data();
-    if (userData?.role !== 'driver') {
-      return NextResponse.json(
-        { error: 'User is not authorized as a driver' },
-        { status: 403 }
-      );
-    }
+export const POST = withSecurity(
+  async (request, { auth, body }) => {
+    const { swapRequestId } = body as any;
+    const toDriverUid = auth.uid;
 
     // Get swap request
     const swapDoc = await adminDb.collection('swap_requests').doc(swapRequestId).get();
@@ -91,6 +55,9 @@ export async function POST(request: Request) {
     const busId = swapData.busId;
     const fromDriverUid = swapData.fromDriverUid;
 
+    // Get bus ref
+    const busRef = adminDb.collection('buses').doc(busId);
+    
     // ===== ATOMIC TRANSACTION =====
     // Use Firestore batch for atomicity
     const batch = adminDb.batch();
@@ -103,7 +70,6 @@ export async function POST(request: Request) {
     });
 
     // 2. Update bus activeDriverId
-    const busRef = adminDb.collection('buses').doc(busId);
     batch.update(busRef, {
       activeDriverId: toDriverUid
     });
@@ -111,15 +77,19 @@ export async function POST(request: Request) {
     // Commit the batch
     await batch.commit();
 
-    // Log operation (audit_logs moved to Supabase)
     console.log('📝 Swap accepted:', {
       actorUid: toDriverUid,
-      action: 'driver_accept_swap',
       swapRequestId, busId, fromDriverUid, toDriverUid,
       timestamp: new Date().toISOString()
     });
 
     // ===== Post-transaction actions =====
+
+    // Initialize Supabase client
+    const supabase = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL || '',
+      process.env.SUPABASE_SERVICE_ROLE_KEY || ''
+    );
 
     // Get bus data for notifications
     const busDoc = await busRef.get();
@@ -131,10 +101,10 @@ export async function POST(request: Request) {
       const { error: driverStatusError } = await supabase
         .from('driver_status')
         .update({
-          driverUid: toDriverUid,
-          lastUpdatedAt: new Date().toISOString()
+          driver_uid: toDriverUid, // Fixed field name to match schema in update-location
+          updated_at: new Date().toISOString()
         })
-        .eq('busId', busId);
+        .match({ bus_id: busId }); // Fixed field names to match schema
 
       if (driverStatusError) {
         console.error('Error updating driver status:', driverStatusError);
@@ -171,7 +141,7 @@ export async function POST(request: Request) {
       const fcmTokens: string[] = [];
       const studentIds = studentsSnapshot.docs.map((doc: any) => doc.id);
 
-      // Fetch FCM tokens concurrently to prevent N+1 query slow down
+      // Fetch FCM tokens concurrently
       const tokenSnapshots = await Promise.all(
         studentIds.map((uid: string) => adminDb.collection('fcm_tokens').where('userUid', '==', uid).get())
       );
@@ -182,8 +152,8 @@ export async function POST(request: Request) {
         });
       }
 
-      if (fcmTokens.length > 0 && auth.messaging) {
-        await auth.messaging().sendEach(
+      if (fcmTokens.length > 0 && adminAuth.messaging) {
+        await adminAuth.messaging().sendEach(
           fcmTokens.map(token => ({
             token,
             notification: {
@@ -200,7 +170,6 @@ export async function POST(request: Request) {
       }
     } catch (fcmError) {
       console.error('Error sending FCM notifications:', fcmError);
-      // Don't fail the request
     }
 
     // Notify the original driver
@@ -215,13 +184,13 @@ export async function POST(request: Request) {
         driverTokens.push(tokenDoc.data().deviceToken);
       });
 
-      if (driverTokens.length > 0 && auth.messaging) {
-        await auth.messaging().sendEach(
+      if (driverTokens.length > 0 && adminAuth.messaging) {
+        await adminAuth.messaging().sendEach(
           driverTokens.map(token => ({
             token,
             notification: {
               title: 'Swap Request Accepted',
-              body: `${userData?.name || 'The driver'} has accepted your swap request`
+              body: `The driver has accepted your swap request`
             },
             data: {
               type: 'swap_accepted',
@@ -246,12 +215,11 @@ export async function POST(request: Request) {
         status: 'accepted'
       }
     });
-
-  } catch (error: any) {
-    console.error('Error accepting swap request:', error);
-    return NextResponse.json(
-      { error: 'Failed to accept swap request' },
-      { status: 500 }
-    );
+  },
+  {
+    requiredRoles: ['driver'],
+    schema: AcceptSwapSchema,
+    rateLimit: RateLimits.CREATE,
+    allowBodyToken: true
   }
-}
+);

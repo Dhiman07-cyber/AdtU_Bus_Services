@@ -231,7 +231,16 @@ export default function EditDriverPage({ params }: { params: Promise<{ id: strin
         const originalProfilePhotoUrl = driver?.profilePhotoUrl || '';
         const upFormData = new FormData();
         upFormData.append('file', formData.profilePhoto);
-        const res = await fetch('/api/upload', { method: 'POST', body: upFormData });
+
+        // SECURITY: Get auth token for the secured upload route
+        const { auth: firebaseAuth } = await import('@/lib/firebase');
+        const idToken = await firebaseAuth.currentUser?.getIdToken();
+
+        const res = await fetch('/api/upload', {
+          method: 'POST',
+          headers: idToken ? { 'Authorization': `Bearer ${idToken}` } : {},
+          body: upFormData,
+        });
         if (!res.ok) throw new Error('Photo upload failed');
         const data = await res.json();
         profilePhotoUrl = data.url;

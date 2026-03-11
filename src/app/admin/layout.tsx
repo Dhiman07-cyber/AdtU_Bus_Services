@@ -42,7 +42,7 @@ export default function AdminLayout({
 
   // Combined loading state: auth loading OR (user exists but data hasn't arrived)
   if (loading || (currentUser && !userData)) {
-    return <PremiumPageLoader message="Administrative Console" subMessage="Verifying Authentication Securely" />;
+    return <PremiumPageLoader fullScreen message="Administrative Console" subMessage="Verifying Authentication Securely" />;
   }
 
   // Final gate

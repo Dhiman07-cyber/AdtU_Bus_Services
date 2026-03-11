@@ -10,7 +10,7 @@ const supabase = createClient(
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { idToken, busId, routeId, accuracy, speed, heading, timestamp, tripId } = body;
+    const { idToken, busId, routeId, lat, lng, accuracy, speed, heading, timestamp, tripId } = body;
 
     // Get token from either body or Authorization header
     let token = idToken;
@@ -92,11 +92,13 @@ export async function POST(request: Request) {
           bus_id: busId,
           route_id: routeId,
           driver_uid: driverUid,
+          lat: lat ? parseFloat(lat) : 0,
+          lng: lng ? parseFloat(lng) : 0,
           accuracy: parseFloat(accuracy),
           speed: speed ? parseFloat(speed) : null,
           heading: heading ? parseFloat(heading) : null,
           updated_at: new Date(currentTimestamp).toISOString(),
-          timestamp: currentTimestamp
+          timestamp: new Date(currentTimestamp).toISOString()
         }, {
           onConflict: 'bus_id'
         });
@@ -118,23 +120,19 @@ export async function POST(request: Request) {
     // Broadcast location update to all subscribers (optional)
     try {
       const broadcastResponse = await supabase
-        .channel(`bus_location_${busId}`)
-        .send({
-          type: 'broadcast',
-          event: 'location_update',
-          payload: {
-            busId,
-            routeId,
-            driverUid,
-            accuracy: parseFloat(accuracy),
-            speed: speed ? parseFloat(speed) : null,
-            heading: heading ? parseFloat(heading) : null,
-            timestamp: currentTimestamp
-          }
+        .channel(`bus_location_` + busId)
+        .httpSend('location_update', {
+          busId,
+          routeId,
+          driverUid,
+          accuracy: parseFloat(accuracy),
+          speed: speed ? parseFloat(speed) : null,
+          heading: heading ? parseFloat(heading) : null,
+          timestamp: currentTimestamp
         });
 
       // Check if broadcast was successful
-      if (broadcastResponse !== 'ok') {
+      if (!broadcastResponse.success) {
         console.warn('⚠️ Broadcast error (non-critical):', broadcastResponse);
       } else {
         console.log('✅ Location broadcast sent successfully');

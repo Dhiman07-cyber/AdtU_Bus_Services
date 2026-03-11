@@ -47,6 +47,7 @@ export default function ModeratorApplicationDetailPage() {
   const [yearlyBusFee, setYearlyBusFee] = useState<number>(1200); // Default
   const [driverData, setDriverData] = useState<any>(null);
   const [verifierData, setVerifierData] = useState<any>(null);
+  const [routeError, setRouteError] = useState(false);
 
   const copyToClipboard = async (text: string) => {
     await navigator.clipboard.writeText(text);
@@ -125,9 +126,10 @@ export default function ModeratorApplicationDetailPage() {
 
         // Fetch bus, route, and verifier data in parallel
         const promises = [];
-        const routeId = data.application.formData?.routeId;
-        if (routeId && token) {
-          promises.push(fetchBusAndRouteData(routeId, token));
+        const studentAssignedBusId = data.application.formData?.busId || data.application.formData?.assignedBusId;
+        const routeId = data.application.formData?.routeId || data.application.formData?.assignedRouteId;
+        if ((routeId || studentAssignedBusId) && token) {
+          promises.push(fetchBusAndRouteData(routeId, studentAssignedBusId, token));
         }
 
         const verifiedById = data.application.verifiedById || data.application.verifiedBy;
@@ -148,22 +150,39 @@ export default function ModeratorApplicationDetailPage() {
     }
   };
 
-  const fetchBusAndRouteData = async (routeId: string, token: string) => {
+  const fetchBusAndRouteData = async (routeId: string | undefined, busId: string | undefined, token: string) => {
     try {
-      // Fetch bus and route data in parallel
-      const [busResponse, routeResponse] = await Promise.all([
-        fetch(`/api/buses?routeId=${routeId}`, {
-          headers: { 'Authorization': `Bearer ${token}` }
-        }),
-        fetch(`/api/routes/${routeId}`, {
-          headers: { 'Authorization': `Bearer ${token}` }
-        })
-      ]);
+      // Fetch bus and route data in parallel if we have IDs
+      const promises: Promise<Response | null>[] = [];
 
-      if (busResponse.ok) {
+      if (busId) {
+        promises.push(fetch(`/api/buses/${busId}`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        }).catch(() => null));
+      } else if (routeId) {
+        promises.push(fetch(`/api/buses?routeId=${routeId}`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        }).catch(() => null));
+      } else {
+        promises.push(Promise.resolve(null));
+      }
+
+      if (routeId) {
+        promises.push(fetch(`/api/routes/${routeId}`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        }).catch(() => null));
+      } else {
+        promises.push(Promise.resolve(null));
+      }
+
+      const [busResponse, routeResponse] = await Promise.all(promises);
+
+      if (busResponse?.ok) {
         const busResult = await busResponse.json();
-        if (busResult.buses && busResult.buses.length > 0) {
-          const bus = busResult.buses[0];
+        // Handle both point endpoints and list endpoints
+        // Bus API can return { bus: ... }, { buses: [...] }, or the bus object directly
+        const bus = busResult.bus || (busResult.buses && busResult.buses.length > 0 ? busResult.buses[0] : (busResult.busId ? busResult : null));
+        if (bus) {
           setBusData(bus);
 
           // Fetch driver data if assignedDriverId or activeDriverId exists
@@ -174,12 +193,18 @@ export default function ModeratorApplicationDetailPage() {
         }
       }
 
-      if (routeResponse.ok) {
+      if (routeResponse?.ok) {
         const routeResult = await routeResponse.json();
         setRouteData(routeResult.route);
+        setRouteError(false);
+      } else if (routeId) {
+        console.warn(`Route ${routeId} not found (Status: ${routeResponse?.status})`);
+        setRouteError(true);
       }
     } catch (error) {
       console.error('Error fetching bus/route data:', error);
+      // Determine if this was a route error vs network error
+      setRouteError(true);
     }
   };
 
@@ -241,6 +266,13 @@ export default function ModeratorApplicationDetailPage() {
 
   const handleApprove = async () => {
     if (!userData) return;
+
+    // If we have bus data but routeError is true, it's a minor inconsistency
+    // We only block if BOTH are missing and it's a new assignment
+    if (routeError && !busData) {
+      showToast('Cannot approve: The assigned route does not exist. Please reassign the route first.', 'error');
+      return;
+    }
 
     setProcessing(true);
     try {
@@ -314,7 +346,7 @@ export default function ModeratorApplicationDetailPage() {
 
   if (loading || loadingApp) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-[#020817]">
+      <div className="flex-1 min-h-[calc(100dvh-120px)] flex items-center justify-center bg-transparent">
         <PremiumPageLoader message="Curating Application Details..." />
       </div>
     );
@@ -525,10 +557,20 @@ export default function ModeratorApplicationDetailPage() {
 
               {/* Service Details Column */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-5 mt-8 lg:mt-0">
-                <InfoRow
-                  label="Route Assignment"
-                  value={application.formData?.routeId ? `Route ${application.formData.routeId.replace('route_', '')}` : 'Not Assigned'}
-                />
+                <div className="flex flex-col gap-1 min-w-0">
+                  <span className="text-[11px] font-medium text-[#71717A] uppercase tracking-[0.08em]">Route Assignment</span>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[14px] font-medium text-[#F4F4F5]">
+                      {application.formData?.routeId ? `Route ${application.formData.routeId.replace('route_', '')}` : 'Not Assigned'}
+                    </span>
+                    {routeError && !application.formData?.busId && !application.formData?.assignedBusId && (
+                      <Badge variant="destructive" className="h-5 text-[10px] px-1.5 py-0" title="The assigned route doesn't exist or was deleted">
+                        <AlertTriangle className="h-3 w-3 mr-1" />
+                        Missing
+                      </Badge>
+                    )}
+                  </div>
+                </div>
                 <InfoRow label="Bus Number" value={busData?.busNumber || 'PENDING'} isMono />
                 <InfoRow label="Operating Shift" value={application.formData?.shift || 'Flexible'} />
                 <InfoRow label="Valid Until" value={(() => {

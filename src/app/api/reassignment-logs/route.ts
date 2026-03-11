@@ -63,7 +63,7 @@ export async function GET(request: NextRequest) {
         // Create Supabase client inline
         const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
         const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-        
+
         if (!supabaseUrl || !supabaseKey) {
             return NextResponse.json({ error: 'Server configuration error' }, { status: 500 });
         }
@@ -120,17 +120,17 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
     console.log('[reassignment-logs POST] Starting...');
-    
+
     try {
         // Create Supabase client inline
         const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
         const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-        
+
         console.log('[reassignment-logs POST] Supabase URL:', supabaseUrl ? 'SET' : 'MISSING');
-        console.log('[reassignment-logs POST] Supabase Key:', supabaseKey ? `SET (${supabaseKey.length} chars)` : 'MISSING');
-        
+        console.log('[reassignment-logs POST] Supabase Key:', supabaseKey ? 'SET' : 'MISSING');
+
         if (!supabaseUrl || !supabaseKey) {
-            return NextResponse.json({ 
+            return NextResponse.json({
                 error: 'Server configuration error: Missing Supabase credentials'
             }, { status: 500 });
         }
@@ -186,7 +186,7 @@ export async function POST(request: NextRequest) {
 
         if (error) {
             console.error('[reassignment-logs POST] Insert error:', error);
-            return NextResponse.json({ 
+            return NextResponse.json({
                 error: 'An unexpected error occurred',
                 code: error.code
             }, { status: 500 });

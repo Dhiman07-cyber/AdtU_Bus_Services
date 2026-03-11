@@ -133,10 +133,21 @@ export default function EnhancedDatePicker({
     if (!validateAge(date)) {
       const age = calculateAge(date);
       let message = '';
+      
+      const isFutureDate = age < 0;
+
       switch (validationType) {
-        case 'dob-student': message = `Students must be at least 12 years old. The selected date would make you ${age} years old.`; break;
+        case 'dob-student': 
+          message = isFutureDate 
+            ? "Birth date cannot be in the future. Students must be at least 12 years old."
+            : `Students must be at least 12 years old. The selected date would make you ${age} years old.`; 
+          break;
         case 'dob-driver':
-        case 'dob-moderator': message = `Must be at least 19 years old. The selected date would make you ${age} years old.`; break;
+        case 'dob-moderator': 
+          message = isFutureDate
+            ? "Birth date cannot be in the future. Staff must be at least 19 years old."
+            : `Must be at least 19 years old. The selected date would make you ${age} years old.`; 
+          break;
         default: message = 'This date is not selectable.';
       }
       if (onValidationError) onValidationError(message);

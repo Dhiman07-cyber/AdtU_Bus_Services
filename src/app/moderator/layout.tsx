@@ -51,7 +51,7 @@ export default function ModeratorLayout({
 
   // Show loading spinner while auth is loading OR while waiting for userData
   if (loading || (!isReady && currentUser && !userData)) {
-    return <PremiumPageLoader message="Moderator Services" subMessage="Secure Session Initialization" />;
+    return <PremiumPageLoader fullScreen message="Moderator Services" subMessage="Secure Session Initialization" />;
   }
 
   // Final gate - Allow both admin and moderator

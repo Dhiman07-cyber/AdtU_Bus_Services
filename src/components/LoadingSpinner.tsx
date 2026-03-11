@@ -102,23 +102,52 @@ export function PageLoader({ message = "Please wait..." }: { message?: string })
  */
 export function PremiumPageLoader({
   message = "Loading experience...",
-  subMessage = "Optimizing your dashboard..."
+  subMessage = "Optimizing your dashboard...",
+  noWrapper = false,
+  fullScreen = false
 }: {
   message?: string;
   subMessage?: string;
+  noWrapper?: boolean;
+  fullScreen?: boolean;
 }) {
-  return (
-    <div className="flex flex-col items-center justify-center min-h-screen gap-6 p-6 text-center animate-in fade-in duration-300">
-      <div className="pink-purple-spinner bg-dark-blue shadow-2xl shadow-purple-500/20"></div>
+  const content = (
+    <div className="flex flex-col items-center gap-5">
+      <div className="relative scale-110 sm:scale-125">
+        {/* Ambient Glows */}
+        <div className="absolute -inset-10 bg-purple-500/15 blur-[40px] animate-pulse rounded-full" />
+        <div className="absolute -inset-10 bg-blue-500/10 blur-[30px] animate-pulse delay-700 rounded-full" />
+        
+        {/* Main Spinner Container */}
+        <div className="relative z-10">
+          <div className="pink-purple-spinner bg-dark-blue shadow-2xl shadow-purple-500/30"></div>
+          {/* Inner pulse ring */}
+          <div className="absolute inset-0 border border-white/5 rounded-full scale-150 opacity-20 animate-ping" />
+        </div>
+      </div>
 
-      <div className="space-y-2">
-        <h3 className="text-base sm:text-lg font-bold bg-gradient-to-r from-pink-400 via-purple-400 to-pink-400 bg-clip-text text-transparent animate-pulse tracking-tight">
+      <div className="space-y-2.5 z-10 max-w-[300px] mt-2">
+        <h3 className="text-lg sm:text-xl font-bold bg-gradient-to-r from-pink-400 via-purple-400 to-pink-400 bg-clip-text text-transparent animate-pulse tracking-tight leading-tight">
           {message}
         </h3>
-        <p className="text-[10px] sm:text-xs text-zinc-500 dark:text-zinc-500 font-bold uppercase tracking-[0.2em] opacity-80">
+        <p className="text-[10px] sm:text-[11px] text-zinc-500 dark:text-zinc-500 font-black uppercase tracking-[0.25em] opacity-80 leading-relaxed">
           {subMessage}
         </p>
       </div>
+    </div>
+  );
+
+  if (noWrapper) {
+    return (
+      <div className="flex flex-col items-center justify-center p-8 text-center animate-in fade-in duration-300">
+        {content}
+      </div>
+    );
+  }
+
+  return (
+    <div className={`flex-1 flex flex-col items-center justify-center w-full p-6 text-center animate-in fade-in duration-300 ${fullScreen ? 'min-h-dvh' : 'min-h-[50vh]'}`}>
+      {content}
     </div>
   );
 }

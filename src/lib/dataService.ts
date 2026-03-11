@@ -44,27 +44,12 @@ const getCurrentTimestamp = () => {
 
 // Determine which database to use based on environment
 const getDatabase = async () => {
-  // Use admin DB if available (server-side), otherwise use client DB
-  if (typeof window === 'undefined') {
-    // Server-side - try to use Firebase Admin SDK
-    try {
-      const { db: adminDb } = await import('@/lib/firebase-admin');
-      if (adminDb) {
-        return adminDb;
-      }
-    } catch (error) {
-      console.warn('Failed to import Firebase Admin SDK, falling back to client SDK');
-    }
-  }
-
-  // Client-side or fallback - use Firebase client SDK
-  try {
-    const { db: clientDb } = await import('@/lib/firebase');
-    return clientDb;
-  } catch (error) {
-    console.error('Failed to import Firebase client SDK');
-    throw error;
-  }
+  // Always use Firebase client SDK for these functions because they depend on 
+  // Client-SDK specific operator functions (doc, collection, getDoc, etc.)
+  // imported from 'firebase/firestore'. These will work in Node.js environment
+  // as long as the apps are initialized via fireabse.ts
+  const { db: clientDb } = await import('@/lib/firebase');
+  return clientDb;
 };
 
 // Helper to check if we can make authenticated calls on client

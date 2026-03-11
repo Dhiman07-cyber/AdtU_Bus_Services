@@ -442,7 +442,7 @@ export default function ModeratorApplicationsPage() {
 
   if (!currentUser) {
     return (
-      <div className="mt-12 min-h-screen flex items-center justify-center p-4">
+      <div className="flex-1 min-h-[calc(100dvh-120px)] flex items-center justify-center p-4">
         <Card className="bg-[#12131A] border-white/10">
           <CardContent className="py-8 text-center max-w-md">
             <Shield className="h-12 w-12 mx-auto mb-4 text-zinc-500" />
@@ -564,7 +564,7 @@ export default function ModeratorApplicationsPage() {
       )}
 
       {loading || codesLoading || notificationsLoading || routesLoading || busesLoading ? (
-        <div className="flex justify-center items-center h-96">
+        <div className="flex-1 min-h-[calc(100dvh-120px)] flex justify-center items-center">
           <PremiumPageLoader message="Fetching data..." />
         </div>
       ) : filteredData.length === 0 ? (

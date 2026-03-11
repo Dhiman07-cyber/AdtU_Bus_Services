@@ -737,7 +737,7 @@ export default function EnhancedModeratorDashboard() {
 
 
   if (allDataLoading && students.length === 0 && drivers.length === 0 && buses.length === 0) {
-    return <PremiumPageLoader message="Curating Dashboard Experience..." subMessage="Fetching moderation status and analytics..." />;
+    return <PremiumPageLoader fullScreen message="Curating Dashboard Experience..." subMessage="Fetching moderation status and analytics..." />;
   }
 
   // Get first name from user data

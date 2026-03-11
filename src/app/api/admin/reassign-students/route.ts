@@ -1,25 +1,10 @@
-/**
- * POST /api/admin/reassign-students
- * 
- * Server-side student reassignment using Firebase Admin SDK.
- * This bypasses Firestore security rules and is the recommended way to perform
- * bulk reassignments.
- * 
- * Request Body:
- * {
- *   assignments: [
- *     { studentId, fromBusId, toBusId, shift }
- *   ],
- *   sourceBusId: string,
- *   actorId: string,
- *   actorName: string
- * }
- */
-
-import { NextRequest, NextResponse } from 'next/server';
-import { adminDb, adminAuth } from '@/lib/firebase-admin';
+import { NextResponse } from 'next/server';
+import { adminDb } from '@/lib/firebase-admin';
 import { FieldValue } from 'firebase-admin/firestore';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import { withSecurity } from '@/lib/security/api-security';
+import { ReassignStudentsSchema } from '@/lib/security/validation-schemas';
+import { RateLimits } from '@/lib/security/rate-limiter';
 
 // Lazy Supabase client initialization
 let supabaseClient: SupabaseClient | null = null;
@@ -28,126 +13,71 @@ function getSupabaseClient(): SupabaseClient {
     if (!supabaseClient) {
         const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
         const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-        if (!url || !key) {
-            throw new Error('Missing Supabase environment variables');
-        }
-
-        supabaseClient = createClient(url, key, {
-            auth: { persistSession: false }
-        });
+        if (!url || !key) throw new Error('Missing Supabase environment variables');
+        supabaseClient = createClient(url, key, { auth: { persistSession: false } });
     }
     return supabaseClient;
 }
 
-interface ReassignmentItem {
-    studentId: string;
-    studentName: string;
-    fromBusId: string;
-    toBusId: string;
-    toBusNumber: string;
-    shift: 'Morning' | 'Evening';
-    stopId?: string;
-    stopName?: string;
-}
+export const POST = withSecurity(
+    async (request, { auth, body }) => {
+        const currentUserUid = auth.uid;
+        const currentUserRole = auth.role;
+        const { assignments, sourceBusId, actorId, actorName } = body as any;
 
-interface ReassignmentRequest {
-    assignments: ReassignmentItem[];
-    sourceBusId: string;
-    actorId: string;
-    actorName: string;
-}
-
-export async function POST(request: NextRequest) {
-    try {
-        // Verify authentication
-        const authHeader = request.headers.get('Authorization');
-        if (!authHeader?.startsWith('Bearer ')) {
-            return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
-        }
-
-        const token = authHeader.substring(7);
-        const decodedToken = await adminAuth.verifyIdToken(token);
-        const uid = decodedToken.uid;
-
-        // Verify user is admin or moderator
-        const [adminDoc, moderatorDoc] = await Promise.all([
-            adminDb.collection('admins').doc(uid).get(),
-            adminDb.collection('moderators').doc(uid).get(),
-        ]);
-
-        if (!adminDoc.exists && !moderatorDoc.exists) {
-            return NextResponse.json({
-                success: false,
-                error: 'Insufficient permissions. Only admins and moderators can reassign students.'
-            }, { status: 403 });
-        }
-
-        const body: ReassignmentRequest = await request.json();
-        const { assignments, sourceBusId, actorId, actorName } = body;
-
-        // Determine actor label
+        // Fetch detailed actor info for logs (preserving logic from original)
         let actorLabel = actorName || 'System';
-        if (adminDoc.exists) {
-            const data = adminDoc.data();
-            actorLabel = `${data?.fullName || data?.name || actorName} (Admin)`; // Fixed: Check fullName
-        } else if (moderatorDoc.exists) {
-            const modData = moderatorDoc.data();
-            actorLabel = `${modData?.fullName || modData?.name || actorName} (${modData?.employeeId || 'Moderator'})`; // Fixed: Check fullName
+        if (currentUserRole === 'admin') {
+            const adminDoc = await adminDb.collection('admins').doc(currentUserUid).get();
+            if (adminDoc.exists) {
+                const data = adminDoc.data();
+                actorLabel = `${data?.fullName || data?.name || actorName} (Admin)`;
+            }
+        } else if (currentUserRole === 'moderator') {
+            const modDoc = await adminDb.collection('moderators').doc(currentUserUid).get();
+            if (modDoc.exists) {
+                const modData = modDoc.data();
+                actorLabel = `${modData?.fullName || modData?.name || actorName} (${modData?.employeeId || 'Moderator'})`;
+            }
         }
 
         if (!assignments || assignments.length === 0) {
             return NextResponse.json({ success: false, error: 'No assignments provided' }, { status: 400 });
         }
 
-        console.log(`🔄 Starting reassignment: ${assignments.length} students by ${actorName}`);
+        console.log(`🔄 Starting reassignment: ${assignments.length} students by ${actorLabel}`);
 
         // Use a batch for atomic writes
         const batch = adminDb.batch();
-
-        // Track load changes per bus
         const busLoadChanges = new Map<string, { morningDelta: number; eveningDelta: number }>();
 
         // Process each assignment
         for (const assignment of assignments) {
             const { studentId, fromBusId, toBusId, shift } = assignment;
-
-            // Get student ref
             const studentRef = adminDb.collection('students').doc(studentId);
 
             // Get target bus data for routeId
             const targetBusSnap = await adminDb.collection('buses').doc(toBusId).get();
-            if (!targetBusSnap.exists) {
-                throw new Error(`Target bus ${toBusId} not found`);
-            }
+            if (!targetBusSnap.exists) throw new Error(`Target bus ${toBusId} not found`);
             const targetBusData = targetBusSnap.data()!;
 
-            // Update student
             const studentUpdateData: any = {
                 busId: toBusId,
                 routeId: targetBusData.route?.routeId || targetBusData.routeId || '',
                 updatedAt: FieldValue.serverTimestamp(),
             };
-            if (assignment.stopId) {
-                studentUpdateData.stopId = assignment.stopId;
-            }
-            if (assignment.stopName) {
-                studentUpdateData.stopName = assignment.stopName;
-            }
+            if (assignment.stopId) studentUpdateData.stopId = assignment.stopId;
+            if (assignment.stopName) studentUpdateData.stopName = assignment.stopName;
             batch.update(studentRef, studentUpdateData);
 
-            // Track load changes for source bus (decrement)
-            if (!busLoadChanges.has(fromBusId)) {
-                busLoadChanges.set(fromBusId, { morningDelta: 0, eveningDelta: 0 });
-            }
+            // Track load changes (source)
+            if (!busLoadChanges.has(fromBusId)) busLoadChanges.set(fromBusId, { morningDelta: 0, eveningDelta: 0 });
             const sourceChanges = busLoadChanges.get(fromBusId)!;
             if (shift === 'Morning') sourceChanges.morningDelta--;
             else sourceChanges.eveningDelta--;
 
-            // Track load changes for target bus (increment)
-            if (!busLoadChanges.has(toBusId)) {
-                busLoadChanges.set(toBusId, { morningDelta: 0, eveningDelta: 0 });
-            }
+            // Track load changes (target)
+            if (!busLoadChanges.has(toBusId)) busLoadChanges.set(toBusId, { morningDelta: 0, eveningDelta: 0 });
             const targetChanges = busLoadChanges.get(toBusId)!;
             if (shift === 'Morning') targetChanges.morningDelta++;
             else targetChanges.eveningDelta++;
@@ -157,14 +87,11 @@ export async function POST(request: NextRequest) {
         for (const [busId, deltas] of busLoadChanges.entries()) {
             const busRef = adminDb.collection('buses').doc(busId);
             const busSnap = await busRef.get();
-
             if (busSnap.exists) {
                 const busData = busSnap.data()!;
                 const currentLoad = busData.load || { morningCount: 0, eveningCount: 0 };
-
                 const newMorning = Math.max(0, (currentLoad.morningCount || 0) + deltas.morningDelta);
                 const newEvening = Math.max(0, (currentLoad.eveningCount || 0) + deltas.eveningDelta);
-
                 batch.update(busRef, {
                     'load.morningCount': newMorning,
                     'load.eveningCount': newEvening,
@@ -174,19 +101,14 @@ export async function POST(request: NextRequest) {
             }
         }
 
-        // Commit the batch
         await batch.commit();
 
-        console.log(`✅ Successfully reassigned ${assignments.length} students`);
-
-        // Log to Supabase reassignment_logs with full before/after snapshots for rollback
+        // Supabase Audit Logging
         try {
             const operationId = `student_reassignment_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
-            const targetBuses = [...new Set(assignments.map(a => a.toBusId))];
-
-            // Fetch bus labels for summary
-            const busLabels = new Map<string, string>();
+            const targetBuses = [...new Set(assignments.map((a: any) => a.toBusId))];
             const uniqueBusIds = [...new Set([sourceBusId, ...targetBuses])];
+            const busLabels = new Map<string, string>();
 
             for (const bId of uniqueBusIds) {
                 const bSnap = await adminDb.collection('buses').doc(bId).get();
@@ -194,80 +116,42 @@ export async function POST(request: NextRequest) {
                     const bData = bSnap.data()!;
                     const bNum = bId.replace(/[^0-9]/g, '') || '?';
                     busLabels.set(bId, `Bus-${bNum} (${bData.busNumber || bData.registrationNumber || 'N/A'})`);
-                } else {
-                    busLabels.set(bId, bId);
-                }
+                } else busLabels.set(bId, bId);
             }
 
             const sourceLabel = busLabels.get(sourceBusId) || sourceBusId;
-            const destLabels = targetBuses.map(id => busLabels.get(id) || id).join(', ');
+            const destLabels = (targetBuses as string[]).map(id => busLabels.get(id) || id).join(', ');
 
-            // Build comprehensive change records for rollback support
-            const changes: Array<{
-                docPath: string;
-                collection: string;
-                docId: string;
-                before: Record<string, any> | null;
-                after: Record<string, any> | null;
-            }> = [];
-
-            // Add student changes
-            for (const a of assignments) {
+            const changes: any[] = [];
+            for (const a of assignments as any[]) {
                 changes.push({
                     docPath: `students/${a.studentId}`,
                     collection: 'students',
                     docId: a.studentId,
-                    before: {
-                        busId: a.fromBusId,
-                        studentName: a.studentName,
-                        shift: a.shift,
-                    },
-                    after: {
-                        busId: a.toBusId,
-                        studentName: a.studentName,
-                        shift: a.shift,
-                    },
+                    before: { busId: a.fromBusId, studentName: a.studentName, shift: a.shift },
+                    after: { busId: a.toBusId, studentName: a.studentName, shift: a.shift },
                 });
             }
 
-            // Add bus load changes for proper rollback
             for (const [busId, deltas] of busLoadChanges.entries()) {
                 const busSnap = await adminDb.collection('buses').doc(busId).get();
                 if (busSnap.exists) {
                     const busData = busSnap.data()!;
                     const currentLoad = busData.load || { morningCount: 0, eveningCount: 0 };
-
-                    // Calculate what the load was BEFORE this operation
                     const beforeMorning = Math.max(0, (currentLoad.morningCount || 0) - deltas.morningDelta);
                     const beforeEvening = Math.max(0, (currentLoad.eveningCount || 0) - deltas.eveningDelta);
-
                     changes.push({
                         docPath: `buses/${busId}`,
                         collection: 'buses',
                         docId: busId,
-                        before: {
-                            'load.morningCount': beforeMorning,
-                            'load.eveningCount': beforeEvening,
-                            currentMembers: beforeMorning + beforeEvening,
-                        },
-                        after: {
-                            'load.morningCount': currentLoad.morningCount || 0,
-                            'load.eveningCount': currentLoad.eveningCount || 0,
-                            currentMembers: (currentLoad.morningCount || 0) + (currentLoad.eveningCount || 0),
-                        },
+                        before: { 'load.morningCount': beforeMorning, 'load.eveningCount': beforeEvening, currentMembers: beforeMorning + beforeEvening },
+                        after: { 'load.morningCount': currentLoad.morningCount || 0, 'load.eveningCount': currentLoad.eveningCount || 0, currentMembers: (currentLoad.morningCount || 0) + (currentLoad.eveningCount || 0) },
                     });
                 }
             }
 
-            // Delete old student_reassignment logs first (keep only ONE per type)
             const supabase = getSupabaseClient();
-
-            await supabase
-                .from('reassignment_logs')
-                .delete()
-                .eq('type', 'student_reassignment');
-
-            // Insert new log
+            await supabase.from('reassignment_logs').delete().eq('type', 'student_reassignment');
             await supabase.from('reassignment_logs').insert([{
                 operation_id: operationId,
                 type: 'student_reassignment',
@@ -276,17 +160,10 @@ export async function POST(request: NextRequest) {
                 status: 'committed',
                 summary: `Reassigned ${assignments.length} student(s) from ${sourceLabel} to ${destLabels}`,
                 changes: changes,
-                meta: {
-                    studentCount: assignments.length,
-                    sourceBusId,
-                    targetBuses,
-                    busLoadChanges: Object.fromEntries(busLoadChanges),
-                },
+                meta: { studentCount: assignments.length, sourceBusId, targetBuses, busLoadChanges: Object.fromEntries(busLoadChanges) },
             }]);
-            console.log(`✅ Logged to Supabase: ${operationId}`);
         } catch (auditError) {
             console.warn('Failed to create Supabase audit log:', auditError);
-            // Don't fail the operation for audit errors
         }
 
         return NextResponse.json({
@@ -295,12 +172,11 @@ export async function POST(request: NextRequest) {
             movedCount: assignments.length,
             assignments,
         });
-
-    } catch (error: any) {
-        console.error('❌ Reassignment failed:', error);
-        return NextResponse.json(
-            { success: false, error: 'Reassignment failed' },
-            { status: 500 }
-        );
+    },
+    {
+        requiredRoles: ['admin', 'moderator'],
+        schema: ReassignStudentsSchema,
+        rateLimit: RateLimits.CREATE,
+        allowBodyToken: true
     }
-}
+);

@@ -1,227 +1,190 @@
 import { NextResponse } from 'next/server';
-import { auth, db as adminDb } from '@/lib/firebase-admin';
+import { adminDb } from '@/lib/firebase-admin';
+import { createClient } from '@supabase/supabase-js';
+import { withSecurity } from '@/lib/security/api-security';
+import { FirestoreCleanupSchema, EmptySchema } from '@/lib/security/validation-schemas';
+import { RateLimits } from '@/lib/security/rate-limiter';
 
-export async function POST(request: Request) {
-  try {
-    const body = await request.json();
-    const { idToken, cleanupType, daysOld } = body;
+/**
+ * DATABASE CLEANUP ROUTE (SUPABASE + FIRESTORE)
+ * 
+ * Target storage: Supabase (Operational data)
+ * Target storage: Firestore (Legacy/Backup data)
+ */
+export const POST = withSecurity(
+    async (request, { body }) => {
+        const { cleanupType, daysOld } = body as any;
+        const cleanupDays = daysOld || 30;
+        const cutoffDate = new Date();
+        cutoffDate.setDate(cutoffDate.getDate() - cleanupDays);
+        const isoCutoff = cutoffDate.toISOString();
 
-    // Get token from either body or Authorization header
-    let token = idToken;
-    if (!token) {
-      const authHeader = request.headers.get('authorization');
-      if (authHeader && authHeader.startsWith('Bearer ')) {
-        token = authHeader.substring(7);
-      }
-    }
+        console.log(`🧹 Starting Database cleanup: ${cleanupType}, older than ${cleanupDays} days`);
+        
+        // Initialize Supabase client
+        const supabase = createClient(
+            process.env.NEXT_PUBLIC_SUPABASE_URL!,
+            process.env.SUPABASE_SERVICE_ROLE_KEY!
+        );
 
-    if (!token) {
-      return NextResponse.json(
-        { error: 'Missing idToken' },
-        { status: 400 }
-      );
-    }
+        let results: any = {};
 
-    if (!auth) {
-      return NextResponse.json(
-        { error: 'Firebase Admin not initialized' },
-        { status: 500 }
-      );
-    }
+        // 1. Clean Active Trips / Sessions
+        if (cleanupType === 'active_trips' || cleanupType === 'all') {
+            const { count, error } = await supabase
+                .from('active_trips')
+                .delete({ count: 'exact' })
+                .lt('start_time', isoCutoff);
+            
+            if (error) console.error('Error cleaning active_trips:', error);
+            results.activeTripsDeleted = count || 0;
 
-    // Verify Firebase ID token
-    const decodedToken = await auth.verifyIdToken(token);
-    const userUid = decodedToken.uid;
-
-    // Check if user is admin (you can adjust this logic)
-    const userDoc = await adminDb.collection('users').doc(userUid).get();
-    if (!userDoc.exists) {
-      return NextResponse.json({ error: 'User not found' }, { status: 404 });
-    }
-
-    const userData = userDoc.data();
-    if (userData?.role !== 'admin' && userData?.role !== 'moderator') {
-      return NextResponse.json({ error: 'Insufficient permissions' }, { status: 403 });
-    }
-
-    const cleanupDays = daysOld || 30;
-    const cutoffDate = new Date();
-    cutoffDate.setDate(cutoffDate.getDate() - cleanupDays);
-
-    console.log(`🧹 Starting Firestore cleanup: ${cleanupType}, older than ${cleanupDays} days`);
-
-    let results: any = {};
-
-    // Cleanup based on type
-    switch (cleanupType) {
-      case 'trip_sessions':
-        // Cleanup old trip sessions
-        const oldTripsSnapshot = await adminDb
-          .collection('trip_sessions')
-          .where('endedAt', '<', cutoffDate)
-          .get();
-
-        console.log(`📊 Found ${oldTripsSnapshot.size} old trip sessions to delete`);
-
-        if (oldTripsSnapshot.size > 0) {
-          const batch = adminDb.batch();
-          oldTripsSnapshot.docs.forEach(doc => {
-            batch.delete(doc.ref);
-          });
-          await batch.commit();
+            // Also clean legacy Firestore trip_sessions
+            try {
+                const oldTripsSnapshot = await adminDb.collection('trip_sessions').where('endedAt', '<', cutoffDate).get();
+                if (oldTripsSnapshot.size > 0) {
+                    const batch = adminDb.batch();
+                    oldTripsSnapshot.docs.forEach(doc => batch.delete(doc.ref));
+                    await batch.commit();
+                    results.firestoreTripSessionsDeleted = oldTripsSnapshot.size;
+                }
+            } catch (fsError) {
+                console.warn('Firestore trip_sessions cleanup non-critical error:', fsError);
+            }
         }
 
-        results.tripSessionsDeleted = oldTripsSnapshot.size;
-        break;
+        // 2. Clean Reassignment / Audit Logs
+        if (cleanupType === 'reassignment_logs' || cleanupType === 'all') {
+            const { count, error } = await supabase
+                .from('reassignment_logs')
+                .delete({ count: 'exact' })
+                .lt('created_at', isoCutoff);
+            
+            if (error) console.error('Error cleaning reassignment_logs:', error);
+            results.reassignmentLogsDeleted = count || 0;
 
-      case 'audit_logs':
-        // Cleanup old audit logs
-        const oldAuditSnapshot = await adminDb
-          .collection('audit_logs')
-          .where('timestamp', '<', cutoffDate)
-          .get();
-
-        console.log(`📊 Found ${oldAuditSnapshot.size} old audit logs to delete`);
-
-        if (oldAuditSnapshot.size > 0) {
-          const batch = adminDb.batch();
-          oldAuditSnapshot.docs.forEach(doc => {
-            batch.delete(doc.ref);
-          });
-          await batch.commit();
+            // Also clean legacy Firestore audit_logs
+            try {
+                const oldAuditSnapshot = await adminDb.collection('audit_logs').where('timestamp', '<', cutoffDate).get();
+                if (oldAuditSnapshot.size > 0) {
+                    const batch = adminDb.batch();
+                    oldAuditSnapshot.docs.forEach(doc => batch.delete(doc.ref));
+                    await batch.commit();
+                    results.firestoreAuditLogsDeleted = oldAuditSnapshot.size;
+                }
+            } catch (fsError) {
+                console.warn('Firestore audit_logs cleanup non-critical error:', fsError);
+            }
         }
 
-        results.auditLogsDeleted = oldAuditSnapshot.size;
-        break;
+        // 3. Clean Driver Location Updates (Historical)
+        if (cleanupType === 'driver_location_updates' || cleanupType === 'all') {
+            const { count, error } = await supabase
+                .from('driver_location_updates')
+                .delete({ count: 'exact' })
+                .lt('timestamp', isoCutoff);
+            
+            if (error) console.error('Error cleaning driver_location_updates:', error);
+            results.locationUpdatesDeleted = count || 0;
 
-      case 'driver_location_updates':
-        // Cleanup old location updates (keep only recent ones)
-        const oldLocationSnapshot = await adminDb
-          .collection('driver_location_updates')
-          .where('timestamp', '<', cutoffDate.getTime())
-          .get();
+            // Also clean real-time bus locations (historical)
+            const { count: locCount } = await supabase
+                .from('bus_locations')
+                .delete({ count: 'exact' })
+                .lt('timestamp', isoCutoff);
+            results.busLocationsDeleted = locCount || 0;
 
-        console.log(`📊 Found ${oldLocationSnapshot.size} old location updates to delete`);
-
-        if (oldLocationSnapshot.size > 0) {
-          const batch = adminDb.batch();
-          oldLocationSnapshot.docs.forEach(doc => {
-            batch.delete(doc.ref);
-          });
-          await batch.commit();
+            // Also clean legacy Firestore location updates
+            try {
+                const oldLocationSnapshot = await adminDb.collection('driver_location_updates').where('timestamp', '<', cutoffDate.getTime()).get();
+                if (oldLocationSnapshot.size > 0) {
+                        const batch = adminDb.batch();
+                        oldLocationSnapshot.docs.forEach(doc => batch.delete(doc.ref));
+                        await batch.commit();
+                        results.firestoreLocationUpdatesDeleted = oldLocationSnapshot.size;
+                }
+            } catch (fsError) {
+                console.warn('Firestore location updates cleanup non-critical error:', fsError);
+            }
         }
 
-        results.locationUpdatesDeleted = oldLocationSnapshot.size;
-        break;
+        // 4. Clean Waiting Flags
+        if (cleanupType === 'waiting_flags' || cleanupType === 'all') {
+            const { count, error } = await supabase
+                .from('waiting_flags')
+                .delete({ count: 'exact' })
+                .lt('created_at', isoCutoff);
+            
+            if (error) console.error('Error cleaning waiting_flags:', error);
+            results.waitingFlagsDeleted = count || 0;
+        }
 
-      case 'all':
-        // Cleanup all old data
-        const [allOldTrips, allOldAudit, allOldLocations] = await Promise.all([
-          adminDb.collection('trip_sessions').where('endedAt', '<', cutoffDate).get(),
-          adminDb.collection('audit_logs').where('timestamp', '<', cutoffDate).get(),
-          adminDb.collection('driver_location_updates').where('timestamp', '<', cutoffDate.getTime()).get()
+        // 5. Clean Missed Bus Requests
+        if (cleanupType === 'missed_bus_requests' || cleanupType === 'all') {
+            const { count, error } = await supabase
+                .from('missed_bus_requests')
+                .delete({ count: 'exact' })
+                .lt('created_at', isoCutoff);
+            
+            if (error) console.error('Error cleaning missed_bus_requests:', error);
+            results.missedBusRequestsDeleted = count || 0;
+        }
+
+        return NextResponse.json({
+            success: true,
+            message: `Database cleanup completed for ${cleanupType}`,
+            results,
+            cleanupDays,
+            cutoffDate: isoCutoff
+        });
+    },
+    {
+        requiredRoles: ['admin', 'moderator'],
+        schema: FirestoreCleanupSchema,
+        rateLimit: RateLimits.CREATE,
+        allowBodyToken: true
+    }
+);
+
+export const GET = withSecurity(
+    async () => {
+        // Initialize Supabase client
+        const supabase = createClient(
+            process.env.NEXT_PUBLIC_SUPABASE_URL!,
+            process.env.SUPABASE_SERVICE_ROLE_KEY!
+        );
+
+        // Get counts from Supabase
+        const [
+            { count: activeTrips },
+            { count: reassignmentLogs },
+            { count: locationUpdates },
+            { count: waitingFlags },
+            { count: missedBusRequests }
+        ] = await Promise.all([
+            supabase.from('active_trips').select('*', { count: 'exact', head: true }),
+            supabase.from('reassignment_logs').select('*', { count: 'exact', head: true }),
+            supabase.from('driver_location_updates').select('*', { count: 'exact', head: true }),
+            supabase.from('waiting_flags').select('*', { count: 'exact', head: true }),
+            supabase.from('missed_bus_requests').select('*', { count: 'exact', head: true })
         ]);
 
-        console.log(`📊 Found ${allOldTrips.size} trips, ${allOldAudit.size} audit logs, ${allOldLocations.size} location updates to delete`);
-
-        // Delete in batches
-        const allBatch = adminDb.batch();
-        allOldTrips.docs.forEach(doc => allBatch.delete(doc.ref));
-        allOldAudit.docs.forEach(doc => allBatch.delete(doc.ref));
-        allOldLocations.docs.forEach(doc => allBatch.delete(doc.ref));
-        await allBatch.commit();
-
-        results.tripSessionsDeleted = allOldTrips.size;
-        results.auditLogsDeleted = allOldAudit.size;
-        results.locationUpdatesDeleted = allOldLocations.size;
-        break;
-
-      default:
-        return NextResponse.json(
-          { error: 'Invalid cleanup type. Use: trip_sessions, audit_logs, driver_location_updates, or all' },
-          { status: 400 }
-        );
+        return NextResponse.json({
+            success: true,
+            stats: {
+                activeTrips: activeTrips || 0,
+                reassignmentLogs: reassignmentLogs || 0,
+                locationUpdates: locationUpdates || 0,
+                waitingFlags: waitingFlags || 0,
+                missedBusRequests: missedBusRequests || 0,
+                total: (activeTrips || 0) + (reassignmentLogs || 0) + (locationUpdates || 0) + (waitingFlags || 0) + (missedBusRequests || 0)
+            }
+        });
+    },
+    {
+        requiredRoles: ['admin', 'moderator'],
+        schema: EmptySchema,
+        rateLimit: RateLimits.READ
     }
-
-    console.log('✅ Firestore cleanup completed:', results);
-
-    return NextResponse.json({
-      success: true,
-      message: `Firestore cleanup completed for ${cleanupType}`,
-      results,
-      cleanupDays,
-      cutoffDate: cutoffDate.toISOString()
-    });
-
-  } catch (error: any) {
-    console.error('❌ Firestore cleanup error:', error);
-    return NextResponse.json(
-      { error: 'Failed to cleanup Firestore data' },
-      { status: 500 }
-    );
-  }
-}
-
-// GET endpoint to check data sizes
-export async function GET(request: Request) {
-  try {
-    const { searchParams } = new URL(request.url);
-    const idToken = searchParams.get('idToken');
-
-    if (!idToken) {
-      return NextResponse.json(
-        { error: 'Missing idToken' },
-        { status: 400 }
-      );
-    }
-
-    if (!auth) {
-      return NextResponse.json(
-        { error: 'Firebase Admin not initialized' },
-        { status: 500 }
-      );
-    }
-
-    // Verify Firebase ID token
-    const decodedToken = await auth.verifyIdToken(idToken);
-    const userUid = decodedToken.uid;
-
-    // Check if user is admin
-    const userDoc = await adminDb.collection('users').doc(userUid).get();
-    if (!userDoc.exists) {
-      return NextResponse.json({ error: 'User not found' }, { status: 404 });
-    }
-
-    const userData = userDoc.data();
-    if (userData?.role !== 'admin' && userData?.role !== 'moderator') {
-      return NextResponse.json({ error: 'Insufficient permissions' }, { status: 403 });
-    }
-
-    // Get data sizes
-    const [tripsSnapshot, auditSnapshot, locationSnapshot] = await Promise.all([
-      adminDb.collection('trip_sessions').get(),
-      adminDb.collection('audit_logs').get(),
-      adminDb.collection('driver_location_updates').get()
-    ]);
-
-    const stats = {
-      tripSessions: tripsSnapshot.size,
-      auditLogs: auditSnapshot.size,
-      locationUpdates: locationSnapshot.size,
-      total: tripsSnapshot.size + auditSnapshot.size + locationSnapshot.size
-    };
-
-    return NextResponse.json({
-      success: true,
-      stats
-    });
-
-  } catch (error: any) {
-    console.error('❌ Stats error:', error);
-    return NextResponse.json(
-      { error: 'Failed to get stats' },
-      { status: 500 }
-    );
-  }
-}
+);
 

@@ -91,11 +91,20 @@ export async function GET(request: Request) {
                             }
                         });
 
-                        // Also cleanup driver_status
-                        await supabase
-                            .from('driver_status')
-                            .delete()
-                            .eq('bus_id', lock.cleaned_bus_id);
+                        // Comprehensive cleanup of ALL trip-related tables
+                        await Promise.allSettled([
+                            // Delete driver_status
+                            supabase.from('driver_status').delete().eq('bus_id', lock.cleaned_bus_id),
+                            // Delete bus_locations
+                            supabase.from('bus_locations').delete().eq('bus_id', lock.cleaned_bus_id),
+                            // Delete driver_location_updates
+                            supabase.from('driver_location_updates').delete().eq('bus_id', lock.cleaned_bus_id),
+                            // Delete waiting_flags
+                            supabase.from('waiting_flags').delete().eq('bus_id', lock.cleaned_bus_id).in('status', ['raised', 'acknowledged']),
+                            // Clean device sessions for this driver
+                            supabase.from('device_sessions').delete().eq('user_id', lock.cleaned_driver_id),
+                        ]);
+                        console.log(`✅ Comprehensive cleanup done for stale bus ${lock.cleaned_bus_id}`);
 
                     } catch (err: any) {
                         console.error(`Error releasing Firestore lock for ${lock.cleaned_bus_id}:`, err);

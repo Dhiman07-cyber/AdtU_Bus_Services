@@ -182,7 +182,7 @@ export default function StudentProfilePage() {
 
   if (studentDataLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-950">
+      <div className="flex-1 min-h-[calc(100dvh-120px)] flex items-center justify-center bg-gray-50 dark:bg-gray-950">
         <div className="text-center">
           <div className="h-16 w-16 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
           <p className="text-gray-600 dark:text-gray-400 font-medium">Loading your profile...</p>
@@ -193,7 +193,7 @@ export default function StudentProfilePage() {
 
   if (!studentData) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-950">
+      <div className="flex-1 min-h-[calc(100dvh-120px)] flex items-center justify-center bg-gray-50 dark:bg-gray-950">
         <Card className="max-w-md mx-4">
           <CardContent className="pt-6 text-center">
             <User className="h-16 w-16 mx-auto mb-4 text-gray-400" />
@@ -211,7 +211,7 @@ export default function StudentProfilePage() {
   const sessionExpired = studentData?.validUntil ? new Date(studentData.validUntil) < new Date() : false;
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-950">
+    <div className="flex-1 min-h-[calc(100dvh-120px)] bg-gray-50 dark:bg-gray-950">
       <div className="max-w-7xl mx-auto px-3 sm:px-4 lg:px-6 pt-20 pb-4 md:pt-24 md:pb-6">
 
         {/* Compact Header with Gradient */}

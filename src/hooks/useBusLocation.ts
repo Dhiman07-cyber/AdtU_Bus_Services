@@ -12,26 +12,13 @@ interface BusLocation {
   timestamp: string;
 }
 
-interface Position {
-  lat: number;
-  lng: number;
-  timestamp: number;
-}
-
 export const useBusLocation = (busId: string) => {
   const [currentLocation, setCurrentLocation] = useState<BusLocation | null>(null);
   const [history, setHistory] = useState<BusLocation[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Refs for interpolation
-  const currentPositionRef = useRef<Position | null>(null);
-  const targetPositionRef = useRef<Position | null>(null);
-  const animationRef = useRef<number>(0);
-  const lastUpdateRef = useRef<number>(0);
   const channelRef = useRef<any>(null);
-
-  const [interpolatedLocation, setInterpolatedLocation] = useState<Position | null>(null);
 
   // Handle bus location updates from realtime channel (optimized)
   const handleBusLocationUpdate = useCallback((payload: any) => {
@@ -46,45 +33,20 @@ export const useBusLocation = (busId: string) => {
       speed: locationData.speed || 0,
       heading: locationData.heading || 0,
       accuracy: locationData.accuracy,
-      timestamp: locationData.ts || new Date().toISOString()
+      timestamp: locationData.ts || locationData.timestamp || new Date().toISOString()
     };
 
-    // Use requestAnimationFrame to avoid blocking the main thread
-    requestAnimationFrame(() => {
-      console.log('Received bus location update:', locationData);
-      setCurrentLocation(newLocation);
+    console.log('Received bus location update:', locationData);
+    setCurrentLocation(newLocation);
 
-      // Add to history
-      setHistory(prev => {
-        // Keep only the last 50 locations
-        const newHistory = [...prev, newLocation];
-        return newHistory.slice(-50);
-      });
-
-      // Set up interpolation for smooth movement
-      if (currentPositionRef.current) {
-        targetPositionRef.current = {
-          lat: locationData.lat,
-          lng: locationData.lng,
-          timestamp: Date.now()
-        };
-      } else {
-        // First position, set directly
-        currentPositionRef.current = {
-          lat: locationData.lat,
-          lng: locationData.lng,
-          timestamp: Date.now()
-        };
-        setInterpolatedLocation({
-          lat: locationData.lat,
-          lng: locationData.lng,
-          timestamp: Date.now()
-        });
-      }
-
-      lastUpdateRef.current = Date.now();
-      setLoading(false);
+    // Add to history
+    setHistory(prev => {
+      // Keep only the last 50 locations
+      const newHistory = [...prev, newLocation];
+      return newHistory.slice(-50);
     });
+
+    setLoading(false);
   }, []);
 
   // Fetch initial bus location data
@@ -94,6 +56,8 @@ export const useBusLocation = (busId: string) => {
         setLoading(false);
         return;
       }
+
+      setLoading(true);
 
       try {
         const { data: locations, error } = await supabase
@@ -117,19 +81,11 @@ export const useBusLocation = (busId: string) => {
           };
 
           setCurrentLocation(busLocation);
-          currentPositionRef.current = {
-            lat: location.lat,
-            lng: location.lng,
-            timestamp: Date.now()
-          };
-          setInterpolatedLocation({ ...currentPositionRef.current });
           setHistory([busLocation]);
-          setLoading(false);
-        } else {
-          setLoading(false);
         }
       } catch (err) {
         console.error('Error fetching initial bus location:', err);
+      } finally {
         setLoading(false);
       }
     };
@@ -175,7 +131,8 @@ export const useBusLocation = (busId: string) => {
 
     channel.subscribe((status) => {
       if (status === 'SUBSCRIBED') {
-        setLoading(false);
+        // Only resolve loading if we don't already have one from initial fetch
+        console.log('✅ Subscribed to realtime bus location changes');
       }
     });
 
@@ -186,53 +143,9 @@ export const useBusLocation = (busId: string) => {
     };
   }, [busId, handleBusLocationUpdate]);
 
-  // Interpolation for smooth movement
-  useEffect(() => {
-    let lastAnimTime = Date.now();
-
-    const animate = () => {
-      const now = Date.now();
-      const deltaTime = now - lastAnimTime;
-      lastAnimTime = now;
-
-      if (targetPositionRef.current && currentPositionRef.current) {
-        const elapsed = now - lastUpdateRef.current;
-        const duration = 2500; // 2.5 seconds interpolation
-
-        if (elapsed < duration) {
-          // Use a simple lerp for smooth tracking
-          // The 0.1 factor per frame (at 60fps) provides smooth movement
-          const factor = 0.08;
-
-          currentPositionRef.current = {
-            lat: currentPositionRef.current.lat + (targetPositionRef.current.lat - currentPositionRef.current.lat) * factor,
-            lng: currentPositionRef.current.lng + (targetPositionRef.current.lng - currentPositionRef.current.lng) * factor,
-            timestamp: now
-          };
-
-          setInterpolatedLocation({ ...currentPositionRef.current });
-        } else {
-          currentPositionRef.current = { ...targetPositionRef.current };
-          setInterpolatedLocation({ ...currentPositionRef.current });
-          targetPositionRef.current = null;
-        }
-      }
-
-      animationRef.current = requestAnimationFrame(animate);
-    };
-
-    animationRef.current = requestAnimationFrame(animate);
-
-    return () => {
-      if (animationRef.current) {
-        cancelAnimationFrame(animationRef.current);
-      }
-    };
-  }, []);
-
   return {
     currentLocation,
-    interpolatedLocation,
+    interpolatedLocation: null, // Removed for performance
     history,
     loading,
     error

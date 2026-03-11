@@ -5,75 +5,25 @@
 
 import { adminDb } from './firebase-admin';
 import { decrementBusCapacity } from './busCapacityService';
+import { extractPublicId, deleteAsset } from './cloudinary-server';
 
 /**
  * Delete profile image from Cloudinary
+ * Uses the centralised cloudinary-server module (SDK-based, no manual signatures).
  */
 export async function deleteCloudinaryImage(imageUrl: string): Promise<boolean> {
   if (!imageUrl || !imageUrl.includes('cloudinary')) {
     return false;
   }
 
-  try {
-    // Extract public_id from Cloudinary URL
-    // URL format: https://res.cloudinary.com/{cloud_name}/image/upload/v{version}/{public_id}.{format}
-    const urlParts = imageUrl.split('/');
-    const uploadIndex = urlParts.indexOf('upload');
-
-    if (uploadIndex === -1 || uploadIndex + 2 >= urlParts.length) {
-      console.error('Invalid Cloudinary URL format');
-      return false;
-    }
-
-    // Get everything after "upload/v{version}/" and remove file extension
-    const publicIdWithExt = urlParts.slice(uploadIndex + 2).join('/');
-    const publicId = publicIdWithExt.split('.')[0];
-
-    console.log('Deleting Cloudinary image with public_id:', publicId);
-
-    // If Cloudinary API credentials are available, delete via API
-    if (process.env.CLOUDINARY_API_KEY && process.env.CLOUDINARY_API_SECRET) {
-      const crypto = require('crypto');
-      const cloudName = process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME;
-      const apiKey = process.env.CLOUDINARY_API_KEY;
-      const apiSecret = process.env.CLOUDINARY_API_SECRET;
-      const timestamp = Math.round(Date.now() / 1000);
-
-      // Generate signature
-      const signatureString = `public_id=${publicId}&timestamp=${timestamp}${apiSecret}`;
-      const signature = crypto
-        .createHash('sha1')
-        .update(signatureString)
-        .digest('hex');
-
-      // Make DELETE request to Cloudinary
-      const response = await fetch(
-        `https://api.cloudinary.com/v1_1/${cloudName}/image/destroy`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/x-www-form-urlencoded',
-          },
-          body: new URLSearchParams({
-            public_id: publicId,
-            api_key: apiKey,
-            timestamp: timestamp.toString(),
-            signature: signature
-          })
-        }
-      );
-
-      const result = await response.json();
-      console.log('Cloudinary deletion result:', result);
-      return result.result === 'ok';
-    } else {
-      console.warn('Cloudinary API credentials not found, skipping image deletion');
-      return false;
-    }
-  } catch (error) {
-    console.error('Error deleting Cloudinary image:', error);
+  const publicId = extractPublicId(imageUrl);
+  if (!publicId) {
+    console.error('Could not extract public_id from URL:', imageUrl);
     return false;
   }
+
+  console.log('Deleting Cloudinary image with public_id:', publicId);
+  return deleteAsset(publicId);
 }
 
 /**
@@ -152,6 +102,25 @@ export async function deleteUserAndData(
         });
         await batch.commit();
         console.log(`Deleted ${waitingFlagsQuery.size} waiting flags for student:`, userId);
+      }
+
+      // Delete any legacy fcm_tokens collection documents for this student
+      // (FCM token is now embedded in student doc, but clean up old data too)
+      try {
+        const fcmTokensQuery = await adminDb.collection('fcm_tokens')
+          .where('userUid', '==', userId)
+          .get();
+
+        if (fcmTokensQuery.size > 0) {
+          const batch = adminDb.batch();
+          fcmTokensQuery.docs.forEach(doc => {
+            batch.delete(doc.ref);
+          });
+          await batch.commit();
+          console.log(`🧹 Deleted ${fcmTokensQuery.size} legacy FCM tokens for student:`, userId);
+        }
+      } catch (fcmError) {
+        console.error('⚠️ Error cleaning up legacy FCM tokens:', fcmError);
       }
 
       // Decrement bus capacity if student was assigned to a bus

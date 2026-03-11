@@ -117,15 +117,19 @@ export async function resolveStopCoordinate(
   const geocoded = await geocodePlaceName(stopName, cityContext, approxLat, approxLng);
   
   if (geocoded.success && geocoded.lat && geocoded.lng) {
-    // Check if geocoded result is reasonable (within 5km of original)
     const distance = geocoded.distance || 0;
     
-    if (distance < 5000) {
+    // If original coordinates are (0,0) or missing, accept geocoded result directly
+    // (0,0) is a placeholder meaning "no coordinates stored", not a real location
+    const hasValidOriginal = approxLat !== 0 || approxLng !== 0;
+    
+    if (!hasValidOriginal || distance < 5000) {
+      console.log(`✅ Using geocoded coordinates${!hasValidOriginal ? ' (no original coords)' : ''}`);
       return {
         lat: geocoded.lat,
         lng: geocoded.lng,
         method: 'geocoded',
-        distance,
+        distance: hasValidOriginal ? distance : undefined,
         notes: `Geocoded from "${stopName}" - ${geocoded.displayName}`
       };
     } else {

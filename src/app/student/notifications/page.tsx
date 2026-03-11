@@ -106,7 +106,7 @@ export default function StudentNotificationsPage() {
 
   if (!currentUser || loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-900 dark:bg-gray-950 relative overflow-hidden">
+      <div className="flex-1 min-h-[calc(100dvh-120px)] flex items-center justify-center bg-gray-900 dark:bg-gray-950 relative overflow-hidden">
         {/* Animated background gradient orbs */}
         <div className="absolute inset-0 overflow-hidden">
           <div className="absolute -top-40 -right-40 w-80 h-80 bg-purple-400 rounded-full mix-blend-multiply filter blur-3xl opacity-20 animate-blob"></div>

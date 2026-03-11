@@ -6,9 +6,9 @@ import { useRouter } from "next/navigation";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { 
-  Flag, 
-  Clock, 
+import {
+  Flag,
+  Clock,
   MapPin,
   CheckCircle,
   AlertCircle
@@ -35,14 +35,14 @@ export default function StudentWaitingPage() {
   useEffect(() => {
     const fetchData = async () => {
       if (!currentUser?.uid) return;
-      
+
       try {
         // Fetch student data
         const student = await getStudentByUid(currentUser.uid);
         if (student) {
           setStudentData(student);
           console.log('Student data fetched in waiting page:', student);
-          
+
           // Fetch route data first
           const routeId = student.routeId || student.assignedRouteId;
           if (routeId) {
@@ -51,14 +51,14 @@ export default function StudentWaitingPage() {
             if (route) {
               setRouteData(route);
               console.log('Route data fetched:', route);
-              
+
               // Fetch buses for this route
               const buses = await getBusesByRouteId(routeId);
               if (buses.length > 0) {
                 // Use the first bus or find the one matching student's shift
-                const assignedBus = buses.find(bus => 
-                  bus.shift === student.shift || 
-                  bus.shift === 'both' || 
+                const assignedBus = buses.find(bus =>
+                  bus.shift === student.shift ||
+                  bus.shift === 'both' ||
                   !bus.shift
                 ) || buses[0];
                 setBusData(assignedBus);
@@ -66,7 +66,7 @@ export default function StudentWaitingPage() {
               }
             }
           }
-          
+
           // Also try direct bus ID if available (fallback)
           const busId = student.busId || student.assignedBusId;
           if (busId && !busData) {
@@ -85,7 +85,7 @@ export default function StudentWaitingPage() {
         setLoading(false);
       }
     };
-    
+
     fetchData();
   }, [currentUser]);
 
@@ -98,10 +98,10 @@ export default function StudentWaitingPage() {
 
   const toggleWaitingFlag = async () => {
     if (!currentUser || !studentData) return;
-    
+
     setLoading(true);
     const newStatus = !waitingFlag;
-    
+
     try {
       if (newStatus) {
         // Get current location first
@@ -118,10 +118,10 @@ export default function StudentWaitingPage() {
             );
           });
         }
-        
+
         // Set waiting flag through backend API
         const token = await currentUser.getIdToken();
-        
+
         const response = await fetch('/api/student/waiting-flag', {
           method: 'POST',
           headers: {
@@ -136,9 +136,9 @@ export default function StudentWaitingPage() {
             lng: position?.coords.longitude || null
           }),
         });
-        
+
         const result = await response.json();
-        
+
         if (response.ok && result.success) {
           setWaitingFlagState(true);
           setWaitingFlagId(result.flagId);
@@ -153,9 +153,9 @@ export default function StudentWaitingPage() {
         const response = await fetch(`/api/student/waiting-flag?idToken=${token}`, {
           method: 'DELETE'
         });
-        
+
         const result = await response.json();
-        
+
         if (response.ok) {
           setWaitingFlagState(false);
           setWaitingFlagId(null);
@@ -174,7 +174,7 @@ export default function StudentWaitingPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
+      <div className="flex-1 min-h-[calc(100dvh-120px)] flex items-center justify-center">
         <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500"></div>
       </div>
     );
@@ -182,7 +182,7 @@ export default function StudentWaitingPage() {
 
   if (error) {
     return (
-      <div className="min-h-screen flex items-center justify-center p-4">
+      <div className="flex-1 min-h-[calc(100dvh-120px)] flex items-center justify-center p-4">
         <Card className="w-full max-w-md">
           <CardHeader>
             <CardTitle>Waiting Flag</CardTitle>
@@ -201,7 +201,7 @@ export default function StudentWaitingPage() {
 
   if (!studentData) {
     return (
-      <div className="min-h-screen flex items-center justify-center p-4">
+      <div className="flex-1 min-h-[calc(100dvh-120px)] flex items-center justify-center p-4">
         <Card className="w-full max-w-md">
           <CardHeader>
             <CardTitle>Waiting Flag</CardTitle>
@@ -236,7 +236,7 @@ export default function StudentWaitingPage() {
                 Indicate when you're waiting at the bus stop
               </CardDescription>
             </div>
-            <Badge 
+            <Badge
               variant={waitingFlag ? "default" : "secondary"}
               className="text-lg py-1 px-3"
             >
@@ -246,27 +246,25 @@ export default function StudentWaitingPage() {
         </CardHeader>
         <CardContent>
           <div className="flex flex-col items-center justify-center py-8 space-y-6">
-            <div className={`p-6 rounded-full ${
-              waitingFlag ? "bg-blue-100 dark:bg-blue-900/30" : "bg-muted"
-            }`}>
-              <Flag className={`h-16 w-16 ${
-                waitingFlag ? "text-blue-600 dark:text-blue-400" : "text-gray-400"
-              }`} />
+            <div className={`p-6 rounded-full ${waitingFlag ? "bg-blue-100 dark:bg-blue-900/30" : "bg-muted"
+              }`}>
+              <Flag className={`h-16 w-16 ${waitingFlag ? "text-blue-600 dark:text-blue-400" : "text-gray-400"
+                }`} />
             </div>
-            
+
             <div className="text-center">
               <h3 className="text-xl font-semibold">
                 {waitingFlag ? "You're Waiting" : "You're Not Waiting"}
               </h3>
               <p className="text-muted-foreground mt-2">
-                {waitingFlag 
-                  ? "The driver has been notified that you're waiting at the bus stop." 
+                {waitingFlag
+                  ? "The driver has been notified that you're waiting at the bus stop."
                   : "Set your waiting flag when you arrive at the bus stop."}
               </p>
             </div>
-            
-            <Button 
-              size="lg" 
+
+            <Button
+              size="lg"
               className="w-full md:w-auto"
               onClick={toggleWaitingFlag}
               disabled={loading}
@@ -285,7 +283,7 @@ export default function StudentWaitingPage() {
                 </>
               )}
             </Button>
-            
+
             {lastUpdated && (
               <p className="text-sm text-muted-foreground">
                 Last updated: {lastUpdated}
@@ -305,7 +303,7 @@ export default function StudentWaitingPage() {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <BusMap 
+            <BusMap
               busId={studentData.busId || studentData.assignedBusId}
               busNumber={busData?.busNumber}
               journeyActive={true}
@@ -334,7 +332,7 @@ export default function StudentWaitingPage() {
               </p>
             </div>
           </div>
-          
+
           <div className="flex items-start space-x-3">
             <div className="mt-1 bg-green-100 p-2 rounded-full">
               <CheckCircle className="h-4 w-4 text-green-600" />
@@ -346,7 +344,7 @@ export default function StudentWaitingPage() {
               </p>
             </div>
           </div>
-          
+
           <div className="flex items-start space-x-3">
             <div className="mt-1 bg-orange-100 p-2 rounded-full">
               <AlertCircle className="h-4 w-4 text-orange-600" />
@@ -383,7 +381,7 @@ export default function StudentWaitingPage() {
               </p>
             </div>
           </div>
-          
+
           <div className="mt-4 flex items-center space-x-3">
             <div className="bg-gray-100 p-3 rounded-full">
               <Clock className="h-6 w-6 text-gray-600" />

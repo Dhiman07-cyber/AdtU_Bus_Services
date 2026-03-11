@@ -99,29 +99,39 @@ class LiveTrackingService {
 
   /**
    * Send location update to server with throttling
+   * PERFORMANCE: Uses adaptive throttling based on speed
    */
   async sendLocationUpdate(location: BusLocation, force: boolean = false): Promise<boolean> {
     const now = Date.now();
 
-    // Throttle based on speed
+    // SECURITY: Validate required fields
+    if (!location.bus_id || !location.driver_uid || typeof location.lat !== 'number' || typeof location.lng !== 'number') {
+      return false;
+    }
+
+    // SECURITY: Validate coordinate ranges
+    if (location.lat < -90 || location.lat > 90 || location.lng < -180 || location.lng > 180) {
+      return false;
+    }
+
+    // PERFORMANCE: Adaptive throttle based on speed
     const effectiveInterval = location.speed < 2
-      ? 15000 // 15s when stopped
-      : this.updateIntervalMs; // 5s when moving
+      ? 15000 // 15s when stopped/crawling — saves bandwidth
+      : location.speed > 40
+        ? 3000  // 3s at high speed — more frequent for accuracy
+        : this.updateIntervalMs; // 5s default when moving
 
     if (!force && (now - this.lastUpdateTime) < effectiveInterval) {
-      return false; // Skip this update
+      return false; // Skip this update (throttled)
     }
 
     // Check if online
     if (!this.isOnline) {
-      // Buffer last location for when we come back online
       this.bufferedLocation = location;
-      console.log('📴 Offline - buffering location');
       return false;
     }
 
     try {
-      // Send to Supabase bus_locations table
       const { error } = await supabase
         .from('bus_locations')
         .insert({
@@ -129,23 +139,21 @@ class LiveTrackingService {
           driver_uid: location.driver_uid,
           lat: location.lat,
           lng: location.lng,
-          speed: location.speed,
+          speed: Math.max(0, location.speed || 0),
           heading: location.heading,
           accuracy: location.accuracy,
           timestamp: location.timestamp,
         });
 
       if (error) {
-        console.error('❌ Error sending location:', error);
+        console.error('Location update failed:', error.message);
         return false;
       }
 
       this.lastUpdateTime = now;
       this.bufferedLocation = null;
-      console.log('✅ Location sent:', location);
       return true;
     } catch (error) {
-      console.error('❌ Network error sending location:', error);
       this.bufferedLocation = location;
       return false;
     }

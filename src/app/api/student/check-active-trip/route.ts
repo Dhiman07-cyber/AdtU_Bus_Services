@@ -1,140 +1,79 @@
 import { NextResponse } from 'next/server';
-import { auth, db as adminDb } from '@/lib/firebase-admin';
+import { adminDb } from '@/lib/firebase-admin';
+import { createClient } from '@supabase/supabase-js';
+import { withSecurity } from '@/lib/security/api-security';
+import { BusIdSchema } from '@/lib/security/validation-schemas';
+import { RateLimits } from '@/lib/security/rate-limiter';
+
+// Initialize Supabase client
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL || '',
+  process.env.SUPABASE_SERVICE_ROLE_KEY || ''
+);
 
 /**
  * POST /api/student/check-active-trip
  * 
- * Body: { busId, idToken }
- * 
- * Checks if there's an active trip for the student's assigned bus
- * Returns trip data if found, null if not
- * 
- * NOTE: This is different from /api/driver/check-active-trip
- * because students don't have driver profiles
+ * Checks if there's an active trip for the student's assigned bus.
+ * USES SUPABASE AS AUTHORITATIVE SOURCE for live trips.
  */
-export async function POST(request: Request) {
-  try {
-    console.log('🔄 Student check active trip API called');
-    
-    const body = await request.json();
-    const { idToken, busId } = body;
+export const POST = withSecurity(
+  async (request, { body, requestId }) => {
+    const { busId } = body as any;
 
-    console.log('📋 Request data:', { hasIdToken: !!idToken, busId });
+    try {
+      console.log(`🔍 [${requestId}] Querying for active trip for bus: ${busId}`);
 
-    // Get token from either body or Authorization header
-    let token = idToken;
-    if (!token) {
-      const authHeader = request.headers.get('authorization');
-      if (authHeader && authHeader.startsWith('Bearer ')) {
-        token = authHeader.substring(7);
-      }
-    }
+      // Query Supabase for active trips
+      const { data: activeTrip, error } = await supabase
+        .from('active_trips')
+        .select('*')
+        .eq('bus_id', busId)
+        .eq('status', 'active')
+        .maybeSingle();
 
-    // Validate required fields
-    if (!token || !busId) {
-      console.error('❌ Missing required fields:', { hasToken: !!token, busId });
-      return NextResponse.json(
-        { error: 'Missing required fields: idToken (or Authorization header), busId' },
-        { status: 400 }
-      );
-    }
-
-    // Verify Firebase ID token
-    if (!auth) {
-      console.error('❌ Firebase Admin not initialized');
-      return NextResponse.json(
-        { error: 'Firebase Admin not initialized' },
-        { status: 500 }
-      );
-    }
-
-    console.log('✅ Firebase Admin initialized, verifying token...');
-
-    const decodedToken = await auth.verifyIdToken(token);
-    const studentUid = decodedToken.uid;
-
-    console.log('✅ Token verified, student UID:', studentUid);
-
-    // Verify user exists and is a student
-    const userDoc = await adminDb.collection('users').doc(studentUid).get();
-    if (!userDoc.exists) {
-      console.error('❌ User not found in users collection:', studentUid);
-      return NextResponse.json({ error: 'User not found' }, { status: 404 });
-    }
-
-    console.log('✅ User found, checking for active trips...');
-
-    const userData = userDoc.data();
-    if (userData?.role !== 'student') {
-      return NextResponse.json(
-        { error: 'User is not authorized as a student' },
-        { status: 403 }
-      );
-    }
-
-    // Check for active trip sessions for this bus (don't need driver check for students)
-    console.log('🔍 Querying for active trips for bus:', busId);
-    
-    // Simple query to avoid index issues - just check if bus has any active trips
-    const activeTripsSnapshot = await adminDb
-      .collection('trip_sessions')
-      .where('busId', '==', busId)
-      .where('tripStatus', '==', 'active')
-      .limit(1)
-      .get();
-
-    console.log(`📊 Found ${activeTripsSnapshot.size} active trips for bus ${busId}`);
-
-    if (!activeTripsSnapshot.empty) {
-      const activeTrip = activeTripsSnapshot.docs[0];
-      const tripData = activeTrip.data();
-      
-      // Also check bus status
-      const busDoc = await adminDb.collection('buses').doc(busId).get();
-      let busStatus = null;
-      if (busDoc.exists) {
-        const busData = busDoc.data();
-        busStatus = busData?.status;
+      if (error) {
+        console.error(`[${requestId}] Supabase query error:`, error);
+        return NextResponse.json({ success: false, error: 'Failed to verify trip status', requestId }, { status: 500 });
       }
 
-      console.log('✅ Active trip found:', {
-        tripId: activeTrip.id,
-        busStatus,
-        driverUid: tripData.driverUid
-      });
-
-      return NextResponse.json({
-        hasActiveTrip: true,
-        tripData: {
-          tripId: activeTrip.id,
-          ...tripData,
-          busStatus
+      if (activeTrip) {
+        // Also check bus status from Firestore (primary bus metadata source)
+        const busDoc = await adminDb.collection('buses').doc(busId).get();
+        let busStatus = null;
+        if (busDoc.exists) {
+          busStatus = busDoc.data()?.status;
         }
-      });
-    } else {
-      console.log('ℹ️ No active trip found for bus:', busId);
-      return NextResponse.json({
-        hasActiveTrip: false,
-        tripData: null
-      });
-    }
 
-  } catch (error: any) {
-    console.error('❌ Error checking active trip:', error);
-    console.error('❌ Error stack:', error.stack);
-    console.error('❌ Error details:', {
-      message: 'Internal error',
-      code: error.code,
-      name: error.name
-    });
-    return NextResponse.json(
-      { 
-        error: 'Failed to check active trip',
-        details: 'Internal error',
-        stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
-      },
-      { status: 500 }
-    );
+        return NextResponse.json({
+          success: true,
+          hasActiveTrip: true,
+          tripData: {
+            tripId: activeTrip.trip_id,
+            ...activeTrip,
+            busStatus
+          },
+          requestId
+        });
+      }
+
+      return NextResponse.json({
+        success: true,
+        hasActiveTrip: false,
+        tripData: null,
+        requestId
+      });
+
+    } catch (err) {
+      console.error(`[${requestId}] Unexpected error:`, err);
+      return NextResponse.json({ success: false, error: 'Internal server error', requestId }, { status: 500 });
+    }
+  },
+  {
+    requiredRoles: ['student'],
+    schema: BusIdSchema,
+    rateLimit: RateLimits.READ,
+    allowBodyToken: true
   }
-}
+);
 

@@ -81,8 +81,9 @@ export class ReassignmentService {
       await runTransaction(db, async (transaction) => {
         // Track load changes per bus by shift
         const busLoadChanges = new Map<string, {
+          totalDelta: number;
           morningDelta: number;
-          eveningDelta: number
+          eveningDelta: number;
         }>();
 
         // First, we need to get student shifts to calculate proper deltas
@@ -101,20 +102,26 @@ export class ReassignmentService {
 
           // Initialize changes for buses
           if (!busLoadChanges.has(plan.fromBusId)) {
-            busLoadChanges.set(plan.fromBusId, { morningDelta: 0, eveningDelta: 0 });
+            busLoadChanges.set(plan.fromBusId, { totalDelta: 0, morningDelta: 0, eveningDelta: 0 });
           }
           if (!busLoadChanges.has(plan.toBusId)) {
-            busLoadChanges.set(plan.toBusId, { morningDelta: 0, eveningDelta: 0 });
+            busLoadChanges.set(plan.toBusId, { totalDelta: 0, morningDelta: 0, eveningDelta: 0 });
           }
 
           const fromChanges = busLoadChanges.get(plan.fromBusId)!;
           const toChanges = busLoadChanges.get(plan.toBusId)!;
 
+          // Update total delta (1 head goes from source to target)
+          fromChanges.totalDelta -= 1;
+          toChanges.totalDelta += 1;
+
           // Update shift-specific deltas
-          if (shift.toLowerCase() === 'morning') {
+          const normalizedShift = shift.toLowerCase();
+          if (normalizedShift.includes('morning') || normalizedShift === 'both') {
             fromChanges.morningDelta -= 1;  // Remove from source bus
             toChanges.morningDelta += 1;    // Add to target bus
-          } else {
+          }
+          if (normalizedShift.includes('evening') || normalizedShift === 'both') {
             fromChanges.eveningDelta -= 1;  // Remove from source bus
             toChanges.eveningDelta += 1;    // Add to target bus
           }
@@ -161,12 +168,13 @@ export class ReassignmentService {
 
           const newMorningCount = Math.max(0, (currentLoad.morningCount || 0) + changes.morningDelta);
           const newEveningCount = Math.max(0, (currentLoad.eveningCount || 0) + changes.eveningDelta);
-          const newTotal = newMorningCount + newEveningCount;
+          const newTotalCount = Math.max(0, (currentLoad.totalCount || busData.currentMembers || 0) + changes.totalDelta);
 
           transaction.update(busInfo.ref, {
             'load.morningCount': newMorningCount,
             'load.eveningCount': newEveningCount,
-            currentMembers: newTotal,
+            'load.totalCount': newTotalCount,
+            currentMembers: newTotalCount,
             updatedAt: serverTimestamp()
           });
 

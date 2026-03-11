@@ -1,13 +1,13 @@
 import { auth, db } from '@/lib/firebase';
-import { 
+import {
   signOut,
   User as FirebaseUser,
   GoogleAuthProvider,
   signInWithPopup
 } from 'firebase/auth';
-import { 
-  doc, 
-  setDoc, 
+import {
+  doc,
+  setDoc,
   getDoc,
   collection,
   query,
@@ -29,73 +29,108 @@ export async function signInWithGoogle() {
     const provider = new GoogleAuthProvider();
     const result = await signInWithPopup(auth, provider);
     const user = result.user;
-    
-    // Check if user already exists in users collection by email
-    const usersRef = collection(db, 'users');
-    const q = query(usersRef, where('email', '==', user.email || ''));
-    const querySnapshot = await getDocs(q);
-    
-    if (!querySnapshot.empty) {
-      // User exists, get their document
-      const userDoc = querySnapshot.docs[0];
-      const oldDocId = userDoc.id;
-      const userData = userDoc.data();
-      
+
+    // Step 1: TRY to find directly by UID (Fastest, securest, always allowed)
+    const directDocRef = doc(db, 'users', user.uid);
+    let userData = null;
+    let userDocFound = null;
+
+    try {
+      const directSnap = await getDoc(directDocRef);
+      if (directSnap.exists()) {
+        userDocFound = directSnap;
+        userData = directSnap.data();
+      }
+    } catch (e) {
+      console.warn('⚠️ Direct UID lookup failed, will attempt email search:', e);
+    }
+
+    // Step 2: FALLBACK to email search if UID lookup failed (Used for pre-created accounts)
+    if (!userDocFound) {
+      try {
+        const usersRef = collection(db, 'users');
+        const emailToFind = user.email || '';
+        if (emailToFind) {
+          const q = query(usersRef, where('email', '==', emailToFind));
+          const querySnapshot = await getDocs(q);
+
+          if (!querySnapshot.empty) {
+            userDocFound = querySnapshot.docs[0];
+            userData = userDocFound.data();
+          }
+        }
+      } catch (e: any) {
+        // If query fails, it's expected if they haven't applied yet (due to list rules)
+        if (e.code !== 'permission-denied' && !e.message?.includes('permission')) {
+          console.error('❌ Email search query failed:', e);
+        }
+      }
+    }
+
+    // Step 3: PROCESS found user
+    if (userDocFound && userData) {
+      const oldDocId = userDocFound.id;
+
       // Update their uid and lastLoginAt
       const updatedData = {
         ...userData,
         uid: user.uid,
         lastLoginAt: Timestamp.now()
       };
-      
-      // If the document ID is not the Firebase Auth UID, we need to:
-      // 1. Create a new document with the correct UID
-      // 2. Delete the old document
+
+      // If the document ID is not the Firebase Auth UID (e.g. Doc ID was email), migrate it
       if (oldDocId !== user.uid) {
+        console.log(`📦 Migrating user doc ${oldDocId} -> ${user.uid}`);
+
         // Create new document with Firebase Auth UID
         const newUserDocRef = doc(db, 'users', user.uid);
         await setDoc(newUserDocRef, updatedData);
-        
+
         // Delete old document
         const oldUserDocRef = doc(db, 'users', oldDocId);
         await deleteDoc(oldUserDocRef);
-        
+
         // Also update the role-specific document if it exists
-        const roleCollection = userData.role + 's'; // students, drivers, moderators
-        const oldRoleDocRef = doc(db, roleCollection, oldDocId);
-        const roleDoc = await getDoc(oldRoleDocRef);
-        
-        if (roleDoc.exists()) {
-          // Create new role document with Firebase Auth UID
-          const newRoleDocRef = doc(db, 'users', user.uid);
-          const roleData = {
-            ...roleDoc.data(),
-            uid: user.uid
-          };
-          await setDoc(newRoleDocRef, roleData);
-          
-          // Delete old role document
-          await deleteDoc(oldRoleDocRef);
+        if (userData.role) {
+          try {
+            const roleCollection = userData.role + 's'; // students, drivers, moderators
+            const oldRoleDocRef = doc(db, roleCollection, oldDocId);
+            const roleDoc = await getDoc(oldRoleDocRef);
+
+            if (roleDoc.exists()) {
+              // Create new role document with Firebase Auth UID
+              const newRoleDocRef = doc(db, roleCollection, user.uid);
+              const roleData = {
+                ...roleDoc.data(),
+                uid: user.uid
+              };
+              await setDoc(newRoleDocRef, roleData);
+
+              // Delete old role document
+              await deleteDoc(oldRoleDocRef);
+            }
+          } catch (migrateError) {
+            console.warn('⚠️ Role-doc migration skipped or failed:', migrateError);
+          }
         }
       } else {
-        // Document ID already matches Firebase Auth UID, just update
+        // Document ID already matches Firebase Auth UID, just update lastLoginAt
         const userDocRef = doc(db, 'users', user.uid);
         await updateDoc(userDocRef, {
-          uid: user.uid,
           lastLoginAt: Timestamp.now()
         });
       }
-      
+
       return { success: true, user };
     }
-    
+
     // User not found in users collection
     // Create an entry in unauthUsers collection for tracking
     try {
       console.log('🔄 Creating unauth-users document for new user:', user.email);
       const token = await user.getIdToken();
       console.log('🔑 Got ID token for unauth-user creation');
-      
+
       const response = await fetch('/api/unauth-users/create', {
         method: 'POST',
         headers: {
@@ -124,7 +159,7 @@ export async function signInWithGoogle() {
         stack: unauthError?.stack
       });
     }
-    
+
     // Instead of showing an error, we'll indicate that the user needs to apply
     return { success: true, user, needsApplication: true };
   } catch (error: any) {
@@ -134,14 +169,14 @@ export async function signInWithGoogle() {
       'auth/cancelled-popup-request',
       'auth/popup-blocked'
     ];
-    
+
     // Only log unexpected errors (exclude permission errors and user cancellations)
-    if (!error.message?.includes('permission') && 
-        error.code !== 'permission-denied' &&
-        !expectedUserCancellations.includes(error.code)) {
+    if (!error.message?.includes('permission') &&
+      error.code !== 'permission-denied' &&
+      !expectedUserCancellations.includes(error.code)) {
       console.error('Error signing in with Google:', error);
     }
-    
+
     // Handle specific Firebase errors
     if (error.code === 'auth/popup-closed-by-user') {
       // User closed the popup without signing in - this is normal behavior
@@ -160,7 +195,7 @@ export async function signInWithGoogle() {
       console.warn('⚠️ Network error during sign-in');
       return { success: false, error: 'Network error. Please check your connection and try again.' };
     }
-    
+
     // For all other errors, return the error message
     return { success: false, error: error.message || 'An error occurred during sign in' };
   }
@@ -187,24 +222,24 @@ export async function getUserData(uid: string): Promise<User | null> {
   try {
     const userDocRef = doc(db, 'users', uid);
     const userDoc = await getDoc(userDocRef);
-    
+
     if (userDoc.exists()) {
       return userDoc.data() as User;
     }
-    
+
     // If user document doesn't exist, this might be a newly created user
     // Return null to indicate no user data found
     return null;
   } catch (error: any) {
     // Handle permission errors silently - these are EXPECTED for new users
-    if (error.code === 'permission-denied' || 
-        error.message?.includes("Missing or insufficient permissions") ||
-        error.message?.includes("permission")) {
+    if (error.code === 'permission-denied' ||
+      error.message?.includes("Missing or insufficient permissions") ||
+      error.message?.includes("permission")) {
       // This is normal for new users who haven't been approved yet
       // Return null without logging to avoid confusion
       return null;
     }
-    
+
     // Only log truly unexpected errors
     console.error('Unexpected error fetching user data:', error);
     return null;
@@ -217,7 +252,7 @@ export async function getUsersByRole(role: UserRole): Promise<User[]> {
     const usersRef = collection(db, 'users');
     const q = query(usersRef, where('role', '==', role));
     const querySnapshot = await getDocs(q);
-    
+
     return querySnapshot.docs.map(doc => doc.data() as User);
   } catch (error) {
     console.error(`Error fetching ${role}s:`, error);
@@ -249,15 +284,15 @@ export async function deleteUser(uid: string) {
     });
 
     const data = await response.json();
-    
+
     if (!response.ok) {
       throw new Error(data.error || 'Failed to delete user');
     }
-    
+
     if (!data.success) {
       throw new Error(data.error || 'Failed to delete user');
     }
-    
+
     return { success: true };
   } catch (error) {
     console.error('Error deleting user:', error);

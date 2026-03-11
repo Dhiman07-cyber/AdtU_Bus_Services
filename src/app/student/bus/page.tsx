@@ -6,8 +6,8 @@ import { useRouter } from "next/navigation";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { 
-  Bus, 
+import {
+  Bus,
   MapPin,
   Navigation,
   Clock,
@@ -32,7 +32,7 @@ export default function StudentBusPage() {
   const { currentUser, userData } = useAuth();
   const router = useRouter();
   const { addToast } = useToast();
-  
+
   const [studentData, setStudentData] = useState<any>(null);
   const [busData, setBusData] = useState<any>(null);
   const [routeData, setRouteData] = useState<any>(null);
@@ -67,14 +67,14 @@ export default function StudentBusPage() {
         setLoading(false);
         return;
       }
-      
+
       try {
         // Fetch student data
         const student = await getStudentByUid(currentUser.uid);
         if (student) {
           setStudentData(student);
           console.log('Student data fetched in bus page:', student);
-          
+
           // Fetch route data first
           const routeId = student.routeId || student.assignedRouteId;
           if (routeId) {
@@ -84,19 +84,19 @@ export default function StudentBusPage() {
               setRouteData(route);
               setStops(route.stops || []);
               console.log('Route data fetched:', route);
-              
+
               // Set default selected stop to the first stop
               if (route.stops && route.stops.length > 0) {
                 setSelectedStop(route.stops[0].stopId);
               }
-              
+
               // Fetch buses for this route
               const buses = await getBusesByRouteId(routeId);
               if (buses.length > 0) {
                 // Use the first bus or find the one matching student's shift
-                const assignedBus = buses.find(bus => 
-                  bus.shift === student.shift || 
-                  bus.shift === 'both' || 
+                const assignedBus = buses.find(bus =>
+                  bus.shift === student.shift ||
+                  bus.shift === 'both' ||
                   !bus.shift
                 ) || buses[0];
                 setBusData(assignedBus);
@@ -104,7 +104,7 @@ export default function StudentBusPage() {
               }
             }
           }
-          
+
           // Also try direct bus ID if available (fallback)
           const busId = student.busId || student.assignedBusId;
           if (busId && !busData) {
@@ -115,19 +115,19 @@ export default function StudentBusPage() {
               console.log('Direct bus data fetched:', bus);
             }
           }
-          
+
           // Check if student has an active waiting flag
           const { data: flags, error: flagError } = await supabase
             .from('waiting_flags')
             .select('*')
             .eq('student_uid', currentUser.uid)
             .in('status', ['raised', 'acknowledged', 'waiting']); // Check multiple statuses
-          
+
           if (!flagError && flags && flags.length > 0) {
             setWaiting(true);
             setWaitingFlagId(flags[0].id);
           }
-          
+
           // Check if there's an active trip for this bus by querying Firestore
           try {
             // Note: We can't directly access Firestore from client, so we check driver_status in Supabase
@@ -138,7 +138,7 @@ export default function StudentBusPage() {
               .eq('bus_id', student.busId)
               .in('status', ['on_trip', 'enroute'])
               .maybeSingle();
-            
+
             setTripActive(!!driverStatus);
             console.log('🚌 Active trip check:', { active: !!driverStatus, status: driverStatus?.status });
           } catch (error) {
@@ -152,7 +152,7 @@ export default function StudentBusPage() {
         setLoading(false);
       }
     };
-    
+
     fetchData();
   }, [currentUser]);
 
@@ -168,7 +168,7 @@ export default function StudentBusPage() {
     if (!studentData?.busId) return;
 
     console.log('📡 Subscribing to driver_status for bus:', studentData.busId);
-    
+
     const channel = supabase
       .channel(`driver_status_${studentData.busId}`)
       .on(
@@ -207,19 +207,19 @@ export default function StudentBusPage() {
   // Handle raising waiting flag
   const handleRaiseFlag = useCallback(async (stopId: string, stopName: string) => {
     if (!currentUser || !studentData?.busId || !studentData?.routeId) return;
-    
+
     setRaisingFlag(true);
-    
+
     try {
       const token = await currentUser.getIdToken();
-      
+
       // Find stop details
       const stop = stops.find(s => s.stopId === stopId);
       if (!stop) {
         addToast("Stop not found", "error");
         return;
       }
-      
+
       // Call API to raise waiting flag
       const response = await fetch('/api/student/waiting-flag', {
         method: 'POST',
@@ -232,9 +232,9 @@ export default function StudentBusPage() {
           stopName: stopName
         })
       });
-      
+
       const result = await response.json();
-      
+
       if (response.ok && result.success) {
         setWaiting(true);
         setWaitingFlagId(result.flagId);
@@ -254,10 +254,10 @@ export default function StudentBusPage() {
   // Remove waiting flag
   const removeWaitingFlag = useCallback(async () => {
     if (!waitingFlagId || !currentUser) return;
-    
+
     try {
       const token = await currentUser.getIdToken();
-      
+
       const response = await fetch('/api/student/waiting-flag', {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
@@ -266,7 +266,7 @@ export default function StudentBusPage() {
           flagId: waitingFlagId
         })
       });
-      
+
       if (response.ok) {
         setWaiting(false);
         setWaitingFlagId(null);
@@ -279,7 +279,7 @@ export default function StudentBusPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
+      <div className="flex-1 min-h-[calc(100dvh-120px)] flex items-center justify-center">
         <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500"></div>
       </div>
     );
@@ -287,7 +287,7 @@ export default function StudentBusPage() {
 
   if (!studentData) {
     return (
-      <div className="min-h-screen flex items-center justify-center p-4">
+      <div className="flex-1 min-h-[calc(100dvh-120px)] flex items-center justify-center p-4">
         <Card className="w-full max-w-md">
           <CardHeader>
             <CardTitle>Student Data Not Found</CardTitle>
@@ -343,7 +343,7 @@ export default function StudentBusPage() {
                 <p className="font-medium">{studentData.fullName || "Unknown Student"}</p>
               </div>
             </div>
-            
+
             <div className="flex items-center space-x-2">
               <div className="bg-green-100 p-2 rounded-full">
                 <Bus className="h-5 w-5 text-green-600" />
@@ -353,7 +353,7 @@ export default function StudentBusPage() {
                 <p className="font-medium">{studentData.busId || "Not Assigned"}</p>
               </div>
             </div>
-            
+
             <div className="flex items-center space-x-2">
               <div className="bg-purple-100 p-2 rounded-full">
                 <MapPin className="h-5 w-5 text-purple-600" />
@@ -385,7 +385,7 @@ export default function StudentBusPage() {
                     <p className="font-medium">{busData.busNumber || "N/A"}</p>
                   </div>
                 </div>
-                
+
                 <div className="flex items-center space-x-2">
                   <div className="bg-yellow-100 p-2 rounded-full">
                     <Users className="h-5 w-5 text-yellow-600" />
@@ -395,18 +395,16 @@ export default function StudentBusPage() {
                     <p className="font-medium">{busData.currentPassengerCount || 0} passengers</p>
                   </div>
                 </div>
-                
+
                 <div className="flex items-center space-x-2">
-                  <div className={`p-2 rounded-full ${
-                    busData.status === 'active' || busData.status === 'enroute' 
-                      ? 'bg-green-100 dark:bg-green-900/30' 
+                  <div className={`p-2 rounded-full ${busData.status === 'active' || busData.status === 'enroute'
+                      ? 'bg-green-100 dark:bg-green-900/30'
                       : 'bg-gray-100 dark:bg-gray-800'
-                  }`}>
-                    <CheckCircle className={`h-5 w-5 ${
-                      busData.status === 'active' || busData.status === 'enroute'
-                        ? 'text-green-600 dark:text-green-400' 
+                    }`}>
+                    <CheckCircle className={`h-5 w-5 ${busData.status === 'active' || busData.status === 'enroute'
+                        ? 'text-green-600 dark:text-green-400'
                         : 'text-gray-600 dark:text-gray-400'
-                    }`} />
+                      }`} />
                   </div>
                   <div>
                     <p className="text-sm text-muted-foreground">Status</p>
@@ -443,7 +441,7 @@ export default function StudentBusPage() {
                   {waiting ? "Active" : "Inactive"}
                 </Badge>
               </div>
-              
+
               {waiting && (
                 <div className="flex items-center space-x-2">
                   <span className="flex h-3 w-3">
@@ -456,9 +454,9 @@ export default function StudentBusPage() {
                 </div>
               )}
             </div>
-            
+
             <div className="pt-4">
-              <Button 
+              <Button
                 onClick={waiting ? removeWaitingFlag : () => setShowWaitingFlagModal(true)}
                 className="w-full md:w-auto cursor-pointer py-6 text-base font-semibold shadow-lg hover:shadow-xl transition-all duration-200 hover:scale-[1.02]"
                 size="lg"
@@ -483,10 +481,10 @@ export default function StudentBusPage() {
                 )}
               </Button>
             </div>
-            
+
             <div className="text-sm text-muted-foreground pt-2">
               <p>
-                {waiting 
+                {waiting
                   ? "Your waiting flag is visible to the bus driver. They will pick you up at your stop."
                   : "Raise your flag when you're ready at a bus stop. The driver will be notified instantly."}
               </p>
@@ -494,7 +492,7 @@ export default function StudentBusPage() {
           </CardContent>
         </Card>
       )}
-      
+
       {!tripActive && (
         <Card>
           <CardContent className="pt-6">
@@ -519,7 +517,7 @@ export default function StudentBusPage() {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <DynamicStudentMap 
+            <DynamicStudentMap
               busId={studentData.busId || studentData.assignedBusId}
               routeId={studentData.routeId}
               journeyActive={tripActive}

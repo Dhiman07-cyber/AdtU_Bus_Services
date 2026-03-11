@@ -216,17 +216,58 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               console.log(`🔄 Switching to admins collection for admin role`);
             }
           } else {
-            // Not in users collection, try students collection directly
-            console.log(`⚠️ User not found in users collection, checking students...`);
-            const studentDocRef = doc(db, 'students', user.uid);
-            const studentDocSnap = await getDoc(studentDocRef);
-            if (studentDocSnap.exists()) {
+            // Not in users collection, try role-specific collections directly
+            console.log(`⚠️ User not found in users collection, checking other collections...`);
+
+            // Check students
+            let studentDocSnap = null;
+            try {
+              studentDocSnap = await getDoc(doc(db, 'students', user.uid));
+            } catch (e) { }
+
+            if (studentDocSnap?.exists()) {
               targetCollection = 'students';
               setNeedsApplication(false);
-              console.log(`✅ Found student in students collection`);
+              console.log(`✅ Found user in students collection`);
             } else {
-              console.log(`❌ User not found in either collection`);
-              setNeedsApplication(true);
+              // Check drivers
+              let driverDocSnap = null;
+              try {
+                driverDocSnap = await getDoc(doc(db, 'drivers', user.uid));
+              } catch (e) { }
+
+              if (driverDocSnap?.exists()) {
+                targetCollection = 'drivers';
+                setNeedsApplication(false);
+                console.log(`✅ Found user in drivers collection`);
+              } else {
+                // Check moderators
+                let modDocSnap = null;
+                try {
+                  modDocSnap = await getDoc(doc(db, 'moderators', user.uid));
+                } catch (e) { }
+
+                if (modDocSnap?.exists()) {
+                  targetCollection = 'moderators';
+                  setNeedsApplication(false);
+                  console.log(`✅ Found user in moderators collection`);
+                } else {
+                  // Check admins
+                  let adminDocSnap = null;
+                  try {
+                    adminDocSnap = await getDoc(doc(db, 'admins', user.uid));
+                  } catch (e) { }
+
+                  if (adminDocSnap?.exists()) {
+                    targetCollection = 'admins';
+                    setNeedsApplication(false);
+                    console.log(`✅ Found user in admins collection`);
+                  } else {
+                    console.log(`❌ User not found in any collection`);
+                    setNeedsApplication(true);
+                  }
+                }
+              }
             }
           }
 

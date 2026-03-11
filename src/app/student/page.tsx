@@ -24,6 +24,7 @@ import { supabase } from '@/lib/supabase-client';
 
 
 import "@/styles/animations.css";
+import { PremiumPageLoader } from "@/components/LoadingSpinner";
 
 export default function StudentDashboard() {
   const { userData, currentUser } = useAuth();
@@ -156,58 +157,60 @@ export default function StudentDashboard() {
           try {
             const studentShift = studentData.shift || 'Morning';
             console.log('🔍 Fetching driver for bus:', studentBusId, 'Student shift:', studentShift);
-            
+
             // Query drivers assigned to this bus
             const driversQuery = query(
               collection(db, 'drivers'),
               where('assignedBusId', '==', studentBusId)
             );
             const driversSnap = await getDocs(driversQuery);
-            
+
             if (!driversSnap.empty) {
               const drivers = driversSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
               console.log('📋 Found drivers for bus:', drivers);
-              
+
               // Filter drivers based on shift matching logic
               let matchedDriver = null;
-              
-              // Priority 1: Exact shift match
-              matchedDriver = drivers.find((d: any) => {
-                const driverShift = d.shift || 'Morning & Evening';
-                return driverShift === studentShift;
+
+              const normalizedStudentShift = studentShift.toString().replace(/\s*Shift\s*$/i, '').trim().toLowerCase();
+
+              // Priority 1: Exact shift match (sort by timestamp to pick oldest if multiple)
+              const exactMatchDrivers = drivers.filter((d: any) => {
+                const driverShift = (d.shift || 'Morning & Evening').toString().replace(/\s*Shift\s*$/i, '').trim().toLowerCase();
+                return driverShift === normalizedStudentShift;
               });
-              
-              // Priority 2: Driver with "Morning & Evening" shift
-              if (!matchedDriver) {
-                matchedDriver = drivers.find((d: any) => {
-                  const driverShift = d.shift || 'Morning & Evening';
-                  return driverShift === 'Morning & Evening';
+
+              if (exactMatchDrivers.length > 0) {
+                exactMatchDrivers.sort((a: any, b: any) => {
+                  const aTime = a.createdAt?.seconds || 0;
+                  const bTime = b.createdAt?.seconds || 0;
+                  return aTime - bTime;
                 });
+                matchedDriver = exactMatchDrivers[0];
               }
-              
-              // Priority 3: If multiple drivers with same shift, pick the one created first (by timestamp)
-              if (!matchedDriver && drivers.length > 0) {
-                const sameShiftDrivers = drivers.filter((d: any) => {
-                  const driverShift = d.shift || 'Morning & Evening';
-                  return driverShift === studentShift;
+
+              // Priority 2: Driver with "Morning & Evening" or "Both" shift
+              if (!matchedDriver) {
+                const bothMatchDrivers = drivers.filter((d: any) => {
+                  const driverShift = (d.shift || 'Morning & Evening').toString().replace(/\s*Shift\s*$/i, '').trim().toLowerCase();
+                  return driverShift === 'morning & evening' || driverShift === 'both';
                 });
-                
-                if (sameShiftDrivers.length > 0) {
-                  // Sort by createdAt timestamp (oldest first)
-                  sameShiftDrivers.sort((a: any, b: any) => {
+
+                if (bothMatchDrivers.length > 0) {
+                  bothMatchDrivers.sort((a: any, b: any) => {
                     const aTime = a.createdAt?.seconds || 0;
                     const bTime = b.createdAt?.seconds || 0;
                     return aTime - bTime;
                   });
-                  matchedDriver = sameShiftDrivers[0];
+                  matchedDriver = bothMatchDrivers[0];
                 }
               }
-              
+
               // Fallback: If still no match, take the first driver
               if (!matchedDriver && drivers.length > 0) {
                 matchedDriver = drivers[0];
               }
-              
+
               if (matchedDriver) {
                 console.log('✅ Matched driver:', matchedDriver);
                 setDriverData(matchedDriver);
@@ -329,6 +332,10 @@ export default function StudentDashboard() {
       .on('broadcast', { event: 'trip_started' }, (payload) => {
         console.log('🚀 Trip started broadcast received!', payload);
         setTripActive(true);
+        if (typeof window !== 'undefined' && 'addToast' in window) {
+          // We don't have addToast explicitly mapped here, we can dispatch a custom event
+          // Or since useToast isn't imported, let's just let FCMTokenManager handle the native Push Notification or the layout's FCMTokenManager.
+        }
       })
       .on('broadcast', { event: 'trip_ended' }, (payload) => {
         console.log('🏁 Trip ended broadcast received!', payload);
@@ -408,7 +415,7 @@ export default function StudentDashboard() {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-900 dark:bg-gray-950 relative overflow-hidden">
+      <div className="flex-1 min-h-[calc(100dvh-120px)] flex items-center justify-center bg-gray-900 dark:bg-gray-950 relative overflow-hidden mt-15">
         {/* Animated background gradient orbs */}
         <div className="absolute inset-0 overflow-hidden">
           <div className="absolute -top-40 -right-40 w-80 h-80 bg-purple-400 rounded-full mix-blend-multiply filter blur-3xl opacity-20 animate-blob"></div>
@@ -739,12 +746,12 @@ export default function StudentDashboard() {
                             const now = new Date();
                             const diffTime = now.getTime() - joiningDate.getTime();
                             const diffYears = diffTime / (1000 * 60 * 60 * 24 * 365.25);
-                            
+
                             if (diffYears < 1) {
                               const diffMonths = Math.floor(diffYears * 12);
                               return diffMonths === 0 ? 'Joined recently' : `Served ${diffMonths} month${diffMonths !== 1 ? 's' : ''}`;
                             }
-                            
+
                             const years = Math.floor(diffYears);
                             return `Served ${years} year${years !== 1 ? 's' : ''}`;
                           } catch (e) {

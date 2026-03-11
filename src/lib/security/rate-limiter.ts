@@ -144,6 +144,10 @@ export const RateLimits = {
     ADMIN: { maxRequests: 100, windowMs: 60000 },           // 100 per minute
     BULK_OPERATION: { maxRequests: 5, windowMs: 300000 },   // 5 per 5 minutes
 
+    // Media / Cloudinary uploads
+    UPLOAD: { maxRequests: 5, windowMs: 60000 },                // 5 per minute
+    IMAGE_DELETE: { maxRequests: 10, windowMs: 60000 },         // 10 per minute
+
     // Notifications
     NOTIFICATION_CREATE: { maxRequests: 10, windowMs: 60000 },  // 10 per minute
 

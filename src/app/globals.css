@@ -794,9 +794,11 @@ body {
   0% {
     transform: translateX(-100%);
   }
+
   50% {
-   transform: translateX(0%); 
+    transform: translateX(0%);
   }
+
   100% {
     transform: translateX(100%);
   }
@@ -804,7 +806,8 @@ body {
 
 .animate-progress {
   animation: indeterminate 1.5s infinite ease-in-out;
-  width: 50%; /* Make it smaller than container to look like a moving bar */
+  width: 50%;
+  /* Make it smaller than container to look like a moving bar */
 }
 
 /* ========================================

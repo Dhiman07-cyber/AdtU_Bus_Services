@@ -2,89 +2,172 @@
  * POST /api/driver/end-journey-v2
  * 
  * End trip with comprehensive event-driven cleanup:
- * - Immediate cleanup of all ephemeral data
+ * - Immediate cleanup of ALL trip-related Supabase tables
  * - Parallel Supabase cleanup
- * - Sequential Firestore cleanup
  * - Broadcast notifications
- * - Audit logging
+ * - FCM notifications to students
+ * - Stale FCM token auto-removal
  */
 
 import { NextResponse } from 'next/server';
-import { auth, db as adminDb } from '@/lib/firebase-admin';
+import { db as adminDb, messaging } from '@/lib/firebase-admin';
 import { createClient } from '@supabase/supabase-js';
 import { FieldValue } from 'firebase-admin/firestore';
-
-
+import { withSecurity } from '@/lib/security/api-security';
+import { EndTripSchema } from '@/lib/security/validation-schemas';
+import { RateLimits } from '@/lib/security/rate-limiter';
 
 interface CleanupStats {
   busLocations: number;
   waitingFlags: number;
   driverLocationUpdates: number;
-  tripSessions: number;
-  auditLogs: number;
-  notifications: number;
+  activeTrips: number;
+  driverStatus: number;
+  missedBusRequests: number;
+  deviceSessions: number;
   totalTime: number;
 }
 
 /**
- * Parallel Supabase cleanup
+ * Comprehensive Supabase cleanup — ALL trip-related tables
+ * 
+ * Tables cleaned on trip end:
+ * 1. bus_locations        — Delete all location rows for this bus
+ * 2. driver_location_updates — Delete historical breadcrumbs
+ * 3. waiting_flags        — Delete raised/acknowledged flags for this bus
+ * 4. active_trips         — DELETE rows for this bus/driver
+ * 5. driver_status        — Delete driver status row entirely
+ * 6. missed_bus_requests  — Expire any pending requests linked to this bus/trip
+ * 7. device_sessions      — Clean up driver's device sessions
  */
 async function cleanupSupabase(
   supabase: any,
   busId: string,
-  tripId: string
+  tripId: string,
+  driverUid: string
 ): Promise<Partial<CleanupStats>> {
-  console.log('🧹 Starting PARALLEL Supabase cleanup...');
+  console.log('🧹 Starting COMPREHENSIVE Supabase cleanup...');
   const startTime = Date.now();
   const stats: Partial<CleanupStats> = {};
 
   // Execute all cleanup operations in parallel
   const results = await Promise.allSettled([
-    // 1. Delete bus locations for this bus (current state)
+    // 1. Delete bus_locations for this bus (current state)
     supabase
       .from('bus_locations')
       .delete()
       .eq('bus_id', busId)
-      // Removed .eq('trip_id', tripId) to ensure cleanup even if trip_id is missing/null
-      .then(({ data, count }: { data: any, count: number }) => {
-        stats.busLocations = count || 0;
-        console.log(`✅ Deleted ${count || 0} bus_locations`);
+      .then(({ count, error }: { count: number | null, error: any }) => {
+        if (error) console.error('❌ Error deleting bus_locations:', error);
+        else {
+          stats.busLocations = count || 0;
+          console.log(`✅ Deleted ${count || 0} bus_locations`);
+        }
       }),
 
-    // 2. Delete driver_location_updates for this bus (historical trail for this trip)
+    // 2. Delete driver_location_updates for this bus (historical trail)
     supabase
       .from('driver_location_updates')
       .delete()
       .eq('bus_id', busId)
-      .then(({ data, count }: { data: any, count: number }) => {
-        stats.driverLocationUpdates = count || 0;
-        console.log(`✅ Deleted ${count || 0} driver_location_updates`);
+      .then(({ count, error }: { count: number | null, error: any }) => {
+        if (error) console.error('❌ Error deleting driver_location_updates:', error);
+        else {
+          stats.driverLocationUpdates = count || 0;
+          console.log(`✅ Deleted ${count || 0} driver_location_updates`);
+        }
       }),
 
-    // 3. Delete/expire waiting flags - DISABLED as per new requirement: flags should persist after trip end
-    // supabase
-    //   .from('waiting_flags')
-    //   .delete()
-    //   .eq('bus_id', busId)
-    //   .in('status', ['raised', 'acknowledged'])
-    //   .then(({ data, count }: { data: any, count: number }) => {
-    //     stats.waitingFlags = count || 0;
-    //     console.log(`✅ Deleted ${count || 0} waiting_flags`);
-    //   }),
+    // 3. Delete/expire waiting_flags (raised or acknowledged)
+    supabase
+      .from('waiting_flags')
+      .delete()
+      .eq('bus_id', busId)
+      .in('status', ['raised', 'acknowledged'])
+      .then(({ count, error }: { count: number | null, error: any }) => {
+        if (error) console.error('❌ Error deleting waiting_flags:', error);
+        else {
+          stats.waitingFlags = count || 0;
+          console.log(`✅ Deleted ${count || 0} waiting_flags`);
+        }
+      }),
 
-    // 5. DELETE driver_status row completely (ensures clean state for next trip)
-    // This is critical: the student dashboard queries for rows with status 'on_trip' or 'enroute'
-    // Deleting the row ensures no false positives when checking for active trips
+    // 4a. DELETE active_trips by bus_id
+    supabase
+      .from('active_trips')
+      .delete()
+      .eq('bus_id', busId)
+      .then(({ count, error }: { count: number | null, error: any }) => {
+        if (error) console.error('❌ Error deleting active_trips by bus_id:', error);
+        else {
+          stats.activeTrips = count || 0;
+          console.log(`✅ Deleted ${count || 0} active_trips (by bus_id)`);
+        }
+      }),
+
+    // 4b. Also DELETE active_trips by driver_id as safety fallback
+    supabase
+      .from('active_trips')
+      .delete()
+      .eq('driver_id', driverUid)
+      .then(({ count, error }: { count: number | null, error: any }) => {
+        if (error) console.error('❌ Error deleting active_trips by driver_id:', error);
+        else console.log(`✅ Deleted ${count || 0} active_trips (by driver_id)`);
+      }),
+
+    // 5. DELETE driver_status row completely
     supabase
       .from('driver_status')
       .delete()
       .eq('bus_id', busId)
-      .then(({ count }: { count: number }) => {
-        console.log(`✅ Deleted driver_status row (${count || 1} row removed)`);
+      .then(({ count, error }: { count: number | null, error: any }) => {
+        if (error) console.error('❌ Error deleting driver_status:', error);
+        else {
+          stats.driverStatus = count || 0;
+          console.log(`✅ Deleted ${count || 0} driver_status row(s)`);
+        }
+      }),
+
+    // 5b. Also delete driver_status by driver_uid (safety fallback)
+    supabase
+      .from('driver_status')
+      .delete()
+      .eq('driver_uid', driverUid)
+      .then(({ count, error }: { count: number | null, error: any }) => {
+        if (error) console.error('❌ Error deleting driver_status by driver_uid:', error);
+        else console.log(`✅ Deleted ${count || 0} driver_status row(s) by driver_uid`);
+      }),
+
+    // 6. Expire any pending missed_bus_requests that reference this bus's route
+    //    These are no longer actionable once the trip has ended
+    supabase
+      .from('missed_bus_requests')
+      .update({ status: 'expired' })
+      .eq('status', 'pending')
+      .eq('route_id', busId)  // missed_bus_requests use route_id
+      .then(({ count, error }: { count: number | null, error: any }) => {
+        if (error) console.error('❌ Error expiring missed_bus_requests:', error);
+        else {
+          stats.missedBusRequests = count || 0;
+          console.log(`✅ Expired ${count || 0} missed_bus_requests`);
+        }
+      }),
+
+    // 7. Clean up device sessions for this driver
+    supabase
+      .from('device_sessions')
+      .delete()
+      .eq('user_id', driverUid)
+      .then(({ count, error }: { count: number | null, error: any }) => {
+        if (error) console.error('❌ Error deleting device_sessions:', error);
+        else {
+          stats.deviceSessions = count || 0;
+          console.log(`✅ Deleted ${count || 0} device_sessions`);
+        }
       })
   ]);
 
-  // Check for errors
+  // Check for rejected promises
   results.forEach((result, index) => {
     if (result.status === 'rejected') {
       console.error(`❌ Cleanup task ${index + 1} failed:`, result.reason);
@@ -95,23 +178,6 @@ async function cleanupSupabase(
   console.log(`🎉 Supabase cleanup completed in ${elapsed}ms`);
 
   return { ...stats, totalTime: elapsed };
-}
-
-/**
- * Sequential Firestore cleanup with batch operations
- */
-async function cleanupFirestore(
-  busId: string,
-  tripId: string
-): Promise<Partial<CleanupStats>> {
-  console.log('🧹 Skipped Firestore cleanup (no docs created per new logic).');
-  return {
-    tripSessions: 0,
-    driverLocationUpdates: 0,
-    auditLogs: 0,
-    notifications: 0,
-    totalTime: 0
-  };
 }
 
 /**
@@ -141,60 +207,133 @@ async function broadcastTripEnd(
   };
 
   for (const channelName of channels) {
-    const channel = supabase.channel(channelName);
-    await channel.send({
-      type: 'broadcast',
-      event: 'trip_ended',
-      payload
-    });
-    console.log(`✅ Broadcast sent to ${channelName}`);
+    try {
+      const channel = supabase.channel(channelName);
+      await channel.httpSend('trip_ended', payload);
+      console.log(`✅ Broadcast sent to ${channelName}`);
+    } catch (broadcastErr) {
+      console.warn(`⚠️ Broadcast to ${channelName} failed (non-critical):`, broadcastErr);
+    }
   }
 }
 
-export async function POST(request: Request) {
-  const startTime = Date.now();
-
-  // Initialize Supabase client
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-  if (!supabaseUrl || !supabaseKey) {
-    console.error("❌ Missing Supabase credentials in end-journey-v2");
-    return NextResponse.json(
-      { error: 'Server configuration error: Missing Supabase credentials' },
-      { status: 500 }
-    );
+/**
+ * Send FCM notifications using properly initialized Firebase Admin Messaging
+ */
+async function sendTripEndFCM(
+  busId: string,
+  busNumber: string,
+  activeTripId: string
+): Promise<void> {
+  if (!messaging) {
+    console.warn('⚠️ Firebase Admin Messaging not initialized - cannot send FCM notifications');
+    return;
   }
 
-  // Create client inside handler
-  const supabase = createClient(supabaseUrl, supabaseKey);
-
   try {
-    const body = await request.json();
-    const { idToken, busId, tripId } = body;
+    console.log('📲 Sending trip end FCM notifications...');
 
-    // Validate required fields
-    if (!idToken || !busId) {
+    let studentsSnapshot = await adminDb
+      .collection('students')
+      .where('assignedBusId', '==', busId)
+      .get();
+
+    if (studentsSnapshot.empty) {
+      const altSnapshot1 = await adminDb.collection('students').where('busId', '==', busId).get();
+      const altSnapshot2 = await adminDb.collection('students').where('bus_id', '==', busId).get();
+      studentsSnapshot = altSnapshot1.empty ? altSnapshot2 : altSnapshot1;
+    }
+
+    if (studentsSnapshot.empty) {
+      console.log('ℹ️ No students found for this bus, skipping FCM');
+      return;
+    }
+
+    const allTokens: string[] = [];
+    const tokenToUidMap: Map<string, string> = new Map();
+
+    studentsSnapshot.docs.forEach((doc: any) => {
+      const data = doc.data();
+      if (data.fcmToken) {
+        allTokens.push(data.fcmToken);
+        tokenToUidMap.set(data.fcmToken, doc.id);
+      }
+    });
+
+    console.log(`📲 Found ${allTokens.length} FCM tokens from ${studentsSnapshot.size} students`);
+
+    if (allTokens.length === 0) {
+      console.log('ℹ️ No FCM tokens found for students on this bus');
+      return;
+    }
+
+    const sendResult = await messaging.sendEach(
+      allTokens.map(token => ({
+        token,
+        notification: {
+          title: '🏁 Bus Trip Ended',
+          body: `Your trip for Bus ${busNumber} has ended successfully!`
+        },
+        data: {
+          type: 'trip_ended',
+          tripId: activeTripId,
+          busId,
+          busNumber
+        }
+      }))
+    );
+
+    console.log(`✅ FCM send results: ${sendResult.successCount} success, ${sendResult.failureCount} failed`);
+
+    // Clean up stale/invalid tokens automatically
+    if (sendResult.failureCount > 0) {
+      sendResult.responses.forEach((resp, idx) => {
+        if (!resp.success && resp.error) {
+          const errorCode = resp.error.code;
+          if (
+            errorCode === 'messaging/invalid-registration-token' ||
+            errorCode === 'messaging/registration-token-not-registered'
+          ) {
+            const staleToken = allTokens[idx];
+            const uid = tokenToUidMap.get(staleToken);
+            if (uid) {
+              console.log(`🗑️ Removing stale FCM token for student ${uid}`);
+              adminDb.collection('students').doc(uid).update({
+                fcmToken: null,
+                fcmUpdatedAt: new Date().toISOString()
+              }).catch(() => {});
+            }
+          }
+        }
+      });
+    }
+  } catch (fcmError) {
+    console.error('❌ FCM notification error (non-critical):', fcmError);
+  }
+}
+
+export const POST = withSecurity(
+  async (request, { auth, body }) => {
+    const startTime = Date.now();
+    const { busId, tripId } = body as any;
+    const driverUid = auth.uid;
+
+    // Initialize Supabase client
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+    if (!supabaseUrl || !supabaseKey) {
+      console.error("❌ Missing Supabase credentials in end-journey-v2");
       return NextResponse.json(
-        { error: 'Missing required fields' },
-        { status: 400 }
+        { error: 'Server configuration error: Missing Supabase credentials' },
+        { status: 500 }
       );
     }
+
+    // Create client inside handler
+    const supabase = createClient(supabaseUrl, supabaseKey);
 
     console.log(`🏁 Ending journey for bus ${busId}, trip ${tripId || 'current'}...`);
-
-    // Verify Firebase token
-    const decodedToken = await auth.verifyIdToken(idToken);
-    const driverUid = decodedToken.uid;
-
-    // Verify user is a driver
-    const userDoc = await adminDb.collection('users').doc(driverUid).get();
-    if (!userDoc.exists || userDoc.data()?.role !== 'driver') {
-      return NextResponse.json(
-        { error: 'User is not authorized as a driver' },
-        { status: 403 }
-      );
-    }
 
     // Get active trip if tripId not provided - from BUSES collection
     let activeTripId = tripId;
@@ -206,9 +345,10 @@ export async function POST(request: Request) {
       activeTripId = busDoc.data()?.activeTripId;
 
       if (!activeTripId) {
-        // Fallback or error?
         console.warn('⚠️ No active trip ID found on bus, assuming cleanup already done or stateless end.');
-        activeTripId = `trip_${busId}_${Date.now()}`;
+        // Generate a fallback ID so cleanup functions still work nicely
+        const crypto = require('crypto');
+        activeTripId = `trip_${busId}_${crypto.randomUUID()}`;
       }
     }
 
@@ -243,9 +383,6 @@ export async function POST(request: Request) {
     }
 
     // Clear trip-related fields from bus document including the lock
-    // NOTE: We do NOT update the 'status' field here because it represents
-    // the bus condition (maintenance, active, etc.) - NOT trip status.
-    // Trip status is tracked in Supabase 'driver_status' table.
     await adminDb.collection('buses').doc(busId).update({
       activeTripLock: {
         active: false,
@@ -260,72 +397,16 @@ export async function POST(request: Request) {
       lastEndedAt: FieldValue.serverTimestamp()
     });
 
-    // CRITICAL: Event-driven cleanup
-    console.log('\n🚀 STARTING EVENT-DRIVEN CLEANUP...\n');
+    // CRITICAL: Comprehensive cleanup of ALL trip-related Supabase tables
+    console.log('\n🚀 STARTING COMPREHENSIVE SUPABASE CLEANUP...\n');
 
-    // Execute cleanup in parallel where possible
-    const [supabaseStats, firestoreStats] = await Promise.all([
-      cleanupSupabase(supabase, busId, activeTripId),
-      cleanupFirestore(busId, activeTripId)
-    ]);
+    const supabaseStats = await cleanupSupabase(supabase, busId, activeTripId, driverUid);
 
     // Broadcast trip end to all subscribers
     await broadcastTripEnd(supabase, busId, activeTripId, busNumber);
 
-    // Send FCM notifications to students
-    try {
-      console.log('📲 Sending trip end FCM notifications...');
-
-      let studentsSnapshot = await adminDb
-        .collection('students')
-        .where('assignedBusId', '==', busId)
-        .get();
-
-      if (studentsSnapshot.empty) {
-        const altSnapshot1 = await adminDb.collection('students').where('busId', '==', busId).get();
-        const altSnapshot2 = await adminDb.collection('students').where('bus_id', '==', busId).get();
-        studentsSnapshot = altSnapshot1.empty ? altSnapshot2 : altSnapshot1;
-      }
-
-      if (!studentsSnapshot.empty && auth.messaging) {
-        const allTokens: string[] = [];
-
-        const studentIds = studentsSnapshot.docs.map((doc: any) => doc.id);
-        const tokenSnapshots = await Promise.all(
-          studentIds.map((uid: string) => adminDb.collection('fcm_tokens').where('userUid', '==', uid).get())
-        );
-
-        for (const snapshot of tokenSnapshots) {
-          snapshot.docs.forEach((tokenDoc: any) => {
-            allTokens.push(tokenDoc.data().deviceToken);
-          });
-        }
-
-        if (allTokens.length > 0) {
-          await auth.messaging().sendEach(
-            allTokens.map(token => ({
-              token,
-              notification: {
-                title: '🏁 Bus Trip Ended',
-                body: `Your trip for Bus ${busNumber} has ended successfully!`
-              },
-              data: {
-                type: 'trip_ended',
-                tripId: activeTripId,
-                busId,
-                busNumber
-              }
-            }))
-          );
-          console.log(`✅ Sent trip end FCM to ${allTokens.length} device(s)`);
-        }
-      }
-    } catch (fcmError) {
-      console.error('❌ FCM notification error (non-critical):', fcmError);
-    }
-
-    // Log to audit
-
+    // Send FCM notifications to students (uses proper Firebase Admin Messaging)
+    await sendTripEndFCM(busId, busNumber, activeTripId);
 
     const totalElapsed = Date.now() - startTime;
 
@@ -333,11 +414,12 @@ export async function POST(request: Request) {
     const cleanupSummary = {
       busLocations: supabaseStats.busLocations || 0,
       waitingFlags: supabaseStats.waitingFlags || 0,
-      driverLocationUpdates: firestoreStats.driverLocationUpdates || 0,
-      tripSessions: firestoreStats.tripSessions || 0,
-      notifications: firestoreStats.notifications || 0,
+      driverLocationUpdates: supabaseStats.driverLocationUpdates || 0,
+      activeTrips: supabaseStats.activeTrips || 0,
+      driverStatus: supabaseStats.driverStatus || 0,
+      missedBusRequests: supabaseStats.missedBusRequests || 0,
+      deviceSessions: supabaseStats.deviceSessions || 0,
       supabaseTime: supabaseStats.totalTime || 0,
-      firestoreTime: firestoreStats.totalTime || 0,
       totalTime: totalElapsed
     };
 
@@ -345,12 +427,13 @@ export async function POST(request: Request) {
     console.log(`  Bus Locations: ${cleanupSummary.busLocations}`);
     console.log(`  Waiting Flags: ${cleanupSummary.waitingFlags}`);
     console.log(`  Location Updates: ${cleanupSummary.driverLocationUpdates}`);
-    console.log(`  Trip Sessions: ${cleanupSummary.tripSessions}`);
-    console.log(`  Notifications: ${cleanupSummary.notifications}`);
+    console.log(`  Active Trips Ended: ${cleanupSummary.activeTrips}`);
+    console.log(`  Driver Status: ${cleanupSummary.driverStatus}`);
+    console.log(`  Missed Bus Requests: ${cleanupSummary.missedBusRequests}`);
+    console.log(`  Device Sessions: ${cleanupSummary.deviceSessions}`);
     console.log(`  Supabase Time: ${cleanupSummary.supabaseTime}ms`);
-    console.log(`  Firestore Time: ${cleanupSummary.firestoreTime}ms`);
     console.log(`  Total Time: ${cleanupSummary.totalTime}ms`);
-    console.log('\n✅ Journey ended successfully with complete cleanup!\n');
+    console.log('\n✅ Journey ended successfully with COMPLETE cleanup!\n');
 
     return NextResponse.json({
       success: true,
@@ -360,12 +443,11 @@ export async function POST(request: Request) {
       cleanupStats: cleanupSummary,
       timestamp: new Date().toISOString()
     });
-
-  } catch (error: any) {
-    console.error('❌ Error ending journey:', error);
-    return NextResponse.json(
-      { error: 'Failed to end journey' },
-      { status: 500 }
-    );
+  },
+  {
+    requiredRoles: ['driver', 'admin'],
+    schema: EndTripSchema,
+    rateLimit: RateLimits.CREATE, // Prevent spam
+    allowBodyToken: true
   }
-}
+);

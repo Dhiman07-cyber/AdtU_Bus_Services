@@ -2,9 +2,10 @@
  * POST /api/driver/start-trip
  * 
  * Start a trip with exclusive lock acquisition.
+ * Sends FCM push notifications to all students on the route via
+ * the centralized fcm-notification-service.
  * 
  * Request body:
- * - idToken: string (Firebase ID token)
  * - busId: string
  * - routeId: string
  * - shift: 'morning' | 'evening' | 'both'
@@ -16,62 +17,38 @@
  */
 
 import { NextResponse } from 'next/server';
-import { auth, db as adminDb } from '@/lib/firebase-admin';
+import { db as adminDb } from '@/lib/firebase-admin';
 import { tripLockService } from '@/lib/services/trip-lock-service';
+import { notifyRoute, verifyDriverRouteBinding } from '@/lib/services/fcm-notification-service';
 import { createClient } from '@supabase/supabase-js';
+import { withSecurity } from '@/lib/security/api-security';
+import { RateLimits } from '@/lib/security/rate-limiter';
+import { StartTripSchema } from '@/lib/security/validation-schemas';
+import crypto from 'crypto';
 
-// Generate UUID for trip ID
-function generateTripId(): string {
-    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
-        const r = Math.random() * 16 | 0;
-        const v = c === 'x' ? r : (r & 0x3 | 0x8);
-        return v.toString(16);
-    });
-}
-
-export async function POST(request: Request) {
-    const startTime = Date.now();
-
-    try {
-        const body = await request.json();
-        const { idToken, busId, routeId, shift } = body;
-
-        // Validate required fields
-        if (!idToken || !busId || !routeId) {
-            return NextResponse.json(
-                { error: 'Missing required fields: idToken, busId, routeId' },
-                { status: 400 }
-            );
-        }
+export const POST = withSecurity(
+    async (request, { auth, body }) => {
+        const startTime = Date.now();
+        const { busId, routeId, shift } = body as any;
+        const driverId = auth.uid;
 
         // Validate shift
         const validShifts = ['morning', 'evening', 'both'];
         const tripShift = shift && validShifts.includes(shift) ? shift : 'both';
 
-        // Verify Firebase token
-        if (!auth) {
+        // Verify driver→bus→route binding (prevent spoofing)
+        const authCheck = await verifyDriverRouteBinding(driverId, routeId, busId);
+        if (!authCheck.authorized) {
             return NextResponse.json(
-                { error: 'Firebase Admin not initialized' },
-                { status: 500 }
-            );
-        }
-
-        const decodedToken = await auth.verifyIdToken(idToken);
-        const driverId = decodedToken.uid;
-
-        // Verify user is a driver
-        const userDoc = await adminDb.collection('users').doc(driverId).get();
-        if (!userDoc.exists || userDoc.data()?.role !== 'driver') {
-            return NextResponse.json(
-                { error: 'User is not authorized as a driver' },
+                { error: authCheck.reason || 'Driver not authorized for this route' },
                 { status: 403 }
             );
         }
 
         console.log(`🚀 Starting trip for driver ${driverId}, bus ${busId}, route ${routeId}...`);
 
-        // Generate trip ID
-        const tripId = generateTripId();
+        // Generate cryptographically secure trip ID
+        const tripId = crypto.randomUUID();
 
         // Start trip using TripLockService
         const result = await tripLockService.startTrip(
@@ -140,6 +117,24 @@ export async function POST(request: Request) {
             });
         }
 
+        // ── Send FCM Push Notifications ──────────────────────────────────
+        // Get route name for the notification message
+        let routeName = 'your route';
+        try {
+            const routeDoc = await adminDb.collection('routes').doc(routeId).get();
+            if (routeDoc.exists) {
+                const routeData = routeDoc.data();
+                routeName = routeData?.name || routeData?.routeName || 'your route';
+            }
+        } catch (e) {
+            console.warn('Could not fetch route name:', e);
+        }
+
+        // Fire-and-forget: send notifications in background so we don't block the response
+        notifyRoute({ routeId, tripId, routeName, busId }).catch(err => {
+            console.error('❌ Background FCM notification error:', err);
+        });
+
         const elapsed = Date.now() - startTime;
         console.log(`✅ Trip started successfully in ${elapsed}ms`);
 
@@ -151,12 +146,11 @@ export async function POST(request: Request) {
             timestamp: new Date().toISOString(),
             processingTimeMs: elapsed
         });
-
-    } catch (error: any) {
-        console.error('❌ Error starting trip:', error);
-        return NextResponse.json(
-            { error: 'Failed to start trip' },
-            { status: 500 }
-        );
+    },
+    {
+        requiredRoles: ['driver', 'admin'],
+        schema: StartTripSchema,
+        rateLimit: RateLimits.CREATE, // Start trip shouldn't be spammed
+        allowBodyToken: true // For backward compatibility with older clients
     }
-}
+);
