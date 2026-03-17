@@ -858,7 +858,9 @@ export class DriverSwapSupabaseService {
                 return { expired: 0 };
             }
 
-            console.log(`⏰ Expired ${data?.length || 0} pending requests`);
+            if (data && data.length > 0) {
+                console.log(`⏰ Expired ${data.length} pending requests`);
+            }
             return { expired: data?.length || 0 };
         } catch (error: any) {
             console.error('❌ Exception expiring requests:', error);
@@ -894,14 +896,17 @@ export class DriverSwapSupabaseService {
      * Check and expire accepted swaps that have passed their end time
      * IMPORTANT: Skips swaps where the driver has an active trip ongoing
      */
-    static async checkAndExpireAcceptedSwaps(): Promise<{ expired: number; skipped: number; pendingReverted: number }> {
+    static async checkAndExpireAcceptedSwaps(): Promise<{ expired: number; skipped: number; pendingReverted: number; activated: number }> {
         try {
             const now = new Date().toISOString();
 
             // 1. First, check for pending_revert swaps (waiting for trips to end)
             const { pendingReverted } = await this.checkPendingRevertSwaps();
 
-            // 2. Find accepted swaps past their end time
+            // 2. Check for scheduled swaps that should be ACTIVATED (starts_at reached)
+            const { activated } = await this.checkScheduledSwapsToActivate();
+
+            // 3. Find accepted swaps past their end time
             const { data: expiredSwaps, error } = await supabase
                 .from('driver_swap_requests')
                 .select('*')
@@ -910,11 +915,14 @@ export class DriverSwapSupabaseService {
 
             if (error) {
                 console.error('❌ Error fetching expired swaps:', error);
-                return { expired: 0, skipped: 0, pendingReverted };
+                return { expired: 0, skipped: 0, pendingReverted, activated };
             }
 
             if (!expiredSwaps || expiredSwaps.length === 0) {
-                return { expired: 0, skipped: 0, pendingReverted };
+                if (pendingReverted > 0 || activated > 0) {
+                    console.log(`🔄 Housekeeping: ${pendingReverted} reverted, ${activated} activated`);
+                }
+                return { expired: 0, skipped: 0, pendingReverted, activated };
             }
 
             let expired = 0;
@@ -934,11 +942,48 @@ export class DriverSwapSupabaseService {
                 }
             }
 
-            console.log(`🔄 Expired ${expired} swaps, skipped ${skipped}, pending reverted ${pendingReverted}`);
-            return { expired, skipped, pendingReverted };
+            if (expired > 0 || skipped > 0 || pendingReverted > 0 || activated > 0) {
+                console.log(`🔄 Housekeeping: ${expired} expired, ${skipped} skipped, ${pendingReverted} reverted, ${activated} activated`);
+            }
+            return { expired, skipped, pendingReverted, activated };
         } catch (error: any) {
             console.error('❌ Exception checking expired accepted swaps:', error);
-            return { expired: 0, skipped: 0, pendingReverted: 0 };
+            return { expired: 0, skipped: 0, pendingReverted: 0, activated: 0 };
+        }
+    }
+
+    /**
+     * Check for scheduled swaps that should reach their start time and activate them in Firestore
+     */
+    static async checkScheduledSwapsToActivate(): Promise<{ activated: number }> {
+        try {
+            const now = new Date().toISOString();
+            
+            // Find accepted swaps whose starts_at has reached but are not yet reflected in temporary_assignments 
+            // OR we can just find all 'accepted' swaps that are near their start time and re-run activation.
+            // Activation logic (createTemporaryAssignment) is idempotent for Firestore.
+            const { data: scheduledSwaps, error } = await supabase
+                .from('driver_swap_requests')
+                .select('*')
+                .eq('status', 'accepted')
+                .lte('starts_at', now); // Time reached or passed
+
+            if (error || !scheduledSwaps || scheduledSwaps.length === 0) {
+                return { activated: 0 };
+            }
+
+            let activated = 0;
+            for (const swap of scheduledSwaps) {
+                // Re-run the activation part (Firestore updates)
+                // We call createTemporaryAssignment which we modified to handle Firestore updates
+                await this.createTemporaryAssignment(swap);
+                activated++;
+            }
+
+            return { activated };
+        } catch (error: any) {
+            console.error('❌ Error activating scheduled swaps:', error);
+            return { activated: 0 };
         }
     }
 
@@ -1005,6 +1050,21 @@ export class DriverSwapSupabaseService {
 
             // ========== UPDATE FIRESTORE FOR BUS CONTROL TRANSFER ==========
             // This is critical for the driver page to correctly show bus information
+            
+            const now = new Date();
+            const startsAt = new Date(request.starts_at);
+            
+            // SECURITY/ROBUSTNESS: Only update Firestore if the swap is starting NOW or very soon (within 5 mins)
+            // This prevents future swaps from overriding current assignments immediately.
+            // Housekeeping task will activate these swaps when their time comes.
+            const isStartingNow = startsAt.getTime() <= now.getTime() + 5 * 60 * 1000;
+            
+            if (!isStartingNow) {
+                console.log(`⏳ Swap ${request.id} is scheduled for future (${request.starts_at}). Skipping immediate Firestore update.`);
+                return;
+            }
+
+            console.log(`🚀 Activating swap ${request.id} immediately as it starts soon/now`);
 
             const isAssignment = request.swap_type === 'assignment' || !request.secondary_bus_id;
 

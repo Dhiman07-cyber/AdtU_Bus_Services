@@ -7,6 +7,7 @@ import { useWaitingFlags } from '@/hooks/useWaitingFlags';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/contexts/auth-context';
 import { AlertCircle } from 'lucide-react';
+import { useSystemConfig } from '@/contexts/SystemConfigContext';
 
 // Dynamic imports to avoid SSR issues
 const MapContainer = dynamic(() => import('react-leaflet').then(async (mod) => {
@@ -74,6 +75,8 @@ const center: [number, number] = [
 interface BusLocation {
   busId: string;
   driverUid: string;
+  lat: number;
+  lng: number;
   speed: number;
   heading: number;
   timestamp: string;
@@ -95,6 +98,16 @@ export default function EnhancedBusMap({
   const { currentLocation: busLocation, history, loading: busLoading, error: busError } = useBusLocation(routeId);
   const { flags: waitingFlags, loading: flagsLoading, error: flagsError, acknowledgeFlag, markAsBoarded } = useWaitingFlags(routeId);
   const { currentUser } = useAuth();
+  const { config } = useSystemConfig();
+  const provider = config?.mapProvider || 'carto';
+  
+  const tileUrl = provider === 'osm' 
+    ? (process.env.NEXT_PUBLIC_OSM_TILE_URL || "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png")
+    : (process.env.NEXT_PUBLIC_CARTO_TILE_URL || "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png");
+    
+  const tileAttr = provider === 'osm'
+    ? (process.env.NEXT_PUBLIC_OSM_ATTRIBUTION || '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors')
+    : (process.env.NEXT_PUBLIC_CARTO_ATTRIBUTION || '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>');
   
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -110,11 +123,12 @@ export default function EnhancedBusMap({
     initIcons();
   }, []);
 
-  // In live-location-only mode, we don't fetch route or stops.
+  // Center map on latest bus location if available (only on first load)
+  const hasCentered = useRef(false);
   useEffect(() => {
-    // Center map on latest bus location if available
-    if (busLocation) {
-      setMapCenter([26.1440, 91.7360]); // Default center
+    if (busLocation && !hasCentered.current) {
+      setMapCenter([busLocation.lat, busLocation.lng]);
+      hasCentered.current = true;
     }
   }, [busLocation]);
 
@@ -195,8 +209,8 @@ export default function EnhancedBusMap({
       >
         {/* MapController removed */}
         <TileLayer
-          url={process.env.NEXT_PUBLIC_MAP_TILE_PROVIDER_URL || "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"}
-          attribution={process.env.NEXT_PUBLIC_MAP_TILE_PROVIDER_ATTRIBUTION || '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'}
+          url={tileUrl}
+          attribution={tileAttr}
         />
         
         {/* Route visualization removed in live-only mode */}
@@ -204,7 +218,7 @@ export default function EnhancedBusMap({
         {/* Bus marker - Only show when journey is active */}
         {journeyActive && busLocation && busIcon && (
           <Marker
-            position={[26.1440, 91.7360]}
+            position={[busLocation.lat, busLocation.lng]}
             icon={busIcon}
           >
             <Popup>

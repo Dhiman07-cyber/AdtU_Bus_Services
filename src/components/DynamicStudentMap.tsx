@@ -111,26 +111,26 @@ export default function DynamicStudentMap({
 
     console.log('🔄 Subscribing to bus location updates for bus:', busId);
 
-    const channel = supabase
-      .channel(`bus_location_broadcast_${busId}`)
-      .on('broadcast', { event: 'location_update' }, (payload) => {
+    const locationChannel = supabase
+      .channel(`bus_location_${busId}`) // Keep for compatibility if needed, but primary is location_update
+      .on('broadcast', { event: 'bus_location_update' }, (payload) => {
         console.log('📍 Received bus location update:', payload);
         setBusLocation(payload.payload);
       })
+      .subscribe();
+
+    const statusChannel = supabase
+      .channel(`trip-status-${busId}`)
       .on('broadcast', { event: 'trip_ended' }, (payload) => {
         console.log('🏁 Trip ended, clearing bus location:', payload);
         setBusLocation(null);
       })
-      .subscribe((status) => {
-        console.log('📡 Bus location channel status:', status);
-        if (status === 'SUBSCRIBED') {
-          setLoading(false);
-        }
-      });
+      .subscribe();
 
     return () => {
-      console.log('🔌 Unsubscribing from bus location updates');
-      supabase.removeChannel(channel);
+      console.log('🔌 Unsubscribing from bus location and status updates');
+      supabase.removeChannel(locationChannel);
+      supabase.removeChannel(statusChannel);
     };
   }, [busId, routeId]);
 

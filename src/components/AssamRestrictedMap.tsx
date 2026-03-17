@@ -13,6 +13,7 @@
 import { useEffect, useRef, useState } from 'react';
 import dynamic from 'next/dynamic';
 import 'leaflet/dist/leaflet.css';
+import { useSystemConfig } from '@/contexts/SystemConfigContext';
 
 // Dynamic imports to avoid SSR issues
 const MapContainer = dynamic(() => import('react-leaflet').then(async (mod) => {
@@ -89,6 +90,17 @@ export default function AssamRestrictedMap({
   style,
   zoom = 13
 }: AssamMapProps) {
+  const { config } = useSystemConfig();
+  const provider = config?.mapProvider || 'carto';
+  
+  const tileUrl = provider === 'osm' 
+    ? (process.env.NEXT_PUBLIC_OSM_TILE_URL || "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png")
+    : (process.env.NEXT_PUBLIC_CARTO_TILE_URL || "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png");
+    
+  const tileAttr = provider === 'osm'
+    ? (process.env.NEXT_PUBLIC_OSM_ATTRIBUTION || '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors')
+    : (process.env.NEXT_PUBLIC_CARTO_ATTRIBUTION || '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>');
+
   // Initialize Leaflet on mount
   useEffect(() => {
     const initLeaflet = async () => {
@@ -143,8 +155,8 @@ export default function AssamRestrictedMap({
         }}
       >
         <TileLayer
-          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+          url={tileUrl}
+          attribution={tileAttr}
         />
         
         {/* Children are ONLY rendered when provided (dynamic content) */}

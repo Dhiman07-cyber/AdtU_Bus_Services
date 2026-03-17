@@ -1450,7 +1450,7 @@ export default function DriverLiveTrackingPage() {
 
       // Broadcast trip started event to all students
       try {
-        const broadcastChannel = supabase.channel(`trip_notifications_${busData.busId}`);
+        const broadcastChannel = supabase.channel(`trip-status-${busData.busId}`);
         await broadcastChannel.send({
           type: "broadcast",
           event: "trip_started",
@@ -1553,7 +1553,7 @@ export default function DriverLiveTrackingPage() {
         console.log("🗺️ Clearing map markers and resetting view");
 
         // Broadcast trip ended event
-        const channel = supabase.channel(`bus_location_${busData.busId}`);
+        const channel = supabase.channel(`trip-status-${busData.busId}`);
         await channel.send({
           type: "broadcast",
           event: "trip_ended",
@@ -2088,7 +2088,7 @@ export default function DriverLiveTrackingPage() {
   }
 
   return (
-    <div className="flex-1 bg-background pb-24 md:pb-6">
+    <div className="flex-1 bg-[#0A0D16] min-h-screen pb-24 md:pb-6 text-white font-sans">
       {/* WAIT REQUEST OVERLAY */}
       {activeWaitRequest && (
         <div className="fixed inset-0 z-[10001] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-in fade-in zoom-in duration-200">
@@ -2165,9 +2165,9 @@ export default function DriverLiveTrackingPage() {
       )}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 md:py-8 space-y-8">
         {/* Enhanced Live Location Sharing Card */}
-        <div className="relative overflow-hidden rounded-3xl bg-gradient-to-r from-purple-600 via-blue-600 to-cyan-600 p-1 animate-fade-in">
-          <div className="absolute inset-0 bg-gradient-to-r from-purple-600 via-blue-600 to-cyan-600 opacity-50 blur-3xl" />
-          <div className="relative bg-background/95 backdrop-blur-xl rounded-3xl p-6 md:p-8 lg:p-10">
+        <div className="relative overflow-hidden rounded-3xl bg-gradient-to-r from-purple-600 via-blue-600 to-cyan-600 p-1 animate-fade-in shadow-2xl shadow-blue-500/10">
+          <div className="absolute inset-0 bg-gradient-to-r from-purple-600 via-blue-600 to-cyan-600 opacity-30 blur-3xl" />
+          <div className="relative bg-[#0F1423]/95 backdrop-blur-xl rounded-3xl p-5 md:p-8 lg:p-10 border border-white/5">
             {/* Desktop Layout */}
             <div className="hidden md:flex items-center justify-between">
               <div className="flex items-center gap-4">
@@ -2175,114 +2175,112 @@ export default function DriverLiveTrackingPage() {
                   <Bus className="h-5 w-5 md:h-6 md:w-6 text-white" />
                 </div>
                 <div>
-                  <h1 className="text-2xl md:text-3xl lg:text-4xl font-bold bg-gradient-to-r from-gray-900 to-gray-600 dark:from-white dark:to-gray-300 bg-clip-text text-transparent">Live Location Sharing</h1>
-                  <p className="text-muted-foreground text-sm md:text-base mt-1">Share your bus location in real-time</p>
+                  <h1 className="text-2xl md:text-3xl lg:text-4xl font-bold text-white">Live Location Sharing</h1>
+                  <p className="text-white/60 text-sm md:text-base mt-1 font-medium">Share your bus location in real-time</p>
                 </div>
               </div>
-              <Badge className={`px-4 py-2 text-sm md:text-lg font-semibold ${tripActive
-                ? 'bg-gradient-to-r from-green-500 to-emerald-600 text-white'
-                : 'bg-gradient-to-r from-gray-500 to-gray-600 text-white'
+              <Badge className={`px-4 py-2 text-sm md:text-lg font-semibold border-0 ${tripActive
+                ? 'bg-gradient-to-r from-green-500 to-emerald-600 text-white shadow-lg shadow-green-500/20'
+                : 'bg-gradient-to-r from-gray-600 to-gray-700 text-white'
                 }`}>
                 {tripActive ? "Trip Active" : "Trip Inactive"}
               </Badge>
             </div>
 
             {/* Mobile Layout - Enhanced Premium Design */}
-            <div className="md:hidden space-y-6">
+            <div className="md:hidden space-y-5">
               {/* Header Section */}
               <div className="flex items-center gap-4">
-                <div className="p-3 rounded-2xl bg-gradient-to-br from-blue-500 to-purple-600 shadow-lg animate-float">
-                  <Bus className="h-6 w-6 text-white" />
+                <div className="relative">
+                  <div className="absolute inset-0 bg-blue-500 blur-lg opacity-40 animate-pulse"></div>
+                  <div className="relative p-3.5 rounded-2xl bg-gradient-to-br from-blue-500 to-purple-600 shadow-xl border border-white/10 shrink-0">
+                    <Bus className="h-6 w-6 text-white" />
+                  </div>
                 </div>
                 <div className="flex-1">
-                  <h1 className="text-2xl font-bold bg-gradient-to-r from-gray-900 to-gray-600 dark:from-white dark:to-gray-300 bg-clip-text text-transparent">Live Location Sharing</h1>
-                  <p className="text-muted-foreground text-sm mt-1">Share your bus location in real-time</p>
+                  <h1 className="text-xl font-bold text-white tracking-tight">Live Location Sharing</h1>
+                  <p className="text-white/60 text-[13px] mt-0.5 font-medium leading-tight">Share your bus location in real-time</p>
                 </div>
               </div>
 
-              {/* Status Section - Left for Mobile */}
-              <div className="flex justify-start">
-                <Badge className={`px-6 py-3 text-base font-semibold rounded-full shadow-lg ${tripActive
-                  ? 'bg-gradient-to-r from-green-500 to-emerald-600 text-white'
-                  : 'bg-gradient-to-r from-gray-500 to-gray-600 text-white'
+              {/* Status Section */}
+              <div className="flex justify-start pt-1">
+                <div className={`px-5 py-2.5 rounded-full shadow-lg border-2 ${tripActive
+                  ? 'bg-gradient-to-r from-green-500/10 to-emerald-600/10 text-green-400 border-green-500/30'
+                  : 'bg-gradient-to-r from-gray-500/10 to-gray-600/10 text-gray-400 border-gray-500/30'
                   }`}>
-                  <div className="flex items-center gap-2">
-                    <div className={`w-2 h-2 rounded-full ${tripActive ? 'bg-green-300 animate-pulse' : 'bg-gray-300'}`}></div>
-                    {tripActive ? "Trip Active" : "Trip Inactive"}
+                  <div className="flex items-center gap-2.5">
+                    <div className={`w-2 h-2 rounded-full ${tripActive ? 'bg-green-400 animate-pulse shadow-[0_0_10px_rgba(74,222,128,0.5)]' : 'bg-gray-500'}`}></div>
+                    <span className="text-xs font-black uppercase tracking-widest">{tripActive ? "Trip Active" : "Trip Inactive"}</span>
                   </div>
-                </Badge>
+                </div>
               </div>
             </div>
           </div>
         </div>
 
         {/* Trip Status Card - Enhanced Premium Design */}
-        <Card className="group relative overflow-hidden p-0 gap-0 bg-gradient-to-br from-white to-gray-50 dark:from-gray-900 dark:to-gray-800 border-gray-100 dark:border-gray-800 shadow-lg hover:shadow-xl transition-all duration-300">
-          <CardHeader className="bg-gradient-to-r from-blue-100/60 to-indigo-100/60 dark:from-blue-900/40 dark:to-indigo-900/40 px-6 py-4">
-            <CardTitle className="flex items-center gap-3 text-foreground group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors">
-              <div className="p-2 rounded-lg bg-blue-100 dark:bg-blue-900/30 group-hover:bg-blue-200 dark:group-hover:bg-blue-800/50 transition-colors">
-                <Navigation className="h-5 w-5 text-blue-600 dark:text-blue-400" />
+        <Card className="group relative overflow-hidden p-0 gap-0 bg-[#0F1423] border-white/5 shadow-2xl transition-all duration-300 rounded-[2rem]">
+          <CardHeader className="bg-[#161C2E] px-6 py-4 border-b border-white/5">
+            <CardTitle className="flex items-center gap-3 text-white">
+              <div className="p-2.5 rounded-xl bg-blue-500/10 border border-blue-500/20 group-hover:bg-blue-500/20 transition-colors">
+                <Navigation className="h-5 w-5 text-blue-400" />
               </div>
-              Trip Control
+              <span className="text-lg font-bold tracking-tight">Trip Control</span>
             </CardTitle>
           </CardHeader>
-          <CardContent className="p-6 space-y-6">
+          <CardContent className="p-5 space-y-6">
             {/* Enhanced Bus Info Grid */}
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 md:gap-6">
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3.5 md:gap-6">
               {/* Bus Number Card */}
-              <div className="group/item bg-gradient-to-br from-blue-50 to-blue-100/50 dark:from-blue-900/20 dark:to-blue-800/10 rounded-xl p-3 md:p-4 border border-blue-200/50 dark:border-blue-700/30 hover:shadow-md transition-all duration-300">
-                <div className="flex items-center gap-2 mb-1 md:mb-2">
+              <div className="group/item bg-[#161C2E] rounded-2xl p-3.5 border border-white/5 hover:border-blue-500/30 transition-all duration-300">
+                <div className="flex items-center gap-2.5 mb-2">
                   <div className="p-1.5 rounded-lg bg-blue-500/10">
-                    <Bus className="h-3.5 w-3.5 text-blue-600 dark:text-blue-400" />
+                    <Bus className="h-3.5 w-3.5 text-blue-400" />
                   </div>
-                  <p className="text-[10px] md:text-xs font-semibold text-blue-600 dark:text-blue-400 uppercase tracking-wide truncate">Bus Number</p>
+                  <p className="text-[10px] font-bold text-blue-400/80 uppercase tracking-[0.1em] whitespace-nowrap">Bus Number</p>
                 </div>
-                <p className="text-xs md:text-sm font-bold text-gray-900 dark:text-white">{busData.busNumber}</p>
+                <p className="text-[13px] md:text-sm font-black text-white">{busData.busNumber || 'AS-01-PC-9095'}</p>
               </div>
 
               {/* Route Card */}
-              <div className="group/item bg-gradient-to-br from-purple-50 to-purple-100/50 dark:from-purple-900/20 dark:to-purple-800/10 rounded-xl p-3 md:p-4 border border-purple-200/50 dark:border-purple-700/30 hover:shadow-md transition-all duration-300">
-                <div className="flex items-center gap-2 mb-1 md:mb-2">
+              <div className="group/item bg-[#161C2E] rounded-2xl p-3.5 border border-white/5 hover:border-purple-500/30 transition-all duration-300">
+                <div className="flex items-center gap-2.5 mb-2">
                   <div className="p-1.5 rounded-lg bg-purple-500/10">
-                    <MapPin className="h-3.5 w-3.5 text-purple-600 dark:text-purple-400" />
+                    <MapPin className="h-3.5 w-3.5 text-purple-400" />
                   </div>
-                  <p className="text-[10px] md:text-xs font-semibold text-purple-600 dark:text-purple-400 uppercase tracking-wide truncate">Route</p>
+                  <p className="text-[10px] font-bold text-purple-400/80 uppercase tracking-[0.1em] whitespace-nowrap">Route</p>
                 </div>
-                <p className="text-xs md:text-sm font-bold text-gray-900 dark:text-white">{routeData.routeName}</p>
+                <p className="text-[13px] md:text-sm font-black text-white">{routeData.routeName || 'Route-2'}</p>
               </div>
 
               {/* Speed Card */}
-              <div className="group/item bg-gradient-to-br from-green-50 to-green-100/50 dark:from-green-900/20 dark:to-green-800/10 rounded-xl p-3 md:p-4 border border-green-200/50 dark:border-green-700/30 hover:shadow-md transition-all duration-300">
-                <div className="flex items-center gap-2 mb-1 md:mb-2">
+              <div className="group/item bg-[#161C2E] rounded-2xl p-3.5 border border-white/5 hover:border-green-500/30 transition-all duration-300">
+                <div className="flex items-center gap-2.5 mb-2">
                   <div className="p-1.5 rounded-lg bg-green-500/10">
-                    <Activity className="h-3.5 w-3.5 text-green-600 dark:text-green-400" />
+                    <Activity className="h-3.5 w-3.5 text-green-400" />
                   </div>
-                  <p className="text-[10px] md:text-xs font-semibold text-green-600 dark:text-green-400 uppercase tracking-wide truncate">Speed</p>
+                  <p className="text-[10px] font-bold text-green-400/80 uppercase tracking-[0.1em] whitespace-nowrap">Speed</p>
                 </div>
-                <p className="text-xs md:text-sm font-bold text-gray-900 dark:text-white">{(speed * 3.6).toFixed(1)} km/h</p>
+                <p className="text-[13px] md:text-sm font-black text-white">{(speed * 3.6).toFixed(1)} km/h</p>
               </div>
 
               {/* GPS Accuracy Card */}
-              <div className="group/item bg-gradient-to-br from-orange-50 to-orange-100/50 dark:from-orange-900/20 dark:to-orange-800/10 rounded-xl p-3 md:p-4 border border-orange-200/50 dark:border-orange-700/30 hover:shadow-md transition-all duration-300">
-                <div className="flex items-center gap-2 mb-1 md:mb-2">
+              <div className="group/item bg-[#161C2E] rounded-2xl p-3.5 border border-white/5 hover:border-orange-500/30 transition-all duration-300">
+                <div className="flex items-center gap-2.5 mb-2">
                   <div className="p-1.5 rounded-lg bg-orange-500/10">
-                    <Navigation className="h-3.5 w-3.5 text-orange-600 dark:text-orange-400" />
+                    <Navigation className="h-3.5 w-3.5 text-orange-400" />
                   </div>
-                  <p className="text-[10px] md:text-xs font-semibold text-orange-600 dark:text-orange-400 uppercase tracking-wide truncate">GPS Accuracy</p>
+                  <p className="text-[9px] font-bold text-orange-400/80 uppercase tracking-[0.1em] whitespace-nowrap">GPS Accuracy</p>
                 </div>
                 <div className="flex items-center gap-2">
-                  <p className={`text-xs md:text-sm font-bold ${accuracy > 100 ? 'text-red-600 dark:text-red-400' : accuracy > 50 ? 'text-yellow-600 dark:text-yellow-400' : 'text-green-600 dark:text-green-400'}`}>
+                  <p className={`text-[13px] md:text-sm font-black ${accuracy > 100 ? 'text-red-400' : accuracy > 50 ? 'text-yellow-400' : 'text-green-400'}`}>
                     {accuracy.toFixed(1)}m
                   </p>
-                  <span className={`inline-block w-2 h-2 rounded-full ${tripActive ? 'animate-pulse' : ''} ${accuracy <= 20 ? 'bg-green-500 dark:bg-green-400' :
-                    accuracy <= 50 ? 'bg-blue-500 dark:bg-blue-400' :
-                      accuracy <= 100 ? 'bg-yellow-500 dark:bg-yellow-400' : 'bg-red-500 dark:bg-red-400'
-                    }`} title={
-                      accuracy <= 20 ? 'Excellent GPS signal' :
-                        accuracy <= 50 ? 'Good GPS signal' :
-                          accuracy <= 100 ? 'Fair GPS signal' :
-                            'Poor GPS signal'
-                    } />
+                  <div className={`w-2 h-2 rounded-full ${tripActive ? 'animate-pulse' : ''} ${accuracy <= 20 ? 'bg-green-400 shadow-[0_0_8px_rgba(74,222,128,0.4)]' :
+                    accuracy <= 50 ? 'bg-blue-400' :
+                      accuracy <= 100 ? 'bg-yellow-400' : 'bg-red-400'
+                    }`} />
                 </div>
               </div>
             </div>
@@ -2325,8 +2323,10 @@ export default function DriverLiveTrackingPage() {
         {/* Waiting Flags */}
         {waitingFlags.length > 0 && (
           <div className="space-y-2 animate-slide-up">
-            <h3 className="text-sm font-semibold text-muted-foreground ml-1 flex items-center gap-2">
-              <Flag className="h-4 w-4 text-orange-500" />
+            <h3 className="text-sm font-bold text-white/60 ml-1 flex items-center gap-2 mb-3">
+              <div className="p-1 px-2 rounded-lg bg-orange-500/10 border border-orange-500/20">
+                <Flag className="h-4 w-4 text-orange-400" />
+              </div>
               Waiting Students ({waitingFlags.length})
             </h3>
             {waitingFlags
@@ -2353,17 +2353,20 @@ export default function DriverLiveTrackingPage() {
               })
               .sort((a, b) => (a.distance || 999) - (b.distance || 999)) // Sort by distance
               .map((flag) => (
-                <div key={flag.id} className="flex items-center justify-between p-3 bg-white dark:bg-gray-800 rounded-xl border border-orange-100 dark:border-orange-900/50 shadow-sm">
-                  <div className="flex items-center gap-3">
-                    <div className="h-8 w-8 rounded-full bg-orange-100 dark:bg-orange-900/40 flex items-center justify-center text-orange-600 dark:text-orange-400 font-bold text-xs ring-2 ring-white dark:ring-gray-800">
-                      {flag.student_name.charAt(0)}
+                <div key={flag.id} className="flex items-center justify-between p-3.5 bg-[#161C2E] rounded-[1.25rem] border border-white/5 shadow-xl animate-in slide-in-from-right duration-300">
+                  <div className="flex items-center gap-3.5">
+                    <div className="relative">
+                      <div className="absolute inset-0 bg-orange-500/20 blur-md rounded-full"></div>
+                      <div className="relative h-10 w-10 rounded-full bg-gradient-to-br from-orange-400 to-red-500 flex items-center justify-center text-white font-black text-sm border-2 border-[#161C2E] shadow-lg">
+                        {flag.student_name.charAt(0)}
+                      </div>
                     </div>
                     <div>
-                      <p className="font-semibold text-sm text-foreground">{flag.student_name}</p>
-                      <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                        <span>{flag.distance ? `${(flag.distance * 1000).toFixed(0)}m away` : 'Waiting'}</span>
-                        <span>•</span>
-                        <span>{flag.stop_name || "Custom Stop"}</span>
+                      <p className="font-bold text-sm text-white">{flag.student_name}</p>
+                      <div className="flex items-center gap-2 text-[11px] text-white/50 font-medium">
+                        <span className="text-orange-400">{flag.distance ? `${(flag.distance * 1000).toFixed(0)}m away` : 'Waiting'}</span>
+                        <span className="opacity-30">•</span>
+                        <span className="truncate max-w-[120px]">{flag.stop_name || "Custom Stop"}</span>
                       </div>
                     </div>
                   </div>

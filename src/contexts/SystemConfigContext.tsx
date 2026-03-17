@@ -12,6 +12,7 @@ interface SystemConfig {
     softBlock?: string;
     hardBlock?: string;
     version?: string;
+    mapProvider?: 'osm' | 'carto';
 }
 
 interface SystemConfigContextType {

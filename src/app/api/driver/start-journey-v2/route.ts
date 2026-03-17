@@ -362,13 +362,17 @@ export const POST = withSecurity(
 
     try {
       const studentChannel = supabase.channel(`trip-status-${busId}`);
-      await studentChannel.httpSend('trip_started', {
-        busId,
-        routeId,
-        driverUid,
-        tripId,
-        routeName: routeName,
-        timestamp: now.toISOString()
+      await studentChannel.send({
+        type: 'broadcast',
+        event: 'trip_started',
+        payload: {
+          busId,
+          routeId,
+          driverUid,
+          tripId,
+          routeName: routeName,
+          timestamp: now.toISOString()
+        }
       });
     } catch (broadcastError) {
       // Non critical

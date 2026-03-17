@@ -11,6 +11,7 @@ import dynamic from 'next/dynamic';
 import 'leaflet/dist/leaflet.css';
 import { Loader2, Navigation, MapPin, Maximize2, Minimize2, QrCode } from 'lucide-react';
 import { Button } from './ui/button';
+import { useSystemConfig } from '@/contexts/SystemConfigContext';
 
 // Dynamically import Leaflet components
 const MapContainer = dynamic(
@@ -75,6 +76,16 @@ export default function UberLikeBusMap({
   currentLocation: busLocation,
   loading = false,
 }: UberLikeBusMapProps) {
+  const { config } = useSystemConfig();
+  const provider = config?.mapProvider || 'carto';
+  
+  const tileUrl = provider === 'osm' 
+    ? (process.env.NEXT_PUBLIC_OSM_TILE_URL || "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png")
+    : (process.env.NEXT_PUBLIC_CARTO_TILE_URL || "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png");
+    
+  const tileAttr = provider === 'osm'
+    ? (process.env.NEXT_PUBLIC_OSM_ATTRIBUTION || '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors')
+    : (process.env.NEXT_PUBLIC_CARTO_ATTRIBUTION || '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>');
   const [mapReady, setMapReady] = useState(false);
   const [busIcon, setBusIcon] = useState<any>(null);
   const [studentIcon, setStudentIcon] = useState<any>(null);
@@ -431,7 +442,8 @@ export default function UberLikeBusMap({
         }}
       >
         <TileLayer
-          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+          url={tileUrl}
+          attribution={tileAttr}
           maxZoom={19}
           minZoom={1}
         />

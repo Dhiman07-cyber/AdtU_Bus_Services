@@ -11,8 +11,18 @@ import { RateLimits } from '@/lib/security/rate-limiter';
  * Uses service role key to bypass RLS policies.
  */
 export const GET = withSecurity(
-    async (request, { body }) => {
-        const { busId } = body as any;
+    async (request, context /* use context if needed */) => {
+        // Extract busId from URL parameters for GET request
+        const url = new URL(request.url);
+        const busId = url.searchParams.get('busId');
+
+        if (!busId) {
+            return NextResponse.json({
+                tripActive: false,
+                error: 'busId is required',
+                tripData: null
+            }, { status: 400 });
+        }
 
         // Initialize Supabase client
         const supabase = createClient(
@@ -61,7 +71,7 @@ export const GET = withSecurity(
         });
     },
     {
-        requiredRoles: ['student'],
+        requiredRoles: ['student', 'driver', 'admin', 'moderator'],
         schema: TripStatusQuerySchema,
         rateLimit: RateLimits.READ
     }

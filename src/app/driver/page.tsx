@@ -329,54 +329,70 @@ export default function DriverDashboard() {
     return null;
   }, [driverData, buses, currentUser, assignedBusData]);
 
-  // Sync hasActiveTrip with API and Realtime (Same as Student Dashboard)
+  // Sync hasActiveTrip with Supabase and API (Robust Version)
   useEffect(() => {
-    // Get distinct bus ID
-    const busId = busData?.id || busData?.busId;
-    if (!busId) {
-      console.log('❌ No bus ID available for trip status check');
-      return;
-    }
+    if (!currentUser?.uid) return;
 
-    console.log('🔄 Setting up robust trip status matching Student Dashboard for bus:', busId);
+    // Get distinct bus ID for broadcasting/student matching (secondary check)
+    const busId = busData?.busId || busData?.id;
+    
+    console.log('🔄 Setting up robust trip status sync for driver:', currentUser.uid, 'and bus:', busId);
 
-    // 1. Initial Check using API (Bypassing RLS)
-    const checkActiveTrip = async () => {
+    // 1. Initial Status Sync - Direct from Supabase (Bypassing RLS issues)
+    const fetchCurrentStatus = async () => {
       try {
-        console.log('🔍 Checking trip status via API for bus:', busId);
-        // Use the student API as it's a generic "is this bus active?" check that bypasses RLS
-        const response = await fetch(`/api/student/trip-status?busId=${encodeURIComponent(busId)}`);
+        console.log('🔍 Fetching current driver status from Supabase...');
+        const idToken = await currentUser.getIdToken();
+        const { data, error } = await supabase
+          .from('driver_status')
+          .select('status, bus_id')
+          .eq('driver_uid', currentUser.uid)
+          .maybeSingle();
 
-        if (response.ok) {
-          const result = await response.json();
-          console.log('✅ Trip status API result:', result);
-          setHasActiveTrip(!!result.tripActive);
+        if (error) throw error;
+
+        if (data) {
+          console.log('✅ Current status found:', data);
+          const isActive = data.status === 'on_trip' || data.status === 'enroute';
+          setHasActiveTrip(isActive);
         } else {
-          console.warn('⚠️ Trip status API failed');
+          // If no driver_status row for UID, check by busId as fallback
+          if (busId) {
+            const response = await fetch(`/api/student/trip-status?busId=${encodeURIComponent(busId)}`, {
+              headers: {
+                'Authorization': `Bearer ${idToken}`
+              }
+            });
+            if (response.ok) {
+              const result = await response.json();
+              setHasActiveTrip(!!result.tripActive);
+            }
+          }
         }
       } catch (err) {
-        console.error('❌ Error hitting trip status API:', err);
+        console.error('❌ Error fetching direct trip status:', err);
       }
     };
 
-    checkActiveTrip();
+    fetchCurrentStatus();
 
-    // 2. Real-time Database Changes (driver_status)
-    const channel = supabase
-      .channel(`driver_dashboard_status_db_${busId}`)
+    // 2. Real-time Database Listener on driver_status (Primary)
+    // We listen specifically to THIS driver's status
+    const driverStatusChannel = supabase
+      .channel(`driver_status_sync_${currentUser.uid}`)
       .on(
         'postgres_changes',
         {
           event: '*',
           schema: 'public',
           table: 'driver_status',
-          filter: `bus_id=eq.${busId}`
+          filter: `driver_uid=eq.${currentUser.uid}`
         },
         (payload) => {
-          console.log('📡 Real-time driver_status update:', payload);
+          console.log('📡 Real-time driver_status change for me:', payload);
           if (payload.eventType === 'DELETE') {
             setHasActiveTrip(false);
-          } else if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
+          } else {
             const newStatus = (payload.new as any).status;
             const isActive = newStatus === 'on_trip' || newStatus === 'enroute';
             setHasActiveTrip(isActive);
@@ -385,24 +401,27 @@ export default function DriverDashboard() {
       )
       .subscribe();
 
-    // 3. BroadCast Events (Immediate updates from driver actions)
-    const tripChannel = supabase
-      .channel(`trip-status-${busId}`)
-      .on('broadcast', { event: 'trip_started' }, (payload) => {
-        console.log('🚀 Trip started broadcast received!', payload);
-        setHasActiveTrip(true);
-      })
-      .on('broadcast', { event: 'trip_ended' }, (payload) => {
-        console.log('🏁 Trip ended broadcast received!', payload);
-        setHasActiveTrip(false);
-      })
-      .subscribe();
+    // 3. Broadcast Listener (Fallback for immediate UI responsiveness)
+    let tripBroadcastChannel: any = null;
+    if (busId) {
+      tripBroadcastChannel = supabase
+        .channel(`trip-status-${busId}`)
+        .on('broadcast', { event: 'trip_started' }, () => {
+          console.log('🚀 Trip started broadcast (dashboard)');
+          setHasActiveTrip(true);
+        })
+        .on('broadcast', { event: 'trip_ended' }, () => {
+          console.log('🏁 Trip ended broadcast (dashboard)');
+          setHasActiveTrip(false);
+        })
+        .subscribe();
+    }
 
     return () => {
-      supabase.removeChannel(channel);
-      supabase.removeChannel(tripChannel);
+      supabase.removeChannel(driverStatusChannel);
+      if (tripBroadcastChannel) supabase.removeChannel(tripBroadcastChannel);
     };
-  }, [busData?.id, busData?.busId]);
+  }, [currentUser?.uid, busData?.busId, busData?.id]);
 
   const routeData = useMemo(() => {
     // First try to use directly fetched assigned route data
@@ -595,7 +614,7 @@ export default function DriverDashboard() {
                     <Badge className={`relative px-2.5 py-1 sm:px-4 sm:py-2 text-[10px] sm:text-xs font-black border-2 ${hasActiveTrip ? 'bg-gradient-to-r from-green-500 to-emerald-600 text-white border-green-300/50 shadow-lg shadow-green-500/30' : 'bg-gradient-to-r from-gray-100 to-gray-200 dark:from-gray-800 dark:to-gray-700 text-gray-700 dark:text-gray-300 border-gray-300 dark:border-gray-600'}`}>
                       <span className="flex items-center gap-1.5">
                         <span className={`w-1.5 h-1.5 rounded-full ${hasActiveTrip ? 'bg-white animate-pulse' : 'bg-gray-400'}`} />
-                        {hasActiveTrip ? 'ENROUTE' : 'IDLE'}
+                        {hasActiveTrip ? 'LIVE' : 'IDLE'}
                       </span>
                     </Badge>
                   </div>

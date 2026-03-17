@@ -9,6 +9,7 @@ import { useBusLocation } from '@/hooks/useBusLocation';
 import { useWaitingFlags } from '@/hooks/useWaitingFlags';
 import { getRouteById } from '@/lib/dataService';
 import { fetchRouteGeometryViaProxy } from '@/lib/ors-service';
+import { useSystemConfig } from '@/contexts/SystemConfigContext';
 
 // Fix for default marker icons in Leaflet
 delete (L.Icon.Default.prototype as any)._getIconUrl;
@@ -68,6 +69,16 @@ export default function BusMap({
 }) {
   const { currentLocation: busLocation, history, loading: busLoading, error: busError, getInterpolatedPosition } = useBusLocation(routeId);
   const { flags: waitingFlags, loading: flagsLoading, error: flagsError } = useWaitingFlags(routeId);
+  const { config } = useSystemConfig();
+  const provider = config?.mapProvider || 'carto';
+  
+  const tileUrl = provider === 'osm' 
+    ? (process.env.NEXT_PUBLIC_OSM_TILE_URL || "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png")
+    : (process.env.NEXT_PUBLIC_CARTO_TILE_URL || "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png");
+    
+  const tileAttr = provider === 'osm'
+    ? (process.env.NEXT_PUBLIC_OSM_ATTRIBUTION || '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors')
+    : (process.env.NEXT_PUBLIC_CARTO_ATTRIBUTION || '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>');
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -166,8 +177,8 @@ export default function BusMap({
         attributionControl={true}
       >
         <TileLayer
-          url={process.env.NEXT_PUBLIC_MAP_TILE_PROVIDER_URL || "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"}
-          attribution={process.env.NEXT_PUBLIC_MAP_TILE_PROVIDER_ATTRIBUTION || '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'}
+          url={tileUrl}
+          attribution={tileAttr}
         />
 
         {/* Route polyline */}
