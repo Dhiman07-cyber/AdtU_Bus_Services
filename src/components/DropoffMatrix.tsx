@@ -167,7 +167,7 @@ export default function DropoffMatrix({ routes, buses, assignments, onChange }: 
                       <SelectTrigger className="w-full max-w-[100px] sm:max-w-[180px] h-6 sm:h-8 text-[10px] sm:text-xs bg-white dark:bg-slate-950 border-slate-200 dark:border-slate-800 rounded-md">
                         <SelectValue placeholder="Select" />
                       </SelectTrigger>
-                      <SelectContent className="text-xs">
+                      <SelectContent className="text-xs z-[100]">
                         <SelectItem value="__none__" className="text-xs">-- None --</SelectItem>
                         {sortedRoutes.map(route => {
                           const isAssigned = assignedRouteIds.includes(route.routeId) && route.routeId !== row.routeId;

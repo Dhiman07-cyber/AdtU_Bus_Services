@@ -1,7 +1,7 @@
 /**
  * FCM Notification Service
  * 
- * Centralized, production-grade push notification delivery for trip events.
+ * Production-grade push notification delivery for trip events.
  * 
  * Features:
  * - Idempotency guard (transaction-based notificationSent flag)
@@ -9,8 +9,8 @@
  * - Batched sends (500 tokens per sendEachForMulticast)
  * - Retry with exponential backoff for transient errors
  * - Invalid token cleanup
- * - Delivery logging to fcmDeliveryLogs collection
- * - Structured logging for observability
+ * - Optimized Firestore: No extra logs/trips collections (keeps storage low)
+ * - Individual student doc status updates (fcmMessage field)
  */
 
 import { db as adminDb, messaging, FieldValue } from '@/lib/firebase-admin';
@@ -39,6 +39,8 @@ const INVALID_TOKEN_CODES = new Set([
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
+export type TripEventType = 'TRIP_STARTED' | 'TRIP_ENDED';
+
 export interface NotifyRouteResult {
   success: boolean;
   successCount: number;
@@ -59,47 +61,38 @@ interface BatchSendResult {
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-function sleep(ms: number): Promise<void> {
-  return new Promise(resolve => setTimeout(resolve, ms));
-}
-
-function expBackoff(attempt: number): number {
-  return BASE_RETRY_MS * Math.pow(2, attempt);
-}
-
-function isTransientError(code: string): boolean {
-  return TRANSIENT_ERROR_CODES.has(code);
-}
-
-function isInvalidTokenError(code: string): boolean {
-  return INVALID_TOKEN_CODES.has(code);
-}
+const sleep = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms));
+const expBackoff = (attempt: number) => BASE_RETRY_MS * Math.pow(2, attempt);
 
 // ─── Message Builder ─────────────────────────────────────────────────────────
 
 function buildMessage(params: {
+  eventType: TripEventType;
   routeId: string;
   tripId: string;
   routeName: string;
   busId: string;
   tokens: string[];
 }) {
-  const { routeId, tripId, routeName, busId, tokens } = params;
-  const title = '🚌 Bus Journey Started!';
-  const body = `Your bus for ${routeName} has started its journey. Track it live now!`;
+  const { eventType, routeId, tripId, routeName, busId, tokens } = params;
   const now = new Date().toISOString();
+
+  const isStart = eventType === 'TRIP_STARTED';
+  const title = isStart ? '🚌 Bus Journey Started!' : '🏁 Trip Ended';
+  const body = isStart
+    ? `Your bus for ${routeName} has started its journey. Track it live now!`
+    : `Your bus trip for ${routeName} has ended.`;
+  const clickUrl = isStart ? '/student/track-bus' : '/student';
 
   return {
     tokens,
-    notification: {
-      title,
-      body,
-    },
+    notification: { title, body },
     data: {
-      type: 'TRIP_STARTED',
+      type: eventType,
       routeId,
       tripId,
       busId,
+      routeName,
       timestamp: now,
     },
     android: {
@@ -111,30 +104,19 @@ function buildMessage(params: {
       },
     },
     webpush: {
-      headers: {
-        Urgency: 'high',
-      },
+      headers: { Urgency: 'high' },
       notification: {
         title,
         body,
         icon: '/icons/icon-192x192.svg',
         badge: '/icons/icon-72x72.svg',
-        requireInteraction: true,
-        actions: [
-          {
-            action: 'open',
-            title: 'Track Bus'
-          }
-        ]
+        requireInteraction: isStart,
+        ...(isStart ? { actions: [{ action: 'open', title: 'Track Bus' }] } : {}),
       },
-      fcmOptions: {
-        link: `/student/track-bus`,
-      },
+      fcmOptions: { link: clickUrl },
     },
     apns: {
-      headers: {
-        'apns-priority': '10',
-      },
+      headers: { 'apns-priority': '10' },
       payload: {
         aps: {
           alert: { title, body },
@@ -150,12 +132,10 @@ function buildMessage(params: {
 
 async function sendBatchWithRetry(
   batchTokens: TokenWithMeta[],
-  messageParams: { routeId: string; tripId: string; routeName: string; busId: string },
+  messageParams: { eventType: TripEventType; routeId: string; tripId: string; routeName: string; busId: string },
   attempt: number = 0
 ): Promise<BatchSendResult> {
-  if (!messaging) {
-    throw new Error('Firebase Admin Messaging not initialized');
-  }
+  if (!messaging) throw new Error('Firebase Admin Messaging not initialized');
 
   const tokenStrings = batchTokens.map(t => t.token);
   const message = buildMessage({ ...messageParams, tokens: tokenStrings });
@@ -171,7 +151,6 @@ async function sendBatchWithRetry(
       errors: [],
     };
 
-    // Process per-token responses
     response.responses.forEach((resp, idx) => {
       if (resp.success) return;
 
@@ -179,7 +158,6 @@ async function sendBatchWithRetry(
       const errorMessage = resp.error?.message || 'Unknown error';
       const tokenMeta = batchTokens[idx];
 
-      // Collect up to 10 errors for logging
       if (result.errors.length < 10) {
         result.errors.push({
           token: tokenMeta.token.slice(0, 20) + '...',
@@ -188,31 +166,22 @@ async function sendBatchWithRetry(
         });
       }
 
-      if (isInvalidTokenError(errorCode)) {
+      if (INVALID_TOKEN_CODES.has(errorCode)) {
         result.invalidTokenPaths.push(tokenMeta.tokenDocPath);
-      } else if (isTransientError(errorCode)) {
+      } else if (TRANSIENT_ERROR_CODES.has(errorCode)) {
         result.transientFailTokens.push(tokenMeta);
       }
     });
 
-    // Retry transient failures with exponential backoff
+    // Retry transient failures
     if (result.transientFailTokens.length > 0 && attempt < MAX_RETRY_ATTEMPTS) {
       const waitMs = expBackoff(attempt);
-      console.log(
-        `⚡ Retrying ${result.transientFailTokens.length} transient failures (attempt ${attempt + 1}/${MAX_RETRY_ATTEMPTS}, wait ${waitMs}ms)`
-      );
+      console.log(`⚡ Retrying ${result.transientFailTokens.length} transient failures (attempt ${attempt + 1}/${MAX_RETRY_ATTEMPTS})`);
       await sleep(waitMs);
 
-      const retryResult = await sendBatchWithRetry(
-        result.transientFailTokens,
-        messageParams,
-        attempt + 1
-      );
-
-      // Merge retry results
+      const retryResult = await sendBatchWithRetry(result.transientFailTokens, messageParams, attempt + 1);
       result.successCount += retryResult.successCount;
-      result.failureCount =
-        result.failureCount - result.transientFailTokens.length + retryResult.failureCount;
+      result.failureCount = result.failureCount - result.transientFailTokens.length + retryResult.failureCount;
       result.invalidTokenPaths.push(...retryResult.invalidTokenPaths);
       result.errors.push(...retryResult.errors);
       result.transientFailTokens = retryResult.transientFailTokens;
@@ -220,21 +189,18 @@ async function sendBatchWithRetry(
 
     return result;
   } catch (error: any) {
-    // Handle quota errors (429)
-    if (error?.code === 429 || error?.message?.includes('429') || error?.message?.includes('quota')) {
-      console.error('🚨 FCM quota exceeded, applying global backoff');
-      if (attempt < MAX_RETRY_ATTEMPTS) {
-        const waitMs = expBackoff(attempt) * 4; // much longer for quota
-        console.log(`⏳ Quota backoff: waiting ${waitMs}ms before retry`);
-        await sleep(waitMs);
-        return sendBatchWithRetry(batchTokens, messageParams, attempt + 1);
-      }
+    // Quota errors (429) — longer backoff
+    if (attempt < MAX_RETRY_ATTEMPTS && (error?.code === 429 || error?.message?.includes('429') || error?.message?.includes('quota'))) {
+      const waitMs = expBackoff(attempt) * 4;
+      console.error(`🚨 FCM quota exceeded, backing off ${waitMs}ms`);
+      await sleep(waitMs);
+      return sendBatchWithRetry(batchTokens, messageParams, attempt + 1);
     }
 
-    // Transient error at request level
+    // Generic transient error
     if (attempt < MAX_RETRY_ATTEMPTS) {
       const waitMs = expBackoff(attempt);
-      console.warn(`⚡ Request-level error, retrying in ${waitMs}ms:`, error.message);
+      console.warn(`⚡ Request error, retrying in ${waitMs}ms:`, error.message);
       await sleep(waitMs);
       return sendBatchWithRetry(batchTokens, messageParams, attempt + 1);
     }
@@ -243,147 +209,102 @@ async function sendBatchWithRetry(
   }
 }
 
-// ─── Delivery Logging ────────────────────────────────────────────────────────
+// ─── Firestore Updates (Non-Logging) ────────────────────────────────────────
 
-async function logDeliveryBatch(
-  tripId: string,
-  batchIndex: number,
-  result: BatchSendResult,
-  startedAt: Date,
-  finishedAt: Date
+/**
+ * Updates the 'fcmMessage' field in student documents to reflect the latest status.
+ * This replaces the need for an external 'fcmDeliveryLogs' collection.
+ */
+async function updateStudentNotifications(
+  studentIds: Set<string>,
+  payload: { body: string; type: TripEventType; timestamp: string }
 ): Promise<void> {
-  if (!adminDb) return;
+  if (!adminDb || studentIds.size === 0) return;
 
-  try {
-    await adminDb
-      .collection('fcmDeliveryLogs')
-      .doc(tripId)
-      .collection('batches')
-      .doc(`batch_${batchIndex}`)
-      .set({
-        batchIndex,
-        tokensCount: result.successCount + result.failureCount,
-        successCount: result.successCount,
-        failureCount: result.failureCount,
-        invalidTokensRemoved: result.invalidTokenPaths.length,
-        errors: result.errors,
-        startedAt: startedAt.toISOString(),
-        finishedAt: finishedAt.toISOString(),
-        durationMs: finishedAt.getTime() - startedAt.getTime(),
-      });
-  } catch (error: any) {
-    console.error('Error writing delivery log:', error.message);
+  const ids = Array.from(studentIds);
+  const chunks: string[][] = [];
+  for (let i = 0; i < ids.length; i += 400) {
+    chunks.push(ids.slice(i, i + 400));
   }
-}
 
-async function logDeliverySummary(
-  tripId: string,
-  routeId: string,
-  busId: string,
-  totalResult: NotifyRouteResult,
-  startedAt: Date,
-  finishedAt: Date
-): Promise<void> {
-  if (!adminDb) return;
+  for (const chunk of chunks) {
+    const batch = adminDb.batch();
+    chunk.forEach(id => {
+      const ref = adminDb.collection('students').doc(id);
+      batch.update(ref, {
+        fcmMessage: {
+          ...payload,
+          receivedAt: FieldValue.serverTimestamp()
+        }
+      });
+    });
 
-  try {
-    await adminDb.collection('fcmDeliveryLogs').doc(tripId).set(
-      {
-        tripId,
-        routeId,
-        busId,
-        totalTokens: totalResult.totalTokens,
-        successCount: totalResult.successCount,
-        failureCount: totalResult.failureCount,
-        batchCount: totalResult.batchCount,
-        invalidTokensRemoved: totalResult.invalidTokensRemoved,
-        startedAt: startedAt.toISOString(),
-        finishedAt: finishedAt.toISOString(),
-        durationMs: finishedAt.getTime() - startedAt.getTime(),
-      },
-      { merge: true }
-    );
-  } catch (error: any) {
-    console.error('Error writing delivery summary:', error.message);
+    try {
+      await batch.commit();
+    } catch (err) {
+      console.warn('⚠️ Non-critical student doc update failed:', err);
+    }
   }
 }
 
 // ─── Idempotency Guard ──────────────────────────────────────────────────────
 
-/**
- * Ensures a trip notification is only sent once, via Firestore transaction.
- * Creates the trips/{tripId} doc if it doesn't exist.
- * Throws if notification was already sent.
- */
-async function acquireNotificationLock(tripId: string): Promise<void> {
+async function acquireNotificationLock(busId: string, tripId: string, eventType: TripEventType): Promise<void> {
   if (!adminDb) throw new Error('Firebase Admin not initialized');
 
-  const tripRef = adminDb.collection('trips').doc(tripId);
+  const lockFlag = eventType === 'TRIP_ENDED' ? 'endFcmSent' : 'startFcmSent';
+  const busRef = adminDb.collection('buses').doc(busId);
 
   await adminDb.runTransaction(async (tx) => {
-    const tripDoc = await tx.get(tripRef);
+    const busDoc = await tx.get(busRef);
+    if (!busDoc.exists) throw new Error('BUS_NOT_FOUND');
 
-    if (tripDoc.exists && tripDoc.data()?.notificationSent) {
+    const data = busDoc.data();
+    const lock = data?.activeTripLock;
+
+    // Safety: ensure this lock belongs to the current trip
+    if (lock?.tripId !== tripId && lock?.trip_id !== tripId) {
+      console.warn(`Lock tripId mismatch: doc=${lock?.tripId}, current=${tripId}`);
+    }
+
+    if (lock?.[lockFlag]) {
       throw new Error('NOTIFICATION_ALREADY_SENT');
     }
 
-    if (tripDoc.exists) {
-      tx.update(tripRef, {
-        notificationSent: true,
-        notificationSentAt: FieldValue.serverTimestamp(),
-      });
-    } else {
-      tx.set(tripRef, {
-        notificationSent: true,
-        notificationSentAt: FieldValue.serverTimestamp(),
-        createdAt: FieldValue.serverTimestamp(),
-      });
-    }
+    tx.update(busRef, {
+      [`activeTripLock.${lockFlag}`]: true,
+      [`activeTripLock.${lockFlag}At`]: FieldValue.serverTimestamp()
+    });
   });
 }
 
 // ─── Driver Authorization ────────────────────────────────────────────────────
 
-/**
- * Verify that a driver is authorized to send notifications for a given route.
- * Checks the driver's assigned bus and whether that bus serves the route.
- */
 export async function verifyDriverRouteBinding(
   driverId: string,
   routeId: string,
   busId: string
 ): Promise<{ authorized: boolean; reason?: string }> {
-  if (!adminDb) {
-    return { authorized: false, reason: 'Firebase Admin not initialized' };
-  }
+  if (!adminDb) return { authorized: false, reason: 'Firebase Admin not initialized' };
 
   try {
     const driverDoc = await adminDb.collection('drivers').doc(driverId).get();
-    if (!driverDoc.exists) {
-      return { authorized: false, reason: 'Driver not found' };
-    }
+    if (!driverDoc.exists) return { authorized: false, reason: 'Driver not found' };
 
     const driverData = driverDoc.data();
-
-    // Check if driver is assigned to the bus
-    const driverClaimsBus =
-      driverData?.assignedBusId === busId || driverData?.busId === busId;
+    const driverClaimsBus = driverData?.assignedBusId === busId || driverData?.busId === busId;
 
     if (!driverClaimsBus) {
-      // Also check the bus document
       const busDoc = await adminDb.collection('buses').doc(busId).get();
-      if (!busDoc.exists) {
-        return { authorized: false, reason: 'Bus not found' };
-      }
+      if (!busDoc.exists) return { authorized: false, reason: 'Bus not found' };
+
       const busData = busDoc.data();
       const busClaimsDriver =
         busData?.assignedDriverId === driverId ||
         busData?.activeDriverId === driverId ||
         busData?.driverUID === driverId;
 
-      if (!busClaimsDriver) {
-        return { authorized: false, reason: 'Driver is not assigned to this bus' };
-      }
+      if (!busClaimsDriver) return { authorized: false, reason: 'Driver is not assigned to this bus' };
     }
 
     return { authorized: true };
@@ -393,155 +314,202 @@ export async function verifyDriverRouteBinding(
   }
 }
 
+// ─── Token Collection ────────────────────────────────────────────────────────
+
+/**
+ * Collect all valid FCM tokens for a route and bus to ensure no student misses the notification.
+ * Gets students by both Route ID and Bus ID to cast a wider net.
+ */
+async function collectTokens(busId: string, routeId: string): Promise<TokenWithMeta[]> {
+  if (!adminDb) return [];
+
+  const tokens: TokenWithMeta[] = [];
+  const seen = new Set<string>();
+  const processedStudents = new Set<string>();
+
+  const processStudentDoc = async (doc: any) => {
+    if (processedStudents.has(doc.id)) return;
+    processedStudents.add(doc.id);
+
+    try {
+      // 1. Try subcollection tokens (modern approach)
+      const tokensSnap = await doc.ref.collection('tokens').where('valid', '==', true).get();
+      if (!tokensSnap.empty) {
+        tokensSnap.docs.forEach((tDoc: any) => {
+          const tData = tDoc.data();
+          if (tData?.token && tData.token.length > 50 && !seen.has(tData.token)) {
+            seen.add(tData.token);
+            tokens.push({
+              token: tData.token,
+              platform: tData.platform || 'web',
+              studentId: doc.id,
+              tokenDocPath: tDoc.ref.path,
+            });
+          }
+        });
+      }
+
+      // 2. Try legacy fcmToken field (fallback)
+      const data = doc.data();
+      if (data?.fcmToken && typeof data.fcmToken === 'string' && data.fcmToken.length > 50 && !seen.has(data.fcmToken)) {
+        seen.add(data.fcmToken);
+        tokens.push({
+          token: data.fcmToken,
+          platform: data.fcmPlatform || 'web',
+          studentId: doc.id,
+          tokenDocPath: `students/${doc.id}`,
+        });
+      }
+    } catch (err) {
+      console.warn(`Error compiling tokens for student ${doc.id}:`, err);
+    }
+  };
+
+  try {
+    // Collect students by Bus ID
+    if (busId) {
+      const busQueries = [
+        adminDb.collection('students').where('assignedBusId', '==', busId).get(),
+        adminDb.collection('students').where('busId', '==', busId).get(),
+        adminDb.collection('students').where('bus_id', '==', busId).get(),
+      ];
+
+      const busSnaps = await Promise.allSettled(busQueries);
+      for (const snapResult of busSnaps) {
+        if (snapResult.status === 'fulfilled' && !snapResult.value.empty) {
+          for (const doc of snapResult.value.docs) {
+            await processStudentDoc(doc);
+          }
+        }
+      }
+    }
+
+    // Collect students by Route ID (to ensure we don't miss any)
+    if (routeId) {
+      const routeQueries = [
+        adminDb.collection('students').where('routeId', '==', routeId).get(),
+        adminDb.collection('students').where('route_id', '==', routeId).get(),
+        adminDb.collection('students').where('assignedRouteId', '==', routeId).get(),
+      ];
+
+      const routeSnaps = await Promise.allSettled(routeQueries);
+      for (const snapResult of routeSnaps) {
+        if (snapResult.status === 'fulfilled' && !snapResult.value.empty) {
+          for (const doc of snapResult.value.docs) {
+            await processStudentDoc(doc);
+          }
+        }
+      }
+    }
+  } catch (error) {
+    console.error('Error fetching student tokens:', error);
+  }
+
+  return tokens;
+}
+
 // ─── Main Entry Point ────────────────────────────────────────────────────────
 
 /**
- * Send push notifications to all students on a route/bus when a trip starts.
+ * Send push notifications to all students on a route/bus for a trip event.
  * 
- * This is the single entry point for all trip notification logic.
+ * Supports both TRIP_STARTED and TRIP_ENDED events.
  * 
- * Flow:
- * 1. Idempotency guard (transaction)
- * 2. Snapshot tokens (subcollection or legacy fallback)
- * 3. Deduplicate tokens
- * 4. Batch send (500 per batch) with retry
- * 5. Delete invalid tokens
- * 6. Write delivery logs
- * 7. Return summary
+ * 1. Idempotency guard (transaction on bus doc)
+ * 2. Collect tokens (broad fallback query)
+ * 3. Batch send (500 per multicast)
+ * 4. Cleanup invalid tokens
+ * 5. Update student docs with message field
  */
 export async function notifyRoute(params: {
   routeId: string;
   tripId: string;
   routeName: string;
   busId: string;
+  eventType?: TripEventType;
   skipIdempotencyCheck?: boolean;
 }): Promise<NotifyRouteResult> {
   const { routeId, tripId, routeName, busId, skipIdempotencyCheck } = params;
+  const eventType: TripEventType = params.eventType || 'TRIP_STARTED';
   const overallStart = new Date();
 
-  console.log(`📢 notifyRoute: routeId=${routeId}, tripId=${tripId}, busId=${busId}`);
+  console.log(`📢 notifyRoute [${eventType}]: routeId=${routeId}, tripId=${tripId}, busId=${busId}`);
 
-  // 1. Idempotency guard
+  // 1. Idempotency guard (using bus doc to avoid extra 'trips' collection)
   if (!skipIdempotencyCheck) {
     try {
-      await acquireNotificationLock(tripId);
+      await acquireNotificationLock(busId, tripId, eventType);
     } catch (error: any) {
       if (error.message === 'NOTIFICATION_ALREADY_SENT') {
-        console.log(`⚠️ Notification already sent for trip ${tripId}, skipping`);
+        console.log(`⚠️ ${eventType} notification already sent for trip ${tripId}, skipping`);
         return {
-          success: true,
-          successCount: 0,
-          failureCount: 0,
-          totalTokens: 0,
-          batchCount: 0,
-          invalidTokensRemoved: 0,
+          success: true, successCount: 0, failureCount: 0,
+          totalTokens: 0, batchCount: 0, invalidTokensRemoved: 0,
           error: 'already_sent',
         };
       }
-      throw error;
+      if (error.message === 'BUS_NOT_FOUND') {
+        console.warn(`⚠️ Bus ${busId} not found for notification lock`);
+      } else {
+        throw error;
+      }
     }
   }
 
-  // 2. Snapshot tokens — try subcollection first, then legacy fallback
-  let tokens = await getValidTokensForBus(busId);
-
-  // If no subcollection tokens found, try legacy fcmToken field
-  if (tokens.length === 0) {
-    tokens = await getLegacyTokensForBus(busId);
-  }
-
-  // Also try route-based query if bus-based returned nothing
-  if (tokens.length === 0) {
-    tokens = await getValidTokensForRoute(routeId);
-  }
-
-  console.log(`📊 notifyRoute: ${tokens.length} unique tokens found`);
+  // 2. Collect tokens
+  const tokens = await collectTokens(busId, routeId);
+  console.log(`📊 ${tokens.length} tokens found for ${eventType}`);
 
   if (tokens.length === 0) {
-    const overallEnd = new Date();
-    await logDeliverySummary(tripId, routeId, busId, {
-      success: true,
-      successCount: 0,
-      failureCount: 0,
-      totalTokens: 0,
-      batchCount: 0,
-      invalidTokensRemoved: 0,
-    }, overallStart, overallEnd);
-
     return {
-      success: true,
-      successCount: 0,
-      failureCount: 0,
-      totalTokens: 0,
-      batchCount: 0,
-      invalidTokensRemoved: 0,
+      success: true, successCount: 0, failureCount: 0,
+      totalTokens: 0, batchCount: 0, invalidTokensRemoved: 0,
     };
   }
 
-  // 3. Tokens already deduplicated by the token service
-
-  // 4. Batch send
+  // 3. Batch send
   let totalSuccess = 0;
   let totalFailure = 0;
   let totalInvalidRemoved = 0;
   let batchCount = 0;
   const allInvalidPaths: string[] = [];
-
-  const messageParams = { routeId, tripId, routeName, busId };
+  const messageParams = { eventType, routeId, tripId, routeName, busId };
 
   for (let i = 0; i < tokens.length; i += BATCH_SIZE) {
     const batchTokens = tokens.slice(i, i + BATCH_SIZE);
     const batchIndex = Math.floor(i / BATCH_SIZE);
     batchCount++;
 
-    console.log(
-      `📤 Sending batch ${batchIndex} (${batchTokens.length} tokens) for trip ${tripId}`
-    );
-
-    const batchStart = new Date();
-
     try {
       const result = await sendBatchWithRetry(batchTokens, messageParams);
-
       totalSuccess += result.successCount;
       totalFailure += result.failureCount;
       totalInvalidRemoved += result.invalidTokenPaths.length;
       allInvalidPaths.push(...result.invalidTokenPaths);
 
-      const batchEnd = new Date();
-      await logDeliveryBatch(tripId, batchIndex, result, batchStart, batchEnd);
-
-      console.log(
-        `✅ Batch ${batchIndex}: ${result.successCount} success, ${result.failureCount} failed, ${result.invalidTokenPaths.length} invalid removed`
-      );
+      console.log(`✅ Batch ${batchIndex}: ${result.successCount}/${batchTokens.length} delivered`);
     } catch (error: any) {
-      console.error(`❌ Batch ${batchIndex} failed entirely:`, error.message);
+      console.error(`❌ Batch ${batchIndex} failed:`, error.message);
       totalFailure += batchTokens.length;
-
-      const batchEnd = new Date();
-      await logDeliveryBatch(
-        tripId,
-        batchIndex,
-        {
-          successCount: 0,
-          failureCount: batchTokens.length,
-          invalidTokenPaths: [],
-          transientFailTokens: [],
-          errors: [{ token: 'batch', code: 'batch_error', message: error.message }],
-        },
-        batchStart,
-        batchEnd
-      );
     }
   }
 
-  // 5. Delete invalid tokens
-  for (const path of allInvalidPaths) {
-    await deleteTokenByPath(path);
-  }
+  // 4. Delete invalid tokens
+  await Promise.all(allInvalidPaths.map(path => deleteTokenByPath(path)));
 
-  // 6. Write delivery summary
-  const overallEnd = new Date();
+  // 5. Update student docs with status field (replacing separate logging collection)
+  const studentIds = new Set(tokens.filter(t => !allInvalidPaths.includes(t.tokenDocPath)).map(t => t.studentId));
+  const isStart = eventType === 'TRIP_STARTED';
+  const statusBody = isStart
+    ? `Bus for ${routeName} has started.`
+    : `Bus trip for ${routeName} has ended.`;
+
+  await updateStudentNotifications(studentIds, {
+    body: statusBody,
+    type: eventType,
+    timestamp: new Date().toISOString()
+  });
+
   const summary: NotifyRouteResult = {
     success: true,
     successCount: totalSuccess,
@@ -551,28 +519,15 @@ export async function notifyRoute(params: {
     invalidTokensRemoved: totalInvalidRemoved,
   };
 
-  await logDeliverySummary(tripId, routeId, busId, summary, overallStart, overallEnd);
-
-  console.log(
-    `📊 notifyRoute complete: ${totalSuccess}/${tokens.length} delivered, ${totalInvalidRemoved} invalid tokens removed`
-  );
-
   return summary;
 }
 
 // ─── Legacy Token Fallback ───────────────────────────────────────────────────
 
-/**
- * Fallback: read legacy fcmToken field from student documents.
- * Used during migration period when some students haven't been migrated.
- */
 async function getLegacyTokensForBus(busId: string): Promise<TokenWithMeta[]> {
   if (!adminDb) return [];
 
-  let studentsSnap = await adminDb
-    .collection('students')
-    .where('assignedBusId', '==', busId)
-    .get();
+  let studentsSnap = await adminDb.collection('students').where('assignedBusId', '==', busId).get();
 
   if (studentsSnap.empty) {
     const alt1 = await adminDb.collection('students').where('busId', '==', busId).get();
@@ -595,78 +550,55 @@ async function getLegacyTokensForBus(busId: string): Promise<TokenWithMeta[]> {
         token: fcmToken,
         platform: data.fcmPlatform || 'web',
         studentId: doc.id,
-        tokenDocPath: `students/${doc.id}`, // legacy — will clear fcmToken field
+        tokenDocPath: `students/${doc.id}`,
       });
     }
   }
 
   if (tokens.length > 0) {
-    console.log(`📱 Found ${tokens.length} legacy FCM tokens for bus ${busId}`);
+    console.log(`📱 ${tokens.length} legacy FCM tokens found for bus ${busId}`);
   }
 
   return tokens;
 }
 
-// ─── Topic Fallback (for large-scale routes) ─────────────────────────────────
+// ─── Topic Notification (for large-scale routes) ─────────────────────────────
 
-/**
- * Send notification via topic for routes with very large student counts.
- * Students must be subscribed to topic `route_{routeId}` client-side.
- */
 export async function notifyRouteTopic(params: {
   routeId: string;
   tripId: string;
   routeName: string;
   busId: string;
+  eventType?: TripEventType;
 }): Promise<{ success: boolean; messageId?: string; error?: string }> {
-  if (!messaging) {
-    return { success: false, error: 'Firebase Admin Messaging not initialized' };
-  }
+  if (!messaging) return { success: false, error: 'Firebase Admin Messaging not initialized' };
 
   const { routeId, tripId, routeName, busId } = params;
-  const title = '🚌 Bus Journey Started!';
-  const body = `Your bus for ${routeName} has started its journey. Track it live now!`;
+  const eventType: TripEventType = params.eventType || 'TRIP_STARTED';
+  const isStart = eventType === 'TRIP_STARTED';
+  const title = isStart ? '🚌 Bus Journey Started!' : '🏁 Trip Ended';
+  const body = isStart
+    ? `Your bus for ${routeName} has started its journey. Track it live now!`
+    : `Your bus trip for ${routeName} has ended.`;
 
   try {
     const messageId = await messaging.send({
       topic: `route_${routeId}`,
       notification: { title, body },
       data: {
-        type: 'TRIP_STARTED',
-        routeId,
-        tripId,
-        busId,
+        type: eventType,
+        routeId, tripId, busId, routeName,
         timestamp: new Date().toISOString(),
       },
-      android: {
-        priority: 'high',
-        notification: {
-          channelId: 'bus_alerts',
-          sound: 'default',
-        },
-      },
+      android: { priority: 'high', notification: { channelId: 'bus_alerts', sound: 'default' } },
       webpush: {
         headers: { Urgency: 'high' },
-        notification: { 
-          title, 
-          body,
-          actions: [
-            {
-              action: 'open',
-              title: 'Track Bus'
-            }
-          ]
-        },
-        fcmOptions: { link: `/student/track-bus` },
+        notification: { title, body },
+        fcmOptions: { link: isStart ? '/student/track-bus' : '/student' },
       },
       apns: {
         headers: { 'apns-priority': '10' },
-        payload: {
-          aps: {
-            alert: { title, body },
-            sound: 'default',
-          },
-        },
+        payload: { aps: { alert: { title, body }, sound: 'default' } },
       },
     });
 

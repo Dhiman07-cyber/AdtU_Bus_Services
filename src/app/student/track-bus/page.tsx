@@ -571,8 +571,11 @@ export default function StudentTrackBusPage() {
       try {
         console.log('🔍 Checking trip status via API for bus:', busData.busId);
 
-        // Use API endpoint that bypasses RLS with service role key - match Dashboard logic
-        const response = await fetch(`/api/student/trip-status?busId=${encodeURIComponent(busData.busId)}`);
+        // Use API endpoint with auth token
+        const token = await currentUser?.getIdToken();
+        const response = await fetch(`/api/student/trip-status?busId=${encodeURIComponent(busData.busId)}`, {
+          headers: token ? { Authorization: `Bearer ${token}` } : {}
+        });
 
         if (!response.ok) {
           console.warn('⚠️ Trip status API returned non-OK status:', response.status);

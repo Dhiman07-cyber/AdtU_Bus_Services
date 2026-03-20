@@ -1,11 +1,11 @@
 // Firebase Cloud Messaging Service Worker
 // This file MUST be accessible at /firebase-messaging-sw.js (root path)
 
-// Import Firebase SDK - version MUST match client firebase package (check package.json)
+// Import Firebase SDK - version MUST match client firebase package
 importScripts('https://www.gstatic.com/firebasejs/12.8.0/firebase-app-compat.js');
 importScripts('https://www.gstatic.com/firebasejs/12.8.0/firebase-messaging-compat.js');
 
-// Firebase configuration - Extract dynamically from URL params to prevent leaking in source code
+// ─── Firebase Config (from URL params) ───────────────────────────────────────
 const urlParams = new URL(location).searchParams;
 const firebaseConfig = {
   apiKey: urlParams.get("apiKey"),
@@ -16,133 +16,130 @@ const firebaseConfig = {
   appId: urlParams.get("appId"),
 };
 
-// Initialize Firebase safely
+// ─── Initialize Firebase ─────────────────────────────────────────────────────
 try {
   if (firebaseConfig.apiKey && firebaseConfig.projectId) {
     firebase.initializeApp(firebaseConfig);
-    console.log('🔔 Firebase initialized in service worker');
   } else {
-    console.warn('⚠️ Firebase config missing in SW url params. Push notifications might fail.');
+    console.warn('⚠️ Firebase config missing in SW. Push notifications may fail.');
   }
 } catch (error) {
-  console.error('❌ Firebase initialization failed in service worker:', error);
+  console.error('❌ Firebase init failed in SW:', error);
 }
 
-// Retrieve Firebase Messaging object
 let messaging;
 try {
   messaging = firebase.messaging();
-  console.log('🔔 Firebase Messaging initialized in service worker');
 } catch (error) {
-  console.error('❌ Firebase Messaging initialization failed:', error);
+  console.error('❌ Firebase Messaging init failed:', error);
 }
 
-// Handle background messages
+// ─── Background Message Handler ──────────────────────────────────────────────
+// When the app is NOT in focus (background/closed), FCM delivers messages here.
+// 
+// IMPORTANT: If the FCM payload includes a `notification` key, the SDK
+// auto-displays it. We ONLY manually show for data-only messages or when
+// we need to customize the notification beyond what the SDK auto-shows.
 if (messaging) {
   messaging.onBackgroundMessage((payload) => {
-    console.log('🔔 Received background message:', payload);
-    
+    console.log('🔔 Background message:', payload);
+
     try {
-      const notificationTitle = payload.notification?.title || 'Bus Notification';
-      const notificationBody = payload.notification?.body || 'You have a new notification';
-      
-      // Build click URL from data payload
       const data = payload.data || {};
-      let clickUrl = '/';
-      if ((data.type === 'TRIP_STARTED' || data.type === 'trip_started')) {
-        clickUrl = `/student/track-bus`;
+      const notifTitle = payload.notification?.title;
+      const notifBody = payload.notification?.body;
+
+      // If FCM SDK will auto-show (notification key present), skip manual show
+      // to avoid duplicates. The SDK handles display + click-through.
+      if (payload.notification) {
+        console.log('🔔 FCM SDK auto-displaying notification');
+        return;
       }
 
-      const notificationOptions = {
-        body: notificationBody,
+      // Data-only message — we must show notification manually
+      let title = 'Bus Notification';
+      let body = 'You have a new notification';
+      let clickUrl = '/';
+
+      if (data.type === 'TRIP_STARTED' || data.type === 'trip_started') {
+        title = '🚌 Bus Journey Started!';
+        body = data.routeName
+          ? `Your bus for ${data.routeName} has started its journey. Track it live now!`
+          : 'Your bus has started its journey. Track it live now!';
+        clickUrl = '/student/track-bus';
+      } else if (data.type === 'TRIP_ENDED' || data.type === 'trip_ended') {
+        title = '🏁 Trip Ended';
+        body = data.routeName
+          ? `Your bus trip for ${data.routeName} has ended.`
+          : 'Your bus trip has ended.';
+        clickUrl = '/student';
+      }
+
+      const options = {
+        body,
         icon: '/icons/icon-192x192.svg',
         badge: '/icons/icon-72x72.svg',
-        tag: data.tripId || 'bus-notification',
-        requireInteraction: true,
-        data: {
-          ...data,
-          click_action: clickUrl,
-        }
+        tag: data.tripId || `bus-${data.type || 'notification'}`,
+        requireInteraction: data.type === 'TRIP_STARTED',
+        data: { ...data, click_action: clickUrl },
       };
 
-      // Only add Track Bus action for trip start events
       if (data.type === 'TRIP_STARTED' || data.type === 'trip_started') {
-        notificationOptions.actions = [
-          {
-            action: 'open',
-            title: 'Track Bus'
-          }
-        ];
+        options.actions = [{ action: 'open', title: 'Track Bus' }];
       }
 
-      // Only manual show if Firebase doesn't automatically show it
-      // Firebase Web SDK automatically displays notifications if payload.notification is present.
-      if (!payload.notification) {
-        return self.registration.showNotification(notificationTitle, notificationOptions);
-      } else {
-        console.log('🔔 FCM SDK will auto-show the notification. Skipping manual showNotification to avoid duplicates.');
-      }
+      return self.registration.showNotification(title, options);
     } catch (error) {
       console.error('❌ Error showing notification:', error);
     }
   });
-} else {
-  console.error('❌ Firebase Messaging not available in service worker');
 }
 
-// Handle notification clicks
+// ─── Notification Click Handler ──────────────────────────────────────────────
 self.addEventListener('notificationclick', (event) => {
-  console.log('🔔 Notification clicked:', event);
-
   event.notification.close();
 
-  // Get the click URL from notification data
   const data = event.notification.data || {};
-  
-  // Extract clickUrl. FCM Web SDK nests custom data under FCM_MSG.data
-  let clickAction = '/';
+
+  // Determine click destination
+  let clickUrl = '/';
   if (data.click_action) {
-    clickAction = data.click_action;
-  } else if (data.FCM_MSG && data.FCM_MSG.data) {
+    clickUrl = data.click_action;
+  } else if (data.FCM_MSG?.data) {
+    // FCM SDK nests custom data under FCM_MSG.data
     const fcmData = data.FCM_MSG.data;
-    if ((fcmData.type === 'TRIP_STARTED' || fcmData.type === 'trip_started')) {
-      clickAction = `/student/track-bus`;
+    if (fcmData.type === 'TRIP_STARTED' || fcmData.type === 'trip_started') {
+      clickUrl = '/student/track-bus';
     }
+  } else if (data.type === 'TRIP_STARTED' || data.type === 'trip_started') {
+    clickUrl = '/student/track-bus';
   }
 
-  // Build full URL for navigation
   event.waitUntil(
     clients.matchAll({ type: 'window', includeUncontrolled: true })
       .then((clientList) => {
-        // Check if any existing window is available
+        // Focus existing window and navigate
         for (const client of clientList) {
           try {
-            // Focus existing window and navigate
-            return client.focus().then(() => client.navigate(clickAction));
-          } catch (e) {
-            // Continue to next client
+            return client.focus().then(() => client.navigate(clickUrl));
+          } catch {
+            continue;
           }
         }
-
-        // Open new window if no existing one found
-        console.log('🔔 Opening new window:', clickAction);
-        return clients.openWindow(clickAction);
+        // No existing window — open new one
+        return clients.openWindow(clickUrl);
       })
-      .catch((error) => {
-        console.error('❌ Error handling notification click:', error);
-        return clients.openWindow('/');
-      })
+      .catch(() => clients.openWindow('/'))
   );
 });
 
-// Service worker installation - skip waiting to activate immediately
-self.addEventListener('install', (event) => {
-  console.log('🔔 Service worker installing...');
-  self.skipWaiting();
+// ─── Service Worker Lifecycle ────────────────────────────────────────────────
+self.addEventListener('install', () => {
+  console.log('🔔 FCM Service Worker installing');
+  self.skipWaiting(); // Activate immediately
 });
 
-// Service worker activation - claim all clients immediately
 self.addEventListener('activate', (event) => {
-  console.log('🔔 Service worker activated');
-  event.waitUntil(self.clients.claim());
+  console.log('🔔 FCM Service Worker activated');
+  event.waitUntil(self.clients.claim()); // Take control of all clients
 });

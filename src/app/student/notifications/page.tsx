@@ -161,30 +161,24 @@ export default function StudentNotificationsPage() {
                   <Bell className="h-5 w-5 md:h-6 md:w-6 text-white" />
                 </div>
                 <div>
-                  <h1 className="text-lg md:text-2xl font-bold text-white">
+                  <h1 className="text-xl md:text-2xl font-bold text-white">
                     Notifications
                   </h1>
-                  <p className="text-[10px] md:text-sm text-blue-100 mt-0.5">
+                  <p className="text-[11px] md:text-sm text-blue-100 mt-0.5 font-medium">
                     Stay updated with announcements and alerts
                   </p>
                 </div>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-start md:items-center gap-4">
                 <Button
                   size="sm"
-                  variant="ghost"
                   onClick={handleRefresh}
                   disabled={isRefreshing}
-                  className="h-8 px-3 text-white hover:bg-white/20 hover:text-white border border-white/20 rounded-lg transition-all duration-300"
+                  className="group h-8 px-3 md:px-4 bg-white hover:bg-gray-50 text-black hover:text-purple-600 border border-gray-200 hover:border-purple-200 shadow-sm hover:shadow-lg hover:shadow-purple-500/10 font-bold text-[9px] md:text-[10px] uppercase tracking-wider md:tracking-widest rounded-lg transition-all duration-300 active:scale-95 whitespace-nowrap"
                 >
-                  <RefreshCw className={`mr-2 h-3.5 w-3.5 ${isRefreshing ? 'animate-spin' : ''}`} />
-                  <span className="text-xs font-medium uppercase tracking-wider">Refresh</span>
+                  <RefreshCw className={`mr-1.5 md:mr-2 h-3 w-3 md:h-3.5 md:w-3.5 transition-transform duration-500 ${isRefreshing ? 'animate-spin' : 'group-hover:rotate-180'}`} />
+                  Refresh
                 </Button>
-                {allNotifications.length > 0 && (
-                  <Badge className="bg-white/20 text-white border-white/30 text-xs md:text-sm px-2 md:px-3 py-1">
-                    {allNotifications.length}
-                  </Badge>
-                )}
               </div>
             </div>
           </div>
@@ -263,7 +257,7 @@ export default function StudentNotificationsPage() {
               } : {}}
             >
               <Clock className="h-3 w-3 sm:h-4 sm:w-4" />
-              <span className="text-[9px] sm:text-xs font-medium">Drop</span>
+              <span className="text-[10px] sm:text-xs font-bold sm:font-medium">Drop</span>
               {getCountByType('dropoff') > 0 && (
                 <span className="hidden sm:inline text-[10px]">({getCountByType('dropoff')})</span>
               )}

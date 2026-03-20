@@ -263,10 +263,10 @@ export default function NotificationCardV2({
                 </div>
                 <div className="space-y-0.5">
                   <div className="flex items-center gap-2">
-                    <span className={`text-[10px] font-black uppercase tracking-[0.15em] bg-clip-text text-transparent bg-gradient-to-r ${roleTheme.accent}`}>
+                    <span className={`text-[11px] font-black uppercase tracking-[0.12em] bg-clip-text text-transparent bg-gradient-to-r ${roleTheme.accent}`}>
                       {isFeedbackIssue ? "Issues" : isRenewalRequest ? "Request" : notification.type}
                     </span>
-                    <Badge variant="outline" className={`h-4 text-[8px] font-bold border-${roleTheme.color}-200 text-${roleTheme.color}-600 dark:border-${roleTheme.color}-800 dark:text-${roleTheme.color}-400 px-1.5`}>
+                    <Badge variant="outline" className={`h-4.5 text-[9px] font-bold border-${roleTheme.color}-200 text-${roleTheme.color}-600 dark:border-${roleTheme.color}-800 dark:text-${roleTheme.color}-400 px-1.5`}>
                       {displayLabel}
                     </Badge>
                   </div>
@@ -332,11 +332,11 @@ export default function NotificationCardV2({
             </div>
 
             {/* Title: The Core Focus */}
-            <div className="space-y-2">
-              <h3 className={`text-[17px] font-extrabold leading-tight tracking-tight break-all line-clamp-1 ${!isEffectiveRead ? 'text-slate-900 dark:text-white' : 'text-slate-700 dark:text-slate-300'}`}>
+            <div className="space-y-1.5 sm:space-y-2">
+              <h3 className={`text-[18px] sm:text-[17px] font-extrabold leading-[1.3] tracking-tight break-all line-clamp-1 ${!isEffectiveRead ? 'text-slate-900 dark:text-white' : 'text-slate-700 dark:text-slate-300'}`}>
                 {notification.title}
               </h3>
-              <p className={`text-[13px] leading-relaxed font-medium line-clamp-2 break-all ${isEffectiveRead ? 'text-slate-500/80' : 'text-slate-600 dark:text-slate-400'}`}>
+              <p className={`text-[14px] sm:text-[13px] leading-relaxed font-medium line-clamp-2 break-all ${isEffectiveRead ? 'text-slate-500/80' : 'text-slate-600 dark:text-slate-400'}`}>
                 {notification.content}
               </p>
             </div>
@@ -351,12 +351,12 @@ export default function NotificationCardV2({
                 </div>
                 <div className="flex flex-col">
                   {isRenewalRequest ? (
-                    <span className="text-[11px] font-black text-slate-800 dark:text-slate-100 leading-none tracking-tight">Student name : {notification.sender.userName}</span>
+                    <span className="text-[12px] sm:text-[11px] font-black text-slate-800 dark:text-slate-100 leading-none tracking-tight">Student name : {notification.sender.userName}</span>
                   ) : (
                     <>
-                      <span className="text-[11px] font-black text-slate-800 dark:text-slate-100 leading-none tracking-tight">{notification.sender.userName}</span>
+                      <span className="text-[12px] sm:text-[11px] font-black text-slate-800 dark:text-slate-100 leading-none tracking-tight">{notification.sender.userName}</span>
                       <div className="flex items-center gap-1.5 mt-1">
-                        <Badge variant="secondary" className="h-3.5 text-[7px] font-black uppercase tracking-widest px-1 bg-slate-100 dark:bg-slate-800 text-slate-500">
+                        <Badge variant="secondary" className="h-4 text-[8px] sm:text-[7px] font-black uppercase tracking-widest px-1.5 sm:px-1 bg-slate-100 dark:bg-slate-800 text-slate-500">
                           {notification.sender.userRole}
                         </Badge>
                       </div>
@@ -439,16 +439,16 @@ export default function NotificationCardV2({
                   </div>
                   <div className="space-y-0.5">
                     <div className="flex items-center gap-1.5">
-                      <Badge className={`bg-${roleTheme.color}-500 hover:bg-${roleTheme.color}-600 text-white font-black px-1 sm:px-1.5 py-0 sm:py-0.5 text-[6px] sm:text-[8px] tracking-wider border-0 shadow-sm`}>
+                      <Badge className={`bg-${roleTheme.color}-500 hover:bg-${roleTheme.color}-600 text-white font-black px-1.5 sm:px-1.5 py-0.5 sm:py-0.5 text-[8px] sm:text-[8px] tracking-wider border-0 shadow-sm`}>
                         {isFeedbackIssue ? "ISSUES" : isRenewalRequest ? "REQUEST" : notification.type.toUpperCase()}
                       </Badge>
                       {!isEffectiveRead && (
-                        <Badge variant="default" className="bg-blue-600 text-[6px] sm:text-[8px] font-black px-1 py-0 uppercase animate-pulse shadow-sm">New</Badge>
+                        <Badge variant="default" className="bg-blue-600 text-[8px] sm:text-[8px] font-black px-1.5 py-0.5 uppercase animate-pulse shadow-sm">New</Badge>
                       )}
                     </div>
-                    <div className="flex items-center gap-1 text-[8px] sm:text-[10px] text-slate-400 font-bold">
-                      <Calendar className="h-2.5 w-2.5 sm:h-3 sm:w-3" />
-                      <span className="truncate max-w-[140px] sm:max-w-none">{formatFullDate(notification.createdAt)}</span>
+                    <div className="flex items-center gap-1 text-[9px] sm:text-[10px] text-slate-400 font-bold">
+                      <Calendar className="h-3 w-3 sm:h-3 sm:w-3" />
+                      <span className="truncate max-w-[150px] sm:max-w-none">{formatFullDate(notification.createdAt)}</span>
                     </div>
                   </div>
                 </div>
@@ -471,7 +471,7 @@ export default function NotificationCardV2({
                 </div>
               </div>
 
-              <DialogTitle className="text-base sm:text-2xl font-[900] text-slate-900 dark:text-white leading-tight tracking-tight pr-12 sm:pr-0 break-all">
+              <DialogTitle className="text-[19px] sm:text-2xl font-[900] text-slate-900 dark:text-white leading-[1.25] tracking-tight pr-10 sm:pr-0 mt-3 mb-1">
                 {notification.title}
               </DialogTitle>
               <DialogDescription className="sr-only">
@@ -481,11 +481,11 @@ export default function NotificationCardV2({
 
             {/* Scrollable Content Area - Compact on mobile */}
             <div
-              className="px-5 sm:px-8 py-3 sm:py-6 overflow-y-auto custom-scrollbar overscroll-contain touch-pan-y flex-1 relative max-h-[350px] sm:max-h-[450px]"
+              className="px-5 sm:px-8 py-5 sm:py-6 overflow-y-auto custom-scrollbar overscroll-contain touch-pan-y flex-1 relative max-h-[420px] sm:max-h-[450px]"
               onWheel={(e) => e.stopPropagation()}
             >
               <div className="max-w-none relative z-10">
-                <div className="text-sm text-slate-700 dark:text-slate-300 leading-relaxed font-medium tracking-tight whitespace-pre-wrap mb-4 break-all">
+                <div className="text-[15px] sm:text-[14px] text-slate-700 dark:text-slate-300 leading-[1.6] font-semibold tracking-tight whitespace-pre-wrap mb-4">
                   {isFeedbackIssue ? (
                     <div className="space-y-5">
                       {/* Premium Sender & Bus Cards */}

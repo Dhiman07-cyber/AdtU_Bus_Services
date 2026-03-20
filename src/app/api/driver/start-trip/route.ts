@@ -97,28 +97,40 @@ export const POST = withSecurity(
                     ignoreDuplicates: false
                 });
 
-            // Broadcast trip start
+            // Broadcast trip start (subscribe → send → cleanup)
             const channel = supabase.channel(`trip-status-${busId}`);
-            channel.subscribe(async (status) => {
-                if (status === 'SUBSCRIBED') {
-                    await channel.send({
-                        type: 'broadcast',
-                        event: 'trip_started',
-                        payload: {
-                            busId,
-                            routeId,
-                            driverId,
-                            tripId,
-                            timestamp: now.toISOString()
+            try {
+                await new Promise<void>((resolve, reject) => {
+                    const timeout = setTimeout(() => {
+                        supabase.removeChannel(channel);
+                        reject(new Error('Broadcast subscribe timeout'));
+                    }, 3000);
+
+                    channel.subscribe(async (status) => {
+                        if (status === 'SUBSCRIBED') {
+                            clearTimeout(timeout);
+                            try {
+                                await channel.send({
+                                    type: 'broadcast',
+                                    event: 'trip_started',
+                                    payload: {
+                                        busId, routeId, driverId, tripId,
+                                        timestamp: now.toISOString(),
+                                    },
+                                });
+                            } finally {
+                                await supabase.removeChannel(channel);
+                            }
+                            resolve();
                         }
                     });
-                    await supabase.removeChannel(channel);
-                }
-            });
+                });
+            } catch (err: any) {
+                console.warn('⚠️ Broadcast send failed (non-critical):', err.message);
+            }
         }
 
         // ── Send FCM Push Notifications ──────────────────────────────────
-        // Get route name for the notification message
         let routeName = 'your route';
         try {
             const routeDoc = await adminDb.collection('routes').doc(routeId).get();
@@ -130,10 +142,12 @@ export const POST = withSecurity(
             console.warn('Could not fetch route name:', e);
         }
 
-        // Fire-and-forget: send notifications in background so we don't block the response
-        notifyRoute({ routeId, tripId, routeName, busId }).catch(err => {
-            console.error('❌ Background FCM notification error:', err);
-        });
+        // Await notification send to ensure it executes before Next.js kills the request context
+        try {
+            await notifyRoute({ routeId, tripId, routeName, busId, eventType: 'TRIP_STARTED' });
+        } catch (err) {
+            console.error('❌ FCM notification error:', err);
+        }
 
         const elapsed = Date.now() - startTime;
         console.log(`✅ Trip started successfully in ${elapsed}ms`);

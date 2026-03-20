@@ -320,9 +320,7 @@ export default function UberLikeBusMap({
             <div className="w-20 h-20 md:w-24 md:h-24 mx-auto bg-gradient-to-br from-blue-500 via-purple-600 to-indigo-700 rounded-full flex items-center justify-center shadow-2xl animate-pulse">
               <MapPin className="w-10 h-10 md:w-12 md:h-12 text-white" />
             </div>
-            <div className="absolute -top-2 -right-2 w-6 h-6 bg-yellow-400 rounded-full flex items-center justify-center">
-              <span className="text-xs font-bold text-gray-800">⏳</span>
-            </div>
+
           </div>
           <h3 className="text-xl md:text-2xl lg:text-3xl font-bold bg-gradient-to-r from-gray-900 to-gray-600 dark:from-white dark:to-gray-300 bg-clip-text text-transparent mb-3 md:mb-4">
             Waiting for Bus

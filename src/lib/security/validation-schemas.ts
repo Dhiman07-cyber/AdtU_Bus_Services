@@ -114,9 +114,9 @@ export const DebugDriverBusLinkSchema = z.object({
 });
 
 export const SaveFCMTokenSchema = z.object({
-    userUid: z.string().min(1),
-    token: z.string().min(10),
-    platform: z.string().optional(),
+    userUid: z.string().min(1).max(128),
+    token: z.string().min(100).max(512).regex(/^\S+$/, 'Token must not contain whitespace'),
+    platform: z.enum(['web', 'android', 'ios']).default('web'),
 });
 
 export const SimulateDeadlinesSchema = z.object({

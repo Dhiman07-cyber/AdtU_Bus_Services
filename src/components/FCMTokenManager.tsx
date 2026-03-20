@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useRef, useCallback } from "react";
 import { useAuth } from "@/contexts/auth-context";
 import { useToast } from "@/contexts/toast-context";
 import { 
@@ -10,135 +10,189 @@ import {
   onForegroundMessage
 } from "@/lib/fcm-service";
 
+// ─── Constants ───────────────────────────────────────────────────────────────
+const TOKEN_REFRESH_INTERVAL_MS = 12 * 60 * 60 * 1000; // 12 hours
+const LS_TOKEN_KEY_PREFIX = 'fcm_device_token_';
+const LS_LAST_SYNC_PREFIX = 'fcm_last_sync_';
+
 /**
- * FCMTokenManager — Handles FCM token lifecycle
+ * FCMTokenManager — Production-grade FCM token lifecycle manager
  * 
- * Key design decisions for token stability:
- * 1. Firebase's getToken() already returns a STABLE token for the same
- *    browser + service worker pair. It only changes when:
- *    - The user deletes the service worker registration
- *    - The user clears browser storage/IndexedDB
- *    - Firebase rotates the token (rare, weeks/months apart)
+ * Ensures 100% reliable push notification delivery by:
  * 
- * 2. We cache the last-known token in localStorage to avoid redundant
- *    server-side saves when the token hasn't changed.
+ * 1. Registering the FCM token on first login (persisted in Firestore subcollection)
+ * 2. Periodically refreshing the token (every 12h) to prevent staleness
+ * 3. Re-syncing the token when the app regains visibility (tab focus)
+ * 4. Listening for foreground messages and showing user-facing toasts
+ * 5. Caching the token in localStorage to avoid redundant server writes
+ * 6. Handling token rotation gracefully (Firebase SDK may rotate tokens)
  * 
- * 3. On each app load, we check: has the token changed since last save?
- *    If yes → save to Firestore. If no → skip.
- * 
- * 4. Token is persisted to the user's Firestore document (students/{uid}.fcmToken),
- *    NOT a separate collection. This makes it trivially queryable from server-side
- *    notification senders.
+ * Firebase's getToken() returns a STABLE token for the same browser+SW pair.
+ * It only changes when:
+ *   - User deletes the service worker registration
+ *   - User clears browser storage/IndexedDB
+ *   - Firebase rotates the token (rare, weeks/months apart)
  */
 export function FCMTokenManager() {
   const { currentUser } = useAuth();
   const { addToast } = useToast();
-  const [isSupported, setIsSupported] = useState(true);
-  const hasInitialized = useRef(false);
+  const addToastRef = useRef(addToast);
+  const isSyncing = useRef(false);
+  const refreshTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
+  // Keep toast ref current to avoid stale closures
   useEffect(() => {
-    // Prevent double initialization in React Strict Mode
-    if (hasInitialized.current) return;
+    addToastRef.current = addToast;
+  }, [addToast]);
 
-    const initializeFCM = async () => {
-      // Check if FCM is supported in browser
+  // ── Core Token Sync ──────────────────────────────────────────────────────
+  const syncToken = useCallback(async (force = false): Promise<void> => {
+    if (!currentUser?.uid) return;
+    if (isSyncing.current) return; // Prevent concurrent syncs
+    isSyncing.current = true;
+
+    try {
+      // 1. Check browser support
       if (typeof window === 'undefined' || !('serviceWorker' in navigator) || !('PushManager' in window)) {
-        setIsSupported(false);
-        console.log('⚠️ FCM not supported in this browser environment');
         return;
       }
 
-      if (!currentUser?.uid) return;
+      // 2. Check/request notification permission
+      const hasPermission = await requestNotificationPermission();
+      if (!hasPermission) return;
 
-      hasInitialized.current = true;
+      // 3. Get FCM token from Firebase SDK
+      const fcmToken = await getFCMToken();
+      if (!fcmToken) return;
 
-      try {
-        // Step 1: Request notification permission
-        const hasPermission = await requestNotificationPermission();
-        if (!hasPermission) {
-          console.log('📵 Notification permission not granted');
-          return;
-        }
+      // 4. Check if sync is needed
+      const lsTokenKey = `${LS_TOKEN_KEY_PREFIX}${currentUser.uid}`;
+      const lsSyncKey = `${LS_LAST_SYNC_PREFIX}${currentUser.uid}`;
+      const cachedToken = localStorage.getItem(lsTokenKey);
+      const lastSync = parseInt(localStorage.getItem(lsSyncKey) || '0', 10);
+      const timeSinceLastSync = Date.now() - lastSync;
 
-        // Step 2: Get FCM token from Firebase  
-        // This token is STABLE for the same browser+SW pair.
-        // Firebase SDK uses IndexedDB internally to persist it.
-        const fcmToken = await getFCMToken();
-        if (!fcmToken) {
-          console.log('⚠️ FCM token not available (push service may be unavailable in dev)');
-          return;
-        }
-
-        // Step 3: Check local cache — skip server call if token unchanged
-        const lsKey = `fcm_device_token_${currentUser.uid}`;
-        const cachedToken = localStorage.getItem(lsKey);
-
-        if (cachedToken === fcmToken) {
-          console.log('✅ FCM token unchanged — already synced with database');
-          return;
-        }
-
-        // Token is new or changed → save it
-        console.log('🔑 FCM token obtained/changed, saving to database...');
-        if (cachedToken) {
-          console.log('ℹ️ Previous token existed — token was refreshed by Firebase');
-        } else {
-          console.log('ℹ️ First time saving FCM token for this user/device');
-        }
-
-        // Step 4: Get auth ID token for API call
-        const idToken = await currentUser.getIdToken();
-
-        // Step 5: Save FCM token to Firestore via API
-        const saved = await saveFCMToken(currentUser.uid, fcmToken, 'web', idToken);
-        if (saved) {
-          console.log('✅ FCM token saved to database successfully');
-          localStorage.setItem(lsKey, fcmToken); // Update local cache
-        } else {
-          console.warn('⚠️ Could not save FCM token (user doc may not exist yet)');
-          // Don't cache — will retry on next page load
-        }
-      } catch (error) {
-        // CRITICAL: Never let FCM errors crash the host page
-        console.warn('⚠️ FCM initialization failed (non-critical):', error);
+      // Skip if token unchanged AND last sync was recent (within refresh interval)
+      if (!force && cachedToken === fcmToken && timeSinceLastSync < TOKEN_REFRESH_INTERVAL_MS) {
+        return;
       }
-    };
 
-    if (currentUser) {
-      initializeFCM();
+      const isNewToken = cachedToken !== fcmToken;
+      if (isNewToken) {
+        console.log('🔑 FCM token changed or first registration, saving...');
+      } else {
+        console.log('🔄 Periodic FCM token refresh (keeping token alive)...');
+      }
+
+      // 5. Get fresh auth ID token
+      const idToken = await currentUser.getIdToken(true);
+
+      // 6. Save to Firestore via API
+      const saved = await saveFCMToken(currentUser.uid, fcmToken, 'web', idToken);
+      if (saved) {
+        localStorage.setItem(lsTokenKey, fcmToken);
+        localStorage.setItem(lsSyncKey, Date.now().toString());
+        if (isNewToken) {
+          console.log('✅ FCM token registered successfully');
+        }
+      } else {
+        console.warn('⚠️ FCM token save failed, will retry on next sync');
+        // Clear sync timestamp so we retry sooner
+        localStorage.removeItem(lsSyncKey);
+      }
+    } catch (error) {
+      // CRITICAL: Never crash the host page
+      console.warn('⚠️ FCM sync error (non-critical):', error);
+    } finally {
+      isSyncing.current = false;
     }
-
-    return () => {
-      // Allow re-init if user changes (logout + login as different user)
-      if (!currentUser) {
-        hasInitialized.current = false;
-      }
-    };
   }, [currentUser]);
 
-  // Listen for token refresh events
+  // ── Initial Registration + Periodic Refresh ──────────────────────────────
   useEffect(() => {
-    if (!isSupported || !currentUser?.uid) return;
+    if (!currentUser?.uid) return;
 
-    // Firebase SDK fires onMessage for foreground messages
-    // The token refresh is handled automatically by getToken() 
-    // returning a new value on next call
+    // Initial sync on mount
+    syncToken();
+
+    // Periodic refresh to keep token alive and catch rotations
+    refreshTimerRef.current = setInterval(() => {
+      syncToken();
+    }, TOKEN_REFRESH_INTERVAL_MS);
+
+    return () => {
+      if (refreshTimerRef.current) {
+        clearInterval(refreshTimerRef.current);
+        refreshTimerRef.current = null;
+      }
+    };
+  }, [currentUser?.uid, syncToken]);
+
+  // ── Visibility-Based Re-Sync ─────────────────────────────────────────────
+  // When user returns to the app after being away, re-sync the token
+  // This handles cases where the token was rotated while the app was in background
+  useEffect(() => {
+    if (!currentUser?.uid) return;
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        // Only sync if enough time has passed (avoid rapid re-syncs on tab switching)
+        const lsSyncKey = `${LS_LAST_SYNC_PREFIX}${currentUser.uid}`;
+        const lastSync = parseInt(localStorage.getItem(lsSyncKey) || '0', 10);
+        const timeSinceLastSync = Date.now() - lastSync;
+
+        // Re-sync if last sync was more than 1 hour ago
+        if (timeSinceLastSync > 60 * 60 * 1000) {
+          syncToken();
+        }
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [currentUser?.uid, syncToken]);
+
+  // ── Foreground Message Listener ──────────────────────────────────────────
+  // When the app is in the foreground, FCM delivers messages here instead of
+  // the service worker. We display a toast so the user knows about the event.
+  useEffect(() => {
+    if (!currentUser?.uid) return;
+
     let unsubscribe: (() => void) | null = null;
 
     try {
       unsubscribe = onForegroundMessage((payload) => {
-        console.log('📩 Foreground message received:', payload);
+        console.log('📩 Foreground FCM message:', payload);
+
+        const data = payload?.data || {};
+        const title = payload?.notification?.title;
+        const body = payload?.notification?.body;
+
+        if (data.type === 'TRIP_STARTED') {
+          addToastRef.current?.(
+            body || '🚌 Your bus has started its journey! Track it live now.',
+            'success'
+          );
+        } else if (data.type === 'TRIP_ENDED') {
+          addToastRef.current?.(
+            body || '🏁 Your bus trip has ended.',
+            'info'
+          );
+        } else if (title || body) {
+          // Generic notification fallback
+          addToastRef.current?.(body || title || 'New notification', 'info');
+        }
       });
     } catch {
-      // Silently fail - foreground messaging not critical
+      // Silently fail — foreground messaging not critical
     }
 
     return () => {
-      if (unsubscribe) {
-        unsubscribe();
-      }
+      if (unsubscribe) unsubscribe();
     };
-  }, [isSupported, currentUser, addToast]);
+  }, [currentUser?.uid]);
 
   // This component doesn't render any UI
   return null;

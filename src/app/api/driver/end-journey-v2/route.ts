@@ -16,6 +16,7 @@ import { FieldValue } from 'firebase-admin/firestore';
 import { withSecurity } from '@/lib/security/api-security';
 import { EndTripSchema } from '@/lib/security/validation-schemas';
 import { RateLimits } from '@/lib/security/rate-limiter';
+import { notifyRoute } from '@/lib/services/fcm-notification-service';
 
 interface CleanupStats {
   busLocations: number;
@@ -217,101 +218,7 @@ async function broadcastTripEnd(
   }
 }
 
-/**
- * Send FCM notifications using properly initialized Firebase Admin Messaging
- */
-async function sendTripEndFCM(
-  busId: string,
-  busNumber: string,
-  activeTripId: string
-): Promise<void> {
-  if (!messaging) {
-    console.warn('⚠️ Firebase Admin Messaging not initialized - cannot send FCM notifications');
-    return;
-  }
-
-  try {
-    console.log('📲 Sending trip end FCM notifications...');
-
-    let studentsSnapshot = await adminDb
-      .collection('students')
-      .where('assignedBusId', '==', busId)
-      .get();
-
-    if (studentsSnapshot.empty) {
-      const altSnapshot1 = await adminDb.collection('students').where('busId', '==', busId).get();
-      const altSnapshot2 = await adminDb.collection('students').where('bus_id', '==', busId).get();
-      studentsSnapshot = altSnapshot1.empty ? altSnapshot2 : altSnapshot1;
-    }
-
-    if (studentsSnapshot.empty) {
-      console.log('ℹ️ No students found for this bus, skipping FCM');
-      return;
-    }
-
-    const allTokens: string[] = [];
-    const tokenToUidMap: Map<string, string> = new Map();
-
-    studentsSnapshot.docs.forEach((doc: any) => {
-      const data = doc.data();
-      if (data.fcmToken) {
-        allTokens.push(data.fcmToken);
-        tokenToUidMap.set(data.fcmToken, doc.id);
-      }
-    });
-
-    console.log(`📲 Found ${allTokens.length} FCM tokens from ${studentsSnapshot.size} students`);
-
-    if (allTokens.length === 0) {
-      console.log('ℹ️ No FCM tokens found for students on this bus');
-      return;
-    }
-
-    const sendResult = await messaging.sendEach(
-      allTokens.map(token => ({
-        token,
-        notification: {
-          title: '🏁 Bus Trip Ended',
-          body: `Your trip for Bus ${busNumber} has ended successfully!`
-        },
-        data: {
-          type: 'trip_ended',
-          tripId: activeTripId,
-          busId,
-          busNumber
-        }
-      }))
-    );
-
-    console.log(`✅ FCM send results: ${sendResult.successCount} success, ${sendResult.failureCount} failed`);
-
-    // Clean up stale/invalid tokens automatically
-    if (sendResult.failureCount > 0) {
-      sendResult.responses.forEach((resp, idx) => {
-        if (!resp.success && resp.error) {
-          const errorCode = resp.error.code;
-          if (
-            errorCode === 'messaging/invalid-registration-token' ||
-            errorCode === 'messaging/registration-token-not-registered'
-          ) {
-            const staleToken = allTokens[idx];
-            const uid = tokenToUidMap.get(staleToken);
-            if (uid) {
-              console.log(`🗑️ Removing stale FCM token for student ${uid}`);
-              adminDb.collection('students').doc(uid).update({
-                fcmToken: null,
-                fcmUpdatedAt: new Date().toISOString()
-              }).catch(() => {});
-            }
-          }
-        }
-      });
-    }
-  } catch (fcmError) {
-    console.error('❌ FCM notification error (non-critical):', fcmError);
-  }
-}
-
+// sendTripEndFCM removed: we now use the centralized notifyRoute from fcm-notification-service.ts which is 100% reliable and handles both token subcollections and route fallbacks.
 export const POST = withSecurity(
   async (request, { auth, body }) => {
     const startTime = Date.now();
@@ -405,8 +312,16 @@ export const POST = withSecurity(
     // Broadcast trip end to all subscribers
     await broadcastTripEnd(supabase, busId, activeTripId, busNumber);
 
-    // Send FCM notifications to students (uses proper Firebase Admin Messaging)
-    await sendTripEndFCM(busId, busNumber, activeTripId);
+    // Send FCM notifications to students (uses the 100% reliable centralized service)
+    await notifyRoute({
+      routeId: busData?.routeId || busData?.route_id || busId, // Fallback if route_id not set directly
+      tripId: activeTripId,
+      routeName: busData?.routeName || `Route for Bus ${busNumber}`,
+      busId,
+      eventType: 'TRIP_ENDED'
+    }).catch(err => {
+      console.error('❌ FCM notification error on end-journey-v2:', err);
+    });
 
     const totalElapsed = Date.now() - startTime;
 

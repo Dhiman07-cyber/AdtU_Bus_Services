@@ -136,13 +136,25 @@ export default function NotificationFormV2({ open, onClose, onSuccess, mode = 'c
 
   useEffect(() => {
     if (open && currentUser) {
+      if (userRole === 'driver') {
+        const driverRoute = userData?.routeId || userData?.assignedRouteId;
+        const driverBus = userData?.busId || userData?.assignedBusId;
+        if (driverRoute) {
+          setTargetType('route_based');
+          setSelectedRoutes([driverRoute]);
+        } else if (driverBus) {
+          setTargetType('bus_based');
+          setSelectedBuses([driverBus]);
+        }
+      }
+
       if (targetType === 'bus_based' || targetType === 'route_based' || targetType === 'specific_users') {
         loadOptions();
       }
       loadFullRoutes();
       loadFullBuses();
     }
-  }, [open, targetType, specificUserRoleFilter, currentUser]);
+  }, [open, targetType, specificUserRoleFilter, currentUser, userRole, userData]);
 
   const loadFullBuses = async () => {
     try {
@@ -263,8 +275,20 @@ export default function NotificationFormV2({ open, onClose, onSuccess, mode = 'c
     setSpecificUserRoleFilter(undefined);
     setExpiryDays("1");
     setDropoffAssignments([]);
-    setDropoffTargetRole('all');
+    setDropoffTargetRole('student');
     setDropoffShift('morning');
+    
+    if (userRole === 'driver') {
+      const driverRoute = userData?.routeId || userData?.assignedRouteId;
+      const driverBus = userData?.busId || userData?.assignedBusId;
+      if (driverRoute) {
+        setTargetType('route_based');
+        setSelectedRoutes([driverRoute]);
+      } else if (driverBus) {
+        setTargetType('bus_based');
+        setSelectedBuses([driverBus]);
+      }
+    }
   };
 
   const handleDiscard = () => {
@@ -330,12 +354,13 @@ export default function NotificationFormV2({ open, onClose, onSuccess, mode = 'c
             type: notificationType,
             title, content: message,
             // For dropoff type, use dedicated targeting
+            // For dropoff type, driver sends to students only by default anyway via dropoffTargetRole limit
             targetType: notificationType === 'dropoff' ? (dropoffTargetRole === 'all' ? 'all_role' : 'all_role') : targetType,
             targetRole: notificationType === 'dropoff' ? (dropoffTargetRole === 'all' ? undefined : dropoffTargetRole) : targetRole,
             targetShift: notificationType === 'dropoff' ? dropoffShift : targetShift,
-            targetBusIds: targetType === 'bus_based' ? selectedBuses : undefined,
-            targetRouteIds: targetType === 'route_based' ? selectedRoutes : undefined,
-            targetUserIds: targetType === 'specific_users' ? selectedUsers : undefined,
+            targetBusIds: notificationType === 'dropoff' ? undefined : (targetType === 'bus_based' ? selectedBuses : undefined),
+            targetRouteIds: notificationType === 'dropoff' ? undefined : (targetType === 'route_based' ? selectedRoutes : undefined),
+            targetUserIds: notificationType === 'dropoff' ? undefined : (targetType === 'specific_users' ? selectedUsers : undefined),
             expiryAt: expiryTimestamp,
             // For dropoff, send to both roles if 'all' is selected
             sendToAllRoles: notificationType === 'dropoff' && dropoffTargetRole === 'all',
@@ -391,14 +416,14 @@ export default function NotificationFormV2({ open, onClose, onSuccess, mode = 'c
         >
           {/* Section 1: Template & Target */}
           <div className="bg-slate-50/50 dark:bg-white/[0.02] border border-slate-200/60 dark:border-white/[0.05] rounded-2xl p-4 shadow-sm space-y-4">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className={`grid grid-cols-1 ${userRole === 'driver' ? '' : 'md:grid-cols-2'} gap-4`}>
               <div className="space-y-1.5">
                 <Label className="text-[10px] font-bold uppercase text-slate-400 tracking-[0.1em] ml-1">Message Template</Label>
                 <Select value={selectedTemplate} onValueChange={applyTemplate}>
                   <SelectTrigger className="h-9 border-slate-200/60 dark:border-slate-800/50 bg-white dark:bg-slate-900/50 rounded-lg font-medium focus:ring-blue-500/20 transition-all text-xs shadow-sm">
                     <SelectValue placeholder="Select Template" />
                   </SelectTrigger>
-                  <SelectContent className="rounded-lg border-slate-200 dark:border-slate-800 shadow-xl max-h-[350px]">
+                  <SelectContent className="rounded-lg border-slate-200 dark:border-slate-800 shadow-xl max-h-[350px] z-[100]">
                     <SelectItem value="custom" className="font-semibold italic py-1.5 text-xs">✏️ Custom Blank</SelectItem>
 
                     {/* Notice Templates */}
@@ -422,31 +447,49 @@ export default function NotificationFormV2({ open, onClose, onSuccess, mode = 'c
                 </Select>
               </div>
 
-              <div className="space-y-1.5">
-                <Label className="text-[10px] font-bold uppercase text-slate-400 tracking-[0.1em] ml-1">Target Audience</Label>
-                <Select
-                  value={targetType}
-                  onValueChange={(v) => setTargetType(v as TargetType)}
-                  disabled={notificationType === 'dropoff'}
-                >
-                  <SelectTrigger className="h-9 border-slate-200/60 dark:border-slate-800/50 bg-white dark:bg-slate-900/50 rounded-lg font-medium focus:ring-blue-500/20 transition-all text-xs shadow-sm">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent className="rounded-lg border-slate-200 dark:border-slate-800 shadow-xl">
-                    <SelectItem value="all_users" className="py-1.5 text-xs">All Users</SelectItem>
-                    <SelectItem value="all_role" className="py-1.5 text-xs">By Role</SelectItem>
-                    <SelectItem value="shift_based" className="py-1.5 text-xs">By Shift</SelectItem>
-                    <SelectItem value="bus_based" className="py-1.5 text-xs">By Bus</SelectItem>
-                    <SelectItem value="route_based" className="py-1.5 text-xs">By Route</SelectItem>
-                    <SelectItem value="specific_users" className="py-1.5 text-xs">Specific Users</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
+              {userRole !== 'driver' && (
+                <div className="space-y-1.5">
+                  <Label className="text-[10px] font-bold uppercase text-slate-400 tracking-[0.1em] ml-1">Target Audience</Label>
+                  <Select
+                    value={targetType}
+                    onValueChange={(v) => setTargetType(v as TargetType)}
+                    disabled={notificationType === 'dropoff'}
+                  >
+                    <SelectTrigger className="h-9 border-slate-200/60 dark:border-slate-800/50 bg-white dark:bg-slate-900/50 rounded-lg font-medium focus:ring-blue-500/20 transition-all text-xs shadow-sm">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent className="rounded-lg border-slate-200 dark:border-slate-800 shadow-xl z-[100]">
+                      <SelectItem value="all_users" className="py-1.5 text-xs">All Users</SelectItem>
+                      <SelectItem value="all_role" className="py-1.5 text-xs">By Role</SelectItem>
+                      <SelectItem value="shift_based" className="py-1.5 text-xs">By Shift</SelectItem>
+                      <SelectItem value="bus_based" className="py-1.5 text-xs">By Bus</SelectItem>
+                      <SelectItem value="route_based" className="py-1.5 text-xs">By Route</SelectItem>
+                      <SelectItem value="specific_users" className="py-1.5 text-xs">Specific Users</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+              {userRole === 'driver' && notificationType !== 'dropoff' && (
+                <div className="space-y-1.5">
+                  <Label className="text-[10px] font-bold uppercase text-slate-400 tracking-[0.1em] ml-1">Target Audience</Label>
+                  <div className="h-9 px-3 flex items-center border border-slate-200/60 dark:border-slate-800/50 bg-slate-50 dark:bg-slate-900/30 rounded-lg font-medium text-xs shadow-sm text-slate-500">
+                    Your Assigned Route
+                  </div>
+                </div>
+              )}
+              {userRole === 'driver' && notificationType === 'dropoff' && (
+                <div className="space-y-1.5">
+                  <Label className="text-[10px] font-bold uppercase text-slate-400 tracking-[0.1em] ml-1">Target Audience</Label>
+                  <div className="h-9 px-3 flex items-center border border-slate-200/60 dark:border-slate-800/50 bg-slate-50 dark:bg-slate-900/30 rounded-lg font-medium text-xs shadow-sm text-slate-500">
+                    All Students
+                  </div>
+                </div>
+              )}
             </div>
           </div>
 
           {/* Dynamic Target Selection */}
-          {notificationType !== 'dropoff' && (targetType === 'all_role' || targetType === 'shift_based' || targetType === 'bus_based' || targetType === 'route_based' || targetType === 'specific_users') && (
+          {notificationType !== 'dropoff' && userRole !== 'driver' && (targetType === 'all_role' || targetType === 'shift_based' || targetType === 'bus_based' || targetType === 'route_based' || targetType === 'specific_users') && (
             <div className="bg-slate-50/50 dark:bg-white/[0.02] border border-slate-200/60 dark:border-white/[0.05] rounded-2xl p-4 shadow-sm animate-in fade-in slide-in-from-top-4 duration-500">
               <div className="space-y-3">
                 {targetType === 'all_role' && (
@@ -528,7 +571,7 @@ export default function NotificationFormV2({ open, onClose, onSuccess, mode = 'c
                       </div>
                       <Select value={specificUserRoleFilter || 'all'} onValueChange={v => setSpecificUserRoleFilter(v === 'all' ? undefined : v as UserRole)}>
                         <SelectTrigger className="w-24 h-8 text-[11px] font-semibold border-slate-200 dark:border-slate-800 rounded-lg bg-white dark:bg-slate-950"><SelectValue placeholder="Role" /></SelectTrigger>
-                        <SelectContent className="rounded-lg"><SelectItem value="all">All</SelectItem><SelectItem value="driver">Drivers</SelectItem><SelectItem value="student">Students</SelectItem></SelectContent>
+                        <SelectContent className="rounded-lg z-[100]"><SelectItem value="all">All</SelectItem><SelectItem value="driver">Drivers</SelectItem><SelectItem value="student">Students</SelectItem></SelectContent>
                       </Select>
                     </div>
                     <div className="max-h-40 overflow-y-auto space-y-1.5 pr-1 custom-scrollbar">
@@ -585,13 +628,13 @@ export default function NotificationFormV2({ open, onClose, onSuccess, mode = 'c
                   <div className="space-y-1.5">
                     <Label className="text-[8px] sm:text-[9px] font-black uppercase text-slate-400 tracking-widest ml-0.5">Send To</Label>
                     <Select value={dropoffTargetRole} onValueChange={(v) => setDropoffTargetRole(v as any)}>
-                      <SelectTrigger className="h-9 border-slate-200/60 dark:border-slate-800/50 bg-white dark:bg-slate-900/50 rounded-lg font-semibold text-xs">
+                      <SelectTrigger disabled={userRole === 'driver'} className="h-9 border-slate-200/60 dark:border-slate-800/50 bg-white dark:bg-slate-900/50 rounded-lg font-semibold text-xs">
                         <SelectValue />
                       </SelectTrigger>
-                      <SelectContent className="rounded-lg">
-                        <SelectItem value="all" className="py-1.5 text-xs font-semibold">All (Students + Drivers)</SelectItem>
+                      <SelectContent className="rounded-lg z-[100]">
+                        {userRole !== 'driver' && <SelectItem value="all" className="py-1.5 text-xs font-semibold">All (Students + Drivers)</SelectItem>}
                         <SelectItem value="student" className="py-1.5 text-xs">Students Only</SelectItem>
-                        <SelectItem value="driver" className="py-1.5 text-xs">Drivers Only</SelectItem>
+                        {userRole !== 'driver' && <SelectItem value="driver" className="py-1.5 text-xs">Drivers Only</SelectItem>}
                       </SelectContent>
                     </Select>
                   </div>
@@ -601,7 +644,7 @@ export default function NotificationFormV2({ open, onClose, onSuccess, mode = 'c
                       <SelectTrigger className="h-9 border-slate-200/60 dark:border-slate-800/50 bg-white dark:bg-slate-900/50 rounded-lg font-semibold text-xs">
                         <SelectValue />
                       </SelectTrigger>
-                      <SelectContent className="rounded-lg">
+                      <SelectContent className="rounded-lg z-[100]">
                         <SelectItem value="morning" className="py-1.5 text-xs font-semibold">Morning</SelectItem>
                         <SelectItem value="evening" className="py-1.5 text-xs">Evening</SelectItem>
                         <SelectItem value="both" className="py-1.5 text-xs">Both Shifts</SelectItem>
@@ -640,12 +683,12 @@ export default function NotificationFormV2({ open, onClose, onSuccess, mode = 'c
             {/* Cleanup Selector */}
             <div className="flex items-center gap-2 px-3 py-2 bg-slate-50 dark:bg-slate-900/50 rounded-lg border border-slate-200/60 dark:border-slate-800/50">
               <Clock className="h-3.5 w-3.5 text-orange-500" />
-              <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Cleanup:</span>
+              <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider mr-2">Cleanup:</span>
               <Select value={expiryDays} onValueChange={setExpiryDays}>
-                <SelectTrigger className="h-6 w-auto border-none bg-transparent p-0 text-xs font-bold text-slate-700 dark:text-slate-200 focus:ring-0">
+                <SelectTrigger className="ml-5 h-6 w-auto border-none bg-transparent p-0 text-xs font-bold text-slate-700 dark:text-slate-200 focus:ring-0">
                   <SelectValue />
                 </SelectTrigger>
-                <SelectContent className="rounded-lg">
+                <SelectContent className="rounded-lg z-[100]">
                   {[1, 2, 3, 4, 5, 6, 7].map(d => <SelectItem key={d} value={d.toString()}>{d} Day{d > 1 ? 's' : ''}</SelectItem>)}
                 </SelectContent>
               </Select>

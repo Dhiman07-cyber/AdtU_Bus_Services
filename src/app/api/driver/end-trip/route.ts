@@ -2,6 +2,8 @@
  * POST /api/driver/end-trip
  * 
  * End a trip cleanly, releasing the lock.
+ * Sends FCM push notifications to students and broadcasts via Supabase.
+ * Cleans up all trip-related data from Supabase tables.
  * 
  * Request body:
  * - tripId?: string
@@ -13,7 +15,9 @@
  */
 
 import { NextResponse } from 'next/server';
+import { db as adminDb } from '@/lib/firebase-admin';
 import { tripLockService } from '@/lib/services/trip-lock-service';
+import { notifyRoute } from '@/lib/services/fcm-notification-service';
 import { createClient } from '@supabase/supabase-js';
 import { withSecurity } from '@/lib/security/api-security';
 import { EndTripSchema } from '@/lib/security/validation-schemas';
@@ -27,83 +31,115 @@ export const POST = withSecurity(
 
         console.log(`🏁 Ending trip for driver ${driverId}, bus ${busId}...`);
 
-        // Get trip ID if not provided
+        // ── Resolve active trip ID and route info ────────────────────────────
         let activeTripId = tripId;
-        if (!activeTripId) {
-            const activeTrip = await tripLockService.getActiveTrip(busId);
-            if (activeTrip) {
-                activeTripId = activeTrip.trip_id;
-            } else {
-                console.warn('No active trip found for bus:', busId);
+        let routeId = '';
+        let routeName = 'your route';
+
+        // Get trip details from trip lock (before ending it)
+        const activeTrip = await tripLockService.getActiveTrip(busId);
+        if (activeTrip) {
+            if (!activeTripId) activeTripId = activeTrip.trip_id;
+            routeId = activeTrip.route_id || '';
+        }
+
+        // Fetch route name for FCM notification
+        if (routeId) {
+            try {
+                const routeDoc = await adminDb.collection('routes').doc(routeId).get();
+                if (routeDoc.exists) {
+                    const routeData = routeDoc.data();
+                    routeName = routeData?.name || routeData?.routeName || 'your route';
+                }
+            } catch (e) {
+                console.warn('Could not fetch route name:', e);
             }
         }
 
-        // End trip using TripLock सर्विस
+        // ── End trip lock ────────────────────────────────────────────────────
         if (activeTripId) {
-            const result = await tripLockService.endTrip(
-                activeTripId,
-                driverId,
-                busId
-            );
-
+            const result = await tripLockService.endTrip(activeTripId, driverId, busId);
             if (!result.success) {
-                console.error('Error ending trip:', result.reason);
+                console.error('Error ending trip lock:', result.reason);
             }
+        } else {
+            console.warn('No active trip ID found for bus:', busId);
         }
 
-        // Initialize Supabase for cleanup
+        // ── Supabase cleanup + broadcast ─────────────────────────────────────
         const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
         const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
         if (supabaseUrl && supabaseKey) {
             const supabase = createClient(supabaseUrl, supabaseKey);
+            const now = new Date().toISOString();
 
-            // Delete driver_status row completely
-            await supabase
-                .from('driver_status')
-                .delete()
-                .eq('bus_id', busId);
-
-            // Delete bus_locations for this bus
-            await supabase
-                .from('bus_locations')
-                .delete()
-                .eq('bus_id', busId);
-
-            // Delete all waiting flags for this bus
-            await supabase
-                .from('waiting_flags')
-                .delete()
-                .eq('bus_id', busId);
-
-            // Delete driver location updates for this driver & bus
-            await supabase
-                .from('driver_location_updates')
-                .delete()
-                .eq('driver_uid', driverId)
-                .eq('bus_id', busId);
-
-            // Broadcast trip end
-            const channels = [
-                `trip-status-${busId}`,
-                `bus_${busId}_students`,
-                `bus_location_${busId}`
+            // Parallel cleanup of all trip-related tables
+            const cleanupPromises = [
+                supabase.from('driver_status').delete().eq('bus_id', busId),
+                supabase.from('bus_locations').delete().eq('bus_id', busId),
+                supabase.from('waiting_flags').delete().eq('bus_id', busId),
+                supabase.from('driver_location_updates').delete().eq('driver_uid', driverId).eq('bus_id', busId),
             ];
 
-            const payload = {
+            const cleanupResults = await Promise.allSettled(cleanupPromises);
+            cleanupResults.forEach((r, i) => {
+                if (r.status === 'rejected') {
+                    console.error(`⚠️ Cleanup task ${i} failed:`, r.reason);
+                }
+            });
+
+            // Broadcast trip end on the main channel
+            // Must subscribe first, then send, then unsubscribe
+            const broadcastPayload = {
                 busId,
                 tripId: activeTripId,
                 event: 'trip_ended',
-                timestamp: new Date().toISOString()
+                timestamp: now,
             };
 
-            for (const channelName of channels) {
-                const channel = supabase.channel(channelName);
-                await channel.send({
-                    type: 'broadcast',
-                    event: 'trip_ended',
-                    payload
+            const channel = supabase.channel(`trip-status-${busId}`);
+            try {
+                await new Promise<void>((resolve, reject) => {
+                    const timeout = setTimeout(() => {
+                        supabase.removeChannel(channel);
+                        reject(new Error('Broadcast subscribe timeout'));
+                    }, 3000);
+
+                    channel.subscribe(async (status) => {
+                        if (status === 'SUBSCRIBED') {
+                            clearTimeout(timeout);
+                            try {
+                                await channel.send({
+                                    type: 'broadcast',
+                                    event: 'trip_ended',
+                                    payload: broadcastPayload,
+                                });
+                            } finally {
+                                await supabase.removeChannel(channel);
+                            }
+                            resolve();
+                        }
+                    });
                 });
+            } catch (err: any) {
+                console.warn('⚠️ Broadcast send failed (non-critical):', err.message);
+            }
+        }
+
+        // ── Send FCM Push Notifications ──────────────────────────────────────
+        // Await notification send to ensure it executes before Next.js kills the request context
+        if (activeTripId && busId) {
+            try {
+                await notifyRoute({
+                    routeId,
+                    tripId: activeTripId,
+                    routeName,
+                    busId,
+                    eventType: 'TRIP_ENDED',
+                });
+            } catch (err) {
+                console.error('❌ FCM end-trip notification error:', err);
             }
         }
 
@@ -115,13 +151,13 @@ export const POST = withSecurity(
             tripId: activeTripId,
             busId,
             timestamp: new Date().toISOString(),
-            processingTimeMs: elapsed
+            processingTimeMs: elapsed,
         });
     },
     {
         requiredRoles: ['driver', 'admin'],
         schema: EndTripSchema,
-        rateLimit: RateLimits.CREATE, // Prevent spam
-        allowBodyToken: true
+        rateLimit: RateLimits.CREATE,
+        allowBodyToken: true,
     }
 );

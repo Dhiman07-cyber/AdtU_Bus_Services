@@ -145,7 +145,9 @@ export const POST = withSecurity(
             driverId: driverUid,
             shift: 'both', // Default shift
             since: FieldValue.serverTimestamp(),
-            expiresAt: Timestamp.fromDate(expiresAt)
+            expiresAt: Timestamp.fromDate(expiresAt),
+            startFcmSent: false,
+            endFcmSent: false,
           },
           activeDriverId: driverUid,
           activeTripId: tripId
@@ -362,17 +364,33 @@ export const POST = withSecurity(
 
     try {
       const studentChannel = supabase.channel(`trip-status-${busId}`);
-      await studentChannel.send({
-        type: 'broadcast',
-        event: 'trip_started',
-        payload: {
-          busId,
-          routeId,
-          driverUid,
-          tripId,
-          routeName: routeName,
-          timestamp: now.toISOString()
-        }
+      await new Promise<void>((resolve) => {
+        let isTimedOut = false;
+        const timeout = setTimeout(() => {
+          isTimedOut = true;
+          resolve();
+        }, 3000); // 3 sec timeout
+
+        studentChannel.subscribe(async (status) => {
+          if (isTimedOut) return;
+          if (status === 'SUBSCRIBED') {
+            await studentChannel.send({
+              type: 'broadcast',
+              event: 'trip_started',
+              payload: {
+                busId,
+                routeId,
+                driverUid,
+                tripId,
+                routeName: routeName,
+                timestamp: now.toISOString()
+              }
+            });
+            clearTimeout(timeout);
+            supabase.removeChannel(studentChannel);
+            resolve();
+          }
+        });
       });
     } catch (broadcastError) {
       // Non critical

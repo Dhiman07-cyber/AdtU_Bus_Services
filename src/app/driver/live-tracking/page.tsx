@@ -1451,18 +1451,23 @@ export default function DriverLiveTrackingPage() {
       // Broadcast trip started event to all students
       try {
         const broadcastChannel = supabase.channel(`trip-status-${busData.busId}`);
-        await broadcastChannel.send({
-          type: "broadcast",
-          event: "trip_started",
-          payload: {
-            busId: busData.busId,
-            routeId: routeData.routeId,
-            tripId: result.tripId,
-            routeName: routeData.routeName,
-            timestamp: Date.now(),
-          },
+        broadcastChannel.subscribe(async (status) => {
+          if (status === 'SUBSCRIBED') {
+            await broadcastChannel.send({
+              type: "broadcast",
+              event: "trip_started",
+              payload: {
+                busId: busData.busId,
+                routeId: routeData.routeId,
+                tripId: result.tripId,
+                routeName: routeData.routeName,
+                timestamp: Date.now(),
+              },
+            });
+            console.log("📢 Trip started broadcast sent to students");
+            supabase.removeChannel(broadcastChannel);
+          }
         });
-        console.log("📢 Trip started broadcast sent to students");
       } catch (broadcastError) {
         console.warn("⚠️ Failed to broadcast trip start:", broadcastError);
       }
@@ -1553,13 +1558,21 @@ export default function DriverLiveTrackingPage() {
         console.log("🗺️ Clearing map markers and resetting view");
 
         // Broadcast trip ended event
-        const channel = supabase.channel(`trip-status-${busData.busId}`);
-        await channel.send({
-          type: "broadcast",
-          event: "trip_ended",
-          payload: { busId: busData.busId, timestamp: Date.now() },
-        });
-        await supabase.removeChannel(channel);
+        try {
+          const channel = supabase.channel(`trip-status-${busData.busId}`);
+          channel.subscribe(async (status) => {
+            if (status === 'SUBSCRIBED') {
+              await channel.send({
+                type: "broadcast",
+                event: "trip_ended",
+                payload: { busId: busData.busId, timestamp: Date.now() },
+              });
+              await supabase.removeChannel(channel);
+            }
+          });
+        } catch (e) {
+          console.warn('Failed to broadcast trip end on client:', e);
+        }
 
         console.log("✅ Trip ended - map cleared and broadcast sent");
 

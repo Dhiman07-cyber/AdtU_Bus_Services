@@ -254,8 +254,11 @@ export default function StudentDashboard() {
       try {
         console.log('🔍 Checking trip status for bus:', busId);
 
-        // Use API endpoint that bypasses RLS with service role key
-        const response = await fetch(`/api/student/trip-status?busId=${encodeURIComponent(busId)}`);
+        // Use API endpoint with auth token
+        const token = await currentUser?.getIdToken();
+        const response = await fetch(`/api/student/trip-status?busId=${encodeURIComponent(busId)}`, {
+          headers: token ? { Authorization: `Bearer ${token}` } : {}
+        });
 
         // Handle non-OK responses gracefully
         if (!response.ok) {
