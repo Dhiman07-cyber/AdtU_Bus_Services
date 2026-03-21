@@ -312,7 +312,6 @@ export function useDriverStatus(busId: string | null | undefined) {
           filter: `bus_id=eq.${busId}`
         },
         (payload) => {
-          console.log('[useDriverStatus] Real-time update:', payload);
           if (isMounted) {
             if (payload.eventType === 'DELETE') {
               setDriverStatus(null);

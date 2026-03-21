@@ -28,7 +28,6 @@ export async function POST(request: NextRequest) {
     // Verify webhook signature
     const secret = process.env.RAZORPAY_WEBHOOK_SECRET || '';
     if (!secret) {
-      console.error('❌ RAZORPAY_WEBHOOK_SECRET not configured');
       return NextResponse.json({ error: 'Webhook secret not configured' }, { status: 500 });
     }
 
@@ -43,7 +42,6 @@ export async function POST(request: NextRequest) {
         Buffer.from(signature, 'utf8'),
         Buffer.from(expectedSignature, 'utf8')
       )) {
-      console.error('❌ Invalid webhook signature');
       return NextResponse.json({ error: 'Invalid signature' }, { status: 401 });
     }
 
@@ -54,18 +52,12 @@ export async function POST(request: NextRequest) {
     if (event === 'payment.captured' && paymentEntity) {
       const { id: paymentId, order_id, amount, status, method } = paymentEntity;
 
-      console.log('\n🔔 RAZORPAY WEBHOOK - Payment Captured');
-      console.log('💳 Payment ID:', paymentId);
-      console.log('📦 Order ID:', order_id);
-
       // SECURITY: Fetch order details from Razorpay to get TRUSTED data
       // Don't trust payment notes - they can be different from order notes
       let orderDetails;
       try {
         orderDetails = await fetchOrderDetails(order_id);
-        console.log('📋 Order details fetched from Razorpay');
       } catch (error) {
-        console.error('❌ Failed to fetch order details:', error);
         // Fallback to payment notes if order fetch fails
         orderDetails = { notes: paymentEntity.notes || {} };
       }
@@ -78,14 +70,10 @@ export async function POST(request: NextRequest) {
       const studentName = notes.studentName || notes.userName || 'Unknown';
 
       if (!enrollmentId && !userId) {
-        console.error('No enrollment ID or user ID in order notes');
         return NextResponse.json({ error: 'Missing enrollment/user ID' }, { status: 400 });
       }
 
-      console.log('👤 Enrollment ID:', enrollmentId);
-      console.log('🔑 User ID:', userId);
-      console.log('⏱️ Duration Years:', durationYears);
-      console.log('💰 Amount:', amount / 100);
+
 
       // Fetch dynamic deadline config
       const deadlineConfig = await getDeadlineConfig();
@@ -106,7 +94,6 @@ export async function POST(request: NextRequest) {
           .get();
 
         if (studentsQuery.empty) {
-          console.error('❌ Student not found with enrollment ID:', enrollmentId);
           return NextResponse.json({ error: 'Student not found' }, { status: 404 });
         }
 
@@ -130,7 +117,6 @@ export async function POST(request: NextRequest) {
           const processedPaymentDoc = await transaction.get(processedPaymentRef);
 
           if (processedPaymentDoc.exists) {
-            console.log(`⚠️ Payment ${paymentId} already processed (atomic check), skipping`);
             throw new Error('ALREADY_PROCESSED');
           }
 
@@ -149,20 +135,13 @@ export async function POST(request: NextRequest) {
           const studentDoc = await transaction.get(studentRef);
 
           if (!studentDoc.exists) {
-            console.error('❌ Student document not found:', enrollmentId || userId);
             throw new Error('Student document not found');
           }
 
           const studentData = studentDoc.data();
           actualStudentName = studentData?.fullName || studentName;
 
-          console.log('\n📋 EXISTING STUDENT DATA:');
-          console.log('Name:', actualStudentName);
-          console.log('Current validUntil:', studentData?.validUntil);
-          console.log('Current sessionStartYear:', studentData?.sessionStartYear);
-          console.log('Current sessionEndYear:', studentData?.sessionEndYear);
-          console.log('Current durationYears:', studentData?.durationYears);
-          console.log('Current status:', studentData?.status);
+
 
           // Get existing values
           const existingSessionStartYear = studentData?.sessionStartYear || new Date().getFullYear();
@@ -173,7 +152,7 @@ export async function POST(request: NextRequest) {
             ? (existingValidUntil.toDate ? existingValidUntil.toDate().toISOString() : new Date(existingValidUntil).toISOString())
             : null;
 
-          console.log('\n🔄 CALCULATING NEW VALUES:');
+
 
           // Calculate base year for new validity
           let baseYear = new Date().getFullYear();
@@ -181,18 +160,9 @@ export async function POST(request: NextRequest) {
 
           if (existingValidUntil) {
             const existingDate = existingValidUntil.toDate ? existingValidUntil.toDate() : new Date(existingValidUntil);
-            console.log('Existing valid until (parsed):', existingDate.toISOString());
-            console.log('Today:', now.toISOString());
-            console.log('Is service still valid?', existingDate > now);
-
             if (existingDate > now) {
               baseYear = existingSessionEndYear;
-              console.log('✅ Service active - extending from sessionEndYear:', baseYear);
-            } else {
-              console.log('⚠️ Service expired - starting fresh from current year:', baseYear);
             }
-          } else {
-            console.log('ℹ️ No existing validity - starting fresh from current year:', baseYear);
           }
 
           // Calculate new validity using dynamic config
@@ -204,14 +174,7 @@ export async function POST(request: NextRequest) {
           // Compute block dates from the new validUntil
           const blockDates = computeBlockDatesFromValidUntil(newValidUntil, deadlineConfig);
 
-          console.log('\n✨ NEW CALCULATED VALUES:');
-          console.log('New validUntil:', newValidUntil.toISOString());
-          console.log('New sessionStartYear:', newSessionStartYear, '(kept original)');
-          console.log('New sessionEndYear:', newSessionEndYear);
-          console.log('Total durationYears:', totalDurationYears, '(cumulative)');
-          console.log('Soft Block:', blockDates.softBlock);
-          console.log('Hard Block:', blockDates.hardBlock);
-          console.log('New status: active');
+
 
           // Update student document atomically with block dates
           transaction.update(studentRef, {
@@ -228,7 +191,7 @@ export async function POST(request: NextRequest) {
             updatedAt: FieldValue.serverTimestamp()
           });
 
-          console.log('\n✅ FIRESTORE UPDATE QUEUED');
+
 
           // Prepare transaction record
           transactionRecord = {
@@ -256,16 +219,10 @@ export async function POST(request: NextRequest) {
 
         // Save transaction record after successful transaction
         if (transactionRecord) {
-          console.log('\n💾 SAVING TRANSACTION RECORD');
           await PaymentTransactionService.saveTransaction(transactionRecord);
-          console.log('✅ Transaction record saved');
         }
 
-        console.log('\n🎉 SUCCESS - Webhook processing completed');
-        console.log('Payment ID:', paymentId);
-        console.log('Student:', enrollmentId || userId);
-        console.log('New valid until:', newValidUntil.toISOString());
-        console.log('Session:', newSessionStartYear, '-', newSessionEndYear);
+
 
         return NextResponse.json({ status: 'success' }, { status: 200 });
 
@@ -275,7 +232,7 @@ export async function POST(request: NextRequest) {
           return NextResponse.json({ status: 'already_processed' }, { status: 200 });
         }
 
-        console.error('Transaction failed:', error);
+        console.error('[webhook] Transaction failed:', error?.message);
 
         // Mark transaction as pending for manual reconciliation
         await PaymentTransactionService.markTransactionPending(paymentId);
@@ -290,7 +247,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ status: 'received' }, { status: 200 });
 
   } catch (error) {
-    console.error('Webhook processing error:', error);
+    console.error('[webhook] Processing error:', (error as any)?.message);
     return NextResponse.json({ error: 'Webhook processing failed' }, { status: 500 });
   }
 }

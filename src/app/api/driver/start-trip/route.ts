@@ -45,7 +45,7 @@ export const POST = withSecurity(
             );
         }
 
-        console.log(`🚀 Starting trip for driver ${driverId}, bus ${busId}, route ${routeId}...`);
+
 
         // Generate cryptographically secure trip ID
         const tripId = crypto.randomUUID();
@@ -149,16 +149,13 @@ export const POST = withSecurity(
             console.error('❌ FCM notification error:', err);
         }
 
-        const elapsed = Date.now() - startTime;
-        console.log(`✅ Trip started successfully in ${elapsed}ms`);
-
         return NextResponse.json({
             success: true,
             tripId: result.tripId,
             busId,
             routeId,
             timestamp: new Date().toISOString(),
-            processingTimeMs: elapsed
+            processingTimeMs: Date.now() - startTime
         });
     },
     {

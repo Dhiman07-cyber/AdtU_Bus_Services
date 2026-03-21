@@ -88,22 +88,19 @@ export function useRazorpay() {
     const loadScript = () => {
       // Check if already in document
       if (document.querySelector('script[src="https://checkout.razorpay.com/v1/checkout.js"]')) {
-        console.log('⏳ Razorpay script already present in DOM');
         return;
       }
 
-      console.log('🔄 Loading Razorpay script...');
+
       const script = document.createElement('script');
       script.src = 'https://checkout.razorpay.com/v1/checkout.js';
       script.async = true;
 
       script.onload = () => {
-        console.log('✅ Razorpay script loaded');
         setIsScriptLoaded(true);
       };
 
       script.onerror = () => {
-        console.error('❌ Razorpay script failed');
         setError('Failed to load payment gateway');
       };
 
@@ -156,7 +153,6 @@ export function useRazorpay() {
 
       return data;
     } catch (error: any) {
-      console.error('❌ Error creating order:', error);
       throw error;
     }
   }, [currentUser]);
@@ -168,18 +164,10 @@ export function useRazorpay() {
     response: RazorpayResponse,
     config: PaymentConfig
   ): Promise<PaymentResult> => {
-    console.log('🔄 Starting payment verification...');
-    console.log('📦 Verification data:', {
-      paymentId: response.razorpay_payment_id,
-      orderId: response.razorpay_order_id,
-      userId: config.userId,
-      purpose: config.purpose,
-      enrollmentId: config.enrollmentId,
-      durationYears: config.durationYears
-    });
+
 
     try {
-      console.log('🚀 Calling /api/payment/razorpay/verify-payment...');
+
       const token = await currentUser?.getIdToken();
 
       const requestBody = {
@@ -194,11 +182,7 @@ export function useRazorpay() {
         amount: config.amount,
       };
 
-      console.log('📤 EXACT REQUEST BODY:', JSON.stringify(requestBody, null, 2));
-      console.log('🔑 KEY VALUES:');
-      console.log('   purpose:', requestBody.purpose, '(type:', typeof requestBody.purpose, ')');
-      console.log('   userId:', requestBody.userId, '(type:', typeof requestBody.userId, ')');
-      console.log('   durationYears:', requestBody.durationYears, '(type:', typeof requestBody.durationYears, ')');
+
 
       const verifyResponse = await fetch('/api/payment/razorpay/verify-payment', {
         method: 'POST',
@@ -209,13 +193,7 @@ export function useRazorpay() {
         body: JSON.stringify(requestBody),
       });
 
-      console.log('💬 API Response status:', verifyResponse.status);
       const data = await verifyResponse.json();
-      console.log('📦 API Response data:', JSON.stringify(data, null, 2));
-      console.log('🔍 Response details:');
-      console.log('   - success:', data.success);
-      console.log('   - message:', data.message);
-      console.log('   - error:', data.error);
 
       if (data.success) {
         return {
@@ -232,12 +210,6 @@ export function useRazorpay() {
         };
       }
     } catch (error: any) {
-      console.error('❌ Payment verification error:', error);
-      console.error('Error details:', {
-        message: error.message,
-        stack: error.stack,
-        name: error.name
-      });
       return {
         success: false,
         error: error.message || 'Payment verification failed',
@@ -274,12 +246,10 @@ export function useRazorpay() {
 
     try {
       // Step 1: Create order
-      console.log('📝 Creating payment order...');
       toast.loading('Creating payment order...');
 
       const orderData = await createOrder(config);
 
-      console.log('✅ Order created:', orderData.order.id);
       toast.dismiss();
 
       // Step 2: Open Razorpay checkout with mobile optimization
@@ -321,17 +291,14 @@ export function useRazorpay() {
             },
           },
           handler: async (response: RazorpayResponse) => {
-            // Payment successful, verify it
-            console.log('💳 Payment response received');
             toast.loading('Verifying payment...');
 
             const result = await verifyPayment(response, config);
 
+            toast.dismiss();
             if (result.success) {
-              toast.dismiss();
               toast.success('Payment completed successfully!');
             } else {
-              toast.dismiss();
               toast.error(result.error || 'Payment verification failed');
             }
 
@@ -341,9 +308,6 @@ export function useRazorpay() {
           modal: {
             confirm_close: true,
             ondismiss: () => {
-              console.log('⚠️ Payment cancelled by user');
-
-              // Dismiss any loading toasts
               toast.dismiss();
 
               setIsProcessing(false);
@@ -374,7 +338,7 @@ export function useRazorpay() {
         };
 
         const handlePopState = (event: PopStateEvent) => {
-          console.log("🔙 System back button detected while Razorpay open");
+
           cleanupHistory();
         };
         // --------------------------------------
@@ -382,7 +346,6 @@ export function useRazorpay() {
         // Wrap the success handler to include history cleanup BEFORE creating Razorpay instance
         const originalHandler = options.handler;
         options.handler = async (response: RazorpayResponse) => {
-          console.log('💳 Payment handler triggered with response:', response);
           cleanupHistory();
           await originalHandler(response);
         };
@@ -401,7 +364,7 @@ export function useRazorpay() {
         try {
           razorpay = new window.Razorpay(options);
         } catch (err: any) {
-          console.error('❌ Failed to create Razorpay instance:', err);
+
           const errorMsg = 'Failed to initialize payment gateway. Please try again.';
           setError(errorMsg);
           setIsProcessing(false);
@@ -413,10 +376,9 @@ export function useRazorpay() {
 
         // Handle payment failures
         razorpay.on('payment.failed', (response: any) => {
-          console.error('❌ Payment failed response:', response);
+
           cleanupHistory();
 
-          // Dismiss any loading toasts first
           toast.dismiss();
 
           // Get user-friendly error message based on error code
@@ -424,18 +386,7 @@ export function useRazorpay() {
           let errorDesc = 'The transaction was declined by the bank.';
 
           if (response.error) {
-            const errorMetadata = response.error.metadata || {};
-            const paymentId = errorMetadata.payment_id || response.error.payment_id;
 
-            // Log full details for debugging
-            console.error('❌ Razorpay Error Details:', {
-              code: response.error.code,
-              description: response.error.description,
-              source: response.error.source,
-              step: response.error.step,
-              reason: response.error.reason,
-              metadata: response.error.metadata
-            });
 
             if (response.error.description) {
               errorMsg = response.error.description;
@@ -485,7 +436,7 @@ export function useRazorpay() {
 
           razorpay.open();
         } catch (err: any) {
-          console.error('❌ Failed to open Razorpay checkout:', err);
+
           cleanupHistory();
           const errorMsg = err.message || 'Failed to open payment checkout. Please try again.';
           setError(errorMsg);
@@ -497,7 +448,7 @@ export function useRazorpay() {
       });
 
     } catch (error: any) {
-      console.error('❌ Payment process error:', error);
+
       const errorMsg = error.message || 'Failed to process payment';
       setError(errorMsg);
       setIsProcessing(false);

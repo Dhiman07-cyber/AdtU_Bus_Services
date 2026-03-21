@@ -29,7 +29,7 @@ export const POST = withSecurity(
         const { tripId, busId } = body as any;
         const driverId = auth.uid;
 
-        console.log(`🏁 Ending trip for driver ${driverId}, bus ${busId}...`);
+
 
         // ── Resolve active trip ID and route info ────────────────────────────
         let activeTripId = tripId;
@@ -143,15 +143,14 @@ export const POST = withSecurity(
             }
         }
 
-        const elapsed = Date.now() - startTime;
-        console.log(`✅ Trip ended successfully in ${elapsed}ms`);
+
 
         return NextResponse.json({
             success: true,
             tripId: activeTripId,
             busId,
             timestamp: new Date().toISOString(),
-            processingTimeMs: elapsed,
+            processingTimeMs: Date.now() - startTime,
         });
     },
     {

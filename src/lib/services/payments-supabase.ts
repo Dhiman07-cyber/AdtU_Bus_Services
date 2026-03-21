@@ -101,7 +101,6 @@ class PaymentsSupabaseService {
             auth: { persistSession: false }
         });
         this.isInitialized = true;
-        console.log('[PaymentsSupabaseService] Initialized');
     }
 
     isReady(): boolean {
@@ -188,7 +187,6 @@ class PaymentsSupabaseService {
                 return null;
             }
 
-            console.log(`[PaymentsSupabaseService] Payment upserted: ${input.paymentId}`);
             return data?.payment_id || input.paymentId;
         } catch (err) {
             console.error('[PaymentsSupabaseService] Upsert exception:', err);
@@ -244,7 +242,6 @@ class PaymentsSupabaseService {
                 return false;
             }
 
-            console.log(`[PaymentsSupabaseService] Payment ${paymentId} → ${status}`);
             return true;
         } catch (err) {
             console.error('[PaymentsSupabaseService] Update exception:', err);
@@ -270,7 +267,6 @@ class PaymentsSupabaseService {
                 return false;
             }
 
-            console.log(`[PaymentsSupabaseService] Document signature stored for: ${paymentId}`);
             return true;
         } catch (err) {
             console.error('[PaymentsSupabaseService] Signature storage exception:', err);
@@ -306,13 +302,9 @@ class PaymentsSupabaseService {
      * Get payment by ID
      */
     async getPaymentById(paymentId: string): Promise<PaymentRecord | null> {
-        if (!this.isReady()) {
-            console.error('[PaymentsSupabaseService] Service not initialized when fetching paymentId:', paymentId);
-            return null;
-        }
+        if (!this.isReady()) return null;
 
         try {
-            console.log('[PaymentsSupabaseService] Fetching payment by ID:', paymentId);
             const { data, error } = await this.supabase
                 .from('payments')
                 .select('*')
@@ -320,13 +312,10 @@ class PaymentsSupabaseService {
                 .single();
 
             if (error) {
-                console.error('[PaymentsSupabaseService] Error fetching payment:', error.message);
                 return null;
             }
-            console.log('[PaymentsSupabaseService] Payment found successfully');
             return this.decryptRecord(data as PaymentRecord);
         } catch (err) {
-            console.error('[PaymentsSupabaseService] Exception fetching payment:', err);
             return null;
         }
     }
@@ -509,7 +498,6 @@ class PaymentsSupabaseService {
                 return [];
             }
 
-            console.log(`[PaymentsSupabaseService] Found ${data?.length || 0} completed payments for reporting`);
             return (data || []).map(p => this.decryptRecord(p as PaymentRecord));
         } catch (err) {
             console.error('[PaymentsSupabaseService] Reporting fetch exception:', err);

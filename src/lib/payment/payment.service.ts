@@ -101,9 +101,7 @@ export async function createOnlinePayment(
         approvedAt: now,
     });
 
-    if (result) {
-        console.log(`✅ Online payment created in SUPABASE: ${request.razorpayPaymentId}`);
-    } else {
+    if (!result) {
         console.error(`❌ Failed to create payment in Supabase: ${request.razorpayPaymentId}`);
     }
 
@@ -156,9 +154,7 @@ export async function createOfflinePayment(
         offlineTransactionId: request.offlineTransactionId,
     });
 
-    if (result) {
-        console.log(`📋 Offline payment created in SUPABASE (pending): ${paymentId}`);
-    } else {
+    if (!result) {
         console.error(`❌ Failed to create offline payment in Supabase: ${paymentId}`);
     }
 
@@ -222,7 +218,7 @@ export async function approveOfflinePayment(
             });
         }
 
-        console.log(`✅ Offline payment approved in SUPABASE: ${request.paymentId} by ${request.approverName}`);
+
 
         // Return compatible format
         return {
@@ -281,9 +277,6 @@ export async function rejectOfflinePayment(
         // ⚠️ PAYMENTS ARE IMMUTABLE - Cannot delete
         // Log the rejection but leave the payment record intact
         console.warn(`⚠️ Payment rejection requested for: ${request.paymentId}`);
-        console.warn(`   Rejector: ${request.rejectorName} (${request.rejectorRole})`);
-        console.warn(`   ℹ️ Payment record preserved (immutable ledger).`);
-        console.warn(`   ℹ️ Payment remains in 'Pending' status and will not be approved.`);
 
         // Note: In a production system, you might want to add a 'rejected' status
         // or store rejection info in a separate audit table.
@@ -560,17 +553,6 @@ export async function isPaymentProcessed(paymentId: string): Promise<boolean> {
     // 2. Check by Razorpay ID (Supabase) - In case paymentId passed is a Razorpay ID
     const paymentByRazorpay = await paymentsSupabaseService.getPaymentByRazorpayId(paymentId);
     if (paymentByRazorpay?.status === 'Completed') return true;
-
-    // 3. Fallback to Firestore (Legacy)
-    try {
-        const doc = await adminDb.collection('payments').doc(paymentId).get();
-        if (doc.exists) {
-            const data = doc.data();
-            if (data?.status === 'Completed' || data?.status === 'completed') return true;
-        }
-    } catch (e) {
-        // Ignore firestore error
-    }
 
     return false;
 }

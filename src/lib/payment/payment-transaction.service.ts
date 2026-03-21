@@ -1,5 +1,6 @@
 import { adminDb } from '@/lib/firebase-admin';
 import { FieldValue, Timestamp } from 'firebase-admin/firestore';
+import { paymentsSupabaseService } from '@/lib/services/payments-supabase';
 
 export interface PaymentTransaction {
   // Core Fields (Required)
@@ -55,11 +56,7 @@ export class PaymentTransactionService {
    * Save a transaction record - NOW WRITES TO SUPABASE (Firestore is blocked)
    */
   static async saveTransaction(transaction: PaymentTransaction): Promise<void> {
-    console.log('💾 Saving transaction to Supabase:', transaction.paymentId);
-
     try {
-      // Import the Supabase payments service
-      const { paymentsSupabaseService } = await import('@/lib/services/payments-supabase');
 
       // Map legacy status to unified status
       let status: 'Pending' | 'Completed' = 'Completed';
@@ -90,10 +87,8 @@ export class PaymentTransactionService {
       if (!paymentId) {
         throw new Error('Failed to save transaction to Supabase');
       }
-
-      console.log('✅ Transaction saved to Supabase successfully:', paymentId);
     } catch (error) {
-      console.error('❌ Error saving transaction to Supabase:', error);
+      console.error('[PaymentTransaction] Save error:', (error as any)?.message);
       throw error;
     }
   }
@@ -104,8 +99,7 @@ export class PaymentTransactionService {
    */
   static async isPaymentProcessed(paymentId: string): Promise<boolean> {
     try {
-      // Check Supabase first (primary)
-      const { paymentsSupabaseService } = await import('@/lib/services/payments-supabase');
+      // Check Supabase (primary source of truth)
       const supabasePayment = await paymentsSupabaseService.getPaymentById(paymentId);
 
       if (supabasePayment) {
@@ -117,8 +111,7 @@ export class PaymentTransactionService {
       if (!doc.exists) return false;
       const data = doc.data();
       return data?.status === 'Completed' || data?.status === 'completed';
-    } catch (error) {
-      console.error('Error checking payment processed status:', error);
+    } catch {
       return false;
     }
   }
@@ -128,7 +121,6 @@ export class PaymentTransactionService {
    */
   static async getStudentTransactions(studentId: string): Promise<PaymentTransaction[]> {
     try {
-      const { paymentsSupabaseService } = await import('@/lib/services/payments-supabase');
       const payments = await paymentsSupabaseService.getPaymentsByStudentUid(studentId);
 
       return payments.map(p => ({
@@ -142,8 +134,7 @@ export class PaymentTransactionService {
         validUntil: p.valid_until || '',
         status: (p.status?.toLowerCase() === 'completed' ? 'completed' : p.status?.toLowerCase() === 'pending' ? 'pending' : 'failed') as 'completed' | 'pending' | 'failed',
       }));
-    } catch (error) {
-      console.error('Error reading student transactions:', error);
+    } catch {
       return [];
     }
   }
@@ -157,7 +148,6 @@ export class PaymentTransactionService {
     studentId?: string
   ): Promise<PaymentTransaction[]> {
     try {
-      const { paymentsSupabaseService } = await import('@/lib/services/payments-supabase');
       const payments = await paymentsSupabaseService.getRecentTransactions(1000);
 
       let transactions = payments.map(p => ({
@@ -186,8 +176,7 @@ export class PaymentTransactionService {
       }
 
       return transactions;
-    } catch (error) {
-      console.error('Error reading all transactions:', error);
+    } catch {
       return [];
     }
   }
@@ -240,10 +229,9 @@ export class PaymentTransactionService {
    */
   static async markTransactionPending(paymentId: string): Promise<void> {
     try {
-      const { paymentsSupabaseService } = await import('@/lib/services/payments-supabase');
       await paymentsSupabaseService.updatePaymentStatus(paymentId, 'Completed');
-    } catch (error) {
-      console.error('Error marking transaction pending:', error);
+    } catch {
+      // Non-critical: best-effort status update
     }
   }
 }

@@ -117,41 +117,35 @@ export async function verifyApiAuth(
         let employeeId = '';
 
         if (adminDb) {
-            // Check admins collection first
-            const adminDoc = await adminDb.collection('admins').doc(uid).get();
-            if (adminDoc.exists) {
-                role = 'admin';
-                name = adminDoc.data()?.name || adminDoc.data()?.fullName || '';
-                employeeId = adminDoc.data()?.employeeId || '';
+            // PERF: Check users collection first (most common), then parallel fallback
+            const userDoc = await adminDb.collection('users').doc(uid).get();
+            if (userDoc.exists) {
+                role = userDoc.data()?.role || 'student';
+                name = userDoc.data()?.name || userDoc.data()?.fullName || '';
             } else {
-                // Check moderators collection
-                const modDoc = await adminDb.collection('moderators').doc(uid).get();
-                if (modDoc.exists) {
+                // Parallel lookup across all role-specific collections
+                const [adminDoc, modDoc, driverDoc, studentDoc] = await Promise.all([
+                    adminDb.collection('admins').doc(uid).get(),
+                    adminDb.collection('moderators').doc(uid).get(),
+                    adminDb.collection('drivers').doc(uid).get(),
+                    adminDb.collection('students').doc(uid).get(),
+                ]);
+
+                if (adminDoc.exists) {
+                    role = 'admin';
+                    name = adminDoc.data()?.name || adminDoc.data()?.fullName || '';
+                    employeeId = adminDoc.data()?.employeeId || '';
+                } else if (modDoc.exists) {
                     role = 'moderator';
                     name = modDoc.data()?.fullName || modDoc.data()?.name || '';
                     employeeId = modDoc.data()?.employeeId || modDoc.data()?.staffId || '';
-                } else {
-                    // Check drivers collection
-                    const driverDoc = await adminDb.collection('drivers').doc(uid).get();
-                    if (driverDoc.exists) {
-                        role = 'driver';
-                        name = driverDoc.data()?.fullName || driverDoc.data()?.name || '';
-                        employeeId = driverDoc.data()?.driverId || '';
-                    } else {
-                        // Fallback to users collection
-                        const userDoc = await adminDb.collection('users').doc(uid).get();
-                        if (userDoc.exists) {
-                            role = userDoc.data()?.role || 'student';
-                            name = userDoc.data()?.name || '';
-                        } else {
-                            // Check students collection
-                            const studentDoc = await adminDb.collection('students').doc(uid).get();
-                            if (studentDoc.exists) {
-                                role = 'student';
-                                name = studentDoc.data()?.fullName || studentDoc.data()?.name || '';
-                            }
-                        }
-                    }
+                } else if (driverDoc.exists) {
+                    role = 'driver';
+                    name = driverDoc.data()?.fullName || driverDoc.data()?.name || '';
+                    employeeId = driverDoc.data()?.driverId || '';
+                } else if (studentDoc.exists) {
+                    role = 'student';
+                    name = studentDoc.data()?.fullName || studentDoc.data()?.name || '';
                 }
             }
         }

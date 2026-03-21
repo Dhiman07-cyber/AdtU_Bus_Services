@@ -85,8 +85,11 @@ export function useTripLock(): UseTripLockReturn {
 
             const response = await fetch('/api/driver/can-operate', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ idToken, busId })
+                headers: { 
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${idToken}`
+                },
+                body: JSON.stringify({ busId })
             });
 
             const data = await response.json();
@@ -130,9 +133,11 @@ export function useTripLock(): UseTripLockReturn {
 
             const response = await fetch('/api/driver/start-trip', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: { 
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${idToken}`
+                },
                 body: JSON.stringify({
-                    idToken,
                     busId,
                     routeId,
                     shift
@@ -193,9 +198,11 @@ export function useTripLock(): UseTripLockReturn {
 
             const response = await fetch('/api/driver/end-trip', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: { 
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${idToken}`
+                },
                 body: JSON.stringify({
-                    idToken,
                     tripId: tripState.tripId,
                     busId: tripState.busId
                 })
@@ -239,8 +246,11 @@ export function useTripLock(): UseTripLockReturn {
 
             const response = await fetch('/api/driver/heartbeat', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ idToken, tripId, busId })
+                headers: { 
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${idToken}`
+                },
+                body: JSON.stringify({ tripId, busId })
             });
 
             if (response.ok) {
@@ -309,7 +319,6 @@ export function useTripLock(): UseTripLockReturn {
         const handleVisibilityChange = () => {
             if (document.hidden && tripState.isActive) {
                 // Page hidden - heartbeat continues in background but may be delayed
-                console.log('Page hidden, heartbeat may be delayed');
             } else if (!document.hidden && tripState.isActive && tripState.tripId && tripState.busId) {
                 // Page visible again - send immediate heartbeat
                 sendHeartbeat(tripState.tripId, tripState.busId);

@@ -9,95 +9,78 @@
  *   - status: 'pending' | 'committed' | 'rolled_back' | 'failed' | 'no-op'
  *   - limit: number (default 10)
  *   - offset: number (default 0)
+ * 
+ * SECURITY: Uses withSecurity wrapper for consistent auth, rate limiting, and validation.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-import { adminDb, adminAuth } from '@/lib/firebase-admin';
+import { withSecurity } from '@/lib/security/api-security';
+import { RateLimits } from '@/lib/security/rate-limiter';
+import { z } from 'zod';
 
-/**
- * Verify admin/moderator session
- */
-async function verifyAdminOrModerator(request: NextRequest): Promise<{ uid: string; role: string; name: string } | null> {
-    const authHeader = request.headers.get('Authorization');
-    if (!authHeader?.startsWith('Bearer ')) {
-        return null;
-    }
+// ============================================================================
+// VALIDATION SCHEMAS
+// ============================================================================
 
-    try {
-        const token = authHeader.substring(7);
-        const decodedToken = await adminAuth.verifyIdToken(token);
-        const uid = decodedToken.uid;
+const ReassignmentLogCreateSchema = z.object({
+    operationId: z.string().min(1).max(200),
+    type: z.string().min(1).max(100),
+    actorId: z.string().min(1).max(128),
+    actorLabel: z.string().min(1).max(200),
+    status: z.string().min(1).max(50),
+    summary: z.string().max(1000).optional(),
+    changes: z.array(z.any()).optional(),
+    meta: z.record(z.any()).optional(),
+    rollbackOf: z.string().max(200).optional(),
+});
 
-        // Check if user is admin or moderator
-        const [adminDoc, moderatorDoc] = await Promise.all([
-            adminDb.collection('admins').doc(uid).get(),
-            adminDb.collection('moderators').doc(uid).get(),
-        ]);
+// ============================================================================
+// SUPABASE CLIENT (lazy singleton)
+// ============================================================================
 
-        if (adminDoc.exists) {
-            const data = adminDoc.data();
-            return { uid, role: 'Admin', name: data?.name || 'Admin' };
-        }
+let _supabase: ReturnType<typeof createClient> | null = null;
 
-        if (moderatorDoc.exists) {
-            const data = moderatorDoc.data();
-            return { uid, role: 'Moderator', name: data?.name || 'Moderator' };
-        }
+function getSupabase() {
+    if (_supabase) return _supabase;
 
-        return null;
-    } catch (error) {
-        console.error('[reassignment-logs] Auth error:', error);
-        return null;
-    }
+    const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    if (!url || !key) return null;
+
+    _supabase = createClient(url, key, { auth: { persistSession: false } });
+    return _supabase;
 }
 
-export async function GET(request: NextRequest) {
-    try {
-        // Verify admin/moderator session
-        const session = await verifyAdminOrModerator(request);
-        if (!session) {
-            return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-        }
+// ============================================================================
+// GET - Query reassignment logs
+// ============================================================================
 
-        // Create Supabase client inline
-        const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-        const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-        if (!supabaseUrl || !supabaseKey) {
+export const GET = withSecurity(
+    async (request, { auth }) => {
+        const supabase = getSupabase();
+        if (!supabase) {
             return NextResponse.json({ error: 'Server configuration error' }, { status: 500 });
         }
 
-        const supabase = createClient(supabaseUrl, supabaseKey, {
-            auth: { persistSession: false }
-        });
+        const url = new URL(request.url);
+        const type = url.searchParams.get('type');
+        const status = url.searchParams.get('status');
+        const limit = Math.min(parseInt(url.searchParams.get('limit') || '10'), 100);
+        const offset = Math.max(parseInt(url.searchParams.get('offset') || '0'), 0);
 
-        // Parse query params
-        const { searchParams } = new URL(request.url);
-        const type = searchParams.get('type');
-        const status = searchParams.get('status');
-        const limit = parseInt(searchParams.get('limit') || '10');
-        const offset = parseInt(searchParams.get('offset') || '0');
-
-        // Build query
         let query = supabase
             .from('reassignment_logs')
             .select('*', { count: 'exact' })
             .order('created_at', { ascending: false });
 
-        if (type) {
-            query = query.eq('type', type);
-        }
-        if (status) {
-            query = query.eq('status', status);
-        }
-
+        if (type) query = query.eq('type', type);
+        if (status) query = query.eq('status', status);
         query = query.range(offset, offset + limit - 1);
 
         const { data, error, count } = await query;
 
         if (error) {
-            console.error('[reassignment-logs GET] Query error:', error);
             return NextResponse.json({ error: 'An unexpected error occurred' }, { status: 500 });
         }
 
@@ -111,63 +94,34 @@ export async function GET(request: NextRequest) {
                 hasMore: (count || 0) > offset + limit,
             },
         });
-
-    } catch (err: any) {
-        console.error('[reassignment-logs GET] Error:', err);
-        return NextResponse.json({ error: err.message }, { status: 500 });
+    },
+    {
+        requiredRoles: ['admin', 'moderator'],
+        rateLimit: RateLimits.READ,
     }
-}
+);
 
-export async function POST(request: NextRequest) {
-    console.log('[reassignment-logs POST] Starting...');
+// ============================================================================
+// POST - Create new reassignment log
+// ============================================================================
 
-    try {
-        // Create Supabase client inline
-        const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-        const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-        console.log('[reassignment-logs POST] Supabase URL:', supabaseUrl ? 'SET' : 'MISSING');
-        console.log('[reassignment-logs POST] Supabase Key:', supabaseKey ? 'SET' : 'MISSING');
-
-        if (!supabaseUrl || !supabaseKey) {
-            return NextResponse.json({
-                error: 'Server configuration error: Missing Supabase credentials'
-            }, { status: 500 });
+export const POST = withSecurity(
+    async (request, { auth, body }) => {
+        const supabase = getSupabase();
+        if (!supabase) {
+            return NextResponse.json({ error: 'Server configuration error' }, { status: 500 });
         }
 
-        const supabase = createClient(supabaseUrl, supabaseKey, {
-            auth: { persistSession: false }
-        });
-
-        // Verify admin/moderator session
-        const session = await verifyAdminOrModerator(request);
-        if (!session) {
-            console.error('[reassignment-logs POST] Unauthorized');
-            return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-        }
-        console.log('[reassignment-logs POST] Session verified:', session.uid);
-
-        const body = await request.json();
-        const { operationId, type, actorId, actorLabel, status, changes } = body;
-
-        if (!operationId || !type || !actorId || !actorLabel || !status) {
-            return NextResponse.json(
-                { error: 'Missing required fields' },
-                { status: 400 }
-            );
-        }
+        const { operationId, type, actorId, actorLabel, status } = body as z.infer<typeof ReassignmentLogCreateSchema>;
 
         // Delete old logs of the same type first (keep only ONE per type)
         if (type !== 'rollback') {
-            console.log(`[reassignment-logs POST] Deleting old ${type} logs...`);
             await supabase
                 .from('reassignment_logs')
                 .delete()
                 .eq('type', type);
         }
 
-        // Insert new log
-        console.log('[reassignment-logs POST] Inserting new log...');
         const { data, error } = await supabase
             .from('reassignment_logs')
             .insert([{
@@ -176,27 +130,23 @@ export async function POST(request: NextRequest) {
                 actor_id: actorId,
                 actor_label: actorLabel,
                 status,
-                summary: body.summary || null,
-                changes: changes || [],
-                meta: body.meta || {},
-                rollback_of: body.rollbackOf || null,
+                summary: (body as any).summary || null,
+                changes: (body as any).changes || [],
+                meta: (body as any).meta || {},
+                rollback_of: (body as any).rollbackOf || null,
             }])
             .select()
             .single();
 
         if (error) {
-            console.error('[reassignment-logs POST] Insert error:', error);
-            return NextResponse.json({
-                error: 'An unexpected error occurred',
-                code: error.code
-            }, { status: 500 });
+            return NextResponse.json({ error: 'An unexpected error occurred' }, { status: 500 });
         }
 
-        console.log(`[reassignment-logs POST] ✅ Success: ${operationId}`);
         return NextResponse.json({ success: true, data });
-
-    } catch (err: any) {
-        console.error('[reassignment-logs POST] Error:', err);
-        return NextResponse.json({ error: err.message }, { status: 500 });
+    },
+    {
+        requiredRoles: ['admin', 'moderator'],
+        schema: ReassignmentLogCreateSchema,
+        rateLimit: RateLimits.CREATE,
     }
-}
+);

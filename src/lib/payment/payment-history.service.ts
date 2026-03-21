@@ -1,4 +1,3 @@
-// @ts-nocheck
 /**
  * Payment History Service
  * Manages payment records in Firestore and Supabase
@@ -7,6 +6,7 @@
 import { adminDb } from '@/lib/firebase-admin';
 import { supabase } from '@/lib/supabase-client';
 import { FieldValue } from 'firebase-admin/firestore';
+import { paymentsSupabaseService } from '@/lib/services/payments-supabase';
 
 // Payment record types
 export interface PaymentRecord {
@@ -52,9 +52,6 @@ export interface PaymentSummary {
  */
 export async function savePaymentToFirestore(payment: PaymentRecord): Promise<string> {
   try {
-    // Import the Supabase payments service
-    const { paymentsSupabaseService } = await import('@/lib/services/payments-supabase');
-
     // Create payment in Supabase
     const paymentId = await paymentsSupabaseService.createPayment({
       paymentId: payment.paymentId,
@@ -99,10 +96,8 @@ export async function savePaymentToFirestore(payment: PaymentRecord): Promise<st
       }
     }
 
-    console.log('✅ Payment saved to Supabase:', paymentId);
     return paymentId;
   } catch (error) {
-    console.error('❌ Error saving payment:', error);
     throw error;
   }
 }
@@ -139,10 +134,8 @@ export async function savePaymentToSupabase(payment: PaymentRecord): Promise<str
 
     if (error) throw error;
 
-    console.log('✅ Payment saved to Supabase:', data.id);
     return data.id;
   } catch (error) {
-    console.error('❌ Error saving payment to Supabase:', error);
     throw error;
   }
 }

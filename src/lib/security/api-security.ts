@@ -111,7 +111,7 @@ function extractToken(request: Request, body: any, allowBodyToken: boolean): str
 async function resolveUserRole(uid: string): Promise<{ role: string; name: string }> {
     if (!adminDb) return { role: '', name: '' };
 
-    // Check users collection first (fastest, most common)
+    // Check users collection first (fastest, most common case)
     const userDoc = await adminDb.collection('users').doc(uid).get();
     if (userDoc.exists) {
         const data = userDoc.data();
@@ -121,17 +121,17 @@ async function resolveUserRole(uid: string): Promise<{ role: string; name: strin
         };
     }
 
-    // Fallback to role-specific collections
-    const adminDoc = await adminDb.collection('admins').doc(uid).get();
+    // PERF: Parallel lookup across all role-specific collections instead of sequential waterfall
+    const [adminDoc, modDoc, driverDoc, studentDoc] = await Promise.all([
+        adminDb.collection('admins').doc(uid).get(),
+        adminDb.collection('moderators').doc(uid).get(),
+        adminDb.collection('drivers').doc(uid).get(),
+        adminDb.collection('students').doc(uid).get(),
+    ]);
+
     if (adminDoc.exists) return { role: 'admin', name: adminDoc.data()?.name || '' };
-
-    const modDoc = await adminDb.collection('moderators').doc(uid).get();
     if (modDoc.exists) return { role: 'moderator', name: modDoc.data()?.fullName || '' };
-
-    const driverDoc = await adminDb.collection('drivers').doc(uid).get();
     if (driverDoc.exists) return { role: 'driver', name: driverDoc.data()?.fullName || '' };
-
-    const studentDoc = await adminDb.collection('students').doc(uid).get();
     if (studentDoc.exists) return { role: 'student', name: studentDoc.data()?.fullName || '' };
 
     return { role: '', name: '' };

@@ -81,10 +81,8 @@ export async function createRazorpayOrder(
     // Create order using Razorpay API
     const order = await razorpay.orders.create(options);
     
-    console.log('✅ Razorpay order created:', order.id);
     return order;
   } catch (error: any) {
-    console.error('❌ Error creating Razorpay order:', error);
     throw new Error(error.message || 'Failed to create payment order');
   }
 }
@@ -120,11 +118,13 @@ export function verifyRazorpaySignature(
       .update(body.toString())
       .digest('hex');
 
-    // Compare signatures
-    const isValid = expectedSignature === razorpay_signature;
+    // SECURITY: Use timing-safe comparison to prevent timing attacks
+    const signatureBuffer = Buffer.from(razorpay_signature, 'utf8');
+    const expectedBuffer = Buffer.from(expectedSignature, 'utf8');
+    const isValid = signatureBuffer.length === expectedBuffer.length &&
+      crypto.timingSafeEqual(signatureBuffer, expectedBuffer);
 
     if (isValid) {
-      console.log('✅ Payment signature verified successfully');
       return {
         isValid: true,
         orderId: razorpay_order_id,
@@ -132,14 +132,12 @@ export function verifyRazorpaySignature(
         signature: razorpay_signature,
       };
     } else {
-      console.error('❌ Payment signature verification failed');
       return {
         isValid: false,
         error: 'Invalid payment signature',
       };
     }
   } catch (error: any) {
-    console.error('❌ Error verifying payment:', error);
     return {
       isValid: false,
       error: error.message || 'Payment verification failed',
@@ -157,7 +155,6 @@ export async function fetchPaymentDetails(paymentId: string) {
     const payment = await razorpay.payments.fetch(paymentId);
     return payment;
   } catch (error: any) {
-    console.error('❌ Error fetching payment details:', error);
     throw new Error('Failed to fetch payment details');
   }
 }
@@ -172,7 +169,6 @@ export async function fetchOrderDetails(orderId: string) {
     const order = await razorpay.orders.fetch(orderId);
     return order;
   } catch (error: any) {
-    console.error('❌ Error fetching order details:', error);
     throw new Error('Failed to fetch order details');
   }
 }

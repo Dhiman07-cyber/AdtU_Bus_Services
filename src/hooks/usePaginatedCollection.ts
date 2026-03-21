@@ -61,12 +61,9 @@ function getCacheKey(collectionName: string, orderByField: string, orderDirectio
 function getCachedData<T>(key: string): T[] | null {
     const entry = dataCache.get(key);
     if (entry && Date.now() - entry.timestamp < CACHE_TTL_MS) {
-        const ageSeconds = Math.round((Date.now() - entry.timestamp) / 1000);
-        console.log(`[Cache] HIT for ${key} (age: ${ageSeconds}s, items: ${entry.data.length})`);
         return entry.data;
     }
     if (entry) {
-        console.log(`[Cache] EXPIRED for ${key}`);
         dataCache.delete(key);
     }
     return null;
@@ -74,7 +71,6 @@ function getCachedData<T>(key: string): T[] | null {
 
 function setCachedData<T>(key: string, data: T[]): void {
     dataCache.set(key, { data, timestamp: Date.now() });
-    console.log(`[Cache] SET for ${key} (${data.length} items, TTL: 10 min)`);
 }
 
 // Clear cache for a specific collection (call after mutations)
@@ -87,14 +83,12 @@ export function invalidateCollectionCache(collectionName: string): void {
     });
     keysToDelete.forEach(key => {
         dataCache.delete(key);
-        console.log(`[Cache] INVALIDATED ${key}`);
     });
 }
 
 // Clear all cache (use sparingly)
 export function clearAllCache(): void {
     dataCache.clear();
-    console.log(`[Cache] ALL CLEARED`);
 }
 
 

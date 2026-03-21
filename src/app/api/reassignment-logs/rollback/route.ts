@@ -3,18 +3,20 @@
  * 
  * POST /api/reassignment-logs/rollback - Execute rollback of a committed operation
  * GET /api/reassignment-logs/rollback?operationId=xxx - Validate rollback feasibility
+ * 
+ * SECURITY: Uses withSecurity wrapper. Admin-only access for rollback operations.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-import { adminDb, adminAuth } from '@/lib/firebase-admin';
+import { adminDb } from '@/lib/firebase-admin';
+import { withSecurity } from '@/lib/security/api-security';
+import { RateLimits } from '@/lib/security/rate-limiter';
+import { z } from 'zod';
 
-// Initialize Supabase with service role
-const supabase = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!,
-    { auth: { persistSession: false } }
-);
+// ============================================================================
+// TYPES & SCHEMAS
+// ============================================================================
 
 interface ChangeRecord {
     docPath: string;
@@ -25,53 +27,42 @@ interface ChangeRecord {
     precondition?: Record<string, any>;
 }
 
-interface RollbackRequest {
-    operationId: string;
-    actorId: string;
-    actorLabel: string;
+const RollbackSchema = z.object({
+    operationId: z.string().min(1).max(200),
+    actorId: z.string().min(1).max(128),
+    actorLabel: z.string().min(1).max(200),
+});
+
+// ============================================================================
+// SUPABASE CLIENT (lazy singleton)
+// ============================================================================
+
+let _supabase: ReturnType<typeof createClient> | null = null;
+
+function getSupabase() {
+    if (_supabase) return _supabase;
+
+    const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    if (!url || !key) return null;
+
+    _supabase = createClient(url, key, { auth: { persistSession: false } });
+    return _supabase;
 }
 
-/**
- * Verify Admin-only access (rollback is sensitive operation)
- */
-async function verifyAdminOnly(request: NextRequest): Promise<{ uid: string; name: string } | null> {
-    const authHeader = request.headers.get('Authorization');
-    if (!authHeader?.startsWith('Bearer ')) {
-        return null;
-    }
+// ============================================================================
+// GET - Validate if rollback is possible
+// ============================================================================
 
-    try {
-        const token = authHeader.substring(7);
-        const decodedToken = await adminAuth.verifyIdToken(token);
-        const uid = decodedToken.uid;
-
-        // Only admins can perform rollback
-        const adminDoc = await adminDb.collection('admins').doc(uid).get();
-
-        if (adminDoc.exists) {
-            const data = adminDoc.data();
-            return { uid, name: data?.name || 'Admin' };
+export const GET = withSecurity(
+    async (request, { auth }) => {
+        const supabase = getSupabase();
+        if (!supabase) {
+            return NextResponse.json({ error: 'Server configuration error' }, { status: 500 });
         }
 
-        return null;
-    } catch (error) {
-        console.error('[rollback] Auth error:', error);
-        return null;
-    }
-}
-
-/**
- * GET - Validate if rollback is possible
- */
-export async function GET(request: NextRequest) {
-    try {
-        const session = await verifyAdminOnly(request);
-        if (!session) {
-            return NextResponse.json({ error: 'Admin access required' }, { status: 403 });
-        }
-
-        const { searchParams } = new URL(request.url);
-        const operationId = searchParams.get('operationId');
+        const url = new URL(request.url);
+        const operationId = url.searchParams.get('operationId');
 
         if (!operationId) {
             return NextResponse.json({ error: 'operationId required' }, { status: 400 });
@@ -143,32 +134,25 @@ export async function GET(request: NextRequest) {
                 changesCount: changes.length,
             },
         });
-
-    } catch (err: any) {
-        console.error('[rollback/validate] Error:', err);
-        return NextResponse.json({ error: err.message }, { status: 500 });
+    },
+    {
+        requiredRoles: ['admin'],
+        rateLimit: RateLimits.READ,
     }
-}
+);
 
-/**
- * POST - Execute rollback
- */
-export async function POST(request: NextRequest) {
-    try {
-        const session = await verifyAdminOnly(request);
-        if (!session) {
-            return NextResponse.json({ error: 'Admin access required' }, { status: 403 });
+// ============================================================================
+// POST - Execute rollback
+// ============================================================================
+
+export const POST = withSecurity(
+    async (request, { auth, body }) => {
+        const supabase = getSupabase();
+        if (!supabase) {
+            return NextResponse.json({ error: 'Server configuration error' }, { status: 500 });
         }
 
-        const body: RollbackRequest = await request.json();
-        const { operationId, actorId, actorLabel } = body;
-
-        if (!operationId || !actorId || !actorLabel) {
-            return NextResponse.json(
-                { error: 'Missing required fields: operationId, actorId, actorLabel' },
-                { status: 400 }
-            );
-        }
+        const { operationId, actorId, actorLabel } = body as z.infer<typeof RollbackSchema>;
 
         // Get the original operation
         const { data: originalLog, error: fetchError } = await supabase
@@ -210,17 +194,12 @@ export async function POST(request: NextRequest) {
         const rollbackChanges: ChangeRecord[] = [];
         const errors: string[] = [];
 
-        // Execute rollback - apply 'before' states
+        // Execute rollback - apply 'before' states in reverse order
         for (const change of [...changes].reverse()) {
-            if (!change.before || !change.collection || !change.docId) {
-                console.warn(`[rollback] No 'before' state for ${change.docPath}, skipping`);
-                continue;
-            }
+            if (!change.before || !change.collection || !change.docId) continue;
 
             try {
                 const docRef = adminDb.collection(change.collection).doc(change.docId);
-
-                // Apply before state
                 await docRef.update(change.before);
 
                 revertedDocs.push(change.docPath);
@@ -229,11 +208,8 @@ export async function POST(request: NextRequest) {
                     before: change.after,
                     after: change.before,
                 });
-
-                console.log(`[rollback] Reverted: ${change.docPath}`);
             } catch (err: any) {
                 errors.push(`Failed to revert ${change.docPath}: ${err.message}`);
-                console.error(`[rollback] Error reverting ${change.docPath}:`, err);
             }
         }
 
@@ -278,9 +254,10 @@ export async function POST(request: NextRequest) {
             revertedDocs,
             errors: errors.length > 0 ? errors : undefined,
         });
-
-    } catch (err: any) {
-        console.error('[rollback] Error:', err);
-        return NextResponse.json({ error: err.message }, { status: 500 });
+    },
+    {
+        requiredRoles: ['admin'],
+        schema: RollbackSchema,
+        rateLimit: RateLimits.BULK_OPERATION,
     }
-}
+);

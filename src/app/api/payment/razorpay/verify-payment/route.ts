@@ -22,7 +22,6 @@ export const POST = withSecurity(
         // Verify payment signature
         const verification = verifyRazorpaySignature({ razorpay_payment_id, razorpay_order_id, razorpay_signature });
         if (!verification.isValid) {
-            console.error('❌ Payment verification failed:', verification.error);
             return NextResponse.json({ success: false, error: verification.error || 'Payment verification failed' }, { status: 400 });
         }
 
@@ -31,7 +30,6 @@ export const POST = withSecurity(
         try {
             orderDetails = await fetchOrderDetails(razorpay_order_id);
         } catch (error) {
-            console.error('❌ Failed to fetch order details:', error);
             return NextResponse.json({ success: false, error: 'Failed to verify order details' }, { status: 500 });
         }
 
@@ -44,13 +42,13 @@ export const POST = withSecurity(
         const trustedAmount = orderDetails.amount / 100;
 
         if (clientUserId && clientUserId !== trustedUserId) {
-            console.warn(`⚠️ SECURITY: Client userId "${clientUserId}" doesn't match order userId "${trustedUserId}"`);
+            console.warn(`[SECURITY] Client userId mismatch with order userId`);
         }
 
         let paymentDetails = null;
         try {
             paymentDetails = await fetchPaymentDetails(razorpay_payment_id);
-        } catch (error) { console.error('⚠️ Could not fetch payment details:', error); }
+        } catch (error) { /* non-critical */ }
 
         const paymentRecord = {
             paymentId: razorpay_payment_id,
@@ -154,10 +152,10 @@ export const POST = withSecurity(
                         razorpayOrderId: razorpay_order_id,
                         razorpaySignature: razorpay_signature,
                         purpose: transactionRecord.purpose
-                    }).catch(e => console.error('⚠️ Failed to save to /payments collection:', e));
+                    }).catch(() => { /* non-critical: payment record save */ });
                 }
-            } catch (error) {
-                console.error('Error updating student document:', error);
+            } catch (error: any) {
+                console.error('[verify-payment] Student update error:', error?.message);
             }
         }
 
