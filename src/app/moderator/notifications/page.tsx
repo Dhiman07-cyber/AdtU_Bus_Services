@@ -152,10 +152,10 @@ export default function ModeratorNotificationsPage() {
   }
 
   return (
-    <div className="flex-1 py-4 px-3 sm:px-4 lg:px-6">
+    <div className="flex-1 py-20 px-3 sm:px-4 lg:px-6 pt-15">
       <div className="max-w-7xl mx-auto">
         {/* Header */}
-        <div className="flex justify-between items-center mb-4">
+        <div className="flex justify-between items-center mb-8">
           <div>
             <h1 className="text-xl font-bold text-gray-900 dark:text-white flex items-center gap-1.5">
               <Bell className="h-5 w-5" />
@@ -175,7 +175,7 @@ export default function ModeratorNotificationsPage() {
         </div>
 
         {/* Tabs */}
-        <Tabs defaultValue="all" value={activeTab} onValueChange={(v) => setActiveTab(v as TabType)} className="w-full">
+        <Tabs defaultValue="all" value={activeTab} onValueChange={(v) => setActiveTab(v as TabType)} className="w-full mb-10">
           <TabsList className="grid w-full grid-cols-4 h-9">
             <TabsTrigger value="all" className="flex items-center gap-1.5 text-xs">
               <Inbox className="h-3.5 w-3.5" />
@@ -215,10 +215,10 @@ export default function ModeratorNotificationsPage() {
           </TabsList>
 
           {/* Tab Content */}
-          <TabsContent value={activeTab} className="mt-3">
+          <TabsContent value={activeTab} className="mt-3 pt-4">
             {filteredNotifications.length === 0 ? (
               <Card>
-                <CardContent className="py-8">
+                <CardContent className="py-30">
                   <div className="text-center">
                     <div className="mx-auto w-10 h-10 rounded-full bg-gray-100 dark:bg-gray-800 flex items-center justify-center mb-3">
                       {activeTab === 'admin' ? (

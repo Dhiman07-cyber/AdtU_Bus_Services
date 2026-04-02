@@ -10,24 +10,14 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Handle test token for development
-    if (token === 'test') {
-      console.log('🔧 Using test token for development');
-    } else {
-      const decodedToken = await adminAuth.verifyIdToken(token);
-      const uid = decodedToken.uid;
-    }
+    const decodedToken = await adminAuth.verifyIdToken(token);
+    const uid = decodedToken.uid;
 
-    // Verify user is admin or moderator (skip for test mode)
-    if (token !== 'test') {
-      const adminDoc = await adminDb.collection('admins').doc(uid).get();
-      const modDoc = await adminDb.collection('moderators').doc(uid).get();
-      
-      if (!adminDoc.exists && !modDoc.exists) {
-        return NextResponse.json({ error: 'Insufficient permissions' }, { status: 403 });
-      }
-    } else {
-      console.log('🔧 Skipping admin/moderator check for test mode');
+    const adminDoc = await adminDb.collection('admins').doc(uid).get();
+    const modDoc = await adminDb.collection('moderators').doc(uid).get();
+    
+    if (!adminDoc.exists && !modDoc.exists) {
+      return NextResponse.json({ error: 'Insufficient permissions' }, { status: 403 });
     }
 
     // Get all applications from applications collection, ordered by most recent

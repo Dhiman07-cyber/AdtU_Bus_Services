@@ -263,7 +263,7 @@ export default function AdminCronTestingPage() {
                             </div>
                             <div>
                                 <h1 className="text-xl md:text-2xl font-bold text-white">Cron Jobs Dashboard</h1>
-                                <p className="text-xs text-gray-400">Test and monitor scheduled system tasks</p>
+                                <p className="text-xs text-gray-400">Maintain and monitor scheduled system tasks</p>
                             </div>
                         </div>
                     </div>

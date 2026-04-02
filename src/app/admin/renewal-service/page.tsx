@@ -159,6 +159,7 @@ export default function AdminRenewalServicePage() {
   const [showPaymentDetailModal, setShowPaymentDetailModal] = useState(false);
   const [searchTrigger, setSearchTrigger] = useState(0);
   const [isManualRefreshing, setIsManualRefreshing] = useState(false);
+  const [downloadingReceiptId, setDownloadingReceiptId] = useState<string | null>(null);
 
   // Payment Dashboard states (admin-only)
   const [dashboardStats, setDashboardStats] = useState<{
@@ -456,6 +457,7 @@ export default function AdminRenewalServicePage() {
 
   const handleDownloadReceipt = async (paymentId: string) => {
     const loadingToastId = toast.loading('Preparing receipt...');
+    setDownloadingReceiptId(paymentId);
     try {
       if (!currentUser) {
         toast.dismiss(loadingToastId);
@@ -488,6 +490,8 @@ export default function AdminRenewalServicePage() {
       console.error('Error downloading receipt:', error);
       toast.dismiss(loadingToastId);
       toast.error('Failed to download receipt');
+    } finally {
+      setDownloadingReceiptId(null);
     }
   };
 
@@ -552,7 +556,7 @@ export default function AdminRenewalServicePage() {
             {isAdmin && (
               <button
                 onClick={() => setActiveTab('dashboard')}
-                className={`flex-1 flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-t-lg font-semibold text-[10px] sm:text-xs transition-all border-b-2 ${activeTab === 'dashboard'
+                className={`flex-1 flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-t-lg font-semibold text-[10px] sm:text-xs transition-all border-b-2 cursor-pointer ${activeTab === 'dashboard'
                   ? 'bg-gradient-to-r from-purple-600 via-violet-600 to-fuchsia-600 text-white shadow-md shadow-purple-500/30 border-purple-500'
                   : 'bg-transparent text-gray-400 hover:text-gray-200 border-transparent hover:bg-gray-800/30'
                   }`}
@@ -563,7 +567,7 @@ export default function AdminRenewalServicePage() {
             )}
             <button
               onClick={() => setActiveTab('approval')}
-              className={`flex-1 flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-t-lg font-semibold text-[10px] sm:text-xs transition-all border-b-2 ${activeTab === 'approval'
+              className={`flex-1 flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-t-lg font-semibold text-[10px] sm:text-xs transition-all border-b-2 cursor-pointer ${activeTab === 'approval'
                 ? 'bg-gradient-to-r from-purple-600 via-violet-600 to-fuchsia-600 text-white shadow-md shadow-purple-500/30 border-purple-500'
                 : 'bg-transparent text-gray-400 hover:text-gray-200 border-transparent hover:bg-gray-800/30'
                 }`}
@@ -578,7 +582,7 @@ export default function AdminRenewalServicePage() {
             </button>
             <button
               onClick={() => setActiveTab('history')}
-              className={`flex-1 flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-t-lg font-semibold text-[10px] sm:text-xs transition-all border-b-2 ${activeTab === 'history'
+              className={`flex-1 flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-t-lg font-semibold text-[10px] sm:text-xs transition-all border-b-2 cursor-pointer ${activeTab === 'history'
                 ? 'bg-gradient-to-r from-purple-600 via-violet-600 to-fuchsia-600 text-white shadow-md shadow-purple-500/30 border-purple-500'
                 : 'bg-transparent text-gray-400 hover:text-gray-200 border-transparent hover:bg-gray-800/30'
                 }`}
@@ -1179,10 +1183,20 @@ export default function AdminRenewalServicePage() {
                                 size="sm"
                                 variant="outline"
                                 onClick={() => handleDownloadReceipt(transaction.paymentId)}
+                                disabled={downloadingReceiptId === transaction.paymentId}
                                 className="h-7 gap-1.5 text-[9px] font-bold text-blue-600 dark:text-blue-400 hover:text-blue-700 bg-blue-50/50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800/50 hover:bg-blue-100 w-full shadow-sm px-2"
                               >
-                                <Download className="h-2.5 w-2.5" />
-                                DOWNLOAD
+                                {downloadingReceiptId === transaction.paymentId ? (
+                                  <>
+                                    <Loader2 className="h-3 w-3 animate-spin" />
+                                    Processing
+                                  </>
+                                ) : (
+                                  <>
+                                    <Download className="h-2.5 w-2.5" />
+                                    DOWNLOAD
+                                  </>
+                                )}
                               </Button>
                               <Button
                                 size="sm"

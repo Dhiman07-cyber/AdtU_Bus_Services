@@ -101,7 +101,7 @@ export default function RulesContentPage() {
               <li>Replace <strong>ALL</strong> the existing rules with the content above</li>
               <li>Click "Publish"</li>
               <li>Wait 1-2 minutes for the rules to propagate</li>
-              <li>Test the setup at <Link href="/setup-admin" className="text-blue-600 dark:text-blue-300 underline">Create First Admin</Link></li>
+              <li>Verify the setup at <Link href="/setup-admin" className="text-blue-600 dark:text-blue-300 underline">Create First Admin</Link></li>
             </ol>
           </CardContent>
           <CardFooter className="flex justify-between">

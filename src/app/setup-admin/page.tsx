@@ -122,8 +122,8 @@ export default function SetupAdminPage() {
     }
   };
 
-  // Test Firestore rules directly
-  const testFirestoreRules = async () => {
+  // Verify Firestore rules directly
+  const verifyFirestoreRules = async () => {
     setLoading(true);
     setResult(null);
     
@@ -134,18 +134,18 @@ export default function SetupAdminPage() {
       if (data.success) {
         setResult({ 
           success: true, 
-          message: "Firestore rules test successful! The firstAdmin field is working correctly." 
+          message: "Firestore rules verification successful! The firstAdmin field is working correctly." 
         });
       } else {
         setResult({ 
           success: false, 
-          error: data.error || "Firestore rules test failed" 
+          error: data.error || "Firestore rules verification failed" 
         });
       }
     } catch (error: any) {
       setResult({ 
         success: false, 
-        error: `Test failed: ${error.message}` 
+        error: `Verification failed: ${error.message}` 
       });
     } finally {
       setLoading(false);
@@ -178,12 +178,12 @@ export default function SetupAdminPage() {
           </Button>
           
           <Button 
-            onClick={testFirestoreRules}
+            onClick={verifyFirestoreRules}
             disabled={loading}
             variant="outline"
             className="w-full mb-6"
           >
-            {loading ? "Testing Rules..." : "Test Firestore Rules"}
+            {loading ? "Verifying Rules..." : "Verify Firestore Rules"}
           </Button>
           
           {result && (

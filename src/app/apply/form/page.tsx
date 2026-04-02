@@ -1,4 +1,10 @@
 "use client";
+import FormStepper from './components/FormStepper';
+import Step1Personal from './steps/Step1Personal';
+import Step2Academic from './steps/Step2Academic';
+import Step3Bus from './steps/Step3Bus';
+import Step4ServicePayment from './steps/Step4ServicePayment';
+import Step5Review from './steps/Step5Review';
 
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { useAuth } from '@/contexts/auth-context';
@@ -12,15 +18,12 @@ import { Select, SelectContent, SelectTrigger, SelectValue } from '@/components/
 import { Checkbox } from '@/components/ui/checkbox';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Badge } from '@/components/ui/badge';
-import { Alert, AlertDescription } from '@/components/ui/alert';
 import {
   Loader2,
   Save,
   Send,
   CheckCircle,
   AlertCircle,
-  AlertTriangle,
-  Upload,
   X,
   Shield,
   FileText,
@@ -49,32 +52,56 @@ import {
   savePaymentSession
 } from '@/lib/payment/application-payment.service';
 import {
-  safeGetJSON,
-  safeSetJSON,
-  safeRemoveItem,
-  getStorageInfo
-} from '@/lib/utils/safe-storage';
-import {
   type CapacityCheckResult
 } from '@/lib/bus-capacity-checker';
 import { useToast } from '@/contexts/toast-context';
 import { uploadImage } from '@/lib/upload';
 import { PremiumPageLoader } from '@/components/LoadingSpinner';
-import { cn } from '@/lib/utils';
 import { isMobileDevice, compressImageForMobile } from '@/lib/mobile-utils';
 import { useDebouncedStorage } from '@/hooks/useDebouncedStorage';
 import { OptimizedInput } from '@/components/forms/OptimizedInput';
 import { OptimizedSelect } from '@/components/forms/OptimizedSelect';
-import { OptimizedOTPInput } from '@/components/forms/OptimizedOTPInput';
 import { SelectItem } from '@/components/ui/select';
+
+const STEP_LABELS = [
+  { num: 1, title: "Personal Information" },
+  { num: 2, title: "Academic Information" },
+  { num: 3, title: "Bus Information" },
+  { num: 4, title: "Payment Information" },
+  { num: 5, title: "Review Information" }
+];
 
 function ApplicationFormContent() {
   const { currentUser, userData, loading } = useAuth();
   const router = useRouter();
   const pathname = usePathname();
   const { showToast } = useToast();
-  const verificationInputRef = useRef<HTMLInputElement>(null);
-  const verificationCodeRef = useRef<string>(''); // Use ref for immediate updates without re-renders
+
+  // Wizard state
+  const [currentStep, setCurrentStep] = useState(1);
+  const TOTAL_STEPS = 5;
+
+  const goToNextStep = () => {
+    if (currentStep < TOTAL_STEPS) {
+      localStorage.setItem('applicationDraft', JSON.stringify(formData));
+      setCurrentStep(prev => prev + 1);
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+  };
+
+  const goToPrevStep = () => {
+    if (currentStep > 1) {
+      setCurrentStep(prev => prev - 1);
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+  };
+
+  const goToStep = (step: number) => {
+    if (step >= 1 && step <= TOTAL_STEPS) {
+      setCurrentStep(step);
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+  };
 
   // Helper function to get initial form data from localStorage
   const getInitialFormData = (): ApplicationFormData => {
@@ -114,8 +141,7 @@ function ApplicationFormContent() {
         paymentReference: '',
         paymentEvidenceUrl: ''
       },
-      declarationAccepted: false,
-      understandsVerification: false
+      declarationAccepted: false
     };
 
     // Try to load from localStorage synchronously
@@ -124,13 +150,12 @@ function ApplicationFormContent() {
         const stored = localStorage.getItem('applicationDraft');
         if (stored) {
           const parsed = JSON.parse(stored);
-          console.log('📬 [Apply Form] Loaded draft from localStorage on init', Object.keys(parsed).length, 'fields');
+          console.log('ðŸ“¬ [Apply Form] Loaded draft from localStorage on init', Object.keys(parsed).length, 'fields');
           return {
             ...defaultData,
             ...parsed,
             // Always reset sensitive/transient fields
             declarationAccepted: false,
-            understandsVerification: false,
             // Preserve email from currentUser
             email: currentUser?.email || parsed.email || '',
             // Reset session info to current year
@@ -151,29 +176,16 @@ function ApplicationFormContent() {
     return defaultData;
   };
 
-  // Helper function to get initial verification state from localStorage
-  const getInitialVerificationState = () => {
+  const getInitialApplicationState = () => {
     if (typeof window !== 'undefined') {
       try {
         const storedState = localStorage.getItem('applicationState');
-        const storedCodeId = localStorage.getItem('verificationCodeId');
-        const storedExpiry = localStorage.getItem('verificationExpiry');
-
-        return {
-          applicationState: (storedState as ApplicationState) || 'noDoc',
-          verificationCodeId: storedCodeId || '',
-          verificationExpiry: storedExpiry || ''
-        };
+        return (storedState as ApplicationState) || 'noDoc';
       } catch (error) {
-        console.error('❌ [Apply Form] Error loading verification state:', error);
+        console.error('❌ [Apply Form] Error loading application state:', error);
       }
     }
-
-    return {
-      applicationState: 'noDoc' as ApplicationState,
-      verificationCodeId: '',
-      verificationExpiry: ''
-    };
+    return 'noDoc' as ApplicationState;
   };
 
   // Form state - Initialize with data from localStorage
@@ -188,21 +200,14 @@ function ApplicationFormContent() {
 
   const [applicationId, setApplicationId] = useState<string>('');
 
-  // Initialize verification state from localStorage
-  const initialVerificationState = getInitialVerificationState();
-  const [applicationState, setApplicationState] = useState<ApplicationState>(initialVerificationState.applicationState);
-  const [verificationCodeId, setVerificationCodeId] = useState<string>(initialVerificationState.verificationCodeId);
-  const [verificationExpiry, setVerificationExpiry] = useState<string>(initialVerificationState.verificationExpiry);
+  // Initialize application state from localStorage
+  const [applicationState, setApplicationState] = useState<ApplicationState>(getInitialApplicationState());
 
   const [routes, setRoutes] = useState<Route[]>([]);
   const [buses, setBuses] = useState<any[]>([]);
-  const [moderators, setModerators] = useState<ModeratorProfile[]>([]);
-  const [selectedModerator, setSelectedModerator] = useState<string>('');
   const [hoveredRoute, setHoveredRoute] = useState<string | null>(null);
   const hoverTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const [facultySelected, setFacultySelected] = useState(false);
-  const [showNoteDialog, setShowNoteDialog] = useState(false);
-  const [showVerificationDialog, setShowVerificationDialog] = useState(false);
   const [declarationAgreed, setDeclarationAgreed] = useState(false);
   const [busFees, setBusFees] = useState(0);
   const [showSuccessDialog, setShowSuccessDialog] = useState(false);
@@ -217,7 +222,7 @@ function ApplicationFormContent() {
         if (response.ok) {
           const data = await response.json();
           setDeadlineConfig(data.config || data);
-          console.log("📅 [Apply Form] Fetched deadline config:", data.config || data);
+          console.log("ðŸ“… [Apply Form] Fetched deadline config:", data.config || data);
         }
       } catch (error) {
         console.error("Error fetching deadline config:", error);
@@ -263,7 +268,7 @@ function ApplicationFormContent() {
       const dataString = JSON.stringify(formData);
       // Only save if data actually changed
       if (dataString !== lastSavedData.current) {
-        console.log('💾 [Apply Form] Auto-saving to localStorage...', {
+        console.log('ðŸ’¾ [Apply Form] Auto-saving to localStorage...', {
           fullName: formData.fullName,
           phoneNumber: formData.phoneNumber,
           gender: formData.gender
@@ -285,7 +290,7 @@ function ApplicationFormContent() {
     setIsMobile(isMobileDevice());
   }, []);
 
-  // Verification state (verificationCodeId and verificationExpiry already initialized above from localStorage)
+  // Verification state ( and verificationExpiry already initialized above from localStorage)
   const [requestingVerification, setRequestingVerification] = useState(false);
   const [verificationCode, setVerificationCode] = useState('');
   const [verifyingCode, setVerifyingCode] = useState(false);
@@ -305,22 +310,7 @@ function ApplicationFormContent() {
     }
   }, [applicationState]);
 
-  // Persist verification code ID and expiry
-  useEffect(() => {
-    if (verificationCodeId) {
-      localStorage.setItem('verificationCodeId', verificationCodeId);
-    } else {
-      localStorage.removeItem('verificationCodeId');
-    }
-  }, [verificationCodeId]);
 
-  useEffect(() => {
-    if (verificationExpiry) {
-      localStorage.setItem('verificationExpiry', verificationExpiry);
-    } else {
-      localStorage.removeItem('verificationExpiry');
-    }
-  }, [verificationExpiry]);
 
   // Bus capacity check state
   const [capacityCheckResult, setCapacityCheckResult] = useState<CapacityCheckResult | null>(null);
@@ -341,56 +331,35 @@ function ApplicationFormContent() {
     };
   }, []);
 
-  // Countdown timer for resend button - based on actual expiry time
-  useEffect(() => {
-    let interval: NodeJS.Timeout | null = null;
-
-    if (verificationExpiry && codeSent) {
-      interval = setInterval(() => {
-        const now = new Date().getTime();
-        const expiry = new Date(verificationExpiry).getTime();
-        const remaining = Math.max(0, Math.floor((expiry - now) / 1000));
-
-        if (remaining <= 0) {
-          setCodeSent(false);
-          setCountdownTime(0);
-          if (interval) {
-            clearInterval(interval);
-            interval = null;
-          }
-        } else {
-          setCountdownTime(remaining);
-        }
-      }, 1000);
+  // Step validation logic
+  const isStepComplete = useCallback((stepNum: number) => {
+    switch (stepNum) {
+      case 1:
+        return !!(formData.fullName && formData.gender && formData.dob &&
+          formData.phoneNumber && formData.parentName && formData.parentPhone &&
+          formData.address && (finalImageUrl || profilePhotoUrl));
+      case 2:
+        return !!(formData.faculty && formData.department && formData.semester && formData.enrollmentId);
+      case 3:
+        return !!(formData.routeId && formData.stopId && formData.shift);
+      case 4:
+        return paymentCompleted;
+      default:
+        return false;
     }
+  }, [formData, finalImageUrl, profilePhotoUrl, paymentCompleted]);
 
-    // Cleanup function - CRITICAL for mobile
-    return () => {
-      if (interval) {
-        clearInterval(interval);
-        interval = null;
-      }
-    };
-  }, [verificationExpiry, codeSent]);
+  const [visitedSteps, setVisitedSteps] = useState<number[]>([1]);
 
-  // Focus input when moderator is selected
   useEffect(() => {
-    if (selectedModerator && showVerificationDialog) {
-      setTimeout(() => {
-        verificationInputRef.current?.focus();
-      }, 100);
+    if (!visitedSteps.includes(currentStep)) {
+      setVisitedSteps(prev => [...prev, currentStep]);
     }
-  }, [selectedModerator, showVerificationDialog]);
+  }, [currentStep, visitedSteps]);
 
-  // Format countdown time to MM:SS
-  const formatCountdown = (seconds: number) => {
-    const minutes = Math.floor(seconds / 60);
-    const remainingSeconds = seconds % 60;
-    return `${minutes}:${remainingSeconds.toString().padStart(2, '0')}`;
-  };
 
   useEffect(() => {
-    console.log('📋 Application Form - Auth State:', {
+    console.log('ðŸ“‹ Application Form - Auth State:', {
       loading,
       currentUser: !!currentUser,
       userData: !!userData,
@@ -398,13 +367,13 @@ function ApplicationFormContent() {
     });
 
     if (!loading && !currentUser) {
-      console.log('🔄 No user, redirecting to login');
+      console.log('ðŸ”„ No user, redirecting to login');
       router.push('/login');
       return;
     }
 
     if (userData && userData.role) {
-      console.log('🔄 User has role, redirecting to dashboard');
+      console.log('ðŸ”„ User has role, redirecting to dashboard');
       router.push(`/${userData.role}`);
       return;
     }
@@ -423,7 +392,7 @@ function ApplicationFormContent() {
           // If application exists and is not rejected/draft (so submitted, approved, verified), show status card
           // User request: "until that student's application is not rejected OR as long as his firestore doc remains"
           if (data.hasApplication && data.application?.state !== 'rejected' && data.application?.state !== 'draft' && data.application?.state !== 'noDoc') {
-            console.log('✅ User has existing application in state:', data.application?.state);
+            console.log('âœ… User has existing application in state:', data.application?.state);
 
             // Show toast only once
             if (!toastShownRef.current) {
@@ -440,7 +409,7 @@ function ApplicationFormContent() {
       }
 
       if (currentUser) {
-        console.log('✅ Loading application form resources');
+        console.log('âœ… Loading application form resources');
         loadResources();
         loadDraftOrExisting();
       }
@@ -466,21 +435,11 @@ function ApplicationFormContent() {
         })
       ]);
 
-      console.log('🛣️ Loaded routes:', routesData);
+      console.log('ðŸ›£ï¸ Loaded routes:', routesData);
       setRoutes(routesData);
       setBuses(busesData);
 
-      if (modsRes.ok) {
-        const modsData = await modsRes.json();
-        console.log('📋 Moderators loaded:', modsData);
-        console.log('📊 Number of moderators:', modsData.moderators?.length || 0);
-        setModerators(modsData.moderators || []);
-      } else {
-        console.error('❌ Failed to load moderators:', modsRes.status, modsRes.statusText);
-        const errorData = await modsRes.text();
-        console.error('Error response:', errorData);
-        showToast('Failed to load moderators. Please try again.', 'error');
-      }
+
     } catch (error) {
       console.error('Error loading resources:', error);
       showToast('Failed to load form resources', 'error');
@@ -494,7 +453,7 @@ function ApplicationFormContent() {
       // Note: Draft data is now loaded synchronously during initialization
       // This function only handles loading existing applications from database
 
-      console.log('📋 Checking for existing application in database...');
+      console.log('ðŸ“‹ Checking for existing application in database...');
 
       // Check for existing application in database
       const token = await currentUser?.getIdToken();
@@ -505,7 +464,7 @@ function ApplicationFormContent() {
       if (response.ok) {
         const data = await response.json();
         if (data.application) {
-          console.log('📋 Loading existing application from database');
+          console.log('ðŸ“‹ Loading existing application from database');
           setApplicationId(data.application.applicationId);
           setApplicationState(data.application.state);
 
@@ -516,10 +475,7 @@ function ApplicationFormContent() {
             setReceiptFile(null);
             setProfilePhotoUrl(data.application.formData.profilePhotoUrl || '');
 
-            if (data.application.pendingVerifier) {
-              setVerificationCodeId(data.application.verificationCodeId || '');
-              setVerificationExpiry(data.application.verificationExpiry || '');
-            }
+
 
             if (data.application.state === 'verified' || data.application.state === 'submitted') {
               showToast('Application already submitted. Waiting for approval.', 'info');
@@ -624,10 +580,10 @@ function ApplicationFormContent() {
       // Mobile optimization: Compress image if on mobile device
       let processedFile = file;
       if (isMobileDevice() && file.size > 1 * 1024 * 1024) { // 1MB threshold for mobile
-        console.log('📱 Mobile device detected, compressing image...');
+        console.log('ðŸ“± Mobile device detected, compressing image...');
         showToast('Optimizing image for mobile...', 'info');
         processedFile = await compressImageForMobile(file, 2);
-        console.log(`📱 Image compressed: ${(file.size / 1024 / 1024).toFixed(2)}MB → ${(processedFile.size / 1024 / 1024).toFixed(2)}MB`);
+        console.log(`ðŸ“± Image compressed: ${(file.size / 1024 / 1024).toFixed(2)}MB â†’ ${(processedFile.size / 1024 / 1024).toFixed(2)}MB`);
       }
 
       // Create local preview URL
@@ -679,7 +635,7 @@ function ApplicationFormContent() {
         if (response.ok) {
           const data = await response.json();
           const fee = data.fees || data.amount || 0;
-          console.log('💰 Loaded bus fee from API:', fee);
+          console.log('ðŸ’° Loaded bus fee from API:', fee);
           setBusFees(fee);
         }
       } catch (error) {
@@ -708,7 +664,7 @@ function ApplicationFormContent() {
 
       // Only update if changed to avoid loops and excessive re-renders
       if (newFee !== previousFeeRef.current.estimate || newFee !== previousFeeRef.current.paid) {
-        console.log(`💰 Syncing fee: ${newFee} (was Est: ${previousFeeRef.current.estimate}, Paid: ${previousFeeRef.current.paid})`);
+        console.log(`ðŸ’° Syncing fee: ${newFee} (was Est: ${previousFeeRef.current.estimate}, Paid: ${previousFeeRef.current.paid})`);
 
         previousFeeRef.current = { estimate: newFee, paid: newFee };
 
@@ -826,9 +782,9 @@ function ApplicationFormContent() {
 
       const hasData = formData.fullName || formData.phoneNumber || formData.enrollmentId || formData.faculty;
       if (hasData) {
-        showToast('✅ Draft auto-saved successfully!', 'success');
+        showToast('âœ… Draft auto-saved successfully!', 'success');
       } else {
-        showToast('📝 No data to save yet.', 'info');
+        showToast('ðŸ“  No data to save yet.', 'info');
       }
     } catch (error) {
       console.error('Error in save draft animation:', error);
@@ -838,241 +794,89 @@ function ApplicationFormContent() {
     }
   };
 
-  const handleRequestVerification = async () => {
-    if (!selectedModerator) {
-      showToast('Please select a moderator', 'error');
-      return;
-    }
-    if (!declarationAgreed) {
-      showToast('Please accept the declaration first', 'error');
-      return;
-    }
 
-    setRequestingVerification(true);
-    try {
-      const token = await currentUser?.getIdToken();
+const [showDeletePaymentDialog, setShowDeletePaymentDialog] = useState(false);
 
-      // First, create/update the application in database if needed
-      let currentApplicationId = applicationId;
-      if (!currentApplicationId) {
-        const createResponse = await fetch('/api/applications/save-draft', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-          body: JSON.stringify({ formData })
-        });
+const performFullReset = () => {
+  // Clear form data
+  setFormData({
+    fullName: '',
+    email: currentUser?.email || '',
+    phoneNumber: '',
+    alternatePhone: '',
+    enrollmentId: '',
+    gender: '',
+    dob: '',
+    age: '',
+    profilePhotoUrl: '',
+    faculty: '',
+    department: '',
+    semester: '',
+    address: '',
+    parentName: '',
+    parentPhone: '',
+    bloodGroup: '',
+    routeId: '',
+    stopId: '',
+    busId: '',
+    busAssigned: '',
+    assignedBusId: '',
+    shift: 'morning',
+    sessionInfo: {
+      sessionStartYear: new Date().getFullYear(),
+      durationYears: 1,
+      sessionEndYear: new Date().getFullYear() + 1,
+      feeEstimate: 0
+    },
+    paymentInfo: {
+      paymentMode: 'offline',
+      amountPaid: 0,
+      paymentEvidenceProvided: false,
+      paymentEvidenceUrl: '',
+      paymentReference: ''
+    },
+    declarationAccepted: false
+  });
 
-        if (createResponse.ok) {
-          const createData = await createResponse.json();
-          currentApplicationId = createData.applicationId;
-          setApplicationId(currentApplicationId);
-        } else {
-          throw new Error('Failed to create application for verification');
-        }
-      }
+  // Clear all related state
+  setPreviewUrl('');
+  setFinalImageUrl(null);
+  setImagePosition({ x: 0, y: 0, scale: 1 });
+  setProfilePhotoFile(null);
+  setProfilePhotoUrl('');
+  setApplicationId('');
+  setFacultySelected(false);
+  setDeclarationAgreed(false);
+  setPaymentCompleted(false);
+  setPaymentDetails(null);
+  setUseOnlinePayment(false);
+  setReceiptPreview('');
+  setReceiptFile(null);
 
-      // Request verification code
-      const response = await fetch('/api/applications/request-verification', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-        body: JSON.stringify({ applicationId: currentApplicationId, moderatorUid: selectedModerator })
-      });
+  localStorage.removeItem('applicationDraft');
+  localStorage.removeItem('receiptPreview');
+  localStorage.removeItem('profilePhotoPreview');
 
-      if (response.ok) {
-        const data = await response.json();
-        setApplicationState('awaiting_verification');
-        setVerificationCodeId(data.codeId);
-        setVerificationExpiry(data.expiresAt);
-        showToast('Verification code sent to moderator. Please visit the Bus Office.', 'success');
-      } else {
-        throw new Error('Failed to request verification');
-      }
-    } catch (error: any) {
-      console.error('Error requesting verification:', error);
-      showToast(error.message || 'Failed to request verification', 'error');
-    } finally {
-      setRequestingVerification(false);
-    }
-  };
+  // CRITICAL FIX: Never delete payment sessions on form reset
+  // localStorage.removeItem('paymentSessions');
+  // localStorage.removeItem('currentPaymentSession');
 
-  const handleSendVerificationCode = async () => {
-    if (!selectedModerator) {
-      showToast('Please select a moderator first', 'error');
-      return;
-    }
+  if (currentUser?.uid) {
+    localStorage.removeItem(`payment_receipt_${currentUser.uid}_new_registration`);
+  }
 
-    // Ensure amount is set before sending
-    if (!formData.paymentInfo?.amountPaid || formData.paymentInfo.amountPaid === 0) {
-      const calculatedAmount = calculateTotalFee(formData.sessionInfo.durationYears, formData.shift);
-      handleInputChange('paymentInfo.amountPaid', calculatedAmount);
-      // Update formData directly for this request
-      formData.paymentInfo.amountPaid = calculatedAmount;
-    }
+  showToast('Form reset successfully', 'success');
+  setShowDeletePaymentDialog(false);
+};
 
-    console.log('📤 Sending verification code with amount:', formData.paymentInfo?.amountPaid);
+const handleResetForm = () => {
+  // Check if online payment is active/completed
+  const isOnlinePaymentActive = paymentCompleted && formData.paymentInfo?.paymentMode === 'online';
 
-    setSendingCode(true);
-    try {
-      const token = await currentUser?.getIdToken();
-      const response = await fetch('/api/applications/send-verification-code-only', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-        body: JSON.stringify({ formData, moderatorUid: selectedModerator })
-      });
+  if (isOnlinePaymentActive) {
+    // If payment exists, execute Partial Reset (preserve payment) regardless of dirty state
+    const currentPaymentInfo = { ...formData.paymentInfo };
 
-      if (response.ok) {
-        const data = await response.json();
-        setApplicationState('awaiting_verification');
-        setVerificationCodeId(data.codeId);
-        setVerificationExpiry(data.expiresAt);
-        setCodeSent(true);
-        setCodesSentToday(prev => prev + 1);
-        showToast('Verification code sent to moderator successfully!', 'success');
-      } else {
-        throw new Error('Failed to send verification code');
-      }
-    } catch (error: any) {
-      console.error('Error sending verification code:', error);
-      showToast(error.message || 'Failed to send verification code', 'error');
-    } finally {
-      setSendingCode(false);
-    }
-  };
-
-  const handleVerifyCode = async () => {
-    if (!verificationCode || verificationCode.length !== 6) {
-      showToast('Please enter the 6-digit code', 'error');
-      return;
-    }
-
-    setVerifyingCode(true);
-    try {
-      const token = await currentUser?.getIdToken();
-      const response = await fetch('/api/applications/verify-code-only', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({
-          codeId: verificationCodeId,
-          code: verificationCode
-        })
-      });
-
-      const result = await response.json();
-
-      if (response.ok && result.verified) {
-        console.log('🎉 VERIFICATION SUCCESS - Starting enhanced state persistence...');
-
-        // Set application state
-        setApplicationState('verified');
-
-        // Enhanced verification state persistence with mobile-friendly approach
-        try {
-          const timestamp = new Date().toISOString();
-          const userId = currentUser?.uid;
-          const paymentMode = formData.paymentInfo?.paymentMode;
-
-          // Primary storage flags
-          localStorage.setItem('verificationCompleted', 'true');
-          localStorage.setItem('verificationCompletedAt', timestamp);
-          localStorage.setItem('applicationState', 'verified');
-
-          // Enhanced backup storage with more context (mobile-friendly)
-          const backupState = {
-            verified: true,
-            timestamp,
-            userId,
-            paymentMode,
-            verificationCodeId: verificationCodeId,
-            sessionInfo: {
-              startYear: formData.sessionInfo?.sessionStartYear,
-              endYear: formData.sessionInfo?.sessionEndYear,
-              duration: formData.sessionInfo?.durationYears
-            }
-          };
-          localStorage.setItem('backup_verification_state', JSON.stringify(backupState));
-
-          // Additional mobile-specific persistence (using multiple keys for redundancy)
-          localStorage.setItem(`verification_${userId}`, 'true');
-          localStorage.setItem(`verification_timestamp_${userId}`, timestamp);
-
-          // Verify all saves worked
-          const verification1 = localStorage.getItem('verificationCompleted');
-          const verification2 = localStorage.getItem('applicationState');
-          const verification3 = localStorage.getItem('backup_verification_state');
-          const verification4 = localStorage.getItem(`verification_${userId}`);
-
-          console.log('✅ Enhanced verification flags saved to localStorage:', {
-            primary: { verificationCompleted: verification1, applicationState: verification2 },
-            backup: verification3 ? 'saved' : 'failed',
-            userSpecific: verification4 ? 'saved' : 'failed',
-            timestamp,
-            userId,
-            paymentMode
-          });
-
-          // Mobile-specific: Force a small delay to ensure localStorage writes complete
-          if (isMobileDevice()) {
-            await new Promise(resolve => setTimeout(resolve, 100));
-            console.log('📱 Mobile localStorage write delay completed');
-          }
-
-        } catch (storageError) {
-          console.error('❌ Failed to save verification to localStorage:', storageError);
-          // On mobile, try alternative storage approach
-          if (isMobileDevice()) {
-            try {
-              console.log('📱 Attempting mobile fallback storage...');
-              sessionStorage.setItem('mobile_verification_fallback', JSON.stringify({
-                verified: true,
-                timestamp: new Date().toISOString(),
-                userId: currentUser?.uid
-              }));
-              console.log('✅ Mobile fallback storage successful');
-            } catch (fallbackError) {
-              console.error('❌ Mobile fallback storage also failed:', fallbackError);
-            }
-          }
-        }
-
-        showToast('Verification successful! You can now submit your application.', 'success');
-        setVerificationCode('');
-        setCodeSent(false);
-        setCountdownTime(0);
-        setVerificationExpiry('');
-
-        // Mark offline payment as completed in localStorage (similar to online payment)
-        if (currentUser?.uid && formData.paymentInfo?.paymentMode === 'offline') {
-          updatePaymentSessionStatus(
-            currentUser.uid,
-            'new_registration',
-            'completed',
-            {
-              offlinePaymentId: formData.paymentInfo.paymentReference,
-              verifiedAt: new Date().toISOString()
-            }
-          );
-          console.log('✅ Offline payment marked as completed in localStorage');
-        }
-
-        console.log('🎉 VERIFICATION SUCCESS - All state persistence completed');
-      } else {
-        const errorMessage = result.message || 'Invalid or expired code';
-        showToast(errorMessage, 'error');
-      }
-    } catch (error: any) {
-      console.error('Error verifying code:', error);
-      showToast('Verification failed. Please try again.', 'error');
-    } finally {
-      setVerifyingCode(false);
-    }
-  };
-
-  const [showDeletePaymentDialog, setShowDeletePaymentDialog] = useState(false);
-
-  const performFullReset = () => {
-    // Clear form data
     setFormData({
       fullName: '',
       email: currentUser?.email || '',
@@ -1095,1649 +899,705 @@ function ApplicationFormContent() {
       busId: '',
       busAssigned: '',
       assignedBusId: '',
-      shift: 'morning',
+      shift: '',
       sessionInfo: {
         sessionStartYear: new Date().getFullYear(),
-        durationYears: 1,
-        sessionEndYear: new Date().getFullYear() + 1,
+        durationYears: 0,
+        sessionEndYear: new Date().getFullYear(),
         feeEstimate: 0
       },
-      paymentInfo: {
-        paymentMode: 'offline',
-        amountPaid: 0,
-        paymentEvidenceProvided: false,
-        paymentEvidenceUrl: '',
-        paymentReference: ''
-      },
-      declarationAccepted: false,
-      understandsVerification: false
+      paymentInfo: currentPaymentInfo, // Key: Preserve this!
+      declarationAccepted: false
     });
 
-    // Clear all related state
+    // Reset most state, but KEEP payment state
     setPreviewUrl('');
     setFinalImageUrl(null);
     setImagePosition({ x: 0, y: 0, scale: 1 });
     setProfilePhotoFile(null);
     setProfilePhotoUrl('');
-    setApplicationId('');
-    setApplicationState('noDoc');
+
+    // Force state to 'draft' so user can edit the form again
+    setApplicationState('draft');
+
     setFacultySelected(false);
-    setSelectedModerator('');
     setDeclarationAgreed(false);
-    setPaymentCompleted(false);
-    setPaymentDetails(null);
-    setUseOnlinePayment(false);
+
     setReceiptPreview('');
     setReceiptFile(null);
 
+    // Clear localStorage BUT preserve payment keys
     localStorage.removeItem('applicationDraft');
-    localStorage.removeItem('verificationCodeId');
+    localStorage.removeItem('');
     localStorage.removeItem('verificationExpiry');
-    localStorage.removeItem('selectedModerator');
-    localStorage.removeItem('codesSentToday');
-    localStorage.removeItem('maxCodesReached');
-    localStorage.removeItem('receiptPreview');
-    localStorage.removeItem('profilePhotoPreview');
+    localStorage.removeItem('');
 
-    // CRITICAL FIX: Never delete payment sessions on form reset
-    // localStorage.removeItem('paymentSessions');
-    // localStorage.removeItem('currentPaymentSession');
+    // Do NOT remove paymentSessions, currentPaymentSession, etc.
 
-    if (currentUser?.uid) {
-      localStorage.removeItem(`payment_receipt_${currentUser.uid}_new_registration`);
-    }
+    showToast('Form reset successful.', 'info');
+  } else {
+    // Case 3: No online payment -> Full Reset
+    performFullReset();
+  }
+};
 
-    showToast('Form reset successfully', 'success');
-    setShowDeletePaymentDialog(false);
-  };
+const handleSubmitApplication = async () => {
+  console.log('ðŸš€ Starting application submission...');
+  console.log('ðŸ“‹ Current state:', {
+    applicationState,
+    hasReceiptFile: !!receiptFile,
+    receiptFileName: receiptFile?.name,
+    hasReceiptUrl: !!formData.paymentInfo?.paymentEvidenceUrl,
+    receiptUrl: formData.paymentInfo?.paymentEvidenceUrl,
+    hasProfilePhotoFile: !!profilePhotoFile,
+    profilePhotoFileName: profilePhotoFile?.name,
+    hasProfilePhotoUrl: !!formData.profilePhotoUrl,
+    paymentMode: formData.paymentInfo?.paymentMode
+  });
 
-  const handleResetForm = () => {
-    // Check if online payment is active/completed
-    const isOnlinePaymentActive = paymentCompleted && formData.paymentInfo?.paymentMode === 'online';
+  if (applicationState !== 'verified') {
+    showToast('Please complete verification first', 'error');
+    return;
+  }
 
-    if (isOnlinePaymentActive) {
-      // If payment exists, execute Partial Reset (preserve payment) regardless of dirty state
-      const currentPaymentInfo = { ...formData.paymentInfo };
+  if (!formData.declarationAccepted) {
+    showToast('Please accept the declaration first', 'error');
+    return;
+  }
 
-      setFormData({
-        fullName: '',
-        email: currentUser?.email || '',
-        phoneNumber: '',
-        alternatePhone: '',
-        enrollmentId: '',
-        gender: '',
-        dob: '',
-        age: '',
-        profilePhotoUrl: '',
-        faculty: '',
-        department: '',
-        semester: '',
-        address: '',
-        parentName: '',
-        parentPhone: '',
-        bloodGroup: '',
-        routeId: '',
-        stopId: '',
-        busId: '',
-        busAssigned: '',
-        assignedBusId: '',
-        shift: '',
-        sessionInfo: {
-          sessionStartYear: new Date().getFullYear(),
-          durationYears: 0,
-          sessionEndYear: new Date().getFullYear(),
-          feeEstimate: 0
-        },
-        paymentInfo: currentPaymentInfo, // Key: Preserve this!
-        declarationAccepted: false,
-        understandsVerification: false
-      });
+  // CRITICAL: Re-validate form data before final submission
+  // Even if verified (via online payment), we must ensure all fields are filled
+  if (!validateForm()) {
+    return;
+  }
 
-      // Reset most state, but KEEP payment state
-      setPreviewUrl('');
-      setFinalImageUrl(null);
-      setImagePosition({ x: 0, y: 0, scale: 1 });
-      setProfilePhotoFile(null);
-      setProfilePhotoUrl('');
+  setSubmitting(true);
+  try {
+    // First, handle profile photo upload if we have a file waiting
+    // Uses priority: 1. Raw file (new upload), 2. Nested state, 3. Standalone state
+    let finalProfilePhotoUrl = formData.profilePhotoUrl || profilePhotoUrl;
 
-      // Force state to 'draft' so user can edit the form again
-      setApplicationState('draft');
+    if (profilePhotoFile) {
+      // Show uploading toast - REMOVED per user request
+      // const uploadToast = showToast('Uploading profile photo...', 'info');
 
-      setFacultySelected(false);
-      setSelectedModerator('');
-      setDeclarationAgreed(false);
-
-      setReceiptPreview('');
-      setReceiptFile(null);
-
-      // Clear localStorage BUT preserve payment keys
-      localStorage.removeItem('applicationDraft');
-      localStorage.removeItem('verificationCodeId');
-      localStorage.removeItem('verificationExpiry');
-      localStorage.removeItem('selectedModerator');
-
-      // Do NOT remove paymentSessions, currentPaymentSession, etc.
-
-      showToast('Form reset successful.', 'info');
-    } else {
-      // Case 3: No online payment -> Full Reset
-      performFullReset();
-    }
-  };
-
-  const handleSubmitApplication = async () => {
-    console.log('🚀 Starting application submission...');
-    console.log('📋 Current state:', {
-      applicationState,
-      hasReceiptFile: !!receiptFile,
-      receiptFileName: receiptFile?.name,
-      hasReceiptUrl: !!formData.paymentInfo?.paymentEvidenceUrl,
-      receiptUrl: formData.paymentInfo?.paymentEvidenceUrl,
-      hasProfilePhotoFile: !!profilePhotoFile,
-      profilePhotoFileName: profilePhotoFile?.name,
-      hasProfilePhotoUrl: !!formData.profilePhotoUrl,
-      paymentMode: formData.paymentInfo?.paymentMode
-    });
-
-    if (applicationState !== 'verified') {
-      showToast('Please complete verification first', 'error');
-      return;
-    }
-
-    if (!formData.declarationAccepted) {
-      showToast('Please accept the declaration first', 'error');
-      return;
-    }
-
-    // CRITICAL: Re-validate form data before final submission
-    // Even if verified (via online payment), we must ensure all fields are filled
-    if (!validateForm()) {
-      return;
-    }
-
-    setSubmitting(true);
-    try {
-      // First, handle profile photo upload if we have a file waiting
-      // Uses priority: 1. Raw file (new upload), 2. Nested state, 3. Standalone state
-      let finalProfilePhotoUrl = formData.profilePhotoUrl || profilePhotoUrl;
-
-      if (profilePhotoFile) {
-        // Show uploading toast - REMOVED per user request
-        // const uploadToast = showToast('Uploading profile photo...', 'info');
-
-        try {
-          const uploadedUrl = await uploadImage(profilePhotoFile);
-          if (uploadedUrl) {
-            finalProfilePhotoUrl = uploadedUrl;
-            console.log('✅ Profile photo uploaded successfully:', finalProfilePhotoUrl);
-          } else {
-            throw new Error('Upload returned empty URL');
-          }
-        } catch (uploadError) {
-          console.error('Failed to upload profile photo:', uploadError);
-          showToast('Failed to upload profile photo. Please try again.', 'error');
-          setSubmitting(false);
-          return;
+      try {
+        const uploadedUrl = await uploadImage(profilePhotoFile);
+        if (uploadedUrl) {
+          finalProfilePhotoUrl = uploadedUrl;
+          console.log('âœ… Profile photo uploaded successfully:', finalProfilePhotoUrl);
+        } else {
+          throw new Error('Upload returned empty URL');
         }
-      }
-
-      // Safety check: Ensure we never submit a blob URL
-      if (finalProfilePhotoUrl && finalProfilePhotoUrl.startsWith('blob:')) {
-        console.error('❌ Attempted to submit blob URL for profile photo');
-        showToast('Profile photo upload invalid. Please re-select your photo.', 'error');
+      } catch (uploadError) {
+        console.error('Failed to upload profile photo:', uploadError);
+        showToast('Failed to upload profile photo. Please try again.', 'error');
         setSubmitting(false);
         return;
       }
-
-      const applicationData = {
-        ...formData,
-        profilePhotoUrl: finalProfilePhotoUrl, // Use the uploaded URL, not the blob
-        age: formData.age.toString(), // Ensure age is string
-        paymentInfo: {
-          ...formData.paymentInfo,
-          // Ensure payment status matches mode
-          paymentStatus: formData.paymentInfo.paymentMode === 'online' ? 'completed' : 'pending'
-        }
-      };
-      console.log('🚀 Starting application submission process...');
-
-      // Force token refresh to ensure authentication is valid (handles case where phone screen was off)
-      let token;
-      try {
-        console.log('🔄 Refreshing auth token...');
-        token = await currentUser?.getIdToken(true);
-      } catch (authError) {
-        console.error('❌ Failed to refresh auth token:', authError);
-        // Fallback to existing token if refresh fails
-        token = await currentUser?.getIdToken();
-      }
-
-      if (!token) {
-        console.error('❌ Failed to get auth token');
-        throw new Error('Authentication session expired. Please refresh the page and sign in again.');
-      }
-      console.log('✅ Auth token retrieved successfully');
-
-      // Upload receipt file if there's one (using same /api/upload as profile photo)
-      let receiptUrl = formData.paymentInfo.paymentEvidenceUrl || '';
-      let receiptProvided = formData.paymentInfo.paymentEvidenceProvided;
-
-      if (receiptFile) {
-        console.log('📤 Uploading receipt during form submission...');
-
-        // Mobile optimization: Check file size and compress if needed
-        if (receiptFile.size > 2 * 1024 * 1024) { // 2MB threshold for mobile
-          console.log('⚠️ Large file detected on mobile, this might cause issues');
-          showToast('Large file detected. Upload may take longer on mobile.', 'info');
-        }
-
-        const formDataUpload = new FormData();
-        formDataUpload.append('file', receiptFile);
-
-        // Mobile-specific retry logic
-        let uploadSuccess = false;
-        let lastError: Error | null = null;
-        const maxRetries = isMobileDevice() ? 2 : 1; // More retries on mobile
-
-        for (let attempt = 1; attempt <= maxRetries && !uploadSuccess; attempt++) {
-          try {
-            console.log(`📤 Upload attempt ${attempt}/${maxRetries}`);
-
-            if (attempt > 1) {
-              showToast(`Retrying upload (${attempt}/${maxRetries})...`, 'info');
-              // Wait before retry
-              await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
-            }
-
-            // Mobile-specific timeout and retry logic
-            const uploadResponse = await Promise.race([
-              fetch('/api/upload', {
-                method: 'POST',
-                headers: token ? { 'Authorization': `Bearer ${token}` } : {},
-                body: formDataUpload
-              }),
-              new Promise((_, reject) =>
-                setTimeout(() => reject(new Error('Upload timeout')), 30000) // 30 second timeout
-              )
-            ]) as Response;
-
-            if (uploadResponse.ok) {
-              const uploadData = await uploadResponse.json();
-              receiptUrl = uploadData.url;
-              receiptProvided = true; // Mark as provided when receipt is uploaded
-              console.log('✅ Receipt uploaded successfully:', receiptUrl);
-              uploadSuccess = true;
-            } else {
-              const errorText = await uploadResponse.text();
-              console.error(`❌ Receipt upload failed (attempt ${attempt}):`, errorText);
-              lastError = new Error(`Upload failed with status ${uploadResponse.status}: ${errorText}`);
-            }
-          } catch (uploadError: any) {
-            console.error(`❌ Receipt upload error (attempt ${attempt}):`, uploadError);
-            lastError = uploadError;
-
-            if (uploadError.message === 'Upload timeout') {
-              lastError = new Error('Upload timed out. Please try with a smaller image or better network connection.');
-            } else if (uploadError.name === 'TypeError' && uploadError.message.includes('fetch')) {
-              lastError = new Error('Network error during upload. Please check your internet connection and try again.');
-            }
-          }
-        }
-
-        if (!uploadSuccess && lastError) {
-          throw lastError;
-        }
-      }
-
-      // Submit application with verification code ID
-      console.log('📤 Sending final application data to /api/applications/submit-final...');
-      const response = await fetch('/api/applications/submit-final', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({
-          formData: {
-            ...formData,
-            profilePhotoUrl: finalProfilePhotoUrl,
-            paymentInfo: {
-              ...formData.paymentInfo,
-              paymentEvidenceUrl: receiptUrl,
-              paymentEvidenceProvided: receiptProvided
-            }
-          },
-          verificationCodeId: verificationCodeId,
-          needsCapacityReview: capacityCheckResult?.needsCapacityReview || false
-        })
-      });
-
-      console.log('📥 Response received from submit-final:', {
-        status: response.status,
-        ok: response.ok,
-        statusText: response.statusText
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        console.log('✅ Application submission confirmed by server');
-
-        showToast('Application submitted successfully! Waiting for approval from the Managing Team.', 'success');
-
-        // Clean up all localStorage data related to the application
-        const cleanupKeys = [
-          'applicationDraft', 'applicationState', 'verificationCodeId',
-          'verificationExpiry', 'selectedModerator', 'codesSentToday',
-          'maxCodesReached', 'receiptPreview', 'profilePhotoPreview',
-          'lastFormStep', 'form_start_time', 'verificationCompleted', 'verificationCompletedAt'
-        ];
-
-        cleanupKeys.forEach(key => localStorage.removeItem(key));
-
-        // Use service to safely clear current user's payment data
-        if (currentUser?.uid) {
-          clearPaymentSession(currentUser.uid, 'new_registration');
-          localStorage.removeItem(`payment_receipt_${currentUser.uid}_new_registration`);
-        }
-
-        // Deep cleanup of dynamic keys (excluding shared payment sessions)
-        // Correctly collect keys FIRST before removing to avoid indexing issues
-        const keysToRemove: string[] = [];
-        for (let i = 0; i < localStorage.length; i++) {
-          const key = localStorage.key(i);
-          if (!key) continue;
-
-          // Skip important cross-user data
-          if (key === 'paymentSessions') continue;
-
-          // Target application, form, draft, and payment related keys
-          const lowerKey = key.toLowerCase();
-          if (lowerKey.includes('application') ||
-            lowerKey.includes('form') ||
-            lowerKey.includes('draft') ||
-            lowerKey.includes('payment')) {
-
-            // Final safety check for shared storage
-            if (key !== 'paymentSessions') {
-              keysToRemove.push(key);
-            }
-          }
-        }
-
-        // Final execution of key removal
-        keysToRemove.forEach(key => localStorage.removeItem(key));
-        console.log(`🧹 Cleared ${keysToRemove.length} application-related localStorage keys.`);
-
-        // Clean up the object URLs if they were local previews
-        if (formData.profilePhotoUrl && formData.profilePhotoUrl.startsWith('blob:')) {
-          URL.revokeObjectURL(formData.profilePhotoUrl);
-        }
-        if (receiptPreview && receiptPreview.startsWith('blob:')) {
-          URL.revokeObjectURL(receiptPreview);
-        }
-
-        // Redirect to welcome/info page
-        router.push('/apply');
-      } else {
-        let errorData;
-        try {
-          const text = await response.text();
-          try {
-            errorData = JSON.parse(text);
-          } catch (e) {
-            console.error('❌ Failed to parse error response as JSON:', text);
-            errorData = { message: `Server error (${response.status}): ${text.substring(0, 100)}...` };
-          }
-        } catch (readError) {
-          errorData = { message: `Critical server error (${response.status})` };
-        }
-        throw new Error(errorData.message || errorData.error || 'Failed to submit application');
-      }
-    } catch (error: any) {
-      console.error('❌ CRITICAL: Error submitting application:', error);
-      console.error('Diagnostic Info:', {
-        name: error.name,
-        message: error.message,
-        isTypeError: error instanceof TypeError,
-        url: typeof window !== 'undefined' ? window.location.href : 'unknown',
-        stack: error.stack
-      });
-
-      // Provide user-friendly error messages
-      let errorMessage = 'Failed to submit application';
-
-      if (error.message.includes('Cloudinary')) {
-        errorMessage = 'Failed to upload payment receipt. Please check your internet connection and try again.';
-      } else if (error.message.includes('profile photo')) {
-        errorMessage = 'Failed to upload profile photo. Please try again or choose a different image.';
-      } else if (error.message.includes('Failed to fetch')) {
-        errorMessage = 'Network error. Please check your internet connection and try again.';
-      } else if (error.message.includes('verification')) {
-        errorMessage = error.message; // Use the specific verification error message
-      } else {
-        errorMessage = error.message || 'Failed to submit application. Please try again.';
-      }
-
-      showToast(errorMessage, 'error');
-    } finally {
-      setSubmitting(false);
     }
-  };
 
-  useEffect(() => {
-    console.log('🔍 CHECKING VERIFICATION STATE ON LOAD...');
+    // Safety check: Ensure we never submit a blob URL
+    if (finalProfilePhotoUrl && finalProfilePhotoUrl.startsWith('blob:')) {
+      console.error('â Œ Attempted to submit blob URL for profile photo');
+      showToast('Profile photo upload invalid. Please re-select your photo.', 'error');
+      setSubmitting(false);
+      return;
+    }
 
-    // Check for completed payment (both online and offline) and verification state
-    if (currentUser) {
-      console.log('👤 Current user found, checking verification state...');
+    const applicationData = {
+      ...formData,
+      profilePhotoUrl: finalProfilePhotoUrl, // Use the uploaded URL, not the blob
+      age: formData.age.toString(), // Ensure age is string
+      paymentInfo: {
+        ...formData.paymentInfo,
+        // Ensure payment status matches mode
+        paymentStatus: formData.paymentInfo.paymentMode === 'online' ? 'completed' : 'pending'
+      }
+    };
+    console.log('ðŸš€ Starting application submission process...');
 
-      // Log all relevant localStorage keys
-      const verificationCompleted = localStorage.getItem('verificationCompleted');
-      const savedApplicationState = localStorage.getItem('applicationState');
-      const backupVerificationState = localStorage.getItem('backup_verification_state');
-      const verificationCompletedAt = localStorage.getItem('verificationCompletedAt');
+    // Force token refresh to ensure authentication is valid (handles case where phone screen was off)
+    let token;
+    try {
+      console.log('ðŸ”„ Refreshing auth token...');
+      token = await currentUser?.getIdToken(true);
+    } catch (authError) {
+      console.error('â Œ Failed to refresh auth token:', authError);
+      // Fallback to existing token if refresh fails
+      token = await currentUser?.getIdToken();
+    }
 
-      console.log('📋 localStorage verification data:', {
-        verificationCompleted,
-        savedApplicationState,
-        backupVerificationState,
-        verificationCompletedAt,
-        allKeys: Object.keys(localStorage).filter(key =>
-          key.includes('verification') || key.includes('application')
-        )
-      });
+    if (!token) {
+      console.error('â Œ Failed to get auth token');
+      throw new Error('Authentication session expired. Please refresh the page and sign in again.');
+    }
+    console.log('âœ… Auth token retrieved successfully');
 
-      // First check if verification was completed (most reliable)
-      if (verificationCompleted === 'true' && savedApplicationState === 'verified') {
-        console.log('✅ RESTORING VERIFICATION STATE from localStorage flags');
-        setApplicationState('verified');
-        setPaymentCompleted(true);
-        return;
+    // Upload receipt file if there's one (using same /api/upload as profile photo)
+    let receiptUrl = formData.paymentInfo.paymentEvidenceUrl || '';
+    let receiptProvided = formData.paymentInfo.paymentEvidenceProvided;
+
+    if (receiptFile) {
+      console.log('ðŸ“¤ Uploading receipt during form submission...');
+
+      // Mobile optimization: Check file size and compress if needed
+      if (receiptFile.size > 2 * 1024 * 1024) { // 2MB threshold for mobile
+        console.log('âš ï¸  Large file detected on mobile, this might cause issues');
+        showToast('Large file detected. Upload may take longer on mobile.', 'info');
       }
 
-      // Check backup verification state
-      if (backupVerificationState) {
+      const formDataUpload = new FormData();
+      formDataUpload.append('file', receiptFile);
+
+      // Mobile-specific retry logic
+      let uploadSuccess = false;
+      let lastError: Error | null = null;
+      const maxRetries = isMobileDevice() ? 2 : 1; // More retries on mobile
+
+      for (let attempt = 1; attempt <= maxRetries && !uploadSuccess; attempt++) {
         try {
-          const backupData = JSON.parse(backupVerificationState);
-          if (backupData.verified && backupData.userId === currentUser.uid) {
-            console.log('✅ RESTORING VERIFICATION STATE from backup data');
-            setApplicationState('verified');
-            setPaymentCompleted(true);
-            // Restore primary flags if missing
-            localStorage.setItem('verificationCompleted', 'true');
-            localStorage.setItem('applicationState', 'verified');
-            return;
+          console.log(`ðŸ“¤ Upload attempt ${attempt}/${maxRetries}`);
+
+          if (attempt > 1) {
+            showToast(`Retrying upload (${attempt}/${maxRetries})...`, 'info');
+            // Wait before retry
+            await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
           }
-        } catch (e) {
-          console.warn('⚠️ Failed to parse backup verification state:', e);
+
+          // Mobile-specific timeout and retry logic
+          const uploadResponse = await Promise.race([
+            fetch('/api/upload', {
+              method: 'POST',
+              headers: token ? { 'Authorization': `Bearer ${token}` } : {},
+              body: formDataUpload
+            }),
+            new Promise((_, reject) =>
+              setTimeout(() => reject(new Error('Upload timeout')), 30000) // 30 second timeout
+            )
+          ]) as Response;
+
+          if (uploadResponse.ok) {
+            const uploadData = await uploadResponse.json();
+            receiptUrl = uploadData.url;
+            receiptProvided = true; // Mark as provided when receipt is uploaded
+            console.log('âœ… Receipt uploaded successfully:', receiptUrl);
+            uploadSuccess = true;
+          } else {
+            const errorText = await uploadResponse.text();
+            console.error(`â Œ Receipt upload failed (attempt ${attempt}):`, errorText);
+            lastError = new Error(`Upload failed with status ${uploadResponse.status}: ${errorText}`);
+          }
+        } catch (uploadError: any) {
+          console.error(`â Œ Receipt upload error (attempt ${attempt}):`, uploadError);
+          lastError = uploadError;
+
+          if (uploadError.message === 'Upload timeout') {
+            lastError = new Error('Upload timed out. Please try with a smaller image or better network connection.');
+          } else if (uploadError.name === 'TypeError' && uploadError.message.includes('fetch')) {
+            lastError = new Error('Network error during upload. Please check your internet connection and try again.');
+          }
         }
       }
 
-      // Fallback to payment session check
-      console.log('🔄 Checking payment session as fallback...');
-      const completedPayment = hasCompletedPayment(currentUser.uid, 'new_registration');
-      if (completedPayment) {
-        console.log('💳 Found completed payment, checking session...');
-        setPaymentCompleted(true);
-        const session = getCurrentPaymentSession();
-        if (session) {
-          console.log('📦 Payment session found:', session);
-          // Handle online payment
-          if (session.paymentMode === 'online' && session.razorpayPaymentId) {
-            setPaymentDetails({
-              paymentId: session.razorpayPaymentId,
-              orderId: session.razorpayOrderId,
-              amount: session.amount
-            });
-            setUseOnlinePayment(true);
-            setApplicationState('verified');
-            console.log('✅ Restored online payment verification from localStorage');
+      if (!uploadSuccess && lastError) {
+        throw lastError;
+      }
+    }
+
+    // Submit application with verification code ID
+    console.log('ðŸ“¤ Sending final application data to /api/applications/submit-final...');
+    const response = await fetch('/api/applications/submit-final', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
+      },
+      body: JSON.stringify({
+        formData: {
+          ...formData,
+          profilePhotoUrl: finalProfilePhotoUrl,
+          paymentInfo: {
+            ...formData.paymentInfo,
+            paymentEvidenceUrl: receiptUrl,
+            paymentEvidenceProvided: receiptProvided
           }
-          // Handle offline payment
-          else if (session.paymentMode === 'offline' && session.offlinePaymentId) {
-            setUseOnlinePayment(false);
-            setApplicationState('verified');
-            console.log('✅ Restored offline payment verification from localStorage');
+        },
+        needsCapacityReview: capacityCheckResult?.needsCapacityReview || false
+      })
+    });
+
+    console.log('ðŸ“¥ Response received from submit-final:', {
+      status: response.status,
+      ok: response.ok,
+      statusText: response.statusText
+    });
+
+    if (response.ok) {
+      const data = await response.json();
+      console.log('âœ… Application submission confirmed by server');
+
+      showToast('Application submitted successfully! Waiting for approval from the Managing Team.', 'success');
+
+      // Clean up all localStorage data related to the application
+      const cleanupKeys = [
+        'applicationDraft', 'applicationState',
+        'receiptPreview', 'profilePhotoPreview',
+        'lastFormStep', 'form_start_time'
+      ];
+
+      cleanupKeys.forEach(key => localStorage.removeItem(key));
+
+      // Use service to safely clear current user's payment data
+      if (currentUser?.uid) {
+        clearPaymentSession(currentUser.uid, 'new_registration');
+        localStorage.removeItem(`payment_receipt_${currentUser.uid}_new_registration`);
+      }
+
+      // Deep cleanup of dynamic keys (excluding shared payment sessions)
+      // Correctly collect keys FIRST before removing to avoid indexing issues
+      const keysToRemove: string[] = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (!key) continue;
+
+        // Skip important cross-user data
+        if (key === 'paymentSessions') continue;
+
+        // Target application, form, draft, and payment related keys
+        const lowerKey = key.toLowerCase();
+        if (lowerKey.includes('application') ||
+          lowerKey.includes('form') ||
+          lowerKey.includes('draft') ||
+          lowerKey.includes('payment')) {
+
+          // Final safety check for shared storage
+          if (key !== 'paymentSessions') {
+            keysToRemove.push(key);
           }
-        } else {
-          console.log('⚠️ No payment session found despite completed payment flag');
+        }
+      }
+
+      // Final execution of key removal
+      keysToRemove.forEach(key => localStorage.removeItem(key));
+      console.log(`Cleared ${keysToRemove.length} application-related localStorage keys.`);
+
+      // Clean up the object URLs if they were local previews
+      if (formData.profilePhotoUrl && formData.profilePhotoUrl.startsWith('blob:')) {
+        URL.revokeObjectURL(formData.profilePhotoUrl);
+      }
+      if (receiptPreview && receiptPreview.startsWith('blob:')) {
+        URL.revokeObjectURL(receiptPreview);
+      }
+
+      // Redirect to welcome/info page
+      router.push('/apply');
+    } else {
+      let errorData;
+      try {
+        const text = await response.text();
+        try {
+          errorData = JSON.parse(text);
+        } catch (e) {
+          console.error('â Œ Failed to parse error response as JSON:', text);
+          errorData = { message: `Server error (${response.status}): ${text.substring(0, 100)}...` };
+        }
+      } catch (readError) {
+        errorData = { message: `Critical server error (${response.status})` };
+      }
+      throw new Error(errorData.message || errorData.error || 'Failed to submit application');
+    }
+  } catch (error: any) {
+    console.error('â Œ CRITICAL: Error submitting application:', error);
+    console.error('Diagnostic Info:', {
+      name: error.name,
+      message: error.message,
+      isTypeError: error instanceof TypeError,
+      url: typeof window !== 'undefined' ? window.location.href : 'unknown',
+      stack: error.stack
+    });
+
+    // Provide user-friendly error messages
+    let errorMessage = 'Failed to submit application';
+
+    if (error.message.includes('Cloudinary')) {
+      errorMessage = 'Failed to upload payment receipt. Please check your internet connection and try again.';
+    } else if (error.message.includes('profile photo')) {
+      errorMessage = 'Failed to upload profile photo. Please try again or choose a different image.';
+    } else if (error.message.includes('Failed to fetch')) {
+      errorMessage = 'Network error. Please check your internet connection and try again.';
+    } else if (error.message.includes('verification')) {
+      errorMessage = error.message; // Use the specific verification error message
+    } else {
+      errorMessage = error.message || 'Failed to submit application. Please try again.';
+    }
+
+    showToast(errorMessage, 'error');
+  } finally {
+    setSubmitting(false);
+  }
+};
+
+useEffect(() => {
+  console.log('ðŸ”  CHECKING VERIFICATION STATE ON LOAD...');
+
+  // Check for completed payment (both online and offline) and verification state
+  if (currentUser) {
+    console.log('ðŸ‘¤ Current user found, checking verification state...');
+
+    // Log all relevant localStorage keys
+    const verificationCompleted = localStorage.getItem('verificationCompleted');
+    const savedApplicationState = localStorage.getItem('applicationState');
+    const backupVerificationState = localStorage.getItem('backup_verification_state');
+    const verificationCompletedAt = localStorage.getItem('verificationCompletedAt');
+
+    console.log('ðŸ“‹ localStorage verification data:', {
+      verificationCompleted,
+      savedApplicationState,
+      backupVerificationState,
+      verificationCompletedAt,
+      allKeys: Object.keys(localStorage).filter(key =>
+        key.includes('verification') || key.includes('application')
+      )
+    });
+
+    // First check if verification was completed (most reliable)
+    if (verificationCompleted === 'true' && savedApplicationState === 'verified') {
+      console.log('âœ… RESTORING VERIFICATION STATE from localStorage flags');
+      setApplicationState('verified');
+      setPaymentCompleted(true);
+      return;
+    }
+
+    // Check backup verification state
+    if (backupVerificationState) {
+      try {
+        const backupData = JSON.parse(backupVerificationState);
+        if (backupData.verified && backupData.userId === currentUser.uid) {
+          console.log('âœ… RESTORING VERIFICATION STATE from backup data');
+          setApplicationState('verified');
+          setPaymentCompleted(true);
+          // Restore primary flags if missing
+          localStorage.setItem('verificationCompleted', 'true');
+          localStorage.setItem('applicationState', 'verified');
+          return;
+        }
+      } catch (e) {
+        console.warn('âš ï¸  Failed to parse backup verification state:', e);
+      }
+    }
+
+    // Fallback to payment session check
+    console.log('ðŸ”„ Checking payment session as fallback...');
+    const completedPayment = hasCompletedPayment(currentUser.uid, 'new_registration');
+    if (completedPayment) {
+      console.log('ðŸ’³ Found completed payment, checking session...');
+      setPaymentCompleted(true);
+      const session = getCurrentPaymentSession();
+      if (session) {
+        console.log('ðŸ“¦ Payment session found:', session);
+        // Handle online payment
+        if (session.paymentMode === 'online' && session.razorpayPaymentId) {
+          setPaymentDetails({
+            paymentId: session.razorpayPaymentId,
+            orderId: session.razorpayOrderId,
+            amount: session.amount
+          });
+          setUseOnlinePayment(true);
+          setApplicationState('verified');
+          console.log('âœ… Restored online payment verification from localStorage');
+        }
+        // Handle offline payment
+        else if (session.paymentMode === 'offline' && session.offlinePaymentId) {
+          setUseOnlinePayment(false);
+          setApplicationState('verified');
+          console.log('âœ… Restored offline payment verification from localStorage');
         }
       } else {
-        console.log('ℹ️ No completed payment found');
+        console.log('âš ï¸  No payment session found despite completed payment flag');
       }
     } else {
-      console.log('⚠️ No current user found');
+      console.log('â„¹ï¸  No completed payment found');
     }
-
-    console.log('🔍 VERIFICATION STATE CHECK COMPLETED');
-  }, [currentUser]);
-
-  if (loading || (currentUser && loadingResources)) {
-    return <PremiumPageLoader fullScreen message="Initializing Application Form..." subMessage="Loading resources and verification status..." />;
+  } else {
+    console.log('âš ï¸  No current user found');
   }
 
-  if (isSubmitted) {
-    return (
-      <div className="min-h-screen bg-[#05060e] py-12 px-4 sm:px-6 lg:px-8 relative overflow-hidden">
-        <div className="fixed inset-0 pointer-events-none">
-          <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-indigo-500/10 blur-[120px] rounded-full animate-pulse" />
-          <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-blue-500/10 blur-[120px] rounded-full animate-pulse delay-1000" />
-        </div>
+  console.log('ðŸ”  VERIFICATION STATE CHECK COMPLETED');
+}, [currentUser]);
 
-        <div className="max-w-4xl mx-auto relative z-10">
-          <div className="bg-[#0c0e1a]/80 backdrop-blur-xl border border-slate-800/50 rounded-[2.5rem] shadow-2xl shadow-black/50 overflow-hidden">
-            <div className="p-8 sm:p-12 md:p-16">
-              <div className="flex flex-col items-center">
-                {/* Success Icon */}
-                <div className="relative mb-10">
-                  <div className="absolute inset-0 bg-emerald-500 rounded-full blur-2xl opacity-20 animate-pulse"></div>
-                  <div className="relative h-24 w-24 sm:h-28 sm:w-28 bg-gradient-to-br from-emerald-400 to-green-600 rounded-3xl flex items-center justify-center shadow-2xl shadow-emerald-500/20 rotate-3 transition-transform hover:rotate-6 duration-500">
-                    <CheckCircle className="h-12 w-12 sm:h-14 sm:w-14 text-white drop-shadow-lg" />
-                  </div>
-                  <div className="absolute -bottom-3 left-1/2 -translate-x-1/2 bg-slate-900 border border-indigo-500/30 py-1 px-3 rounded-full shadow-lg flex items-center gap-1.5 whitespace-nowrap">
-                    <div className="w-1.5 h-1.5 rounded-full bg-emerald-500"></div>
-                    <span className="text-[10px] font-bold tracking-wider uppercase text-slate-300">Success</span>
-                  </div>
-                </div>
+if (loading || (currentUser && loadingResources)) {
+  return <PremiumPageLoader fullScreen message="Initializing Application Form..." subMessage="Loading resources and verification status..." />;
+}
 
-                <h1 className="text-4xl sm:text-5xl font-bold text-transparent bg-clip-text bg-gradient-to-br from-white via-indigo-100 to-slate-400 text-center tracking-tight mb-4 drop-shadow-sm">
-                  Application Received
-                </h1>
-
-                <p className="text-lg text-slate-400 text-center max-w-md font-light leading-relaxed">
-                  Your application has been securely submitted to the <span className="text-indigo-300 font-medium">AdtU Bus Services</span> portal.
-                </p>
-              </div>
-
-              {/* Progress Timeline */}
-              <div className="mb-10 bg-slate-800/50 rounded-2xl p-6 border border-slate-700/50 backdrop-blur-sm mt-10">
-                <div className="flex items-center justify-between relative">
-                  {/* Connecting Line */}
-                  <div className="absolute top-1/3 left-4 right-4 h-0.5 bg-slate-700/50 -translate-y-1/2 z-0"></div>
-                  <div className="absolute top-1/3 left-4 right-1/2 h-0.5 bg-gradient-to-r from-indigo-500 to-blue-500 -translate-y-1/2 z-0"></div>
-
-                  {/* Step 1 */}
-                  <div className="relative z-10 flex flex-col items-start gap-2 sm:gap-3">
-                    <div className="w-8 h-8 rounded-full bg-indigo-900/80 border-2 border-indigo-500 flex items-center justify-center shadow-[0_0_15px_-3px_rgba(99,102,241,0.4)]">
-                      <CheckCircle className="w-4 h-4 text-indigo-200" />
-                    </div>
-                    <span className="text-[9px] sm:text-xs font-semibold text-indigo-200 tracking-wide uppercase">Submitted</span>
-                  </div>
-
-                  {/* Step 2 */}
-                  <div className="relative z-10 flex flex-col items-center gap-2 sm:gap-3">
-                    <div className="w-8 h-8 rounded-full bg-slate-800 border-2 border-blue-500/50 flex items-center justify-center shadow-[0_0_15px_-3px_rgba(59,130,246,0.3)]">
-                      <FileText className="w-4 h-4 text-blue-400" />
-                    </div>
-                    <span className="text-[9px] sm:text-xs font-semibold text-blue-200 tracking-wide uppercase text-center">Under Review</span>
-                  </div>
-
-                  {/* Step 3 */}
-                  <div className="relative z-10 flex flex-col items-end gap-2 sm:gap-3">
-                    <div className="w-8 h-8 rounded-full bg-slate-800 border-2 border-slate-600 flex items-center justify-center">
-                      <div className="w-2 h-2 rounded-full bg-slate-600"></div>
-                    </div>
-                    <span className="text-[9px] sm:text-xs font-semibold text-slate-500 tracking-wide uppercase">Approved</span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Info Box */}
-              <div className="bg-indigo-500/5 border border-indigo-500/10 rounded-xl p-5 mb-8 flex gap-4 items-start">
-                <div className="p-2 bg-indigo-500/10 rounded-lg shrink-0">
-                  <Info className="w-5 h-5 text-indigo-400" />
-                </div>
-                <div>
-                  <h4 className="text-sm font-semibold text-indigo-200 mb-1">What happens next?</h4>
-                  <p className="text-sm text-indigo-200/70 leading-relaxed">
-                    Our administrative team will review your application details. This process typically takes 24-48 hours. Once verified, you will receive full access to your student dashboard.
-                  </p>
-                </div>
-              </div>
-
-              {/* Footer / ID */}
-              <div className="flex flex-col items-center justify-center border-t border-slate-700/50 pt-8">
-                <div className="flex items-center gap-3 text-sm text-slate-500 font-medium bg-slate-800/50 px-4 py-2 rounded-full border border-slate-700/30">
-                  <span className="flex h-2 w-2 relative">
-                    <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
-                  </span>
-                  <span>Refreshed just now</span>
-                  <span className="w-1 h-1 bg-slate-600 rounded-full"></span>
-                  <span>ID: <span className="font-mono text-indigo-300 font-bold tracking-wider">{applicationId || 'PENDING'}</span></span>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Help Text */}
-          <p className="text-center text-slate-500 text-xs mt-6">
-            Need help? <a href="/contact" className="underline hover:text-indigo-400">Contact support</a> or visit the bus office.
-          </p>
-        </div>
-      </div>
-    );
-  }
-
+if (isSubmitted) {
   return (
-  <div className="min-h-screen bg-gradient-to-br from-blue-50 via-slate-50 to-indigo-50 dark:from-gray-950 dark:via-blue-950/20 dark:to-slate-900/20">
-    <ApplyFormNavbar />
-    <div className="py-4 sm:py-6 lg:py-8">
-      {/* Header */}
-      <div className="max-w-7xl mx-auto px-2 sm:px-3">
-        <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2 sm:gap-3 mb-3 sm:mb-4">
-          <div>
-            <h1 className="text-lg sm:text-xl font-bold bg-gradient-to-r from-blue-600 via-indigo-600 to-cyan-600 bg-clip-text text-transparent">Bus Service Application</h1>
-            <p className="text-[11px] sm:text-xs text-gray-700 dark:text-gray-300 mt-0.5 font-medium leading-relaxed">
-              Complete all sections and get verified to submit your application
-            </p>
-          </div>
-          <div className="flex items-center gap-2 self-start sm:self-center">
-            {applicationState !== 'noDoc' && applicationState !== 'draft' && (
-              <Badge variant={
-                applicationState === 'verified' ? 'default' :
-                  applicationState === 'awaiting_verification' ? 'secondary' :
-                    'outline'
-              } className="text-[10px] sm:text-xs px-2 py-0.5">
-                {applicationState === 'awaiting_verification' ? 'Awaiting Verification' :
-                  applicationState === 'verified' ? 'Verified' : 'Unknown'}
-              </Badge>
-            )}
-            {applicationState === 'draft' && (
-              <div className="flex items-center gap-1.5 px-2 py-1 bg-green-50 dark:bg-green-950/20 rounded-full border border-green-100 dark:border-green-900/30 text-green-600 dark:text-green-400">
-                <div className="w-1.5 h-1.5 bg-green-500 rounded-full"></div>
-                <span className="text-[10px] font-bold uppercase tracking-wider whitespace-nowrap">Auto-save active</span>
+    <div className="min-h-screen bg-[#05060e] py-12 px-4 sm:px-6 lg:px-8 relative overflow-hidden">
+      <div className="fixed inset-0 pointer-events-none">
+        <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-indigo-500/10 blur-[120px] rounded-full animate-pulse" />
+        <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-blue-500/10 blur-[120px] rounded-full animate-pulse delay-1000" />
+      </div>
+
+      <div className="max-w-4xl mx-auto relative z-10">
+        <div className="bg-[#0c0e1a]/80 backdrop-blur-xl border border-slate-800/50 rounded-[2.5rem] shadow-2xl shadow-black/50 overflow-hidden">
+          <div className="p-8 sm:p-12 md:p-16">
+            <div className="flex flex-col items-center">
+              {/* Success Icon */}
+              <div className="relative mb-10">
+                <div className="absolute inset-0 bg-emerald-500 rounded-full blur-2xl opacity-20 animate-pulse"></div>
+                <div className="relative h-24 w-24 sm:h-28 sm:w-28 bg-gradient-to-br from-emerald-400 to-green-600 rounded-3xl flex items-center justify-center shadow-2xl shadow-emerald-500/20 rotate-3 transition-transform hover:rotate-6 duration-500">
+                  <CheckCircle className="h-12 w-12 sm:h-14 sm:w-14 text-white drop-shadow-lg" />
+                </div>
+                <div className="absolute -bottom-3 left-1/2 -translate-x-1/2 bg-slate-900 border border-indigo-500/30 py-1 px-3 rounded-full shadow-lg flex items-center gap-1.5 whitespace-nowrap">
+                  <div className="w-1.5 h-1.5 rounded-full bg-emerald-500"></div>
+                  <span className="text-[10px] font-bold tracking-wider uppercase text-slate-300">Success</span>
+                </div>
               </div>
-            )}
+
+              <h1 className="text-4xl sm:text-5xl font-bold text-transparent bg-clip-text bg-gradient-to-br from-white via-indigo-100 to-slate-400 text-center tracking-tight mb-4 drop-shadow-sm">
+                Application Received
+              </h1>
+
+              <p className="text-lg text-slate-400 text-center max-w-md font-light leading-relaxed">
+                Your application has been securely submitted to the <span className="text-indigo-300 font-medium">AdtU Bus Services</span> portal.
+              </p>
+            </div>
+
+            {/* Progress Timeline */}
+            <div className="mb-10 bg-slate-800/50 rounded-2xl p-6 border border-slate-700/50 backdrop-blur-sm mt-10">
+              <div className="flex items-center justify-between relative">
+                {/* Connecting Line */}
+                <div className="absolute top-1/3 left-4 right-4 h-0.5 bg-slate-700/50 -translate-y-1/2 z-0"></div>
+                <div className="absolute top-1/3 left-4 right-1/2 h-0.5 bg-gradient-to-r from-indigo-500 to-blue-500 -translate-y-1/2 z-0"></div>
+
+                {/* Step 1 */}
+                <div className="relative z-10 flex flex-col items-start gap-2 sm:gap-3">
+                  <div className="w-8 h-8 rounded-full bg-indigo-900/80 border-2 border-indigo-500 flex items-center justify-center shadow-[0_0_15px_-3px_rgba(99,102,241,0.4)]">
+                    <CheckCircle className="w-4 h-4 text-indigo-200" />
+                  </div>
+                  <span className="text-[9px] sm:text-xs font-semibold text-indigo-200 tracking-wide uppercase">Submitted</span>
+                </div>
+
+                {/* Step 2 */}
+                <div className="relative z-10 flex flex-col items-center gap-2 sm:gap-3">
+                  <div className="w-8 h-8 rounded-full bg-slate-800 border-2 border-blue-500/50 flex items-center justify-center shadow-[0_0_15px_-3px_rgba(59,130,246,0.3)]">
+                    <FileText className="w-4 h-4 text-blue-400" />
+                  </div>
+                  <span className="text-[9px] sm:text-xs font-semibold text-blue-200 tracking-wide uppercase text-center">Under Review</span>
+                </div>
+
+                {/* Step 3 */}
+                <div className="relative z-10 flex flex-col items-end gap-2 sm:gap-3">
+                  <div className="w-8 h-8 rounded-full bg-slate-800 border-2 border-slate-600 flex items-center justify-center">
+                    <div className="w-2 h-2 rounded-full bg-slate-600"></div>
+                  </div>
+                  <span className="text-[9px] sm:text-xs font-semibold text-slate-500 tracking-wide uppercase">Approved</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Info Box */}
+            <div className="bg-indigo-500/5 border border-indigo-500/10 rounded-xl p-5 mb-8 flex gap-4 items-start">
+              <div className="p-2 bg-indigo-500/10 rounded-lg shrink-0">
+                <Info className="w-5 h-5 text-indigo-400" />
+              </div>
+              <div>
+                <h4 className="text-sm font-semibold text-indigo-200 mb-1">What happens next?</h4>
+                <p className="text-sm text-indigo-200/70 leading-relaxed">
+                  Our administrative team will review your application details. This process typically takes 24-48 hours. Once verified, you will receive full access to your student dashboard.
+                </p>
+              </div>
+            </div>
+
+            {/* Footer / ID */}
+            <div className="flex flex-col items-center justify-center border-t border-slate-700/50 pt-8">
+              <div className="flex items-center gap-3 text-sm text-slate-500 font-medium bg-slate-800/50 px-4 py-2 rounded-full border border-slate-700/30">
+                <span className="flex h-2 w-2 relative">
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                </span>
+                <span>Refreshed just now</span>
+                <span className="w-1 h-1 bg-slate-600 rounded-full"></span>
+                <span>ID: <span className="font-mono text-indigo-300 font-bold tracking-wider">{applicationId || 'PENDING'}</span></span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Help Text */}
+        <p className="text-center text-slate-500 text-xs mt-6">
+          Need help? <a href="/contact" className="underline hover:text-indigo-400">Contact support</a> or visit the bus office.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+return (
+  <div className="min-h-screen bg-[#05060e] dark:bg-[#05060e] overflow-x-hidden">
+    <ApplyFormNavbar />
+
+    {/* Decorative background elements */}
+    <div className="fixed top-0 left-0 w-full h-full overflow-hidden pointer-events-none z-0">
+      <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-indigo-500/10 rounded-full blur-[120px]" />
+      <div className="absolute bottom-[10%] right-[-5%] w-[30%] h-[30%] bg-blue-500/10 rounded-full blur-[100px]" />
+    </div>
+
+    <div className="relative z-10 pt-16 sm:pt-24 pb-16 min-h-screen">
+      <div className="flex flex-col md:flex-row justify-start px-4 sm:px-12 max-w-[1600px] mx-auto">
+        {/* Left Sidebar - Fixed Vertical Navigation (Desktop) */}
+        <div className="hidden md:flex fixed left-10 top-[calc(50%+28px)] -translate-y-1/2 w-72 flex-col gap-4 z-50">
+          <div className="bg-[#0c0e1a]/60 backdrop-blur-xl border border-white/5 rounded-3xl p-5 shadow-2xl">
+            <FormStepper
+              steps={STEP_LABELS}
+              currentStep={currentStep}
+              onStepClick={(step) => goToStep(step)}
+              vertical={true}
+              isStepComplete={isStepComplete}
+              visitedSteps={visitedSteps}
+            />
+          </div>
+        </div>
+
+        {/* Mobile Stepper - Horizontal */}
+        <div className="w-full md:hidden mb-8">
+          <div className="bg-[#0c0e1a]/40 backdrop-blur-md border border-slate-800/50 rounded-2xl p-4 py-8">
+            <FormStepper
+              steps={STEP_LABELS}
+              currentStep={currentStep}
+              onStepClick={(step) => goToStep(step)}
+              isStepComplete={isStepComplete}
+              visitedSteps={visitedSteps}
+            />
+          </div>
+        </div>
+
+        {/* Right Side - Form Content */}
+        <div className="flex-1 w-full max-w-4xl ml-0 md:ml-85 flex flex-col gap-6">
+          <div className="bg-[#0c0e1a]/80 backdrop-blur-xl border border-slate-800/50 rounded-3xl shadow-2xl overflow-hidden p-0 sm:p-8 animate-in fade-in slide-in-from-right-4 duration-500 flex flex-col">
+            <div className="p-6 sm:p-2">
+              {currentStep === 1 && (
+                <Step1Personal
+                  formData={formData}
+                  handleInputChange={handleInputChange}
+                  onNext={goToNextStep}
+                  currentUser={currentUser}
+                  profilePhotoUrl={profilePhotoUrl}
+                  finalImageUrl={finalImageUrl}
+                  setShowProfileUpdateModal={setShowProfileUpdateModal}
+                  handleImageRemove={handleImageRemove}
+                />
+              )}
+
+              {currentStep === 2 && (
+                <Step2Academic
+                  formData={formData}
+                  handleInputChange={handleInputChange}
+                  onNext={goToNextStep}
+                  onPrev={goToPrevStep}
+                  handleFacultySelect={handleFacultySelect}
+                  handleDepartmentSelect={handleDepartmentSelect}
+                />
+              )}
+
+              {currentStep === 3 && (
+                <Step3Bus
+                  formData={formData}
+                  handleInputChange={handleInputChange}
+                  onNext={goToNextStep}
+                  onPrev={goToPrevStep}
+                  routes={routes}
+                  buses={buses}
+                  setCapacityCheckResult={setCapacityCheckResult}
+                  handleRefChange={handleRefChange}
+                  applicationState={applicationState}
+                />
+              )}
+
+              {currentStep === 4 && (
+                <Step4ServicePayment
+                  formData={formData}
+                  handleInputChange={handleInputChange}
+                  onNext={goToNextStep}
+                  onPrev={goToPrevStep}
+                  currentUser={currentUser}
+                  calculateTotalFee={calculateTotalFee}
+                  handleSessionDurationChange={handleSessionDurationChange}
+                  deadlineConfig={deadlineConfig}
+                  applicationState={applicationState}
+                  checkFormCompletion={checkFormCompletion}
+                  setPaymentCompleted={setPaymentCompleted}
+                  setPaymentDetails={setPaymentDetails}
+                  setUseOnlinePayment={setUseOnlinePayment}
+                  setApplicationState={setApplicationState}
+                  setReceiptFile={setReceiptFile}
+                  setReceiptPreview={setReceiptPreview}
+                  showToast={showToast}
+                />
+              )}
+
+              {currentStep === 5 && (
+                <Step5Review
+                  formData={formData}
+                  handleInputChange={handleInputChange}
+                  onPrev={goToPrevStep}
+                  onNext={() => { }}
+                  applicationState={applicationState}
+                  handleSubmitApplication={handleSubmitApplication}
+                  declarationAgreed={declarationAgreed}
+                  setDeclarationAgreed={setDeclarationAgreed}
+                  validateForm={validateForm}
+                  saving={saving}
+                  handleSaveDraft={handleSaveDraft}
+                  submitting={submitting}
+                  useOnlinePayment={useOnlinePayment}
+                  finalImageUrl={finalImageUrl}
+                />
+              )}
+            </div>
+          </div>
+
+          {/* Mobile Actions area */}
+          <div className="md:hidden flex justify-center mt-4 text-center">
+            <Button variant="ghost" size="sm" onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })} className="text-[10px] text-slate-500 hover:text-white">
+              Back to top
+            </Button>
           </div>
         </div>
       </div>
+    </div>
 
-      {/* Main Content */}
-      <div className="max-w-7xl mx-auto px-2 sm:px-3">
-        <Card className="bg-white/95 dark:bg-gray-900/95 backdrop-blur-sm border border-indigo-100 dark:border-indigo-900/30 shadow-lg overflow-hidden pt-0">
-          <CardHeader className="bg-gradient-to-r from-indigo-50 via-blue-50 to-cyan-50 dark:from-indigo-950/40 dark:via-blue-950/40 dark:to-cyan-950/40 border-b border-indigo-100 dark:border-indigo-900/30 p-4 sm:p-6 mb-0">
-            <div className="flex justify-between items-center gap-4">
-              <div className="flex-1 min-w-0">
-                <CardTitle className="text-base md:text-2xl font-bold bg-gradient-to-r from-blue-600 to-cyan-600 dark:from-blue-400 dark:to-cyan-400 bg-clip-text text-transparent mb-1 truncate">New Application</CardTitle>
-                <CardDescription className="text-[10px] md:text-base text-gray-600 dark:text-gray-400 leading-relaxed font-medium line-clamp-1 sm:line-clamp-none">Please fill in all required information accurately</CardDescription>
-              </div>
-              <Button
-                variant="outline"
-                onClick={handleResetForm}
-                className="shrink-0 bg-red-50 hover:bg-red-100 text-red-700 border-red-200 hover:border-red-300 dark:bg-red-950/20 dark:hover:bg-red-950/30 dark:text-red-400 dark:border-red-800 dark:hover:border-red-700 h-8 px-3 text-xs sm:h-10 sm:px-5 sm:text-sm font-semibold shadow-sm hover:shadow flex items-center justify-center gap-2"
-              >
-                <RotateCcw className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
-                <span className="hidden xs:inline">Reset Form</span>
-                <span className="xs:hidden">Reset</span>
-              </Button>
-            </div>
-          </CardHeader>
-          <CardContent className="p-3 sm:p-4">
-            <div className="space-y-3">
-              {/* Profile Photo Section - Modal Position Picker */}
-              {/* Profile Photo Section - Modal Position Picker */}
-              <div className="flex flex-col items-center justify-center mb-8">
-                <div className="relative group cursor-pointer" onClick={() => setShowProfileUpdateModal(true)}>
-                  {finalImageUrl ? (
-                    <div className="relative h-24 w-24 rounded-full overflow-hidden border-4 border-white dark:border-gray-800 shadow-xl ring-2 ring-blue-100 dark:ring-blue-900">
-                      <Image
-                        src={finalImageUrl}
-                        alt="Profile"
-                        fill
-                        className="object-cover"
-                      />
-                    </div>
-                  ) : (
-                    <div className="h-24 w-24 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center border-4 border-white dark:border-gray-800 shadow-xl ring-2 ring-slate-100 dark:ring-slate-800 group-hover:bg-slate-200 dark:group-hover:bg-slate-700">
-                      <Camera className="h-8 w-8 text-slate-400" />
-                    </div>
-                  )}
-
-                  <div className="absolute inset-0 rounded-full bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center backdrop-blur-[2px]">
-                    <Camera className="h-6 w-6 text-white drop-shadow-md" />
-                  </div>
-
-                  {finalImageUrl && (
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleImageRemove();
-                      }}
-                      className="absolute -top-1 -right-1 p-1.5 bg-red-500 text-white rounded-full shadow-lg hover:bg-red-600 z-10"
-                      title="Remove photo"
-                    >
-                      <X className="h-4 w-4" />
-                    </button>
-                  )}
-                </div>
-
-                <div className="mt-4 flex flex-col items-center gap-2">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setShowProfileUpdateModal(true)}
-                    className="text-xs font-semibold bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700 shadow-sm"
-                  >
-                    {finalImageUrl ? 'Change Photo' : 'Upload Profile Photo'}
-                  </Button>
-                  <p className="text-[10px] text-gray-500 dark:text-gray-400 max-w-[200px] text-center leading-tight">
-                    Click to upload. Use a clear face photo for your bus pass.
-                  </p>
-                </div>
-
-                <ProfileImageAddModal
-                  isOpen={showProfileUpdateModal}
-                  onClose={() => setShowProfileUpdateModal(false)}
-                  onConfirm={handleProfileImageUpdate}
-                  immediateUpload={false}
-                />
-              </div>
-
-              {/* Personal and Academic Information Header - Full Width */}
-              <div className="pb-2 border-b-2 border-blue-300 dark:border-blue-900/30 mb-3">
-                <h3 className="text-base md:text-xl font-bold text-blue-700 dark:text-blue-400 flex items-center gap-1.5">
-                  <div className="p-1 rounded-md bg-gradient-to-br from-blue-500 to-indigo-500 text-white shadow-sm">
-                    <svg className="w-3 h-3 md:w-5 md:h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-                    </svg>
-                  </div>
-                  Personal and Academic Information
-                </h3>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {/* Left Column */}
-                <div className="space-y-2">
-                  <div>
-                    <OptimizedInput
-                      id="fullName"
-                      label="Full Name"
-                      value={formData.fullName}
-                      onChange={(value) => handleInputChange('fullName', value)}
-                      placeholder="Enter your full name"
-                      required
-                    />
-                  </div>
-
-                  <OptimizedSelect
-                    id="gender"
-                    label="Gender"
-                    value={formData.gender}
-                    onChange={(value) => setFormData(prev => ({ ...prev, gender: value }))}
-                    placeholder="Select Gender"
-                    required
-                  >
-                    <SelectItem value="male">Male</SelectItem>
-                    <SelectItem value="female">Female</SelectItem>
-                    <SelectItem value="other">Other</SelectItem>
-                  </OptimizedSelect>
-
-                  <div className="grid grid-cols-2 gap-2">
-                    <div>
-                      <Label htmlFor="dob" className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-0.5">
-                        Date of Birth *
-                      </Label>
-                      <EnhancedDatePicker
-                        id="dob"
-                        value={formData.dob}
-                        onChange={(value) => {
-                          handleInputChange('dob', value);
-                          if (value) {
-                            const birthDate = new Date(value);
-                            const today = new Date();
-                            let age = today.getFullYear() - birthDate.getFullYear();
-                            const monthDiff = today.getMonth() - birthDate.getMonth();
-                            if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birthDate.getDate())) {
-                              age--;
-                            }
-                            handleInputChange('age', age.toString());
-                          }
-                        }}
-                        onValidationError={(message) => {
-                          showToast(message, 'error');
-                        }}
-                        required
-                        validationType="dob-student"
-                      />
-                      <p className="text-[10px] text-gray-500 dark:text-gray-400 mt-0.5 flex items-center gap-0.5">
-                        <span className="w-0.5 h-0.5 bg-blue-500 rounded-full"></span>
-                        Must be 12+ years
-                      </p>
-                    </div>
-
-                    <div>
-                      <Label htmlFor="age" className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-0.5">
-                        Age
-                      </Label>
-                      <Input
-                        type="number"
-                        id="age"
-                        value={formData.age}
-                        readOnly
-                        className="bg-gray-100 dark:bg-gray-700 cursor-not-allowed text-xs h-9"
-                      />
-                    </div>
-                  </div>
-
-                  <OptimizedInput
-                    id="phoneNumber"
-                    label="Phone Number"
-                    type="tel"
-                    value={formData.phoneNumber}
-                    onChange={(value) => handleInputChange('phoneNumber', value)}
-                    placeholder="10 digit phone number"
-                    transform={(val) => val.replace(/[^0-9]/g, '')}
-                    required
-                  />
-
-                  <div>
-                    <Label htmlFor="email" className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-0.5">
-                      Email Address *
-                    </Label>
-                    <Input
-                      type="email"
-                      id="email"
-                      value={currentUser?.email || formData.email}
-                      disabled
-                      className="bg-gray-100 dark:bg-gray-800 cursor-not-allowed text-xs h-9"
-                    />
-                    <p className="text-[10px] text-gray-500 dark:text-gray-400 mt-0.5">
-                      Auto-filled from Google
-                    </p>
-                  </div>
-
-                  <OptimizedInput
-                    id="alternatePhone"
-                    label="Alternate Phone Number"
-                    type="tel"
-                    value={formData.alternatePhone || ''}
-                    onChange={(value) => handleInputChange('alternatePhone', value)}
-                    placeholder="Alternate phone number"
-                    transform={(val) => val.replace(/[^0-9]/g, '')}
-                  />
-
-                  <OptimizedInput
-                    id="parentName"
-                    label="Parent Name"
-                    value={formData.parentName}
-                    onChange={(value) => handleInputChange('parentName', value)}
-                    placeholder="Enter parent/guardian name"
-                    required
-                  />
-
-                  <OptimizedInput
-                    id="parentPhone"
-                    label="Parent Phone Number"
-                    type="tel"
-                    value={formData.parentPhone}
-                    onChange={(value) => handleInputChange('parentPhone', value)}
-                    placeholder="Parent phone number"
-                    transform={(val) => val.replace(/[^0-9]/g, '')}
-                    required
-                  />
-                </div>
-
-                {/* Right Column - No separate header, continuation of left */}
-                <div className="space-y-2">
-                  <FacultyDepartmentSelector
-                    onFacultySelect={handleFacultySelect}
-                    onDepartmentSelect={handleDepartmentSelect}
-                    initialFaculty={formData.faculty}
-                    initialDepartment={formData.department}
-                  />
-
-                  <div>
-                    <Label htmlFor="semester" className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-0.5">
-                      Semester *
-                    </Label>
-                    <Select
-                      value={formData.semester}
-                      onValueChange={(value) => handleInputChange('semester', value)}
-                    >
-                      <SelectTrigger className="text-xs h-9">
-                        <SelectValue placeholder="Select Semester" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="1st Semester">1st Semester</SelectItem>
-                        <SelectItem value="2nd Semester">2nd Semester</SelectItem>
-                        <SelectItem value="3rd Semester">3rd Semester</SelectItem>
-                        <SelectItem value="4th Semester">4th Semester</SelectItem>
-                        <SelectItem value="5th Semester">5th Semester</SelectItem>
-                        <SelectItem value="6th Semester">6th Semester</SelectItem>
-                        <SelectItem value="7th Semester">7th Semester</SelectItem>
-                        <SelectItem value="8th Semester">8th Semester</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  <OptimizedInput
-                    id="enrollmentId"
-                    label="Enrollment ID"
-                    value={formData.enrollmentId}
-                    onChange={(value) => handleInputChange('enrollmentId', value)}
-                    placeholder="Enter enrollment ID"
-                    required
-                  />
-
-                  <div>
-                    <Label htmlFor="bloodGroup" className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-0.5">
-                      Blood Group *
-                    </Label>
-                    <Select
-                      value={formData.bloodGroup}
-                      onValueChange={(value) => handleInputChange('bloodGroup', value)}
-                    >
-                      <SelectTrigger className="text-xs h-9">
-                        <SelectValue placeholder="Select Blood Group" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="A+">A+</SelectItem>
-                        <SelectItem value="A-">A-</SelectItem>
-                        <SelectItem value="B+">B+</SelectItem>
-                        <SelectItem value="B-">B-</SelectItem>
-                        <SelectItem value="AB+">AB+</SelectItem>
-                        <SelectItem value="AB-">AB-</SelectItem>
-                        <SelectItem value="O+">O+</SelectItem>
-                        <SelectItem value="O-">O-</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  <div>
-                    <Label htmlFor="address" className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-0.5">
-                      Address *
-                    </Label>
-                    <Textarea
-                      id="address"
-                      value={formData.address}
-                      onChange={(e) => handleInputChange('address', e.target.value)}
-                      rows={3}
-                      className="resize-none text-xs"
-                      placeholder="Enter your complete address"
-                    />
-                  </div>
-                </div>
-              </div>
-
-              {/* Bus Service Session Details */}
-              <div>
-                <div className="pb-2 border-b-2 border-emerald-300 dark:border-emerald-900/30 mb-3 pt-5 md:pt-0">
-                  <h3 className="text-base md:text-xl font-bold text-emerald-700 dark:text-emerald-400 flex items-center gap-1.5">
-                    <div className="p-1 rounded-md bg-gradient-to-br from-emerald-500 to-teal-500 text-white shadow-sm">
-                      <svg className="w-3 h-3 md:w-5 md:h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                      </svg>
-                    </div>
-                    Bus Service Session Details
-                  </h3>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-x-3 gap-y-2 mt-2">
-                  <div>
-                    <Label htmlFor="shift" className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-0.5">
-                      Shift *
-                    </Label>
-                    <Select
-                      value={formData.shift}
-                      onValueChange={(value) => {
-                        handleInputChange('shift', value);
-                        // Clear route/bus/stop selection when shift changes to force re-selection
-                        handleInputChange('routeId', '');
-                        handleInputChange('busId', '');
-                        handleInputChange('stopId', '');
-                        handleInputChange('busAssigned', '');
-                      }}
-                    >
-                      <SelectTrigger className="text-xs h-9">
-                        <SelectValue placeholder="Select Shift" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="Morning">Morning Shift</SelectItem>
-                        <SelectItem value="Evening">Evening Shift</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  <div>
-                    <Label htmlFor="sessionDuration" className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-0.5">
-                      Session Duration *
-                    </Label>
-                    <Select
-                      value={formData.sessionInfo.durationYears > 0 ? formData.sessionInfo.durationYears.toString() : "1"}
-                      onValueChange={handleSessionDurationChange}
-                      disabled={true} // Fixed to 1 year
-                    >
-                      <SelectTrigger className="text-xs h-9 bg-gray-50 dark:bg-slate-900/50 cursor-not-allowed opacity-80">
-                        <SelectValue placeholder="1 Year" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="1">1 Year</SelectItem>
-                      </SelectContent>
-                    </Select>
-                    <p className="text-[10px] text-gray-500 dark:text-gray-400 mt-0.5">
-                      Duration is fixed to 1 year
-                    </p>
-                  </div>
-
-                  {/* Route, Bus, Pickup Point Selection - Requires shift to be selected first */}
-                  <div className="col-span-1 md:col-span-2">
-                    <RouteSelectionSection
-                      routes={routes}
-                      buses={buses}
-                      selectedRouteId={formData.routeId || ''}
-                      selectedBusId={formData.busId || ''}
-                      selectedStopId={formData.stopId || ''}
-                      selectedShift={formData.shift}
-                      onReferenceChange={handleRefChange}
-                      onCapacityCheckResult={setCapacityCheckResult}
-                      isReadOnly={applicationState === 'submitted'}
-                    />
-                  </div>
-
-                  <div>
-                    <Label htmlFor="sessionStartYear" className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-0.5">
-                      Session Start Year *
-                    </Label>
-                    <Select
-                      value={formData.sessionInfo.sessionStartYear.toString()}
-                      onValueChange={(value) => {
-                        const startYear = parseInt(value);
-                        const duration = formData.sessionInfo.durationYears || 1;
-                        const endYear = startYear + duration;
-
-                        setFormData(prev => ({
-                          ...prev,
-                          sessionInfo: {
-                            ...prev.sessionInfo,
-                            sessionStartYear: startYear,
-                            sessionEndYear: endYear
-                          }
-                        }));
-                      }}
-                    >
-                      <SelectTrigger className="text-xs h-9">
-                        <SelectValue placeholder="Select Year" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value={new Date().getFullYear().toString()}>
-                          {new Date().getFullYear()}
-                        </SelectItem>
-                        <SelectItem value={(new Date().getFullYear() + 1).toString()}>
-                          {new Date().getFullYear() + 1}
-                        </SelectItem>
-                      </SelectContent>
-                    </Select>
-                    <p className="text-[10px] text-gray-500 dark:text-gray-400 mt-0.5">
-                      Year when service begins
-                    </p>
-                  </div>
-
-                  {/* Bus Field - Auto-filled or Selectable */}
-
-
-                  <div>
-                    <Label htmlFor="sessionEndYear" className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-0.5">
-                      Session End Year
-                    </Label>
-                    <Input
-                      type="number"
-                      id="sessionEndYear"
-                      value={formData.sessionInfo.sessionEndYear}
-                      readOnly
-                      className="bg-gray-100 dark:bg-gray-700 cursor-not-allowed text-xs h-9"
-                    />
-                    <p className="text-[10px] text-gray-500 dark:text-gray-400 mt-0.5">
-                      Auto-calculated
-                    </p>
-                  </div>
-
-
-                </div>
-              </div>
-
-              {/* Payment Information */}
-              <div>
-                <div className="pb-2 border-b-2 border-indigo-300 dark:border-indigo-900/30 pt-5 md:pt-0">
-                  <h3 className="text-base md:text-xl font-bold text-indigo-700 dark:text-indigo-400 flex items-center gap-1.5">
-                    <div className="p-1 rounded-md bg-gradient-to-br from-indigo-500 to-blue-500 text-white shadow-sm">
-                      <svg className="w-3 h-3 md:w-5 md:h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />
-                      </svg>
-                    </div>
-                    Payment Information
-                  </h3>
-                </div>
-                {/* Payment Mode Selector */}
-                <PaymentModeSelector
-                  isFormComplete={checkFormCompletion()}
-                  showHeader={false}
-                  amount={formData.sessionInfo.feeEstimate || calculateTotalFee(formData.sessionInfo.durationYears, formData.shift)}
-                  duration={formData.sessionInfo.durationYears}
-                  sessionStartYear={formData.sessionInfo.sessionStartYear}
-                  sessionEndYear={formData.sessionInfo.sessionEndYear}
-                  validUntil={(deadlineConfig ? calculateSessionDates(
-                    formData.sessionInfo.sessionStartYear,
-                    formData.sessionInfo.durationYears,
-                    deadlineConfig
-                  ).validUntil : '')}
-                  userId={currentUser?.uid || ''}
-                  userName={formData.fullName}
-                  userEmail={formData.email}
-                  userPhone={formData.phoneNumber}
-                  enrollmentId={formData.enrollmentId}
-                  purpose="new_registration"
-                  initialPaymentId={formData.paymentInfo.paymentReference}
-                  initialReceiptPreview={formData.paymentInfo.paymentEvidenceUrl}
-                  isReadOnly={applicationState === 'submitted'}
-                  isVerified={applicationState === 'verified'}
-                  onPaymentComplete={(details) => {
-                    setPaymentCompleted(true);
-                    setPaymentDetails(details);
-                    setUseOnlinePayment(true);
-
-                    // Auto-verify for online payments
-                    setApplicationState('verified');
-                    showToast('Payment successful! Your application is now verified.', 'success');
-
-                    // Update form data with online payment transaction details
-                    // Set online payment mode and amount
-                    handleInputChange('paymentInfo.paymentMode', 'online');
-                    handleInputChange('paymentInfo.amountPaid', details.amount || calculateTotalFee(formData.sessionInfo.durationYears, formData.shift));
-                    handleInputChange('paymentInfo.paymentEvidenceProvided', true);
-
-                    // Store Razorpay transaction details
-                    handleInputChange('paymentInfo.razorpayPaymentId', details.razorpayPaymentId);
-                    handleInputChange('paymentInfo.razorpayOrderId', details.razorpayOrderId);
-                    handleInputChange('paymentInfo.paymentStatus', details.paymentStatus || 'success');
-                    handleInputChange('paymentInfo.paymentMethod', details.paymentMethod || 'card');
-                    handleInputChange('paymentInfo.paymentTime', details.paymentTime);
-                  }}
-                  onOfflineSelected={(data) => {
-                    setUseOnlinePayment(false);
-
-                    // DON'T reset verification state when just uploading/updating receipt
-                    // Only reset if explicitly switching FROM online TO offline payment mode
-                    // If user is already in offline mode and just uploading receipt, preserve verification
-                    const wasOnlinePayment = formData.paymentInfo.paymentMode === 'online';
-                    if (wasOnlinePayment && applicationState === 'verified') {
-                      // User is switching from online to offline, reset verification
-                      setApplicationState('noDoc');
-                      // Clear verification data from localStorage
-                      localStorage.removeItem('verificationCodeId');
-                      localStorage.removeItem('verificationExpiry');
-                      setVerificationCodeId('');
-                      setVerificationExpiry('');
-                    }
-                    // If already offline mode, preserve verification state (user is just re-uploading receipt)
-
-                    handleInputChange('paymentInfo.paymentMode', 'offline');
-                    handleInputChange('paymentInfo.amountPaid', calculateTotalFee(formData.sessionInfo.durationYears, formData.shift));
-
-                    // Store offline payment reference (Transaction ID)
-                    if (data.paymentId) {
-                      handleInputChange('paymentInfo.paymentReference', data.paymentId);
-                    }
-                    // Receipt will be uploaded during form submission
-                  }}
-                  onReceiptFileSelect={(file) => {
-                    setReceiptFile(file);
-                    const previewUrl = URL.createObjectURL(file);
-                    setReceiptPreview(previewUrl);
-                  }}
-                />
-
-              </div>
-
-              {/* Verification Status Display */}
-              {applicationState === 'verified' && (
-                <div className="mt-3">
-                  <div className="p-2 bg-gradient-to-r from-green-50 via-emerald-50 to-teal-50 dark:from-green-950/30 dark:via-emerald-950/30 dark:to-teal-950/30 rounded-lg border border-green-300 dark:border-green-800 shadow-sm">
-                    <div className="text-xs font-bold text-green-900 dark:text-green-100 flex items-center gap-2">
-                      <div className="p-1 rounded-full bg-green-500 text-white shadow-sm">
-                        <CheckCircle className="h-3 w-3" />
-                      </div>
-                      <span>
-                        {useOnlinePayment
-                          ? "Payment Successful! You can now submit your application directly."
-                          : "Verification completed successfully! You can now submit your application."}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* Declarations */}
-              <div>
-                <div className="pb-2 border-b-2 border-blue-300 dark:border-blue-900/30 mb-3 pt-5 md:pt-0">
-                  <h3 className="text-base md:text-xl font-bold text-blue-700 dark:text-blue-400 flex items-center gap-1.5">
-                    <div className="p-1 rounded-md bg-gradient-to-br from-blue-500 to-cyan-500 text-white shadow-sm">
-                      <svg className="w-3 h-3 md:w-5 md:h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                      </svg>
-                    </div>
-                    Declarations
-                  </h3>
-                </div>
-                <div className="flex items-start space-x-2 mt-3">
-                  <Checkbox
-                    id="declaration"
-                    checked={formData.declarationAccepted}
-                    onCheckedChange={(checked: boolean) => {
-                      if (checked) {
-                        // Run validation before allowing declaration to be checked
-                        if (!validateForm()) {
-                          return; // Don't proceed if validation fails
-                        }
-
-                        // If payment is online, we don't need to show the Important Information (offline verification info)
-                        const isOnlinePayment = formData.paymentInfo?.paymentMode === 'online';
-                        if (isOnlinePayment) {
-                          handleInputChange('declarationAccepted', true);
-                          setDeclarationAgreed(true);
-                        } else {
-                          setShowNoteDialog(true);
-                        }
-                      } else {
-                        handleInputChange('declarationAccepted', false);
-                        setDeclarationAgreed(false);
-                      }
-                    }}
-                    className="cursor-pointer mt-0.5"
-                  />
-                  <label htmlFor="declaration" className="text-[10px] md:text-sm cursor-pointer leading-snug">
-                    I declare that all information provided is accurate and complete.
-                    I understand that providing false information may result in rejection of my application
-
-                  </label>
-                </div>
-              </div>
-
-              {/* Action Buttons */}
-              <div className="mt-3 flex flex-col sm:flex-row gap-2">
-                <Button
-                  variant="outline"
-                  onClick={handleSaveDraft}
-                  disabled={saving}
-                  className="flex-1 h-9 text-xs"
-                >
-                  {saving ? (
-                    <>
-                      <Loader2 className="h-3 w-3 mr-1.5" />
-                      Checking...
-                    </>
-                  ) : (
-                    <>
-                      <Save className="h-3 w-3 mr-1.5" />
-                      Check Draft
-                    </>
-                  )}
-                </Button>
-
-                {applicationState !== 'verified' && (
-                  <Button
-                    onClick={() => setShowVerificationDialog(true)}
-                    disabled={!declarationAgreed}
-                    className="flex-1 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed h-9 text-xs"
-                  >
-                    <Shield className="h-3 w-3 mr-1.5" />
-                    Request Verification
-                  </Button>
-                )}
-
-                <Button
-                  type="button"
-                  onClick={handleSubmitApplication}
-                  disabled={applicationState !== 'verified' || submitting}
-                  className="flex-1 bg-green-600 hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed h-9 text-xs"
-                >
-                  {submitting ? (
-                    <>
-                      <Loader2 className="h-3 w-3 mr-1.5" />
-                      Submitting...
-                    </>
-                  ) : (
-                    <>
-                      <Send className="h-3 w-3 mr-1.5" />
-                      {applicationState === 'verified' ? 'Submit Application' : 'Submit'}
-                    </>
-                  )}
-                </Button>
-              </div>
-
-              {applicationState !== 'verified' && (
-                <p className="text-[10px] text-amber-600 dark:text-amber-400 mt-2 text-center flex items-center justify-center gap-1">
-                  <AlertCircle className="h-3 w-3" />
-                  Accept declaration and complete verification to submit
-                </p>
-              )}
-            </div>
-          </CardContent>
-        </Card>
-      </div >
-
-      {/* Note Dialog */}
-      < Dialog open={showNoteDialog} onOpenChange={setShowNoteDialog} >
-        <DialogContent className="sm:max-w-lg bg-gradient-to-br from-white to-gray-50 dark:from-gray-900 dark:to-gray-800 border-0 shadow-2xl">
-          <DialogHeader className="space-y-4 pb-4">
-            <div className="flex items-center gap-3">
-              <div className="p-2 bg-blue-100 dark:bg-blue-900/30 rounded-lg">
-                <FileText className="h-5 w-5 text-blue-600 dark:text-blue-400" />
-              </div>
-              <DialogTitle className="text-xl font-semibold text-gray-900 dark:text-white">
-                Important Information
-              </DialogTitle>
-            </div>
-          </DialogHeader>
-
-          <div className="space-y-4">
-            <div className="p-4 bg-blue-50 dark:bg-blue-950/30 rounded-lg border border-blue-200 dark:border-blue-800">
-              <p className="font-medium text-blue-900 dark:text-blue-100 mb-3 flex items-center gap-2">
-                <Info className="h-4 w-4" />
-                Please read the following carefully:
-              </p>
-              <ul className="space-y-3 text-sm text-blue-800 dark:text-blue-200">
-                <li className="flex items-start gap-2">
-                  <div className="w-1.5 h-1.5 bg-blue-500 rounded-full mt-2 flex-shrink-0"></div>
-                  <span>You must visit the bus office for final verification.</span>
-                </li>
-                <li className="flex items-start gap-2">
-                  <div className="w-1.5 h-1.5 bg-blue-500 rounded-full mt-2 flex-shrink-0"></div>
-                  <span>The moderator will verify your payment and if verification is successful (Moderator provides you the secret verification code), you can finally submit the application form.</span>
-                </li>
-                <li className="flex items-start gap-2">
-                  <div className="w-1.5 h-1.5 bg-blue-500 rounded-full mt-2 flex-shrink-0"></div>
-                  <span>So, if you are not at the bus office, save the form details as draft and on next visit to bus office, verify yourself with the available moderators.</span>
-                </li>
-              </ul>
-            </div>
+    <Dialog open={showDeletePaymentDialog} onOpenChange={setShowDeletePaymentDialog}>
+      <DialogContent className="bg-slate-950 border-slate-900 max-w-sm rounded-xl py-8">
+        <div className="text-center space-y-4">
+          <div className="w-16 h-16 bg-red-500/10 rounded-full flex items-center justify-center mx-auto">
+            <RotateCcw className="w-8 h-8 text-red-500" />
           </div>
-
-          <DialogFooter className="pt-4">
-            <Button
-              onClick={() => {
-                setShowNoteDialog(false);
-                handleInputChange('declarationAccepted', true);
-                setDeclarationAgreed(true);
-              }}
-              className="w-full bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white font-medium py-2.5 rounded-lg shadow-lg hover:shadow-xl"
-            >
-              <CheckCircle className="h-4 w-4 mr-2" />
-              Okay, I Understand
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog >
-
-      <Dialog open={showVerificationDialog} onOpenChange={setShowVerificationDialog}>
-        <DialogContent className="sm:max-w-[440px] bg-[#0a0c10] border-gray-800/50 shadow-[0_0_50px_-12px_rgba(0,0,0,0.5)] p-0 overflow-hidden gap-0">
-          {/* Header Section */}
-          <div className="relative overflow-hidden pt-8 pb-6 px-6 text-center">
-            <div className="absolute top-0 left-0 w-full h-full bg-gradient-to-b from-green-500/5 to-transparent opacity-50" />
-            <div className="relative flex flex-col items-center">
-              <div className="mb-4 p-3 bg-green-500/10 rounded-2xl ring-1 ring-green-500/20 shadow-[0_0_20px_rgba(34,197,94,0.1)]">
-                <Shield className="h-6 w-6 text-green-400" />
-              </div>
-              <DialogTitle className="text-2xl font-bold tracking-tight text-white mb-1">
-                Identity Verification
-              </DialogTitle>
-              <p className="text-sm text-gray-400 font-medium">
-                Authentication via designated coordinator
-              </p>
-            </div>
-          </div>
-
-          <div className="px-6 pb-8 space-y-7">
-            {/* Coordinator Selection Card */}
-            <div className="group space-y-3">
-              <div className="flex items-center justify-between px-1">
-                <Label htmlFor="moderatorSelect" className="text-[10px] font-bold uppercase tracking-[0.1em] text-yellow-500/80">
-                  Authority Verification
-                </Label>
-              </div>
-
-              <div className="relative group">
-                <Select value={selectedModerator} onValueChange={setSelectedModerator}>
-                  <SelectTrigger
-                    id="moderatorSelect"
-                    className="h-14 border-gray-800 bg-[#12141c] hover:bg-[#161924] focus:ring-1 focus:ring-green-500/30 focus:border-green-500/40 text-sm rounded-xl px-4"
-                  >
-                    <SelectValue placeholder="Select Coordinator" />
-                  </SelectTrigger>
-                  <SelectContent className="bg-[#12141c] border-gray-800 text-gray-200">
-                    {moderators.length > 0 ? (
-                      moderators.map((mod) => (
-                        <SelectItem key={mod.moderatorUid} value={mod.moderatorUid} className="focus:bg-green-500/10 focus:text-green-400 py-3 cursor-pointer">
-                          <div className="flex items-center gap-3">
-                            <div className="w-1.5 h-1.5 bg-green-500 rounded-full shadow-[0_0_8px_rgba(34,197,94,0.6)]"></div>
-                            <div className="flex flex-col">
-                              <span className="font-semibold text-sm">{mod.name}</span>
-                            </div>
-                          </div>
-                        </SelectItem>
-                      ))
-                    ) : (
-                      <SelectItem value="" disabled>No active coordinators</SelectItem>
-                    )}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              {/* Send Button - Premium Look */}
-              {!verificationCodeId && !codeSent && (
-                <Button
-                  onClick={() => {
-                    if (!selectedModerator) {
-                      showToast('Please select a coordinator first', 'info');
-                      return;
-                    }
-                    handleSendVerificationCode();
-                  }}
-                  className="w-full h-12 bg-white hover:bg-gray-100 text-black font-bold text-xs uppercase tracking-widest rounded-xl shadow-[0_4px_20px_rgba(255,255,255,0.05)]"
-                >
-                  {sendingCode ? (
-                    <Loader2 className="h-4 w-4" />
-                  ) : (
-                    <div className="flex items-center gap-2">
-                      <Send className="h-3.5 w-3.5" />
-                      Generate Secure Code
-                    </div>
-                  )}
-                </Button>
-              )}
-            </div>
-
-            {/* Code Input Section */}
-            <div className="space-y-4 pt-2">
-              <div className="flex items-center justify-between px-1">
-                <Label className="text-[10px] font-bold uppercase tracking-[0.1em] text-gray-500">
-                  Security Passcode
-                </Label>
-                {verificationCodeId && (
-                  <div className="flex items-center gap-1.5 text-[9px] font-bold text-green-400 bg-green-500/10 px-2 py-0.5 rounded-full border border-green-500/20 uppercase tracking-wider">
-                    <div className="w-1 h-1 bg-green-500 rounded-full" />
-                    Transmission Live
-                  </div>
-                )}
-              </div>
-
-              <OptimizedOTPInput
-                length={6}
-                value={verificationCode}
-                onChange={setVerificationCode}
-                disabled={!verificationCodeId && !codeSent}
-              />
-
-              <div className="flex justify-between items-center px-1">
-                <p className="text-[9px] font-bold text-gray-600 uppercase tracking-widest">
-                  AdtU&apos;S INTEGRATED TRANSPORTATION SYSTEM
-                </p>
-                {(verificationCodeId || codeSent) && (
-                  <button
-                    onClick={handleSendVerificationCode}
-                    disabled={sendingCode || (verificationExpiry ? new Date(verificationExpiry) > new Date() : false) || maxCodesReached || codesSentToday >= 3 || !selectedModerator}
-                    className="text-[10px] font-bold text-blue-400 hover:text-blue-300 disabled:opacity-50 uppercase tracking-wider"
-                  >
-                    {sendingCode ? "..." : verificationExpiry && new Date(verificationExpiry) > new Date() ?
-                      `Retry ${formatCountdown(countdownTime)}` : "Resend"
-                    }
-                  </button>
-                )}
-              </div>
-            </div>
-          </div>
-
-          {/* Footer Buttons */}
-          <div className="p-6 bg-[#0d0f16] border-t border-gray-800/50 flex gap-3">
-            <Button
-              variant="ghost"
-              onClick={() => {
-                setShowVerificationDialog(false);
-                setVerificationCode('');
-                setSelectedModerator('');
-                setCodeSent(false);
-                setCountdownTime(0);
-                setVerificationExpiry('');
-                setCodesSentToday(0);
-                setMaxCodesReached(false);
-              }}
-              className="flex-1 h-12 text-xs text-gray-400 hover:text-white hover:bg-gray-800/50 font-bold uppercase tracking-widest rounded-xl"
-            >
-              Cancel
-            </Button>
-            <Button
-              onClick={async () => {
-                if (verificationCode.length !== 6) return showToast('Enter 6-digit code', 'error');
-                if (!verificationCodeId) return showToast('Send code first', 'error');
-
-                setVerifyingCode(true);
-                try {
-                  const token = await currentUser?.getIdToken();
-                  const response = await fetch('/api/applications/verify-code-only', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-                    body: JSON.stringify({ codeId: verificationCodeId, code: verificationCode })
-                  });
-                  const result = await response.json();
-                  if (response.ok && result.verified) {
-                    setApplicationState('verified');
-                    setShowVerificationDialog(false);
-                    showToast('Verification successful!', 'success');
-                    setVerificationCode(''); setCodeSent(false); setCountdownTime(0); setVerificationExpiry(''); setCodesSentToday(0); setMaxCodesReached(false);
-                    // REMOVED manual draft reload that was wiping out profile photo blob URLs
-                  } else {
-                    const errorType = result.errorType;
-                    const errorMessage = result.message || 'Invalid code';
-                    if (errorType === 'EXPIRED' || errorType === 'MAX_ATTEMPTS' || errorType === 'ALREADY_USED') {
-                      setVerificationCode(''); setCodeSent(false); setCountdownTime(0); setVerificationExpiry(''); setVerificationCodeId('');
-                      showToast(result.canResend ? `${errorMessage} Resend code.` : errorMessage, 'error');
-                    } else {
-                      showToast(errorMessage, 'error');
-                    }
-                  }
-                } catch (e: any) {
-                  showToast(e.message || 'Verification failed', 'error');
-                } finally {
-                  setVerifyingCode(false);
-                }
-              }}
-              disabled={!selectedModerator || verificationCode.length !== 6 || verifyingCode}
-              className="flex-[1.5] h-12 bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-400 hover:to-emerald-500 text-white font-bold text-xs uppercase tracking-widest shadow-[0_10px_30px_-10px_rgba(34,197,94,0.3)] disabled:opacity-50 disabled:shadow-none transition-all rounded-xl border-0 active:scale-[0.98]"
-            >
-              {verifyingCode ? (
-                <Loader2 className="h-5 w-5" />
-              ) : (
-                <div className="flex items-center gap-2">
-                  Submit Code
-                  <ArrowRight className="h-4 w-4" />
-                </div>
-              )}
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
-
-      {/* Delete Payment Confirmation Dialog */}
-      <Dialog open={showDeletePaymentDialog} onOpenChange={setShowDeletePaymentDialog}>
-        <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle className="text-red-600 flex items-center gap-2">
-              <AlertCircle className="h-5 w-5" />
-              Delete Payment Data?
-            </DialogTitle>
-            <DialogDescription>
-              You have active online payment data associated with this form. Resetting now will remove this payment record. This action cannot be undone.
+            <DialogTitle className="text-xl font-bold text-white mb-2 text-center">Reset Application?</DialogTitle>
+            <DialogDescription className="text-slate-400 text-sm text-center">
+              This will delete all current payment data and reset your application progress. This action cannot be undone.
             </DialogDescription>
           </DialogHeader>
-          <DialogFooter className="sm:justify-center gap-2 sm:gap-4 mt-2">
-            <Button
-              variant="outline"
-              onClick={() => setShowDeletePaymentDialog(false)}
-              className="w-full sm:w-auto bg-white text-black hover:bg-gray-100 border-gray-300"
-            >
-              CANCEL
-            </Button>
-            <Button
-              variant="destructive"
-              onClick={performFullReset}
-              className="w-full sm:w-auto bg-red-600 hover:bg-red-700 text-white"
-            >
-              Delete
-            </Button>
+          <DialogFooter className="justify-center gap-3 pt-6 flex-row">
+            <Button variant="outline" onClick={() => setShowDeletePaymentDialog(false)} className="flex-1 bg-transparent border-slate-800 text-slate-400 hover:bg-slate-900 h-11">Cancel</Button>
+            <Button variant="destructive" onClick={performFullReset} className="flex-1 bg-red-600 hover:bg-red-700 font-bold h-11">Reset All</Button>
           </DialogFooter>
-        </DialogContent>
-      </Dialog>
+        </div>
+      </DialogContent>
+    </Dialog>
 
-      {/* Success Dialog */}
-      <Dialog open={showSuccessDialog} onOpenChange={(open) => {
-        if (!open) {
-          router.push('/student');
-        }
-      }}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2 text-green-600">
-              <CheckCircle className="h-6 w-6" />
-              Application Approved!
-            </DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4 py-4">
-            <div className="p-4 bg-blue-50 dark:bg-blue-950 rounded-lg">
-              <p className="text-sm font-medium text-gray-900 dark:text-white mb-2">
-                Assigned Bus Info:
-              </p>
-              <p className="text-sm text-gray-700 dark:text-gray-300">
-                Your assigned bus is <span className="font-semibold">{assignedBusInfo?.busNumber}</span> ({assignedBusInfo?.busRegistration})
-              </p>
-            </div>
-            <div className="p-4 bg-green-50 dark:bg-green-950 rounded-lg">
-              <p className="text-sm font-medium text-gray-900 dark:text-white mb-2">
-                Driver Details:
-              </p>
-              <p className="text-sm text-gray-700 dark:text-gray-300">
-                Your assigned conductor is <span className="font-semibold">{assignedBusInfo?.driverName}</span>
-              </p>
-              <p className="text-sm text-gray-700 dark:text-gray-300 mt-1">
-                Contact: <span className="font-semibold">{assignedBusInfo?.driverPhone}</span> for any further assistance
-              </p>
-            </div>
-          </div>
-          <DialogFooter>
-            <Button
-              onClick={() => router.push('/student')}
-              className="w-full"
-            >
-              Go to Dashboard
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    </div >
-  </div >
+    {showProfileUpdateModal && (
+      <ProfileImageAddModal
+        isOpen={showProfileUpdateModal}
+        onClose={() => setShowProfileUpdateModal(false)}
+        onConfirm={handleProfileImageUpdate}
+        immediateUpload={false}
+      />
+    )}
+  </div>
 );
 }
 
-// Wrap with ErrorBoundary to prevent mobile crashes
 export default function ApplicationFormPage() {
   return (
     <ErrorBoundary>
@@ -2745,3 +1605,5 @@ export default function ApplicationFormPage() {
     </ErrorBoundary>
   );
 }
+
+

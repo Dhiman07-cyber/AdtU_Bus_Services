@@ -801,8 +801,17 @@ export default function ModeratorApplicationDetailPage() {
                       disabled={downloadingReceipt}
                       className="bg-indigo-600 hover:bg-indigo-700 text-white shadow-lg shadow-indigo-900/20"
                     >
-                      {downloadingReceipt ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Download className="h-4 w-4 mr-2" />}
-                      Download Receipt
+                      {downloadingReceipt ? (
+                        <>
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                          Processing
+                        </>
+                      ) : (
+                        <>
+                          <Download className="h-4 w-4" />
+                          Download Receipt
+                        </>
+                      )}
                     </Button>
                   </div>
                 </DialogFooter>

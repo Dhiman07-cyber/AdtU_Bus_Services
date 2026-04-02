@@ -328,19 +328,19 @@ export default function RouteSelectionSection({
   };
 
   return (
-    <div className="space-y-3">
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-x-3 gap-y-3">
-        {/* Slot 1: Shift Content (if provided) */}
+    <div className="space-y-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4">
+        {/* Slot 0: Shift Content (if provided) */}
         {shiftContent && (
           <div className="space-y-1">
             {shiftContent}
           </div>
         )}
 
-        {/* Slot 2: Route Selection */}
+        {/* Slot 1: Route Selection */}
         <div className="space-y-1">
-          <Label htmlFor="routeId" className={`block text-xs font-medium text-gray-700 dark:text-gray-300 ${extraLabelMargin ? 'mt-1' : 'mb-0.5'}`}>
-            Route
+          <Label htmlFor="routeId" className="block text-[11px] font-bold tracking-wider text-slate-500 uppercase mb-2">
+            Route <span className="text-red-500">*</span>
           </Label>
 
           <div className="flex gap-2">
@@ -351,10 +351,10 @@ export default function RouteSelectionSection({
                 onValueChange={handleRouteSelect}
                 disabled={isReadOnly || !selectedShift}
               >
-                <SelectTrigger className="h-9 bg-blue-600/10 border-blue-500/20 text-gray-900 dark:text-gray-100 text-xs">
+                <SelectTrigger className="h-10 bg-blue-600/5 border-slate-800 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-colors text-xs text-slate-200">
                   <SelectValue placeholder={!selectedShift ? "Select Shift First" : "Select Route"} />
                 </SelectTrigger>
-                <SelectContent className="max-h-[300px] w-[var(--radix-select-trigger-width)] min-w-[280px] md:min-w-[350px]">
+                <SelectContent className="max-h-[300px] w-[var(--radix-select-trigger-width)] min-w-[280px] md:min-w-[350px] bg-slate-900 border-slate-800">
                   {routes.map((route) => (
                     <SelectItem key={route.routeId} value={route.routeId} className="text-xs">
                       {formatRouteDisplay(route)}
@@ -368,27 +368,27 @@ export default function RouteSelectionSection({
               <HoverCard>
                 <HoverCardTrigger asChild>
                   <div
-                    className="h-9 w-9 flex items-center justify-center bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-md cursor-pointer text-blue-500 hover:text-blue-600 dark:text-blue-400 dark:hover:text-blue-300 transition-colors"
+                    className="h-10 w-10 flex items-center justify-center bg-slate-900 border border-slate-800 rounded-md cursor-pointer text-indigo-400 hover:text-indigo-300 hover:bg-slate-800 transition-colors shrink-0"
                   >
                     <Info className="h-4 w-4" />
                   </div>
                 </HoverCardTrigger>
-                <HoverCardContent align="end" className="w-64 md:w-80 p-3 bg-white dark:bg-gray-800 rounded-lg shadow-xl border border-gray-200 dark:border-gray-700 z-[100]">
-                  <p className="text-xs font-semibold text-gray-900 dark:text-gray-100 mb-2 border-b border-gray-100 dark:border-gray-700 pb-2">
+                <HoverCardContent align="end" className="w-64 md:w-80 p-4 bg-slate-900 rounded-xl shadow-2xl border border-slate-800 z-[100]">
+                  <p className="text-[10px] font-black uppercase tracking-widest text-indigo-500 mb-3 border-b border-slate-800 pb-2">
                     Stops in this route
                   </p>
-                  <div className="max-h-60 overflow-y-auto pr-1 scrollbar-thin">
+                  <div className="max-h-60 overflow-y-auto pr-2 scrollbar-thin scrollbar-thumb-slate-700">
                     {stops.length > 0 ? (
-                      <ul className="space-y-1.5">
+                      <ul className="space-y-2">
                         {stops.map((stop: any, idx) => (
-                          <li key={idx} className="text-xs text-gray-600 dark:text-gray-300 flex items-start gap-2">
-                            <div className="mt-1 h-1.5 w-1.5 rounded-full bg-blue-500 shrink-0" />
-                            <span className="leading-tight">{stop.name || stop.stopName || stop}</span>
+                          <li key={idx} className="text-xs text-slate-300 flex items-start gap-3">
+                            <div className="mt-1 h-1.5 w-1.5 rounded-full bg-indigo-500 shrink-0 shadow-[0_0_8px_rgba(99,102,241,0.5)]" />
+                            <span className="leading-tight font-medium">{stop.name || stop.stopName || stop}</span>
                           </li>
                         ))}
                       </ul>
                     ) : (
-                      <p className="text-xs text-gray-500 italic">No stops data available.</p>
+                      <p className="text-xs text-slate-500 italic">No stops data available.</p>
                     )}
                   </div>
                 </HoverCardContent>
@@ -397,10 +397,10 @@ export default function RouteSelectionSection({
           </div>
         </div>
 
-        {/* Slot 3: Bus Selection */}
+        {/* Slot 2: Bus Selection */}
         <div className="space-y-1 transition-all duration-300 ease-in-out">
-          <Label htmlFor="busId" className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-0.5">
-            Bus
+          <Label htmlFor="busId" className="block text-[11px] font-bold tracking-wider text-slate-500 uppercase mb-2">
+            Bus Assignment
           </Label>
 
           {selectedRouteId ? (
@@ -412,10 +412,10 @@ export default function RouteSelectionSection({
                 onValueChange={handleBusSelect}
                 disabled={isReadOnly}
               >
-                <SelectTrigger className="h-9 bg-blue-600/10 border-blue-500/20 text-gray-900 dark:text-gray-100 text-xs">
+                <SelectTrigger className="h-10 bg-blue-600/5 border-slate-800 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-colors text-xs text-slate-200">
                   <SelectValue placeholder="Select Bus" />
                 </SelectTrigger>
-                <SelectContent>
+                <SelectContent className="bg-slate-900 border-slate-800 text-slate-200">
                   {associatedBuses.map((bus) => {
                     return (
                       <SelectItem key={bus.id || bus.busId} value={bus.id || bus.busId} className="text-xs">
@@ -427,11 +427,16 @@ export default function RouteSelectionSection({
               </Select>
             ) : (
               // Case 1: Read-only Input
-              <Input
-                value={busAssignedDisplay || (associatedBuses.length === 0 ? "No bus assigned" : "Loading...")}
-                readOnly
-                className="h-9 bg-blue-600/10 border-blue-500/20 text-gray-900 dark:text-gray-100 cursor-not-allowed text-[11px]"
-              />
+              <div className="relative group">
+                <Input
+                  value={busAssignedDisplay || (associatedBuses.length === 0 ? "No bus available" : "Loading...")}
+                  readOnly
+                  className="h-10 bg-slate-900/50 border-slate-800 text-slate-400 cursor-not-allowed text-xs focus-visible:ring-0"
+                />
+                <div className="absolute right-3 top-1/2 -translate-y-1/2">
+                   {checkingCapacity ? <Loader2 className="w-4 h-4 text-indigo-500 animate-spin" /> : <div className="w-2 h-2 rounded-full bg-indigo-500/20" />}
+                </div>
+              </div>
             )
           ) : (
             // Case 3: No Route Selected - Show disabled placeholder
@@ -439,17 +444,15 @@ export default function RouteSelectionSection({
               value="Select a route first"
               readOnly
               disabled
-              className="h-9 bg-gray-100 dark:bg-gray-800 text-gray-400 cursor-not-allowed border-gray-200 dark:border-gray-700 text-xs"
+              className="h-10 bg-slate-900/30 border-slate-800 text-slate-600 cursor-not-allowed text-xs italic"
             />
           )}
-
-
         </div>
 
-        {/* Slot 4: Pickup Point / Stop Selection */}
-        <div className="space-y-1 transition-all duration-300 ease-in-out">
-          <Label htmlFor="stopId" className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-0.5">
-            Pickup Point / Stop
+        {/* Slot 3: Pickup Point / Stop Selection */}
+        <div className="space-y-1 transition-all duration-300 ease-in-out md:col-span-2">
+          <Label htmlFor="stopId" className="block text-[11px] font-bold tracking-wider text-slate-500 uppercase mb-2">
+            Pickup Point / Stop <span className="text-red-500">*</span>
           </Label>
 
           {selectedRouteId ? (
@@ -459,11 +462,10 @@ export default function RouteSelectionSection({
               onValueChange={handleStopSelect}
               disabled={isReadOnly || stops.length === 0}
             >
-              <SelectTrigger className="h-9 bg-blue-600/10 border-blue-500/20 text-gray-900 dark:text-gray-100 text-xs">
+              <SelectTrigger className="h-10 bg-blue-600/5 border-slate-800 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-colors text-xs text-slate-200">
                 <SelectValue placeholder="Select Stop" />
               </SelectTrigger>
-              <SelectContent className="max-h-[300px]">
-                {/* User request: Filter out the last stop (destination campus) from pickup options */}
+              <SelectContent className="max-h-[300px] bg-slate-900 border-slate-800">
                 {stops.slice(0, -1).map((stop: any, index: number) => {
                   const val = stop.stopId || stop.id || stop.name;
                   const display = stop.name || stop.stopName || val;
@@ -477,19 +479,12 @@ export default function RouteSelectionSection({
             </Select>
           ) : (
             <Select disabled>
-              <SelectTrigger className="h-9 bg-gray-100 dark:bg-gray-800 border-gray-200 dark:border-gray-700 text-gray-400 text-xs text-left">
+              <SelectTrigger className="h-10 bg-slate-900/30 border-slate-800 text-slate-600 text-xs text-left italic">
                 <SelectValue placeholder="Select a route first" />
               </SelectTrigger>
             </Select>
           )}
         </div>
-
-        {/* Slot 5 (if content overflows): Children (e.g. Session Start Year) */}
-        {children && (
-          <div className="space-y-1 transition-all duration-300 ease-in-out">
-            {children}
-          </div>
-        )}
       </div>
 
       {/* Detailed Capacity Feedback Alert - Full width below the grid */}

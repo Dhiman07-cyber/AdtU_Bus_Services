@@ -127,7 +127,7 @@ export default function ApplicationStatusPage() {
                     </Badge>
                   </div>
                   <p className="text-blue-700 dark:text-blue-300 mb-2 font-medium">
-                    Form submitted and verified! Waiting for approval from the Managing Team
+                    Application successfully submitted and under review by our administration team.
                   </p>
                   <p className="text-sm text-blue-600 dark:text-blue-400">
                     Submitted on: {applicationStatus.submittedAt ? new Date(applicationStatus.submittedAt).toLocaleString() : 'N/A'}

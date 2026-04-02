@@ -67,9 +67,11 @@ export async function POST(request: NextRequest) {
       receiptImageUrl
     } = requestData;
 
-    // Generate payment ID for offline approval with timestamp
+    // Generate or fetch payment ID for this offline transaction
     const approvalTimestamp = Date.now();
-    const paymentId = generateOfflinePaymentId('renewal');
+    // Use the paymentId created at submission to update the same record in Supabase
+    // Fall back to a new generated one for legacy requests
+    const paymentId = requestData.paymentId || generateOfflinePaymentId('renewal');
 
     // Check idempotency (unlikely with this paymentId but good for safety if transactionId was used)
     const isProcessed = await PaymentTransactionService.isPaymentProcessed(paymentId);
@@ -200,12 +202,13 @@ export async function POST(request: NextRequest) {
 
         userId: studentId, // Store Firestore doc ID for View Details link
 
-        // Approval Information
+        // Approval Information (Identified for Supabase JSONB)
         approvedBy: {
-          name: approverData.fullName || 'Admin',
+          type: 'Manual', // New format: Manual vs SYSTEM
           userId: approverUserId,
-          role: approverData.role as 'admin' | 'moderator',
           empId: approverData.empId || approverData.employeeId || 'N/A',
+          name: approverData.fullName || 'Admin',
+          role: approverData.role as 'admin' | 'moderator',
           email: approverData.email || 'N/A'
         },
         approvedByDisplay: `${approverData.fullName} (${approverData.role})`,

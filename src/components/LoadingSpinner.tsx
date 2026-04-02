@@ -126,11 +126,11 @@ export function PremiumPageLoader({
         </div>
       </div>
 
-      <div className="space-y-2.5 z-10 max-w-[300px] mt-2">
-        <h3 className="text-lg sm:text-xl font-bold bg-gradient-to-r from-pink-400 via-purple-400 to-pink-400 bg-clip-text text-transparent animate-pulse tracking-tight leading-tight">
+      <div className="space-y-2.5 z-10 w-full max-w-xl mt-2 px-4">
+        <h3 className="text-base sm:text-lg md:text-xl font-bold bg-gradient-to-r from-pink-400 via-purple-400 to-pink-400 bg-clip-text text-transparent animate-pulse tracking-tight leading-tight sm:whitespace-nowrap">
           {message}
         </h3>
-        <p className="text-[10px] sm:text-[11px] text-zinc-500 dark:text-zinc-500 font-black uppercase tracking-[0.25em] opacity-80 leading-relaxed">
+        <p className="text-[9px] sm:text-[10px] text-zinc-500 dark:text-zinc-500 font-black uppercase tracking-[0.2em] opacity-80 leading-relaxed sm:whitespace-nowrap">
           {subMessage}
         </p>
       </div>

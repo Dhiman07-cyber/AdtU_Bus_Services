@@ -5,6 +5,8 @@ import { getCurrentBusFee } from '@/lib/bus-fee-service';
 import { withSecurity } from '@/lib/security/api-security';
 import { RenewServiceV2Schema } from '@/lib/security/validation-schemas';
 import { RateLimits } from '@/lib/security/rate-limiter';
+import { generateOfflinePaymentId } from '@/lib/types/payment';
+import { PaymentTransactionService } from '@/lib/payment/payment-transaction.service';
 
 /**
  * POST /api/student/renew-service-v2
@@ -62,6 +64,9 @@ export const POST = withSecurity(
       });
 
     } else if (paymentMode === 'offline') {
+      // Generate payment ID for offline record
+      const paymentId = generateOfflinePaymentId('renewal');
+
       // Create renewal request for offline payment
       const renewalRequestData = {
         studentId: userId,
@@ -72,10 +77,31 @@ export const POST = withSecurity(
         transactionId: transactionId || '',
         receiptImageUrl: receiptImageUrl || '',
         paymentMode: 'offline',
+        paymentId, // Store paymentId to track in Supabase
         status: 'pending',
         createdAt: FieldValue.serverTimestamp(),
         updatedAt: FieldValue.serverTimestamp()
       };
+
+      // Create PENDING payment in Supabase Ledger immediately
+      try {
+        await PaymentTransactionService.saveTransaction({
+          studentId: enrollmentId,
+          studentName,
+          userId, // Firestore UID
+          amount: totalFee,
+          paymentMethod: 'offline',
+          paymentId,
+          timestamp: new Date().toISOString(),
+          durationYears,
+          validUntil: '', // To be filled on approval
+          status: 'pending'
+        });
+        console.log(`✅ Pending offline payment ledger created in Supabase: ${paymentId}`);
+      } catch (supabaseError) {
+        console.error('⚠️ Failed to create Supabase ledger (non-fatal):', supabaseError);
+        // We continue because Firestore is the primary source of truth for the request itself
+      }
 
       const docRef = await adminDb.collection('renewal_requests').add(renewalRequestData);
 

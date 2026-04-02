@@ -19,6 +19,7 @@ interface OptimizedInputProps {
   required?: boolean;
   disabled?: boolean;
   className?: string;
+  labelClassName?: string;
   transform?: (value: string) => string;
 }
 
@@ -32,6 +33,7 @@ export const OptimizedInput = memo(function OptimizedInput({
   required,
   disabled,
   className,
+  labelClassName,
   transform
 }: OptimizedInputProps) {
   const [internalValue, setInternalValue] = useState(externalValue);
@@ -59,8 +61,8 @@ export const OptimizedInput = memo(function OptimizedInput({
   return (
     <div>
       {label && (
-        <Label htmlFor={id} className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-0.5">
-          {label} {required && <span>*</span>}
+        <Label htmlFor={id} className={labelClassName || "block text-xs font-medium text-gray-700 dark:text-gray-300 mb-0.5"}>
+          {label} {required && <span className="text-red-500">*</span>}
         </Label>
       )}
       <Input

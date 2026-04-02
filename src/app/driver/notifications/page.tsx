@@ -92,8 +92,8 @@ export default function DriverNotificationsPage() {
 
   if (loading || authLoading) {
     return (
-      <PremiumPageLoader 
-        message="Syncing Notifications" 
+      <PremiumPageLoader
+        message="Syncing Notifications"
         subMessage="Preparing your broadcast center..."
         fullScreen
       />
@@ -112,70 +112,70 @@ export default function DriverNotificationsPage() {
         {/* Premium Header */}
         <div className="relative overflow-hidden rounded-3xl bg-gradient-to-r from-blue-600 via-purple-600 to-indigo-600 p-1">
           <div className="absolute inset-0 bg-gradient-to-r from-blue-600 via-purple-600 to-indigo-600 opacity-50 blur-3xl" />
-            <div className="relative bg-white/95 dark:bg-gray-900/95 backdrop-blur-xl rounded-3xl p-4 sm:p-8 md:p-10">
-              <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-4 sm:gap-6">
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center justify-between gap-4">
-                    <div className="min-w-0 flex-1">
-                      <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold bg-gradient-to-r from-gray-900 to-gray-600 dark:from-white dark:to-gray-300 bg-clip-text text-transparent">
-                        Notifications
-                      </h1>
-                      <p className="text-[10px] sm:text-xs text-gray-600 dark:text-gray-400 mt-1 uppercase tracking-widest font-black">
-                        Official Broadcast Center
-                      </p>
-                    </div>
-
-                    {/* Mobile Create Button - Same row as title */}
-                    <div className="sm:hidden">
-                      <Button
-                        onClick={() => setCreateDialogOpen(true)}
-                        className="h-10 px-4 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white font-black uppercase tracking-wider shadow-lg active:scale-95 transition-all text-[10px] rounded-xl"
-                      >
-                        <Plus className="h-4 w-4 mr-1.5" />
-                        Create
-                      </Button>
-                    </div>
+          <div className="relative bg-white/95 dark:bg-gray-900/95 backdrop-blur-xl rounded-3xl p-4 sm:p-8 md:p-10">
+            <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-4 sm:gap-6">
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center justify-between gap-4">
+                  <div className="min-w-0 flex-1">
+                    <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold bg-gradient-to-r from-gray-900 to-gray-600 dark:from-white dark:to-gray-300 bg-clip-text text-transparent">
+                      Notifications
+                    </h1>
+                    <p className="text-[10px] sm:text-xs text-gray-600 dark:text-gray-400 mt-1 uppercase tracking-widest font-black">
+                      Official Broadcast Center
+                    </p>
                   </div>
 
-                  <div className="flex flex-wrap items-center gap-2 sm:gap-3 mt-3 sm:mt-4">
-                    <Badge className="px-3 sm:px-4 py-1.5 sm:py-2 text-[10px] sm:text-xs font-black bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400 uppercase tracking-tight">
-                      <Bell className="h-3 w-3 mr-1" />
-                      Driver Access
-                    </Badge>
-                    {unreadCount > 0 && (
-                      <Badge variant="destructive" className="px-3 sm:px-4 py-1.5 sm:py-2 text-[10px] sm:text-xs font-black uppercase tracking-wider animate-pulse">
-                        <Zap className="h-3 w-3 mr-1" />
-                        {unreadCount} New
-                      </Badge>
-                    )}
-                  </div>
-                </div>
-
-                <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 sm:gap-3 w-full md:w-auto">
-                  {/* Desktop Create Button */}
-                  <div className="hidden sm:block">
+                  {/* Mobile Create Button - Same row as title */}
+                  <div className="sm:hidden">
                     <Button
                       onClick={() => setCreateDialogOpen(true)}
-                      className="h-12 px-8 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white font-black uppercase tracking-[0.15em] shadow-lg hover:shadow-blue-500/20 active:scale-95 transition-all text-xs rounded-xl"
+                      className="h-10 px-4 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white font-black uppercase tracking-wider shadow-lg active:scale-95 transition-all text-[10px] rounded-xl"
                     >
-                      <Plus className="h-5 w-5 mr-2" />
-                      New Broadcast
+                      <Plus className="h-4 w-4 mr-1.5" />
+                      Create
                     </Button>
                   </div>
-                  
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={handleRefresh}
-                    disabled={isRefreshing}
-                    className="h-10 sm:h-12 px-5 bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 font-black text-[10px] sm:text-[11px] uppercase tracking-widest rounded-xl transition-all duration-300 active:scale-95 w-full sm:w-auto"
-                  >
-                    <RefreshCw className={`mr-2 h-3.5 w-3.5 transition-transform duration-500 ${isRefreshing ? 'animate-spin' : 'rotate-0'}`} />
-                    Refresh
-                  </Button>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2 sm:gap-3 mt-3 sm:mt-4">
+                  <Badge className="px-3 sm:px-4 py-1.5 sm:py-2 text-[10px] sm:text-xs font-black bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400 uppercase tracking-tight">
+                    <Bell className="h-3 w-3 mr-1" />
+                    Driver Access
+                  </Badge>
+                  {unreadCount > 0 && (
+                    <Badge variant="destructive" className="px-3 sm:px-4 py-1.5 sm:py-2 text-[10px] sm:text-xs font-black uppercase tracking-wider animate-pulse">
+                      <Zap className="h-3 w-3 mr-1" />
+                      {unreadCount} New
+                    </Badge>
+                  )}
                 </div>
               </div>
+
+              <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 sm:gap-3 w-full md:w-auto">
+                {/* Desktop Create Button */}
+                <div className="hidden sm:block">
+                  <Button
+                    onClick={() => setCreateDialogOpen(true)}
+                    className="h-12 px-8 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white font-black uppercase tracking-[0.15em] shadow-lg hover:shadow-blue-500/20 active:scale-95 transition-all text-xs rounded-xl"
+                  >
+                    <Plus className="h-5 w-5 mr-2" />
+                    New Broadcast
+                  </Button>
+                </div>
+
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleRefresh}
+                  disabled={isRefreshing}
+                  className="h-10 sm:h-12 px-5 bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 font-black text-[10px] sm:text-[11px] uppercase tracking-widest rounded-xl transition-all duration-300 active:scale-95 w-full sm:w-auto"
+                >
+                  <RefreshCw className={`mr-2 h-3.5 w-3.5 transition-transform duration-500 ${isRefreshing ? 'animate-spin' : 'rotate-0'}`} />
+                  Refresh
+                </Button>
+              </div>
             </div>
+          </div>
         </div>
 
         {/* Tab Navigation */}
@@ -221,7 +221,7 @@ export default function DriverNotificationsPage() {
                   <Bell className="h-8 w-8 text-gray-300 dark:text-gray-600" />
                 </div>
                 <div>
-                  <h3 className="text-xl font-black uppercase tracking-tight text-slate-400 italic">Silence is Golden</h3>
+                  <h3 className="text-xl font-black uppercase tracking-tight text-slate-400">All caught up!</h3>
                   <p className="text-[11px] md:text-sm text-blue-100 mt-1 md:mt-0.5 font-medium max-w-[180px] md:max-w-none leading-tight">
                     Stay updated with announcements and alerts
                   </p>

@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { adminAuth, adminDb } from '@/lib/firebase-admin';
 import { Application, ApplicationFormData } from '@/lib/types/application';
+import { generateOfflinePaymentId } from '@/lib/types/payment';
+import { PaymentTransactionService } from '@/lib/payment/payment-transaction.service';
 
 export async function POST(request: NextRequest) {
   try {
@@ -21,21 +23,14 @@ export async function POST(request: NextRequest) {
     console.log('🔍 Verifying token...');
     let uid, email;
 
-    // Handle test token for development
-    if (token === 'test') {
-      console.log('🔧 Using test token for development');
-      uid = 'test-user-id';
-      email = 'test@example.com';
-    } else {
-      try {
-        const decodedToken = await adminAuth.verifyIdToken(token);
-        uid = decodedToken.uid;
-        email = decodedToken.email;
-        console.log('✅ Token verified successfully:', { uid, email });
-      } catch (tokenError) {
-        console.error('❌ Token verification failed:', tokenError);
-        return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
-      }
+    try {
+      const decodedToken = await adminAuth.verifyIdToken(token);
+      uid = decodedToken.uid;
+      email = decodedToken.email;
+      console.log('✅ Token verified successfully:', { uid, email });
+    } catch (tokenError) {
+      console.error('❌ Token verification failed:', tokenError);
+      return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
     }
 
     let body;
@@ -47,56 +42,60 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Invalid JSON in request body' }, { status: 400 });
     }
 
-    const { formData, verificationCodeId, needsCapacityReview } = body;
-    console.log('📋 Extracted data:', { hasFormData: !!formData, hasVerificationCodeId: !!verificationCodeId, needsCapacityReview });
+    const { formData, needsCapacityReview } = body;
+    console.log('📋 Extracted data:', { hasFormData: !!formData, needsCapacityReview });
 
     const isOnlinePayment = formData?.paymentInfo?.paymentMode === 'online';
     console.log('💳 Payment mode:', formData?.paymentInfo?.paymentMode, 'Is online:', isOnlinePayment);
 
-    if (!formData || (!verificationCodeId && !isOnlinePayment)) {
+    if (!formData) {
       return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
     }
 
-    // Verify the verification code was used (skip for online payment check and test mode)
+    // Since moderator verification is removed, we no longer check verificationCodeId.
+    // Applications are submitted directly and marked as 'submitted' for admin review.
     let codeData = null;
     let codeRef = null;
-
-    if (token !== 'test' && !isOnlinePayment) {
-      codeRef = adminDb.collection('verificationCodes').doc(verificationCodeId);
-      const codeDoc = await codeRef.get();
-
-      if (!codeDoc.exists) {
-        console.log('❌ Verification code not found:', verificationCodeId);
-        return NextResponse.json({ error: 'Verification code not found' }, { status: 404 });
-      }
-
-      codeData = codeDoc.data();
-      if (codeData?.studentUid !== uid) {
-        console.log('❌ Verification code does not belong to this user:', { studentUid: codeData?.studentUid, uid });
-        return NextResponse.json({ error: 'Verification code does not belong to this user' }, { status: 400 });
-      }
-
-      // Check if code is used (it should be used after verification)
-      if (!codeData?.used) {
-        console.log('❌ Verification code not used yet:', { used: codeData?.used });
-        return NextResponse.json({ error: 'Please verify your code first before submitting' }, { status: 400 });
-      }
-      console.log('✅ Verification code validated successfully');
-    } else {
-      console.log('🔧 Skipping verification code check (Test mode or Online Payment)');
-    }
 
     const now = new Date().toISOString();
 
     // Save to applications collection for admin/moderator review
     const appRef = adminDb.collection('applications').doc(uid);
 
+    // Generate paymentId for Supabase record
+    const paymentId = isOnlinePayment ? (formData.paymentInfo?.razorpayPaymentId || '') : generateOfflinePaymentId('new_registration');
+
+    // Create PENDING payment in Supabase Ledger immediately for offline payments
+    if (!isOnlinePayment && formData?.paymentInfo?.amountPaid > 0) {
+      try {
+        await PaymentTransactionService.saveTransaction({
+          studentId: formData.enrollmentId || 'N/A',
+          studentName: formData.fullName || 'N/A',
+          userId: uid, // Firestore UID
+          amount: Number(formData.paymentInfo.amountPaid),
+          paymentMethod: 'offline',
+          paymentId,
+          timestamp: now,
+          durationYears: formData.sessionInfo?.durationYears || 1,
+          validUntil: '', // To be filled on approval
+          status: 'pending'
+        });
+        console.log(`✅ Pending offline registration ledger created in Supabase: ${paymentId}`);
+      } catch (supabaseError) {
+        console.error('⚠️ Failed to create Supabase ledger (non-fatal):', supabaseError);
+      }
+    }
+
     const applicationData = {
       applicationId: uid,
       applicantUid: uid,
       email: email || formData.email,
       state: 'submitted',
-      formData: formData,
+      formData: {
+        ...formData,
+        paymentId // Inject generated paymentId into formData for retrieval during approval
+      },
+      paymentId, // Store at top level too for easy access
       submittedAt: now,
       createdAt: now,
       updatedAt: now,
@@ -112,8 +111,8 @@ export async function POST(request: NextRequest) {
       stopId: formData.stopId || '',
       shift: formData.shift || '',
 
-      verificationCodeId: verificationCodeId || '',
-      verifiedBy: isOnlinePayment ? 'system_online_payment' : (codeData?.moderatorUid || ''),
+      verificationCodeId: '',
+      verifiedBy: isOnlinePayment ? 'system_online_payment' : 'system_offline_submission_bypass',
       verifiedAt: now,
       // Flag for admin to know if this application needs capacity review before approval
       needsCapacityReview: needsCapacityReview === true
@@ -122,28 +121,6 @@ export async function POST(request: NextRequest) {
     console.log('💾 Saving application to Firestore...');
     await appRef.set(applicationData);
     console.log('✅ Application saved successfully to applications collection');
-
-    // Delete verification code after successful submission (only if it exists)
-    if (codeRef) {
-      await codeRef.delete();
-      console.log('🗑️ Verification code deleted');
-    }
-
-    // Also delete related notification if verification code exists
-    if (verificationCodeId) {
-      const notificationsQuery = await adminDb.collection('notifications')
-        .where('links.verificationCodeId', '==', verificationCodeId)
-        .get();
-
-      if (!notificationsQuery.empty) {
-        const batch = adminDb.batch();
-        notificationsQuery.docs.forEach((doc: any) => {
-          batch.delete(doc.ref);
-        });
-        await batch.commit();
-        console.log(`🗑️ Deleted ${notificationsQuery.size} notification(s) after successful verification`);
-      }
-    }
 
     // ✅ SERVER-SIDE NOTIFICATION: Notify admins if bus is full or near capacity
     // This replaces the broken client-side calls that were causing "Failed to fetch"

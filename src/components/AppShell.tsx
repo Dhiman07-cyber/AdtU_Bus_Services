@@ -47,8 +47,10 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   // Determine if we're in moderator area
   const isModeratorArea = pathname?.startsWith('/moderator');
 
-  // Determine if we're on apply form page (has custom navbar)
-  const isApplyFormPage = pathname?.startsWith('/apply/form');
+  // Determine if we're on apply pages
+  const isApplyPage = pathname?.startsWith('/apply');
+  const isApplyFormPage = pathname === '/apply/form';
+  const isContactPage = pathname === '/contact';
 
   // Determine if we're on terms and conditions page (has custom layout)
   const isTermsPage = pathname === '/terms-and-conditions';
@@ -56,11 +58,11 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   // Determine if we're on privacy policy page (has custom layout)
   const isPrivacyPage = pathname === '/privacy-policy';
 
-  // Hide navbar/footer on landing page, login page, apply form page, terms page, and privacy page
-  // Show navbar for all authenticated users (including those needing application)
-  // This ensures navbar is always visible for logged-in users
-  // Ensure we don't flash UI elements before auth is ready
-  const showNavAndFooter = !authLoading && !isLandingPage && !isLoginPage && !isApplyFormPage && !isTermsPage && !isPrivacyPage && currentUser;
+  // Show navbar/footer based on specific page logic
+  // Update: Only hide footer on /apply/form, but hide global navbar on all /apply and /contact routes
+  const showNavAndFooter = !authLoading && !isLandingPage && !isLoginPage && !isApplyPage && !isContactPage && !isTermsPage && !isPrivacyPage && currentUser;
+  const showGlobalNavbar = showNavAndFooter; // Follow the existing logic for navbar
+  const showGlobalFooter = !authLoading && !isLandingPage && !isLoginPage && !isApplyFormPage && !isTermsPage && !isPrivacyPage && currentUser;
 
   // Show sidebar for admin/moderator only after auth is ready
   const showSidebar = !authLoading && (isAdminArea || isModeratorArea) && currentUser && userData;
@@ -108,7 +110,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
           setMobileOpen
         }}>
           <div className="app-shell tabular-nums">
-            {showNavAndFooter && (
+            {showGlobalNavbar && (
               <div id="app-navbar">
                 <Navbar
                   onMenuToggle={handleMenuToggle}
@@ -164,7 +166,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
                   </main>
 
                   {/* Footer in Main Content Column */}
-                  {showNavAndFooter && (
+                  {showGlobalFooter && (
                     <div id="app-footer" style={{ gridColumn: 2, gridRow: 2 }}>
                       <Footer />
                     </div>
@@ -177,7 +179,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
                 <main className={`flex-grow flex flex-col ${showNavAndFooter ? 'min-h-[calc(100dvh-48px)]' : 'min-h-dvh'}`}>
                   {children}
                 </main>
-                {showNavAndFooter && (
+                {showGlobalFooter && (
                   <div id="app-footer">
                     <Footer />
                   </div>

@@ -17,6 +17,7 @@ interface OptimizedSelectProps {
   placeholder?: string;
   required?: boolean;
   className?: string;
+  labelClassName?: string;
   disabled?: boolean;
   children: ReactNode;
 }
@@ -29,6 +30,7 @@ export const OptimizedSelect = memo(function OptimizedSelect({
   placeholder,
   required,
   className,
+  labelClassName,
   disabled,
   children
 }: OptimizedSelectProps) {
@@ -48,8 +50,8 @@ export const OptimizedSelect = memo(function OptimizedSelect({
   return (
     <div>
       {label && (
-        <Label htmlFor={id} className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-0.5">
-          {label} {required && <span>*</span>}
+        <Label htmlFor={id} className={labelClassName || "block text-xs font-medium text-gray-700 dark:text-gray-300 mb-0.5"}>
+          {label} {required && <span className="text-red-500">*</span>}
         </Label>
       )}
       <Select

@@ -295,7 +295,7 @@ service cloud.firestore {
           </div>
           
           <div className="mb-6">
-            <h2 className="text-xl font-semibold mb-3">Step 4: Test the Setup</h2>
+            <h2 className="text-xl font-semibold mb-3">Step 4: Verify the Setup</h2>
             <div className="bg-green-50 dark:bg-green-900 p-4 rounded-lg">
               <p>After deploying the rules:</p>
               <ol className="list-decimal pl-5 space-y-2 mt-2">

@@ -156,7 +156,6 @@ export default function StudentDashboard() {
           setDriverLoading(true);
           try {
             const studentShift = studentData.shift || 'Morning';
-            console.log('🔍 Fetching driver for bus:', studentBusId, 'Student shift:', studentShift);
 
             // Query drivers assigned to this bus
             const driversQuery = query(
@@ -167,7 +166,6 @@ export default function StudentDashboard() {
 
             if (!driversSnap.empty) {
               const drivers = driversSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-              console.log('📋 Found drivers for bus:', drivers);
 
               // Filter drivers based on shift matching logic
               let matchedDriver = null;
@@ -212,13 +210,8 @@ export default function StudentDashboard() {
               }
 
               if (matchedDriver) {
-                console.log('✅ Matched driver:', matchedDriver);
                 setDriverData(matchedDriver);
-              } else {
-                console.log('⚠️ No matching driver found');
               }
-            } else {
-              console.log('⚠️ No drivers found for bus:', studentBusId);
             }
           } catch (e) {
             console.error('Error fetching driver:', e);
@@ -252,7 +245,6 @@ export default function StudentDashboard() {
 
     const checkActiveTrip = async () => {
       try {
-        console.log('🔍 Checking trip status for bus:', busId);
 
         // Use API endpoint with auth token
         const token = await currentUser?.getIdToken();
@@ -285,13 +277,7 @@ export default function StudentDashboard() {
           return;
         }
 
-        if (result.tripActive) {
-          console.log('✅ Active trip found via API:', result.tripData);
-          setTripActive(true);
-        } else {
-          console.log('ℹ️ No active trip found via API');
-          setTripActive(false);
-        }
+          setTripActive(result.tripActive);
       } catch (err) {
         console.error('Error checking trip status:', err);
         // Keep current state on error
@@ -315,7 +301,6 @@ export default function StudentDashboard() {
           filter: `bus_id=eq.${busId}`
         },
         (payload) => {
-          console.log('📡 Real-time driver_status update:', payload);
           if (payload.eventType === 'DELETE') {
             setTripActive(false);
           } else if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
@@ -326,7 +311,6 @@ export default function StudentDashboard() {
         }
       )
       .subscribe((status) => {
-        console.log('📡 Dashboard driver_status channel:', status);
       });
 
     // Also listen for trip broadcasts for instant updates
@@ -391,11 +375,6 @@ export default function StudentDashboard() {
 
         const diffTime = expiryDateStart.getTime() - today.getTime();
         const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-
-        console.log('📅 Days until expiry calculation:');
-        console.log('   Today:', today.toLocaleDateString('en-IN'));
-        console.log('   Valid Until:', expiryDateStart.toLocaleDateString('en-IN'));
-        console.log('   Days Remaining:', diffDays);
 
         setDaysUntilExpiry(diffDays);
       } catch (error) {

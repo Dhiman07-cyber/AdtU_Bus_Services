@@ -48,6 +48,8 @@ export default function AdminApplicationDetailPage() {
   const [driverData, setDriverData] = useState<any>(null);
   const [verifierData, setVerifierData] = useState<any>(null);
   const [routeError, setRouteError] = useState(false);
+  const [paymentData, setPaymentData] = useState<any>(null);
+  const [fetchingPayment, setFetchingPayment] = useState(false);
 
   const copyToClipboard = async (text: string) => {
     await navigator.clipboard.writeText(text);
@@ -57,19 +59,55 @@ export default function AdminApplicationDetailPage() {
   };
 
   const handleDownloadReceipt = async () => {
-    if (!application?.formData?.paymentInfo?.paymentEvidenceUrl) return;
+    // Priority 1: Professional PDF Receipt from Supabase
+    if (paymentData?.paymentId) {
+      try {
+        setDownloadingReceipt(true);
+        const token = await currentUser?.getIdToken();
+        const response = await fetch(`/api/payment/receipt/${paymentData.paymentId}`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+
+        if (response.ok) {
+          const blob = await response.blob();
+          const url = window.URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = `Receipt_${application?.formData?.fullName.replace(/\s+/g, '_') || 'Student'}_${paymentData.paymentId}.pdf`;
+          document.body.appendChild(a);
+          a.click();
+          window.URL.revokeObjectURL(url);
+          showToast('Professional receipt downloaded!', 'success');
+          setReceiptModalOpen(false);
+        } else {
+          throw new Error('Failed to generate PDF receipt');
+        }
+      } catch (error) {
+        console.error('Error downloading PDF receipt:', error);
+        showToast('Failed to generate professional receipt', 'error');
+      } finally {
+        setDownloadingReceipt(false);
+      }
+      return;
+    }
+
+    // Priority 2: Original Payment Evidence Image
+    if (!application?.formData?.paymentInfo?.paymentEvidenceUrl) {
+      showToast('No receipt available for this application', 'error');
+      return;
+    }
 
     try {
-      setProcessing(true);
-      const filename = `${application.formData.fullName.replace(/\s+/g, '_')}_receipt.${application.formData.paymentInfo.paymentEvidenceUrl.split('.').pop()?.split('?')[0] || 'jpg'}`;
+      setDownloadingReceipt(true);
+      const filename = `${application.formData.fullName.replace(/\s+/g, '_')}_evidence.${application.formData.paymentInfo.paymentEvidenceUrl.split('.').pop()?.split('?')[0] || 'jpg'}`;
       await downloadFile(application.formData.paymentInfo.paymentEvidenceUrl, filename);
-      showToast('Receipt downloaded successfully!', 'success');
+      showToast('Payment evidence downloaded!', 'success');
       setReceiptModalOpen(false);
     } catch (error) {
-      console.error('Error downloading receipt:', error);
-      showToast('Failed to download receipt', 'error');
+      console.error('Error downloading evidence:', error);
+      showToast('Failed to download payment evidence', 'error');
     } finally {
-      setProcessing(false);
+      setDownloadingReceipt(false);
     }
   };
 
@@ -98,6 +136,30 @@ export default function AdminApplicationDetailPage() {
     }
   }, [loading, currentUser, userData, router, applicationId]);
 
+  const fetchPaymentData = async (studentUid: string, token: string) => {
+    try {
+      setFetchingPayment(true);
+      // Use the transactions API to find payments for this student UID
+      const response = await fetch(`/api/payment/transactions?studentUid=${studentUid}`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        // Look for the most recent completed payment
+        if (data.transactions && data.transactions.length > 0) {
+          const mainPayment = data.transactions.find((t: any) => t.status === 'completed') || data.transactions[0];
+          setPaymentData(mainPayment);
+          console.log('✅ Linked payment record found:', mainPayment.paymentId);
+        }
+      }
+    } catch (error) {
+      console.error('Error fetching payment data:', error);
+    } finally {
+      setFetchingPayment(false);
+    }
+  };
+
   const loadApplication = async () => {
     try {
       const token = await currentUser?.getIdToken();
@@ -125,6 +187,9 @@ export default function AdminApplicationDetailPage() {
         }
 
         await Promise.all(promises);
+
+        // Fetch payment data from Supabase separately
+        fetchPaymentData(applicationId, token);
       } else {
         showToast('Application not found', 'error');
         router.push('/admin/applications');
@@ -643,17 +708,40 @@ export default function AdminApplicationDetailPage() {
                 </div>
               </div>
 
-              {application.formData?.paymentInfo?.paymentEvidenceUrl && application.formData?.paymentInfo?.paymentMode !== 'online' && (
-                <div className="ml-auto w-full sm:w-auto mt-4 sm:mt-0">
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="w-full sm:w-auto gap-2 bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-400 border border-indigo-500/20 text-[11px] font-bold uppercase tracking-wider"
-                    onClick={() => setReceiptModalOpen(true)}
-                  >
-                    <FileText className="h-3.5 w-3.5" />
-                    Inspect Receipt
-                  </Button>
+              {(paymentData?.paymentId || (application.formData?.paymentInfo?.paymentEvidenceUrl && application.formData?.paymentInfo?.paymentMode !== 'online')) && (
+                <div className="ml-auto w-full sm:w-auto mt-4 sm:mt-0 flex flex-wrap gap-2">
+                  {paymentData?.paymentId && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="w-full sm:w-auto gap-2 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border-emerald-500/20 text-[11px] font-bold uppercase tracking-wider h-9"
+                      onClick={handleDownloadReceipt}
+                      disabled={downloadingReceipt || processing}
+                    >
+                      {downloadingReceipt ? (
+                        <>
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          Processing
+                        </>
+                      ) : (
+                        <>
+                          <Download className="h-3.5 w-3.5" />
+                          Professional Receipt
+                        </>
+                      )}
+                    </Button>
+                  )}
+                  {application.formData?.paymentInfo?.paymentEvidenceUrl && application.formData?.paymentInfo?.paymentMode !== 'online' && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="w-full sm:w-auto gap-2 bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-400 border border-indigo-500/20 text-[11px] font-bold uppercase tracking-wider h-9"
+                      onClick={() => setReceiptModalOpen(true)}
+                    >
+                      <FileText className="h-3.5 w-3.5" />
+                      Inspect Evidence
+                    </Button>
+                  )}
                 </div>
               )}
             </div>

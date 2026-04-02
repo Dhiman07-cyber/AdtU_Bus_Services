@@ -172,10 +172,12 @@ const FacultyDepartmentSelector: React.FC<FacultyDepartmentSelectorProps> = ({
   };
 
   return (
-    <div className="space-y-2">
+    <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4">
       {/* Faculty Selector */}
       <div className="space-y-1" ref={facultyRef}>
-        <label className="text-xs font-medium text-gray-700 dark:text-gray-300">Faculty</label>
+        <label className="block text-[11px] font-bold tracking-wider text-slate-500 uppercase mb-2">
+          Faculty <span className="text-red-500">*</span>
+        </label>
         <div className="relative">
           <Input
             type="text"
@@ -186,21 +188,22 @@ const FacultyDepartmentSelector: React.FC<FacultyDepartmentSelectorProps> = ({
             }}
             onFocus={handleFacultyFocus}
             placeholder="Select or search faculty..."
-            className="w-full text-xs h-9"
+            className="w-full text-xs h-10 bg-transparent border-slate-800 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-colors"
           />
           {showFacultySuggestions && (
-            <div className="absolute z-10 w-full mt-0.5 bg-white border border-gray-200 rounded-md shadow-lg dark:bg-gray-800 dark:border-gray-700">
-              <div className="h-48 overflow-y-auto">
+            <div className="absolute z-20 w-full mt-1 bg-slate-900 border border-slate-800 rounded-md shadow-2xl overflow-hidden">
+              <div className="h-48 overflow-y-auto scrollbar-thin scrollbar-thumb-slate-700">
                 {loadingFaculties ? (
-                  <div className="px-3 py-1.5 text-center text-gray-500 text-[10px]">
-                    Loading...
+                  <div className="px-3 py-4 text-center text-slate-500 text-[10px] flex flex-col items-center gap-2">
+                    <div className="w-4 h-4 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin"></div>
+                    Searching...
                   </div>
                 ) : filteredFaculties.length > 0 ? (
-                  <ul className="py-0.5">
+                  <ul className="py-1">
                     {filteredFaculties.map((faculty) => (
                       <li
                         key={faculty.id}
-                        className="px-3 py-1.5 text-xs cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700"
+                        className="px-4 py-2 text-xs cursor-pointer hover:bg-indigo-600/20 hover:text-indigo-300 text-slate-300 transition-colors"
                         onClick={() => handleFacultySelect(faculty)}
                       >
                         {faculty.faculty}
@@ -208,7 +211,7 @@ const FacultyDepartmentSelector: React.FC<FacultyDepartmentSelectorProps> = ({
                     ))}
                   </ul>
                 ) : (
-                  <div className="px-3 py-1.5 text-center text-gray-500 text-[10px]">
+                  <div className="px-3 py-4 text-center text-slate-500 text-[10px]">
                     No faculties found
                   </div>
                 )}
@@ -220,7 +223,9 @@ const FacultyDepartmentSelector: React.FC<FacultyDepartmentSelectorProps> = ({
 
       {/* Department Selector */}
       <div className="space-y-1" ref={departmentRef}>
-        <label className="text-xs font-medium text-gray-700 dark:text-gray-300">Department</label>
+        <label className="block text-[11px] font-bold tracking-wider text-slate-500 uppercase mb-2">
+          Department <span className="text-red-500">*</span>
+        </label>
         <div className="relative">
           <Input
             type="text"
@@ -233,27 +238,28 @@ const FacultyDepartmentSelector: React.FC<FacultyDepartmentSelectorProps> = ({
             }}
             onFocus={handleDepartmentFocus}
             placeholder={facultySelected ? "Select or search department..." : "Choose faculty first..."}
-            className="w-full text-xs h-9"
+            className="w-full text-xs h-10 bg-transparent border-slate-800 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             disabled={!facultySelected}
           />
           {showDepartmentSuggestions && facultySelected && (
-            <div className="absolute z-10 w-full mt-0.5 bg-white border border-gray-200 rounded-md shadow-lg dark:bg-gray-800 dark:border-gray-700">
-              <div className="h-48 overflow-y-auto">
+            <div className="absolute z-20 w-full mt-1 bg-slate-900 border border-slate-800 rounded-md shadow-2xl overflow-hidden">
+              <div className="h-48 overflow-y-auto scrollbar-thin scrollbar-thumb-slate-700">
                 {loadingDepartments ? (
-                  <div className="px-3 py-1.5 text-center text-gray-500 text-[10px]">
-                    Loading...
+                  <div className="px-3 py-4 text-center text-slate-500 text-[10px] flex flex-col items-center gap-2">
+                    <div className="w-4 h-4 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin"></div>
+                    Searching...
                   </div>
                 ) : filteredDepartments.length > 0 ? (
-                  <ul className="py-0.5">
+                  <ul className="py-1">
                     {filteredDepartments.map((category) => (
                       <React.Fragment key={category.category}>
-                        <li className="px-3 py-1 text-[10px] font-semibold text-gray-500 uppercase dark:text-gray-400">
+                        <li className="px-4 py-1.5 text-[9px] font-black text-indigo-500 uppercase tracking-widest bg-slate-800/30">
                           {category.category}
                         </li>
                         {category.departments.map((department, index) => (
                           <li
                             key={`${category.category}-${index}`}
-                            className="px-6 py-1.5 text-xs cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700"
+                            className="px-6 py-2 text-xs cursor-pointer hover:bg-blue-600/20 hover:text-blue-300 text-slate-300 transition-colors"
                             onClick={() => handleDepartmentSelect(department)}
                           >
                             {department}
@@ -263,7 +269,7 @@ const FacultyDepartmentSelector: React.FC<FacultyDepartmentSelectorProps> = ({
                     ))}
                   </ul>
                 ) : (
-                  <div className="px-3 py-1.5 text-center text-gray-500 text-[10px]">
+                  <div className="px-3 py-4 text-center text-slate-500 text-[10px]">
                     No departments found
                   </div>
                 )}

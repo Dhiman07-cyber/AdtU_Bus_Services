@@ -25,16 +25,16 @@ export default function ApplyFormNavbar() {
   if (!currentUser) return null;
 
   return (
-    <nav className="sticky top-0 z-50 bg-transparent border-0">
+    <nav className="fixed top-0 left-0 right-0 z-50 bg-[#0c0e1a]/80 backdrop-blur-md border-b border-slate-800/50">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex items-center justify-between h-16" style={{ minHeight: '64px' }}>
+        <div className="flex items-center justify-between h-14">
           {/* Logo and App Name - Left */}
           <div className="flex items-center space-x-2 sm:space-x-3">
             <Link href="/apply" className="flex items-center space-x-2 sm:space-x-3 hover:opacity-80 transition-opacity">
-              <div className="bg-blue-600 p-2 rounded-lg">
-                <Bus className="h-6 w-6 text-white" />
+              <div className="bg-indigo-600 p-1.5 rounded-lg shadow-lg shadow-indigo-500/20">
+                <Bus className="h-4 w-4 text-white" />
               </div>
-              <span className="text-xl font-bold text-gray-900 dark:text-white">
+              <span className="text-lg font-black tracking-tight bg-gradient-to-r from-white via-indigo-200 to-indigo-400 bg-clip-text text-transparent">
                 {appName}
               </span>
             </Link>

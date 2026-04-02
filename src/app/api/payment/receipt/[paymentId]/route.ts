@@ -83,6 +83,25 @@ export async function GET(
       return NextResponse.json({ error: "Payment record not found" }, { status: 404 });
     }
 
+    // 2.5 Fetch Additional Student Details from Firestore if needed
+    let faculty = payment.metadata?.faculty;
+    let enrollmentId = payment.student_id;
+    let studentName = payment.student_name || 'Student';
+
+    if ((!faculty || !enrollmentId || studentName === 'Student') && payment.student_uid) {
+      try {
+        const studentDoc = await adminDb.collection('students').doc(payment.student_uid).get();
+        if (studentDoc.exists) {
+          const sData = studentDoc.data();
+          if (!faculty) faculty = sData.faculty;
+          if (!enrollmentId) enrollmentId = sData.enrollmentId;
+          if (studentName === 'Student') studentName = sData.fullName || studentName;
+        }
+      } catch (e) {
+        console.warn('Failed to fetch auxiliary student data for receipt', e);
+      }
+    }
+
     // 3. Security Check: Only allow students to download their own receipt, and admins/mods to download any
     if (userData.role === 'student') {
       let isAuthorized = false;
@@ -93,22 +112,22 @@ export async function GET(
       }
 
       // Check 2: Match by Enrollment ID (if UID check failed or UID missing)
-      if (!isAuthorized && payment.student_id) {
-        let enrollmentId = userData.enrollmentId;
+      if (!isAuthorized && enrollmentId) {
+        let userEnrollmentId = userData.enrollmentId;
 
         // If enrollmentId missing in user doc, check student profile
-        if (!enrollmentId) {
+        if (!userEnrollmentId) {
           try {
             const studentDoc = await adminDb.collection('students').doc(userId).get();
             if (studentDoc.exists) {
-              enrollmentId = studentDoc.data()?.enrollmentId;
+              userEnrollmentId = studentDoc.data()?.enrollmentId;
             }
           } catch (e) {
             console.warn('Failed to fetch student profile for authentication check', e);
           }
         }
 
-        if (enrollmentId && payment.student_id === enrollmentId) {
+        if (userEnrollmentId && enrollmentId === userEnrollmentId) {
           isAuthorized = true;
         }
       }
@@ -128,8 +147,8 @@ export async function GET(
     const documentPayload = buildDocumentPayload({
       payment_id: paymentId,
       student_uid: payment.student_uid || '',
-      student_name: payment.student_name || 'Unknown',
-      student_id: payment.student_id || '',
+      student_name: studentName,
+      student_id: enrollmentId || '',
       amount: payment.amount || 0,
       method: paymentMethod,
       session_start_year: payment.session_start_year?.toString(),
@@ -151,21 +170,10 @@ export async function GET(
 
     // Store signature in database (async, non-blocking for PDF generation)
     paymentsSupabaseService.storeDocumentSignature(paymentId, fullSignature)
-      .then(stored => {
-        if (stored) {
-          console.log(`🔐 Document signature stored for receipt: ${paymentId}`);
-        } else {
-          console.warn(`⚠️ Failed to store document signature for: ${paymentId}`);
-        }
-      })
       .catch(err => console.error('Signature storage error:', err));
-
-    // Generate visible watermark text (personalized for security)
-    const visibleWatermarkText = generateVisibleWatermarkText();
 
     // Extract values for receipt display
     const studentUid = payment.student_uid || '';
-    const studentName = payment.student_name || 'Unknown';
     const createdAt = payment.created_at || new Date().toISOString();
     const transactionDate = payment.transaction_date || createdAt;
 
@@ -177,20 +185,17 @@ export async function GET(
     );
 
     // Generate verification QR code as Data URL
-    // Using the new secure token format (ADTU-R2-...)
     let qrCodeDataUrl = '';
     try {
-      console.log('🔐 Generating secure QR with RSA-2048 signature:', secureQRToken.substring(0, 50) + '...');
       qrCodeDataUrl = await QRCode.toDataURL(secureQRToken, {
-        errorCorrectionLevel: 'M', // Medium error correction (balance between size and reliability)
+        errorCorrectionLevel: 'M',
         margin: 3,
-        width: 200, // Larger for better scanning
+        width: 200,
         color: {
-          dark: '#000000', // Pure black for maximum contrast
+          dark: '#000000',
           light: '#ffffff'
         }
       });
-      console.log('✅ Secure QR code generated successfully, length:', qrCodeDataUrl.length);
     } catch (qrError) {
       console.warn('QR code generation failed:', qrError);
     }
@@ -217,8 +222,6 @@ export async function GET(
       minute: "2-digit",
       hour12: true
     });
-
-    const sessionInfo = sessionYear;
 
     // Validity Progression Data
     const metadata = payment.metadata || {};
@@ -261,7 +264,7 @@ export async function GET(
 <html>
 <head>
   <meta charset="utf-8">
-  <title>Receipt - ${payment.student_name} - ${paymentId} | ADTU Bus Services</title>
+  <title>Receipt - ${studentName} - ${paymentId} | ADTU Bus Services</title>
   <meta name="adtu-receipt-id" content="${paymentId}">
   <meta name="adtu-student-uid" content="${invisibleWatermark.studentUid}">
   <meta name="adtu-timestamp-hash" content="${invisibleWatermark.timestampHash}">
@@ -605,22 +608,22 @@ export async function GET(
     <div class="receipt-grid">
       <div class="info-group">
         <div class="field-label">Student Information</div>
-        <div class="primary-value">${payment.student_name}</div>
+        <div class="primary-value">${studentName}</div>
         <div style="margin-top: 10px;">
           <div class="field-label">Enrollment ID</div>
-          <div class="field-value">${payment.student_id}</div>
+          <div class="field-value">${enrollmentId || 'N/A'}</div>
         </div>
         <div style="margin-top: 10px;">
           <div class="field-label">Department / Faculty</div>
-          <div class="field-value">${payment.metadata?.faculty || 'Bachelors of Technology'}</div>
+          <div class="field-value">${faculty || 'General'}</div>
         </div>
       </div>
       <div class="info-group">
         <div class="field-label">Transaction Details</div>
-        <div class="field-value" style="color: #0f172a; font-weight: 700;">${payment.method} Payment</div>
+        <div class="field-value" style="color: #0f172a; font-weight: 700;">${paymentMethod} Payment</div>
         <div style="margin-top: 10px;">
           <div class="field-label">Payment ID</div>
-          <div class="field-value" style="font-family: monospace; font-size: 11px;">${payment.payment_id || 'N/A'}</div>
+          <div class="field-value" style="font-family: monospace; font-size: 11px;">${paymentId}</div>
         </div>
         ${payment.razorpay_order_id ? `
         <div style="margin-top: 10px;">

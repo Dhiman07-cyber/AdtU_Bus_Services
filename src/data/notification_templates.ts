@@ -99,6 +99,9 @@ For any queries, contact the administration office.`
     message: `Dear Students,
 
 Below are the bus assignments for today's dropoff schedule. Please check which bus will be serving your route and board accordingly.
+
+{auto-generated matrix summary inserted here}
+
 For any queries, contact the administration office.`
   },
 

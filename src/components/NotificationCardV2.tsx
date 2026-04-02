@@ -192,6 +192,57 @@ export default function NotificationCardV2({
   const isFeedbackIssue = !!notification.metadata?.feedbackId;
   const isRenewalRequest = notification.title.toLowerCase().includes('renewal request');
 
+  const parseMatrixFromContent = (content: string) => {
+    const lines = content.split('\n');
+    const matrix: any[] = [];
+    lines.forEach(line => {
+      const trimmed = line.trim();
+      // Format is "Bus-X : Route Name (Stop 1, Stop 2)"
+      if (trimmed.startsWith('Bus-') && trimmed.includes(' : ')) {
+        const parts = trimmed.split(' : ');
+        if (parts.length >= 2) {
+          const busNumber = parts[0].trim();
+          const rest = parts.slice(1).join(' : ').trim();
+          let routeName = rest;
+          let stops: any[] = [];
+          
+          if (rest.endsWith(')')) {
+            // Find the matching opening parenthesis from the end
+            let depth = 0;
+            let matchIndex = -1;
+            for (let i = rest.length - 1; i >= 0; i--) {
+              if (rest[i] === ')') depth++;
+              else if (rest[i] === '(') {
+                depth--;
+                if (depth === 0) {
+                  matchIndex = i;
+                  break;
+                }
+              }
+            }
+
+            if (matchIndex !== -1) {
+              routeName = rest.substring(0, matchIndex).trim();
+              const stopsStr = rest.substring(matchIndex + 1, rest.length - 1);
+              stops = stopsStr.split(',').map((s: string) => ({ name: s.trim() }));
+            } else {
+              // Fallback if mismatched
+              stops = [{ name: 'Standard Coverage' }];
+            }
+          }
+          
+          matrix.push({ busNumber, routeName, stops });
+        }
+      }
+    });
+    return matrix.length > 0 ? matrix : undefined;
+  };
+
+  const getMatrixData = () => {
+    return (notification as any).metadata?.matrix || 
+           (notification.type === 'dropoff' ? parseMatrixFromContent(notification.content) : undefined);
+  };
+
   const getDisplayLabel = () => {
     if (targetRole !== 'all') return roleTheme.label;
 
@@ -563,7 +614,7 @@ export default function NotificationCardV2({
                     </div>
                   ) : (
                     (() => {
-                      const matrixData = (notification as any).metadata?.matrix;
+                      const matrixData = getMatrixData();
                       if (matrixData && matrixData.length > 0) {
                         const lines = notification.content.split('\n');
                         const introLines = lines.filter(line => !line.trim().startsWith('Bus-') && !line.includes(' : Route-'));
@@ -576,7 +627,7 @@ export default function NotificationCardV2({
 
                 {/* Premium Matrix Table */}
                 {(() => {
-                  const matrixData = (notification as any).metadata?.matrix;
+                  const matrixData = getMatrixData();
                   if (!matrixData || matrixData.length === 0) return null;
 
                   return (

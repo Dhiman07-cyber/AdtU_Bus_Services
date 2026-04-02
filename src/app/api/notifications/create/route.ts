@@ -116,13 +116,21 @@ async function resolveRecipientIds(
         // Firestore 'in' limited to 30 values
         for (let i = 0; i < targetBusIds.length; i += 30) {
           const chunk = targetBusIds.slice(i, i + 30);
-          const snapshot = await adminDb.collection('students')
-            .where('busId', 'in', chunk).get();
+          
+          let q1: FirebaseFirestore.Query = adminDb.collection('students').where('busId', 'in', chunk);
+          let q2: FirebaseFirestore.Query = adminDb.collection('students').where('assignedBusId', 'in', chunk);
+          
+          if (targetShift && targetShift !== 'both') {
+            const shiftVal = targetShift.charAt(0).toUpperCase() + targetShift.slice(1);
+            q1 = q1.where('shift', '==', shiftVal);
+            q2 = q2.where('shift', '==', shiftVal);
+          }
+
+          const snapshot = await q1.get();
           snapshot.docs.forEach(d => recipientIds.push(d.id));
 
           // Also check assignedBusId
-          const snapshot2 = await adminDb.collection('students')
-            .where('assignedBusId', 'in', chunk).get();
+          const snapshot2 = await q2.get();
           snapshot2.docs.forEach(d => {
             if (!recipientIds.includes(d.id)) recipientIds.push(d.id);
           });
@@ -136,10 +144,19 @@ async function resolveRecipientIds(
         for (let i = 0; i < targetRouteIds.length; i += 30) {
           const chunk = targetRouteIds.slice(i, i + 30);
           
+          let q1: FirebaseFirestore.Query = adminDb.collection('students').where('routeId', 'in', chunk);
+          let q2: FirebaseFirestore.Query = adminDb.collection('students').where('assignedRouteId', 'in', chunk);
+          
+          if (targetShift && targetShift !== 'both') {
+            const shiftVal = targetShift.charAt(0).toUpperCase() + targetShift.slice(1);
+            q1 = q1.where('shift', '==', shiftVal);
+            q2 = q2.where('shift', '==', shiftVal);
+          }
+          
           // 1. Get students on these routes
           const studentSnapshots = await Promise.all([
-            adminDb.collection('students').where('routeId', 'in', chunk).get(),
-            adminDb.collection('students').where('assignedRouteId', 'in', chunk).get()
+            q1.get(),
+            q2.get()
           ]);
           studentSnapshots.forEach(s => s.docs.forEach(d => recipientIds.push(d.id)));
 
@@ -336,7 +353,6 @@ export async function POST(request: NextRequest) {
       targetUserIds,
       expiryAt,
       sendToAllRoles,
-      metadata = {},
     } = body;
 
     // 3. Validate
@@ -385,12 +401,13 @@ export async function POST(request: NextRequest) {
 
     // 6. Auto-inject higher-ups
     const autoInjectedIds = await getAutoInjectedRecipients(senderRole, directRecipientIds);
-    const allRecipientIds = [...new Set([...directRecipientIds, ...autoInjectedIds])];
 
     // Remove sender from recipients (don't notify yourself)
-    const filteredRecipientIds = allRecipientIds.filter(id => id !== auth.uid);
+    const filteredDirectRecipientIds = directRecipientIds.filter(id => id !== auth.uid);
+    const filteredAutoInjectedIds = autoInjectedIds.filter(id => id !== auth.uid);
+    const allRecipientIds = [...new Set([...filteredDirectRecipientIds, ...filteredAutoInjectedIds])];
 
-    if (filteredRecipientIds.length === 0) {
+    if (allRecipientIds.length === 0) {
       return NextResponse.json(
         { success: false, error: 'No recipients found for this target' },
         { status: 400 }
@@ -413,14 +430,6 @@ export async function POST(request: NextRequest) {
     };
     if (auth.employeeId) sender.employeeId = auth.employeeId;
 
-    // 9. Clean metadata (remove undefined values — Firestore rejects them)
-    const cleanMetadata: Record<string, any> = {};
-    if (metadata) {
-      for (const [key, value] of Object.entries(metadata)) {
-        if (value !== undefined) cleanMetadata[key] = value;
-      }
-    }
-
     // 10. Create notification document in `notifications` collection
     const notificationData: Record<string, any> = {
       title: title.trim(),
@@ -428,17 +437,12 @@ export async function POST(request: NextRequest) {
       type: type as NotificationType,
       sender,
       target,
-      recipientIds: filteredRecipientIds,
-      autoInjectedRecipientIds: autoInjectedIds.filter(id => id !== auth.uid),
+      recipientIds: allRecipientIds,
       readByUserIds: [auth.uid], // Sender has already "read" it
       hiddenForUserIds: [],
       isEdited: false,
       isDeletedGlobally: false,
       createdAt: FieldValue.serverTimestamp(),
-      metadata: {
-        ...cleanMetadata,
-        messageId: '', // will be set after doc is created
-      },
     };
 
     // Add expiry if provided
@@ -449,16 +453,11 @@ export async function POST(request: NextRequest) {
     // Save to Firestore
     const docRef = await adminDb.collection('notifications').add(notificationData);
 
-    // Update messageId in metadata
-    await docRef.update({
-      'metadata.messageId': docRef.id,
-    });
-
-    console.log(`✅ Notification created: ${docRef.id} | type=${type} | recipients=${filteredRecipientIds.length}`);
+    console.log(`✅ Notification created: ${docRef.id} | type=${type} | directRecipients=${filteredDirectRecipientIds.length}`);
 
     // 11. Send FCM push notifications (non-blocking)
     const fcmResult = await sendFCMNotifications(
-      filteredRecipientIds,
+      allRecipientIds,
       title.trim(),
       content.trim(),
       docRef.id
@@ -467,8 +466,8 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       success: true,
       notificationId: docRef.id,
-      recipientCount: filteredRecipientIds.length,
-      autoInjectedCount: autoInjectedIds.length,
+      recipientCount: filteredDirectRecipientIds.length,
+      autoInjectedCount: filteredAutoInjectedIds.length,
       fcm: fcmResult,
     }, { status: 200 });
 

@@ -886,7 +886,7 @@ export default function ViewStudentPage({ params }: { params: Promise<{ id: stri
                           {downloadingReceiptId === (payment.paymentId || payment.id) ? (
                             <>
                               <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                              Processing...
+                              Processing
                             </>
                           ) : (
                             <>

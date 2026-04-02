@@ -34,6 +34,8 @@ import {
 import Link from 'next/link';
 import { cn } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
+import ApplyFormNavbar from '@/components/ApplyFormNavbar';
+import { PremiumPageLoader } from '@/components/LoadingSpinner';
 
 export default function ApplyLandingPage() {
   const { currentUser, userData, loading, needsApplication } = useAuth();
@@ -99,17 +101,7 @@ export default function ApplyLandingPage() {
   };
 
   if (loading || checkingApplication) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-[#020817]">
-        <div className="text-center space-y-4">
-          <div className="relative">
-            <div className="absolute inset-0 bg-blue-500/20 blur-xl rounded-full animate-pulse"></div>
-            <Loader2 className="h-12 w-12 animate-spin text-blue-600 relative z-10 mx-auto" />
-          </div>
-          <p className="text-base font-medium text-gray-600 dark:text-gray-400">Loading your dashboard...</p>
-        </div>
-      </div>
-    );
+    return <PremiumPageLoader fullScreen message="Loading your dashboard..." subMessage="Fetching your application status and account details..." />;
   }
 
   // Case: Application Under Review
@@ -197,7 +189,8 @@ export default function ApplyLandingPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50 dark:from-gray-950 dark:via-slate-900 dark:to-indigo-950 relative ">
+    <div className="min-h-screen bg-[#05060e] dark:bg-[#05060e] overflow-x-hidden relative ">
+      <ApplyFormNavbar />
       {/* Premium Animated Background with Grid */}
       <div className="fixed inset-0 overflow-hidden pointer-events-none">
         {/* Gradient Orbs */}
@@ -209,9 +202,9 @@ export default function ApplyLandingPage() {
         <div className="absolute inset-0 bg-[linear-gradient(to_right,#80808012_1px,transparent_1px),linear-gradient(to_bottom,#80808012_1px,transparent_1px)] bg-[size:24px_24px]"></div>
       </div>
 
-      <div className="relative z-10 pt-16 sm:pt-20 pb-6 sm:pb-8 md:pb-12 px-3 sm:px-4 md:px-6 lg:px-8 space-y-6 sm:space-y-8 md:space-y-10">
+      <div className="relative z-10 pt-12 sm:pt-20 pb-6 sm:pb-8 md:pb-12 px-3 sm:px-4 md:px-6 lg:px-8 space-y-4 sm:space-y-6 md:space-y-8">
         {/* Premium Hero Section */}
-        <div className="text-center space-y-3 sm:space-y-4 md:space-y-6 animate-fade-in max-w-6xl mx-auto mt-10">
+        <div className="text-center space-y-2 sm:space-y-3 md:space-y-4 animate-fade-in max-w-6xl mx-auto mt-4 sm:mt-6">
           {/* Premium Badge */}
           <div className="inline-flex items-center gap-1 sm:gap-1.5 px-2.5 sm:px-3 md:px-4 py-1 sm:py-1.5 bg-white/80 dark:bg-gray-800/80 backdrop-blur-xl border border-blue-200/50 dark:border-blue-700/50 rounded-full shadow-lg animate-slide-in-up">
             <div className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse"></div>
@@ -224,22 +217,22 @@ export default function ApplyLandingPage() {
 
           {/* Main Heading with Premium Typography */}
           <div className="space-y-2 sm:space-y-3">
-            <h1 className="text-2xl sm:text-3xl md:text-4xl lg:text-5xl font-black animate-slide-in-up tracking-tight" style={{ animationDelay: '0.1s' }}>
-              <span className="block bg-gradient-to-r from-blue-600 via-indigo-600 to-cyan-600 bg-clip-text text-transparent leading-tight">
+            <h1 className="text-xl sm:text-2xl md:text-3xl lg:text-[2.5rem] font-black animate-slide-in-up tracking-tight" style={{ animationDelay: '0.1s' }}>
+              <span className="block bg-gradient-to-r from-blue-600 via-indigo-600 to-cyan-600 bg-clip-text text-transparent leading-[1.1]">
                 {config?.landingPage?.heroTitle ? config.landingPage.heroTitle.split(' ').slice(0, 2).join(' ') : "Welcome to"}
               </span>
-              <span className="block bg-gradient-to-r from-indigo-600 via-blue-600 to-cyan-600 bg-clip-text text-transparent leading-tight">
+              <span className="block bg-gradient-to-r from-indigo-600 via-blue-600 to-cyan-600 bg-clip-text text-transparent leading-[1.1]">
                 {config?.landingPage?.heroTitle ? config.landingPage.heroTitle.split(' ').slice(2).join(' ') : "ADTU Bus Services"}
               </span>
             </h1>
 
-            <p className="text-sm sm:text-base md:text-lg text-gray-700 dark:text-gray-300 max-w-3xl mx-auto leading-snug font-medium animate-slide-in-up px-2" style={{ animationDelay: '0.2s' }}>
+            <p className="text-xs sm:text-sm md:text-base text-gray-700 dark:text-gray-300 max-w-2xl mx-auto leading-snug font-medium animate-slide-in-up px-2" style={{ animationDelay: '0.2s' }}>
               {config?.landingPage?.heroSubtitle || (
                 <>Experience <span className="text-blue-600 dark:text-blue-400 font-bold">reliable</span>, <span className="text-purple-600 dark:text-purple-400 font-bold">safe</span>, and <span className="text-indigo-600 dark:text-indigo-400 font-bold">convenient</span> transportation</>
               )}
             </p>
 
-            <p className="text-xs sm:text-sm md:text-base text-gray-600 dark:text-gray-400 max-w-xl mx-auto animate-slide-in-up px-2" style={{ animationDelay: '0.25s' }}>
+            <p className="text-[10px] sm:text-xs md:text-sm text-gray-600 dark:text-gray-400 max-w-xl mx-auto animate-slide-in-up px-2" style={{ animationDelay: '0.25s' }}>
               Your journey to seamless campus connectivity starts here ✨
             </p>
           </div>
@@ -306,17 +299,17 @@ export default function ApplyLandingPage() {
                   {/* Gradient Background on Hover */}
                   <div className={`absolute inset-0 bg-gradient-to-br ${stat.gradient} opacity-0 group-hover:opacity-10 transition-opacity duration-300`}></div>
 
-                  <CardContent className="p-3 sm:p-4 md:p-5 relative z-10 text-center">
+                  <CardContent className="p-2 sm:p-3 md:p-4 relative z-10 text-center">
                     {/* Icon with Gradient Ring */}
-                    <div className="relative w-10 h-10 sm:w-12 sm:h-12 mx-auto mb-2">
+                    <div className="relative w-8 h-8 sm:w-10 sm:h-10 mx-auto mb-1.5">
                       <div className={`absolute inset-0 bg-gradient-to-br ${stat.gradient} rounded-xl blur-lg opacity-50 group-hover:opacity-100 transition-opacity duration-300`}></div>
-                      <div className={`relative w-10 h-10 sm:w-12 sm:h-12 rounded-xl bg-gradient-to-br ${stat.gradient} flex items-center justify-center shadow-lg group-hover:scale-110 transition-all duration-300`}>
-                        <StatIcon className="h-5 w-5 sm:h-6 sm:w-6 text-white" />
+                      <div className={`relative w-8 h-8 sm:w-10 sm:h-10 rounded-xl bg-gradient-to-br ${stat.gradient} flex items-center justify-center shadow-lg group-hover:scale-110 transition-all duration-300`}>
+                        <StatIcon className="h-4 w-4 sm:h-5 sm:w-5 text-white" />
                       </div>
                     </div>
 
                     {/* Value with Premium Gradient */}
-                    <div className={`text-2xl sm:text-3xl md:text-4xl font-black bg-gradient-to-br ${stat.gradient} bg-clip-text text-transparent mb-1 group-hover:scale-110 transition-transform duration-300`}>
+                    <div className={`text-xl sm:text-2xl md:text-3xl font-black bg-gradient-to-br ${stat.gradient} bg-clip-text text-transparent mb-0.5 group-hover:scale-110 transition-transform duration-300`}>
                       {stat.value}
                     </div>
 
@@ -348,8 +341,8 @@ export default function ApplyLandingPage() {
             {[
               {
                 icon: Shield,
-                title: "Secure & Verified",
-                description: "In-person verification by bus office staff ensures maximum security and prevents fraud. Your safety is our top priority.",
+                title: "Secure Review",
+                description: "Thorough digital verification by the bus office staff ensures maximum security and validity of your application documents.",
                 gradient: "from-blue-500 to-cyan-500",
                 bgGradient: "from-blue-50 to-cyan-50 dark:from-blue-950/30 dark:to-cyan-950/30",
                 badge: "Verified"
@@ -364,8 +357,8 @@ export default function ApplyLandingPage() {
               },
               {
                 icon: Clock,
-                title: "Quick & Easy",
-                description: "Apply online in minutes. Get verified and approved within 2-3 business days. Fast-track your journey to convenience.",
+                title: "Direct Submission",
+                description: "Apply online and submit your application directly. No intermediate verification codes required for final submission.",
                 gradient: "from-green-500 to-teal-500",
                 bgGradient: "from-green-50 to-teal-50 dark:from-green-950/30 dark:to-teal-950/30",
                 badge: "Fast"
@@ -393,99 +386,65 @@ export default function ApplyLandingPage() {
           </div>
         </div>
 
-        {/* Premium Step-by-Step Process */}
-        <div className="animate-slide-in-up" style={{ animationDelay: '0.8s' }}>
-          <Card className="border border-white/5 shadow-2xl bg-[#12131A]/60 backdrop-blur-xl overflow-hidden relative group">
-            {/* Subtle background glow */}
-            <div className="absolute -top-24 -right-24 w-64 h-64 bg-indigo-500/10 rounded-full blur-[100px] pointer-events-none"></div>
-            <div className="absolute -bottom-24 -left-24 w-64 h-64 bg-purple-500/10 rounded-full blur-[100px] pointer-events-none"></div>
+        {/* Ultra-Compact Vertical Application Journey */}
+        <div className="animate-slide-in-up space-y-4 pt-4 max-w-4xl mx-auto" style={{ animationDelay: '0.7s' }}>
+          <div className="text-center mb-6">
+            <h2 className="text-xl sm:text-2xl font-black bg-gradient-to-r from-blue-400 to-cyan-400 bg-clip-text text-transparent">
+              Application Journey
+            </h2>
+            <p className="text-[10px] sm:text-xs text-zinc-500 uppercase tracking-widest font-bold">5 Quick Steps</p>
+          </div>
 
-            <CardHeader className="text-center pb-8 pt-10">
-              <div className="inline-flex items-center gap-2 px-4 py-1.5 bg-indigo-500/10 border border-indigo-500/20 rounded-full mb-4">
-                <Sparkles className="h-4 w-4 text-indigo-400" />
-                <span className="text-[10px] sm:text-xs font-bold text-indigo-300 uppercase tracking-widest">The Experience</span>
-              </div>
-              <CardTitle className="text-2xl sm:text-3xl md:text-4xl font-black mb-3">
-                <span className="bg-gradient-to-r from-white via-blue-200 to-cyan-400 bg-clip-text text-transparent">
-                  Application Journey
-                </span>
-              </CardTitle>
-              <CardDescription className="text-sm sm:text-base text-zinc-400 max-w-xl mx-auto px-4">
-                Five intuitive steps to secure your premium campus transportation access
-              </CardDescription>
-            </CardHeader>
+          <div className="relative px-2 sm:px-6">
+            {/* Elegant Vertical Connector Line */}
+            <div className="absolute left-[23px] sm:left-[39px] top-6 bottom-6 w-[1.5px] bg-gradient-to-b from-blue-500/40 via-indigo-500/20 to-transparent z-0"></div>
 
-            <CardContent className="px-4 sm:px-8 md:px-12 pb-12 relative">
-              {/* Central vertical line for the whole section */}
-              <div className="absolute left-[31px] sm:left-[39px] top-0 bottom-12 w-[2px] bg-gradient-to-b from-indigo-500/50 via-purple-500/50 to-transparent"></div>
+            <div className="space-y-4 relative z-10">
+              {(config?.applicationProcess?.steps || [
+                { num: 1, title: "Online Application", desc: "Submit your personal, academic and payment details through the portal.", icon: "FileText" },
+                { num: 2, title: "Document Processing", desc: "Our system prepares your application for staff review and verification.", icon: "Timer" },
+                { num: 3, title: "Staff Moderation", desc: "Bus office staff verifies your payment receipt and academic documents.", icon: "Shield" },
+                { num: 4, title: "Capacity Check", desc: "System validates seat availability on your requested route and bus.", icon: "Users" },
+                { num: 5, title: "Final Approval", desc: "Administrator grants final approval and issues your digital bus pass.", icon: "CheckCircle" }
+              ]).map((step: any, index: number) => {
+                const StepIcon = ({
+                  FileText,
+                  CreditCard,
+                  UserCheck,
+                  Shield,
+                  CheckCircle
+                } as any)[step.icon] || Sparkles;
 
-              <div className="space-y-10">
-                {(config?.applicationProcess?.steps || [
-                  { num: 1, title: "Fill Application Form", desc: "Provide your personal details, academic info, route preferences, and upload payment receipt.", icon: "FileText", delay: '0.9s', color: 'indigo' },
-                  { num: 2, title: "Payment & Evidence", desc: "Pay fees at Bus Office (cash/UPI/bank). Upload receipt or mark offline payment.", icon: "CreditCard", delay: '1.0s', color: 'blue' },
-                  { num: 3, title: "Moderator Verification", desc: "Choose a moderator from the list. Visit bus office with receipt to get 6-digit code.", icon: "UserCheck", delay: '1.1s', color: 'purple' },
-                  { num: 4, title: "Enter Verification Code", desc: "Enter the 6-digit code to verify. Submit button becomes active after verification.", icon: "Shield", delay: '1.2s', color: 'cyan' },
-                  { num: 5, title: "Admin Approval", desc: "Submit verified application. Admin reviews within 2-3 business days. Get instant notification!", icon: "CheckCircle", delay: '1.3s', color: 'emerald' }
-                ]).map((step: any, index: number) => {
-                  const StepIcon = ({
-                    FileText,
-                    CreditCard,
-                    UserCheck,
-                    Shield,
-                    CheckCircle
-                  } as any)[step.icon] || Sparkles;
-
-                  return (
-                    <div key={step.num || index} className="flex gap-6 sm:gap-10 group animate-fade-in relative z-10" style={{ animationDelay: step.delay || `${0.9 + index * 0.1}s` }}>
-                      {/* Step Indicator Column */}
-                      <div className="relative flex-shrink-0 flex flex-col items-center">
-                        <div className={cn(
-                          "w-12 h-12 sm:w-16 sm:h-16 flex items-center justify-center rounded-2xl transition-all duration-500",
-                          "bg-[#1A1B23]/80 border-2 border-white/5 backdrop-blur-md",
-                          "group-hover:border-indigo-500/50 group-hover:bg-[#1A1B23] group-hover:shadow-[0_0_30px_rgba(99,102,241,0.2)]"
-                        )}>
-                          <span className="text-xl sm:text-2xl font-black bg-gradient-to-br from-white to-zinc-500 bg-clip-text text-transparent group-hover:from-indigo-300 group-hover:to-white transition-all duration-500">
-                            {step.num}
-                          </span>
-
-                          {/* Status ring (only for last step or current focus) */}
-                          {step.num === 5 && (
-                            <div className="absolute inset-0 rounded-2xl border-2 border-emerald-500/20 animate-pulse"></div>
-                          )}
-                        </div>
+                return (
+                  <div key={index} className="flex gap-4 sm:gap-6 group items-start transition-all duration-300 hover:translate-x-1">
+                    {/* Compact Step Indicator */}
+                    <div className="relative flex-shrink-0 mt-0.5">
+                      <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-lg bg-[#0c0e1a] border border-white/5 flex items-center justify-center shadow-lg group-hover:border-blue-500/50 group-hover:bg-[#1A1B23] transition-all duration-500">
+                        <span className="text-xs sm:text-sm font-black text-blue-400 group-hover:text-white transition-colors">
+                          {index + 1}
+                        </span>
                       </div>
+                    </div>
 
-                      {/* Content Column */}
-                      <div className="flex-1 min-w-0 pt-1 sm:pt-2">
-                        <div className="flex flex-col sm:flex-row sm:items-center gap-3 mb-2">
-                          <div className={cn(
-                            "w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 transition-all duration-300",
-                            "bg-white/5 border border-white/10 group-hover:scale-110",
-                            (step.color === 'indigo' || step.num === 1) && "group-hover:bg-indigo-500/20 group-hover:border-indigo-500/50",
-                            (step.color === 'blue' || step.num === 2) && "group-hover:bg-blue-500/20 group-hover:border-blue-500/50",
-                            (step.color === 'purple' || step.num === 3) && "group-hover:bg-purple-500/20 group-hover:border-purple-500/50",
-                            (step.color === 'cyan' || step.num === 4) && "group-hover:bg-cyan-500/20 group-hover:border-cyan-500/50",
-                            (step.color === 'emerald' || step.num === 5) && "group-hover:bg-emerald-500/20 group-hover:border-emerald-500/50"
-                          )}>
-                            <StepIcon className={cn(
-                              "h-4 w-4 text-zinc-400 transition-colors duration-300",
-                              "group-hover:text-white"
-                            )} />
-                          </div>
-                          <h3 className="text-lg sm:text-xl font-bold text-white group-hover:translate-x-1 transition-transform duration-300">
+                    {/* Compact Content */}
+                    <Card className="flex-1 bg-white/5 backdrop-blur-md border-white/5 group-hover:bg-white/[0.08] transition-all duration-500 border-none shadow-none">
+                      <CardContent className="p-3 sm:p-4 py-2 sm:py-3">
+                        <div className="flex items-center gap-2 mb-0.5">
+                          <StepIcon className="h-3.5 w-3.5 text-blue-500/70" />
+                          <h3 className="text-xs sm:text-sm md:text-base font-bold text-white leading-tight">
                             {step.title}
                           </h3>
                         </div>
-                        <p className="text-sm sm:text-base text-zinc-400 dark:text-zinc-500 leading-relaxed max-w-2xl">
+                        <p className="text-[10px] sm:text-xs text-zinc-500 leading-normal max-w-2xl px-5 sm:px-5">
                           {step.desc}
                         </p>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </CardContent>
-          </Card>
+                      </CardContent>
+                    </Card>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
         </div>
 
         {/* Important Notes with Enhanced Design */}
@@ -503,8 +462,8 @@ export default function ApplyLandingPage() {
           </CardHeader>
           <CardContent className="space-y-2 sm:space-y-3 text-amber-900 dark:text-amber-200">
             {(config?.applicationProcess?.importantNotes || [
-              { icon: "CreditCard", text: "Offline Payment: Currently, all payments must be made at the {officeName} for verification purposes." },
-              { icon: "Shield", text: "Verification Required: You cannot submit the application without moderator verification." },
+              { icon: "CreditCard", text: "Direct Submission: Submit your application directly after uploading your receipt." },
+              { icon: "Shield", text: "Document Verification: All submissions are manually verified by the bus office staff." },
               { icon: "Calendar", text: "Session Validity: Bus passes are valid for full academic years (July to July)." },
               { icon: "CheckCircle", text: "Renewal Reminders: You'll receive automatic reminders in June before your pass expires." },
               { icon: "Clock", text: "Processing Time: Applications are typically processed within 2-3 business days after submission." }

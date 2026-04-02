@@ -304,17 +304,16 @@ export default function StudentRenewalPage() {
       const a = document.createElement('a');
       a.href = url;
       a.download = `Receipt_${paymentId}.pdf`;
-      // Adding target="_blank" and explicit display none for better mobile compatibility
-      a.target = '_blank';
+      // For mobile compatibility: append to body, click, and cleanup
       a.style.display = 'none';
       document.body.appendChild(a);
       a.click();
 
-      // Small delay before cleanup helps some mobile browsers
+      // Increased delay for mobile browsers to successfully trigger the download
       setTimeout(() => {
-        window.URL.revokeObjectURL(url);
         document.body.removeChild(a);
-      }, 200);
+        window.URL.revokeObjectURL(url);
+      }, 500);
 
       toast.dismiss(loadingToastId);
       toast.success('Receipt downloaded successfully');
@@ -570,7 +569,7 @@ export default function StudentRenewalPage() {
             <div className="flex p-1 bg-gray-200/50 dark:bg-white/5 border border-gray-200 dark:border-white/5 rounded-2xl sm:rounded-[1.5rem] backdrop-blur-xl shadow-inner">
               <button
                 onClick={() => setActiveTab('renewal')}
-                className={`flex-1 flex items-center justify-center gap-2 py-2 sm:py-4 rounded-xl sm:rounded-[1.2rem] font-bold text-xs sm:text-sm hover:cursor-pointer uppercase tracking-widest transition-all duration-300 ${activeTab === 'renewal'
+                className={`flex-1 flex items-center justify-center gap-2 py-2 sm:py-4 rounded-xl sm:rounded-[1.2rem] font-bold text-xs sm:text-sm cursor-pointer uppercase tracking-widest transition-all duration-300 ${activeTab === 'renewal'
                   ? 'bg-white dark:bg-[#0A0B10] text-blue-600 dark:text-blue-400 shadow-2xl scale-100 ring-1 ring-blue-500/20'
                   : 'text-gray-500 dark:text-gray-500 hover:text-gray-900 dark:hover:text-gray-300 hover:bg-white/10'
                   }`}
@@ -580,7 +579,7 @@ export default function StudentRenewalPage() {
               </button>
               <button
                 onClick={() => setActiveTab('history')}
-                className={`flex-1 flex items-center justify-center gap-2 py-2 sm:py-4 rounded-xl sm:rounded-[1.2rem] font-bold text-xs sm:text-sm hover:cursor-pointer uppercase tracking-widest transition-all duration-300 ${activeTab === 'history'
+                className={`flex-1 flex items-center justify-center gap-2 py-2 sm:py-4 rounded-xl sm:rounded-[1.2rem] font-bold text-xs sm:text-sm cursor-pointer uppercase tracking-widest transition-all duration-300 ${activeTab === 'history'
                   ? 'bg-white dark:bg-[#0A0B10] text-purple-600 dark:text-purple-400 shadow-2xl scale-100 ring-1 ring-purple-500/20'
                   : 'text-gray-500 dark:text-gray-500 hover:text-gray-900 dark:hover:text-gray-300 hover:bg-white/10'
                   }`}
@@ -854,7 +853,7 @@ export default function StudentRenewalPage() {
                                   {downloadingReceiptId === transaction.paymentId ? (
                                     <>
                                       <Loader2 className="h-3 w-3 animate-spin" />
-                                      Processing...
+                                      Processing
                                     </>
                                   ) : (
                                     <>

@@ -49,9 +49,10 @@ export default function ModeratorLayout({
     return () => clearTimeout(timeout);
   }, [currentUser, userData, loading, router]);
 
-  // Show loading spinner while auth is loading OR while waiting for userData
+  // Avoid showing double-loaders by returning null here. 
+  // The specific page components (like the Dashboard) will display their own tailored LoadingSpinners.
   if (loading || (!isReady && currentUser && !userData)) {
-    return <PremiumPageLoader fullScreen message="Moderator Services" subMessage="Secure Session Initialization" />;
+    return null;
   }
 
   // Final gate - Allow both admin and moderator

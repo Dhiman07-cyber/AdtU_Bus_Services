@@ -95,7 +95,9 @@ export interface ApplicationFormData {
 
   // Declarations
   declarationAccepted: boolean;
-  understandsVerification: boolean;
+
+  // Supabase Ledger tracking
+  paymentId?: string;
 }
 
 // Verification Code Metadata
@@ -190,6 +192,9 @@ export interface Application {
    */
   reassignmentReason?: 'bus_full_only_option' | 'bus_full_alternatives_exist' | 'no_issue';
   hasAlternativeBuses?: boolean;
+
+  // Supabase Ledger tracking
+  paymentId?: string;
 }
 
 // Student User Profile (post-approval)

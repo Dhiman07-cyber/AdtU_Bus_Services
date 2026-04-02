@@ -95,14 +95,14 @@ export default function ApplicationStatusPage() {
         };
       case 'verified':
         return {
-          title: 'Verification Complete',
-          message: 'Your payment has been verified. Please submit your application for final approval.',
+          title: 'Direct Submission Active',
+          message: 'Your application has been processed. Please check your dashboard for updates.',
           color: 'blue'
         };
       case 'awaiting_verification':
         return {
-          title: 'Awaiting Verification',
-          message: 'Please visit the Bus Office with your payment receipt. The moderator will provide you with a verification code.',
+          title: 'Processing',
+          message: 'Your application is currently being processed by our system.',
           color: 'amber'
         };
       case 'draft':
@@ -260,22 +260,6 @@ export default function ApplicationStatusPage() {
         <Card className="bg-white dark:bg-gray-900">
           <CardContent className="pt-6">
             <div className="flex flex-col sm:flex-row gap-4">
-              {application.state === 'verified' && (
-                <Link href="/apply/form" className="flex-1">
-                  <Button className="w-full bg-blue-600 hover:bg-blue-700">
-                    Complete Submission
-                    <ArrowRight className="h-4 w-4 ml-2" />
-                  </Button>
-                </Link>
-              )}
-              {application.state === 'awaiting_verification' && (
-                <Link href="/apply/form" className="flex-1">
-                  <Button className="w-full">
-                    Enter Verification Code
-                    <ArrowRight className="h-4 w-4 ml-2" />
-                  </Button>
-                </Link>
-              )}
               {application.state === 'draft' && (
                 <Link href="/apply/form" className="flex-1">
                   <Button className="w-full">

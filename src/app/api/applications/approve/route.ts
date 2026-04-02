@@ -292,9 +292,10 @@ export async function POST(request: NextRequest) {
             console.error('⚠️ Failed to update online payment record:', updateError);
           }
         } else {
-          // Creating offline payment record in SUPABASE
+          // Creating/Updating offline payment record in SUPABASE
           const { paymentsSupabaseService } = await import('@/lib/services/payments-supabase');
-          const paymentId = generateOfflinePaymentId('new_registration');
+          // Prioritize the paymentId from submission, fall back to generating if missing (legacy apps)
+          const paymentId = (appData as any).paymentId || formData.paymentId || generateOfflinePaymentId('new_registration');
 
           const paymentCreated = await paymentsSupabaseService.createPayment({
             paymentId,
@@ -312,10 +313,10 @@ export async function POST(request: NextRequest) {
             transactionDate: new Date(),
             offlineTransactionId: formData.paymentInfo?.paymentReference || `app_fee_${applicationId}`,
             approvedBy: {
-              type: 'Manual',
+              type: 'Manual', // New format: Manual vs SYSTEM
               userId: uid,
-              empId: approverId,
-              name: approverName,
+              empId: empId || approverId,
+              name: name || approverName,
               role: adminDoc.exists ? 'Admin' : 'Moderator'
             },
             approvedAt: new Date(),

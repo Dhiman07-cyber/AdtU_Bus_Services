@@ -40,9 +40,10 @@ export default function AdminLayout({
     return () => clearTimeout(timeout);
   }, [currentUser, userData, loading, router]);
 
-  // Combined loading state: auth loading OR (user exists but data hasn't arrived)
+  // Avoid showing double-loaders by returning null here. 
+  // The specific page components (like the Dashboard) will display their own tailored LoadingSpinners.
   if (loading || (currentUser && !userData)) {
-    return <PremiumPageLoader fullScreen message="Administrative Console" subMessage="Verifying Authentication Securely" />;
+    return null;
   }
 
   // Final gate

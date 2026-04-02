@@ -21,13 +21,12 @@ export default function PWAInstallPrompt() {
       return;
     }
 
-    console.log('🔄 PWA Install Prompt: Setting up...');
+    // PWA Install Prompt Setup
 
     // Auto-show prompt on landing page load
     const timer = setTimeout(() => {
       const dismissed = localStorage.getItem("pwa-install-dismissed");
       if (!dismissed) {
-        console.log('📱 PWA Install Prompt: Showing prompt');
         setShowPrompt(true);
       } else {
         console.log('📱 PWA Install Prompt: Already dismissed');
@@ -36,12 +35,11 @@ export default function PWAInstallPrompt() {
 
     // Auto-hide after 10 seconds
     const hideTimer = setTimeout(() => {
-      console.log('📱 PWA Install Prompt: Auto-hiding');
       setShowPrompt(false);
     }, 11000); // Hide after 11 seconds total
 
     const handler = (e: Event) => {
-      console.log('📱 PWA Install Prompt: beforeinstallprompt event fired');
+      // beforeinstallprompt event fired
       // Prevent the mini-infobar from appearing on mobile
       e.preventDefault();
       // Save the event so it can be triggered later
@@ -52,7 +50,7 @@ export default function PWAInstallPrompt() {
 
     // Check if already installed (but don't prevent showing in development)
     if (window.matchMedia("(display-mode: standalone)").matches && !isDevelopment) {
-      console.log('📱 PWA Install Prompt: Already installed');
+      // Already installed
       setShowPrompt(false);
     }
 
@@ -64,7 +62,7 @@ export default function PWAInstallPrompt() {
   }, [pathname, isDevelopment]);
 
   const handleInstall = async () => {
-    console.log('📱 PWA Install Prompt: Install button clicked');
+    // Install button clicked
 
     if (deferredPrompt) {
       // Show the install prompt (production mode)
@@ -75,9 +73,9 @@ export default function PWAInstallPrompt() {
         const { outcome } = await deferredPrompt.userChoice;
 
         if (outcome === "accepted") {
-          console.log("User accepted the install prompt");
+          console.log("PWA Install Prompt: User accepted the install");
         } else {
-          console.log("User dismissed the install prompt");
+          console.log("PWA Install Prompt: User dismissed the install");
         }
 
         // Clear the deferredPrompt
@@ -86,10 +84,7 @@ export default function PWAInstallPrompt() {
       } catch (error) {
         console.error('Error showing install prompt:', error);
       }
-    } else if (isDevelopment) {
-      // Fallback for development mode
-      console.log('📱 PWA Install Prompt: Development mode - simulating install');
-      alert('In development mode, PWA installation is not available. In production, this would show the native install prompt.');
+      // Development fallback handled silently
       setShowPrompt(false);
     } else {
       console.log('📱 PWA Install Prompt: No install prompt available');
