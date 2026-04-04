@@ -1,7 +1,9 @@
 "use client";
 
 import { useEffect, useState, useCallback, useMemo } from "react";
-import { GoogleMap, useJsApiLoader, Marker, Circle } from "@react-google-maps/api";
+import { GoogleMap, useJsApiLoader, Marker, Circle, Polyline } from "@react-google-maps/api";
+import MapFallbackUI from "./maps/MapFallbackUI";
+import { classifyGoogleLoadError, logMapObservability } from "@/lib/maps/map-observability";
 
 export interface MarkerData {
     id: string;
@@ -19,10 +21,13 @@ export interface GoogleMapViewProps {
     center: { lat: number; lng: number };
     zoom?: number;
     markers?: MarkerData[];
-    onMapReady?: (map: any) => void;
+    /** Ordered path for route visualization (optional). */
+    routePath?: Array<{ lat: number; lng: number }>;
+    onMapReady?: (map: google.maps.Map | null) => void;
     circle?: { center: { lat: number; lng: number }; radius: number; color?: string };
     className?: string;
     darkMode?: boolean;
+    onLoadError?: () => void;
 }
 
 const DARK_STYLE = [
@@ -39,18 +44,18 @@ const DARK_STYLE = [
 
 const libraries = ["geometry"] as any;
 
-export default function GoogleMapView({
+function GoogleMapViewImpl({
     apiKey,
     center,
     zoom = 15,
     markers = [],
+    routePath,
     onMapReady,
     circle,
     className = "",
     darkMode = false,
+    onLoadError,
 }: GoogleMapViewProps) {
-
-    // Safety check for center
     const safeCenter = useMemo(() => {
         return center?.lat !== undefined && center?.lng !== undefined
             ? center
@@ -58,36 +63,45 @@ export default function GoogleMapView({
     }, [center?.lat, center?.lng]);
 
     const { isLoaded, loadError } = useJsApiLoader({
-        id: 'google-map-script',
+        id: "google-map-script",
         googleMapsApiKey: apiKey,
         libraries: libraries,
+        preventGoogleFontsLoading: true,
     });
 
-    const [map, setMap] = useState<any>(null);
+    const [map, setMap] = useState<google.maps.Map | null>(null);
 
-    const onLoad = useCallback(function callback(mapInstance: any) {
-        setMap(mapInstance);
-        if (onMapReady) onMapReady(mapInstance);
-    }, [onMapReady]);
+    const onLoad = useCallback(
+        function callback(mapInstance: google.maps.Map) {
+            setMap(mapInstance);
+            onMapReady?.(mapInstance);
+        },
+        [onMapReady]
+    );
 
-    const onUnmount = useCallback(function callback(mapInstance: any) {
+    const onUnmount = useCallback(function callback() {
         setMap(null);
     }, []);
 
-    // Effect to handle panning to new center smoothly if map is loaded
     useEffect(() => {
         if (map && safeCenter) {
             map.panTo(safeCenter);
         }
     }, [map, safeCenter]);
 
+    useEffect(() => {
+        if (!loadError) return;
+        const cat = classifyGoogleLoadError(loadError.message);
+        logMapObservability({
+            category: cat,
+            code: "google_maps_js_loader_error",
+            detail: { message: loadError.message },
+        });
+        onLoadError?.();
+    }, [loadError, onLoadError]);
+
     if (loadError) {
-        return (
-            <div className={`flex flex-col items-center justify-center bg-gray-100 dark:bg-gray-800 rounded-2xl p-4 ${className}`}>
-                <p className="text-red-500 font-bold mb-2">Map Error</p>
-                <p className="text-xs text-red-400 text-center">{loadError.message || "Failed to load maps API"}</p>
-            </div>
-        );
+        return <MapFallbackUI className={className} />;
     }
 
     if (!isLoaded) {
@@ -96,7 +110,7 @@ export default function GoogleMapView({
                 <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-gray-100 to-gray-200 dark:from-gray-800 dark:to-gray-900 rounded-2xl">
                     <div className="flex flex-col items-center gap-3">
                         <div className="h-8 w-8 animate-spin rounded-full border-4 border-blue-500 border-t-transparent" />
-                        <span className="text-sm text-gray-500 dark:text-gray-400 font-medium">Loading Google Maps...</span>
+                        <span className="text-sm text-gray-500 dark:text-gray-400 font-medium">Loading map…</span>
                     </div>
                 </div>
             </div>
@@ -121,12 +135,26 @@ export default function GoogleMapView({
                     gestureHandling: "greedy",
                 }}
             >
-                {/* Render Markers */}
+                {routePath && routePath.length > 1 && (
+                    <Polyline
+                        path={routePath}
+                        options={{
+                            strokeColor: "#2563EB",
+                            strokeOpacity: 0.92,
+                            strokeWeight: 4,
+                            geodesic: true,
+                        }}
+                    />
+                )}
+
                 {markers.map((m) => {
-                    const iconOpts = typeof window !== 'undefined' && window.google && m.iconUrl ? {
-                        url: m.iconUrl,
-                        scaledSize: new window.google.maps.Size(m.iconSize || 44, m.iconSize || 44)
-                    } : undefined;
+                    const iconOpts =
+                        typeof window !== "undefined" && window.google && m.iconUrl
+                            ? {
+                                url: m.iconUrl,
+                                scaledSize: new window.google.maps.Size(m.iconSize || 44, m.iconSize || 44),
+                            }
+                            : undefined;
 
                     return (
                         <Marker
@@ -136,9 +164,8 @@ export default function GoogleMapView({
                             zIndex={m.zIndex || 1}
                             icon={iconOpts}
                         />
-                    )
+                    );
                 })}
-                {/* Render Circle if provided */}
                 {circle?.center?.lat !== undefined && circle?.center?.lng !== undefined && (
                     <Circle
                         center={circle.center}
@@ -155,4 +182,12 @@ export default function GoogleMapView({
             </GoogleMap>
         </div>
     );
+}
+
+/** Loads Google Maps JS only when `apiKey` is non-empty (parent must gate). */
+export default function GoogleMapView(props: GoogleMapViewProps) {
+    if (!props.apiKey?.trim()) {
+        return <MapFallbackUI className={props.className} />;
+    }
+    return <GoogleMapViewImpl {...props} apiKey={props.apiKey.trim()} />;
 }

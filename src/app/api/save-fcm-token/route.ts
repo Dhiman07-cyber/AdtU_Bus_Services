@@ -40,25 +40,42 @@ export const POST = withSecurity(
       );
     }
 
-    // 3. Map role → Firestore collection (no fallback search for security)
-    const roleCollectionMap: Record<string, string> = {
-      student: 'students',
-      driver: 'drivers',
-      moderator: 'moderators',
-      admin: 'admins',
-    };
-
-    const targetCollection = roleCollectionMap[auth.role];
-    if (!targetCollection) {
-      console.warn(`[${requestId}] Unknown role '${auth.role}' for user ${uid}`);
+    // 3. Only allow students to register FCM tokens
+    if (auth.role !== 'student') {
+      console.warn(`[${requestId}] FCM token registration denied for non-student role: ${auth.role}`);
       return NextResponse.json({
         success: false,
-        error: 'Invalid user role. Please contact support.',
+        error: 'FCM tokens are only available for student accounts',
         requestId,
       }, { status: 403 });
     }
 
-    // 4. Save token to subcollection (multi-device support)
+    // 4. Use students collection explicitly
+    const targetCollection = 'students';
+
+    // 5. Validate user exists in students collection before saving token
+    const userDoc = await adminDb.collection(targetCollection).doc(uid).get();
+    if (!userDoc.exists) {
+      console.warn(`[${requestId}] User ${uid} does not exist in ${targetCollection} collection`);
+      return NextResponse.json({
+        success: false,
+        error: 'User account not found. Please contact support.',
+        requestId,
+      }, { status: 404 });
+    }
+
+    // 6. Additional validation: Only allow active student accounts
+    const userData = userDoc.data();
+    if (!userData || userData.status === 'inactive' || userData.status === 'suspended') {
+      console.warn(`[${requestId}] Student ${uid} account is not active`);
+      return NextResponse.json({
+        success: false,
+        error: 'Student account is not active. Please contact support.',
+        requestId,
+      }, { status: 403 });
+    }
+
+    // 7. Save token to subcollection (multi-device support)
     const result = await saveToken(uid, targetCollection, token, platform || 'web');
 
     if (!result.success) {
@@ -69,7 +86,7 @@ export const POST = withSecurity(
       );
     }
 
-    // 5. Legacy field sync (backward compatibility with older notification queries)
+    // 8. Legacy field sync (backward compatibility with older notification queries)
     try {
       await adminDb.collection(targetCollection).doc(uid).set({
         fcmToken: token,

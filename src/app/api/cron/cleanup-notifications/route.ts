@@ -3,13 +3,10 @@ import { deleteExpiredNotifications } from '@/lib/notification-expiry';
 
 /**
  * Cron endpoint for notification cleanup
- * Should be called WEEKLY on Sundays at 3:00 AM IST (22:30 UTC Saturday)
+ * Should be called EVERY 3 DAYS at 2:00 AM UTC
  * 
  * Schedule in vercel.json:
- * "schedule": "30 22 * * 6"  (Every Saturday at 22:30 UTC = Sunday 3:00 AM IST)
- * 
- * OR for every 7 days:
- * "schedule": "0 3 *\/7 * *"  (Every 7 days at 03:00 UTC)
+ * "schedule": "0 2 *\\/3 * *"  (Every 3 days at 02:00 UTC)
  * 
  * Actions:
  * - Deletes all notifications where expiresAt < now
@@ -32,7 +29,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    console.log('🕐 [CRON] Starting weekly notification cleanup...');
+    console.log('🕐 [CRON] Starting 3-day notification cleanup...');
     const startTime = Date.now();
 
     const result = await deleteExpiredNotifications();

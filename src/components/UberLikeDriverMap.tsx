@@ -47,6 +47,7 @@ interface WaitingStudent {
   id: string;
   student_uid: string;
   student_name: string;
+  bus_id: string;
   stop_lat?: number;
   stop_lng?: number;
   accuracy: number;

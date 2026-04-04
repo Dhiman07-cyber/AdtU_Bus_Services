@@ -238,6 +238,7 @@ export function ReassignmentHistoryModal({
 
             const response = await fetch(`/api/reassignment-logs?${params}`, {
                 headers: { Authorization: `Bearer ${token}` },
+                cache: 'no-store'
             });
 
             if (!response.ok) throw new Error("Failed to fetch logs");

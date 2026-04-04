@@ -12,6 +12,7 @@ import { supabase } from "@/lib/supabase-client";
 import { getDriverById, getBusById, getRouteById } from "@/lib/dataService";
 import { useToast } from "@/contexts/toast-context";
 import { PremiumPageLoader } from "@/components/LoadingSpinner";
+import { useSystemConfig } from "@/contexts/SystemConfigContext";
 import {
   checkDeviceSession,
   registerDeviceSession,
@@ -28,8 +29,7 @@ const PWAInstallPrompt = dynamic(() => import('@/components/PWAInstallPrompt'), 
   ssr: false,
 });
 
-// Dynamically import Uber-like driver map
-const UberLikeDriverMap = dynamic(() => import('@/components/UberLikeDriverMap'), {
+const LiveTrackingDriverMap = dynamic(() => import('@/components/maps/LiveTrackingDriverMap'), {
   ssr: false,
   loading: () => <div className="w-full h-full bg-gradient-to-br from-gray-100 to-gray-200 rounded-3xl animate-pulse" />
 });
@@ -63,6 +63,7 @@ export default function DriverLiveTrackingPage() {
   const { currentUser, userData, loading: authLoading } = useAuth();
   const router = useRouter();
   const { addToast } = useToast();
+  const { refreshConfig } = useSystemConfig();
 
   // Core data
   const [driverData, setDriverData] = useState<any>(null);
@@ -85,6 +86,7 @@ export default function DriverLiveTrackingPage() {
   const locationChannelRef = useRef<any>(null); // Persistent channel for location broadcasting
   const watchIdRef = useRef<number | null>(null);
   const broadcastCountRef = useRef<number>(0); // For write optimization
+  const lastBroadcastSampleRef = useRef<{ lat: number; lng: number; t: number } | null>(null);
   const manuallyEndedTripRef = useRef<boolean>(false); // Track if trip was manually ended
   const wakeLockRef = useRef<any>(null); // Screen wake lock to prevent screen from turning off
 
@@ -175,6 +177,16 @@ export default function DriverLiveTrackingPage() {
       setSendingResponse(false);
     }
   };
+
+  useEffect(() => {
+    const onVis = () => {
+      if (document.visibilityState === "visible") {
+        void refreshConfig();
+      }
+    };
+    document.addEventListener("visibilitychange", onVis);
+    return () => document.removeEventListener("visibilitychange", onVis);
+  }, [refreshConfig]);
 
   // Subscribe to wait requests
   useEffect(() => {
@@ -1141,8 +1153,8 @@ export default function DriverLiveTrackingPage() {
     // Broadcast immediately
     broadcastLocation();
 
-    // Then broadcast every 2 seconds for smoother real-time tracking
-    locationIntervalRef.current = setInterval(broadcastLocation, 2000);
+    // Throttled interval — minimum 3s; broadcastLocation also skips if barely moved
+    locationIntervalRef.current = setInterval(broadcastLocation, 3000);
 
     return () => {
       if (locationIntervalRef.current) {
@@ -1157,6 +1169,30 @@ export default function DriverLiveTrackingPage() {
     if (!currentLocation || !busData || !routeData) return;
 
     try {
+      const now = Date.now();
+      const lb = lastBroadcastSampleRef.current;
+      if (lb) {
+        const R = 6371;
+        const dLat = (currentLocation.lat - lb.lat) * Math.PI / 180;
+        const dLon = (currentLocation.lng - lb.lng) * Math.PI / 180;
+        const a =
+          Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+          Math.cos(lb.lat * Math.PI / 180) *
+            Math.cos(currentLocation.lat * Math.PI / 180) *
+            Math.sin(dLon / 2) *
+            Math.sin(dLon / 2);
+        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+        const distKm = R * c;
+        if (distKm < 0.012 && now - lb.t < 4500) {
+          return;
+        }
+      }
+      lastBroadcastSampleRef.current = {
+        lat: currentLocation.lat,
+        lng: currentLocation.lng,
+        t: now,
+      };
+
       const idToken = await currentUser?.getIdToken();
 
       // Increment broadcast counter
@@ -2401,7 +2437,7 @@ export default function DriverLiveTrackingPage() {
           ? "fixed inset-0 z-[10000] h-[100dvh] w-screen rounded-none"
           : "h-[450px] md:h-[calc(100vh-20rem)] md:min-h-[600px] rounded-3xl"
           } ${isScannerOpen ? 'blur-sm opacity-50 pointer-events-none' : ''}`}>
-          <UberLikeDriverMap
+          <LiveTrackingDriverMap
             driverLocation={currentLocation}
             waitingStudents={waitingFlags.map(flag => {
               // Support both new and legacy coordinate fields

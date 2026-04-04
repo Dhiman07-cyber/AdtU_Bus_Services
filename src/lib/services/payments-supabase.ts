@@ -60,7 +60,7 @@ export interface CreatePaymentInput {
     stopId?: string;
     amount?: number;
     method: 'Online' | 'Offline';
-    status?: 'Pending' | 'Completed';
+    status?: 'Pending' | 'Completed' | 'Rejected';
     sessionStartYear?: number;
     sessionEndYear?: number;
     durationYears?: number;
@@ -69,6 +69,7 @@ export interface CreatePaymentInput {
     offlineTransactionId?: string;
     razorpayPaymentId?: string;
     razorpayOrderId?: string;
+    metadata?: Record<string, any>;
     approvedBy?: {
         type?: string;
         userId?: string;

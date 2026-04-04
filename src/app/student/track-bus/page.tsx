@@ -32,11 +32,11 @@ import { useMissedBus, generateOpId, MISSED_BUS_MESSAGES } from "@/hooks/useMiss
 import { useBusLocation } from '@/hooks/useBusLocation';
 import StudentAccessBlockScreen from "@/components/StudentAccessBlockScreen";
 import { shouldBlockAccess } from "@/lib/utils/renewal-utils";
+import { useSystemConfig } from "@/contexts/SystemConfigContext";
 
-// Dynamically import Uber-like map component
-const UberLikeBusMap = dynamic(() => import("@/components/UberLikeBusMap"), {
+const LiveTrackingBusMap = dynamic(() => import("@/components/maps/LiveTrackingBusMap"), {
   ssr: false,
-  loading: () => <div className="h-full bg-gradient-to-br from-gray-100 to-gray-200 rounded-3xl animate-pulse" />
+  loading: () => <div className="h-full bg-gradient-to-br from-gray-100 to-gray-200 dark:from-gray-800 dark:to-gray-900 rounded-3xl animate-pulse" />
 });
 
 // Dynamically import QRCodeCanvas for inline QR display
@@ -55,6 +55,7 @@ export default function StudentTrackBusPage() {
   const { currentUser, userData, loading, signOut } = useAuth();
   const router = useRouter();
   const { addToast } = useToast();
+  const { refreshConfig } = useSystemConfig();
 
   const [studentData, setStudentData] = useState<any>(null);
   const [busData, setBusData] = useState<any>(null);
@@ -343,6 +344,16 @@ export default function StudentTrackBusPage() {
   useEffect(() => {
     initializeIcons();
   }, []);
+
+  useEffect(() => {
+    const onVis = () => {
+      if (document.visibilityState === "visible") {
+        void refreshConfig();
+      }
+    };
+    document.addEventListener("visibilitychange", onVis);
+    return () => document.removeEventListener("visibilitychange", onVis);
+  }, [refreshConfig]);
 
   // Get student's current location 
   useEffect(() => {
@@ -1283,7 +1294,7 @@ export default function StudentTrackBusPage() {
               ? "h-[100dvh] w-screen rounded-none"
               : "h-[450px] md:h-[600px] lg:h-full rounded-3xl md:rounded-[2rem]"
               }`}>
-              <UberLikeBusMap
+              <LiveTrackingBusMap
                 busId={busData?.busId || studentData?.busId || ''}
                 busNumber={busData?.busNumber}
                 journeyActive={tripActive}
@@ -1294,6 +1305,12 @@ export default function StudentTrackBusPage() {
                 onShowQrCode={() => setShowQrCode(true)}
                 currentLocation={busLocation}
                 loading={busLocationLoading}
+                routeStops={routeData?.stops?.map((s: { name: string; lat: number; lng: number; sequence?: number }) => ({
+                  name: s.name,
+                  lat: s.lat,
+                  lng: s.lng,
+                  sequence: s.sequence,
+                }))}
                 primaryActionLabel={
                   submittingFlag
                     ? "Processing..."

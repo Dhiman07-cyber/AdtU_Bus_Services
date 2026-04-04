@@ -18,6 +18,7 @@ import { createClient } from '@supabase/supabase-js';
 import { withSecurity } from '@/lib/security/api-security';
 import { RateLimits } from '@/lib/security/rate-limiter';
 import { z } from 'zod';
+export const dynamic = 'force-dynamic';
 
 // ============================================================================
 // VALIDATION SCHEMAS
@@ -31,7 +32,7 @@ const ReassignmentLogCreateSchema = z.object({
     status: z.string().min(1).max(50),
     summary: z.string().max(1000).optional(),
     changes: z.array(z.any()).optional(),
-    meta: z.record(z.any()).optional(),
+    meta: z.record(z.string(), z.any()).optional(),
     rollbackOf: z.string().max(200).optional(),
 });
 
@@ -134,7 +135,7 @@ export const POST = withSecurity(
                 changes: (body as any).changes || [],
                 meta: (body as any).meta || {},
                 rollback_of: (body as any).rollbackOf || null,
-            }])
+            }] as any)
             .select()
             .single();
 

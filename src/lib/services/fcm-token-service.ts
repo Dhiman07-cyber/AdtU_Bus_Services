@@ -66,6 +66,12 @@ export async function saveToken(
     return { success: false, error: `Invalid token format (length: ${token?.length || 0})` };
   }
 
+  // Additional validation: Only allow saving to students collection
+  if (collectionName !== 'students') {
+    console.warn(`FCM tokens are only supported for students collection, not ${collectionName}`);
+    return { success: false, error: 'FCM tokens are only supported for student accounts' };
+  }
+
   const tokenHash = hashToken(token);
   const tokenDocRef = adminDb
     .collection(collectionName)

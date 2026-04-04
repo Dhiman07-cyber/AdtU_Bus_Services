@@ -257,6 +257,20 @@ function SwapRequestPageContent() {
 
           if (isRelevant) {
             console.log('✨ Relevant DB update detected, refreshing data...');
+            
+            // Handle immediate state clearing for cancelled/rejected requests
+            if (newRecord && (newRecord.status === 'cancelled' || newRecord.status === 'rejected')) {
+              console.log(`🗑️ Immediately clearing ${newRecord.status} request from UI state`);
+              
+              setIncomingRequests(prev => prev.filter(req => 
+                req.id !== newRecord.id
+              ));
+              setOutgoingRequests(prev => prev.filter(req => 
+                req.id !== newRecord.id
+              ));
+            }
+            
+            // Always fetch fresh data to ensure consistency
             await fetchSwapRequests();
           }
         }
@@ -274,6 +288,27 @@ function SwapRequestPageContent() {
         console.log('🚫 Swap Cancelled Broadcast received:', payload);
         fetchSwapRequests();
         addToast('A swap request was cancelled', 'info');
+        
+        // Immediately clear the specific request from UI state
+        setIncomingRequests(prev => prev.filter(req => 
+          req.id !== payload.payload?.requestId
+        ));
+        setOutgoingRequests(prev => prev.filter(req => 
+          req.id !== payload.payload?.requestId
+        ));
+      })
+      .on('broadcast', { event: 'swap_rejected' }, (payload) => {
+        console.log('❌ Swap Rejected Broadcast received:', payload);
+        fetchSwapRequests();
+        addToast('A swap request was rejected', 'info');
+        
+        // Immediately clear the specific request from UI state
+        setIncomingRequests(prev => prev.filter(req => 
+          req.id !== payload.payload?.requestId
+        ));
+        setOutgoingRequests(prev => prev.filter(req => 
+          req.id !== payload.payload?.requestId
+        ));
       })
       .subscribe();
 
@@ -633,6 +668,10 @@ function SwapRequestPageContent() {
 
       if (response.ok) {
         addToast('Swap request rejected', 'info');
+        
+        // Immediately remove from incoming requests
+        setIncomingRequests(prev => prev.filter(req => req.id !== requestId));
+        
         // Note: Document deleted from Firestore, UI updates via real-time listener
       } else {
         addToast(data.error || 'Failed to reject request', 'error');
@@ -663,6 +702,10 @@ function SwapRequestPageContent() {
 
       if (response.ok) {
         addToast('Swap request cancelled', 'success');
+        
+        // Immediately remove from outgoing requests
+        setOutgoingRequests(prev => prev.filter(req => req.id !== requestId));
+        
         // Note: UI updates automatically via real-time Firestore listeners
       } else {
         addToast(data.error || 'Failed to cancel request', 'error');

@@ -13,8 +13,9 @@ const ExcelJS: typeof ExcelJSTypes = ExcelJSRuntime.default || ExcelJSRuntime;
 
 /**
  * Export data to Excel file (client-side download)
+ * Supports both array of objects and array of arrays formats
  */
-export async function exportToExcel(data: any[], filename: string, sheetName: string = 'Sheet1') {
+export async function exportToExcel(data: any[] | any[][], filename: string, sheetName: string = 'Sheet1') {
   try {
     // Create workbook and worksheet
     const workbook = new ExcelJS.Workbook();
@@ -29,25 +30,63 @@ export async function exportToExcel(data: any[], filename: string, sheetName: st
       return false;
     }
 
-    // Get headers from first object
-    const headers = Object.keys(data[0]);
+    // Check if data is array of arrays (2D array) or array of objects
+    const isArray2D = Array.isArray(data[0]);
 
-    // Add header row with styling
-    worksheet.addRow(headers);
-    const headerRow = worksheet.getRow(1);
-    headerRow.font = { bold: true };
-    headerRow.fill = {
-      type: 'pattern',
-      pattern: 'solid',
-      fgColor: { argb: 'FF4472C4' }
-    };
-    headerRow.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+    if (isArray2D) {
+      // Handle array of arrays format (used by management pages)
+      data.forEach((row, index) => {
+        if (Array.isArray(row)) {
+          worksheet.addRow(row);
+        } else {
+          // Convert non-array items to array
+          worksheet.addRow([row]);
+        }
+      });
 
-    // Add data rows
-    data.forEach(item => {
-      const row = headers.map(header => item[header]);
-      worksheet.addRow(row);
-    });
+      // Style header row if it exists (first row with actual headers)
+      if (data.length > 2 && typeof data[2][0] === 'string') {
+        const headerRowIndex = data.findIndex(row => 
+          Array.isArray(row) && 
+          row.length > 1 && 
+          typeof row[0] === 'string' && 
+          !row[0].includes('ALL') && 
+          !row[0].includes('-')
+        );
+        
+        if (headerRowIndex > 0) {
+          const headerRow = worksheet.getRow(headerRowIndex + 1);
+          headerRow.font = { bold: true };
+          headerRow.fill = {
+            type: 'pattern',
+            pattern: 'solid',
+            fgColor: { argb: 'FF4472C4' }
+          };
+          headerRow.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+        }
+      }
+    } else {
+      // Handle array of objects format (original implementation)
+      // Get headers from first object
+      const headers = Object.keys(data[0]);
+
+      // Add header row with styling
+      worksheet.addRow(headers);
+      const headerRow = worksheet.getRow(1);
+      headerRow.font = { bold: true };
+      headerRow.fill = {
+        type: 'pattern',
+        pattern: 'solid',
+        fgColor: { argb: 'FF4472C4' }
+      };
+      headerRow.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+
+      // Add data rows
+      data.forEach(item => {
+        const row = headers.map(header => item[header]);
+        worksheet.addRow(row);
+      });
+    }
 
     // Auto-fit columns
     worksheet.columns.forEach(column => {

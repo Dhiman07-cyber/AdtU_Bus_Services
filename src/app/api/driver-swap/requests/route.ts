@@ -75,6 +75,38 @@ export async function POST(request: Request) {
       );
     }
 
+    // Check for existing swap requests between these drivers (prevent simultaneous requests)
+    const existingSwapQuery = await supabase
+      .from('driver_swap_requests')
+      .select('*')
+      .or(`and(requester_driver_uid.eq.${fromDriverUID},candidate_driver_uid.eq.${toDriverUID}),and(requester_driver_uid.eq.${toDriverUID},candidate_driver_uid.eq.${fromDriverUID})`)
+      .in('status', ['pending', 'accepted'])
+      .limit(1);
+
+    if (existingSwapQuery.data && existingSwapQuery.data.length > 0) {
+      const existingRequest = existingSwapQuery.data[0];
+      console.log('🚫 Existing swap request found between drivers:', existingRequest);
+      
+      if (existingRequest.status === 'pending') {
+        if (existingRequest.requester_driver_uid === fromDriverUID) {
+          return NextResponse.json(
+            { error: 'You already have a pending swap request with this driver. Please wait for their response or cancel the existing request.' },
+            { status: 409 }
+          );
+        } else {
+          return NextResponse.json(
+            { error: 'This driver already has a pending swap request with you. Please check your incoming requests to respond.' },
+            { status: 409 }
+          );
+        }
+      } else if (existingRequest.status === 'accepted') {
+        return NextResponse.json(
+          { error: 'You already have an active swap with this driver. Please end the current swap before creating a new one.' },
+          { status: 409 }
+        );
+      }
+    }
+
     // Get driver and bus details from Firestore for names
     const [fromDriverDoc, toDriverDoc, busDoc] = await Promise.all([
       adminDb.collection('drivers').doc(fromDriverUID).get(),

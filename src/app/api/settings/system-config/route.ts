@@ -3,6 +3,7 @@ import { adminAuth, adminDb } from '@/lib/firebase-admin';
 import { NotificationService } from '@/lib/notifications/NotificationService';
 import { NotificationTarget } from '@/lib/notifications/types';
 import { getSystemConfig, updateSystemConfig } from '@/lib/system-config-service';
+import { sanitizeMapProviderInput } from '@/lib/maps/system-config-map-schema';
 
 // GET: Retrieve system config from Firestore
 export async function GET(req: NextRequest) {
@@ -44,14 +45,24 @@ export async function POST(req: NextRequest) {
             );
         }
 
-        const { config } = await req.json();
+        const { config: rawConfig } = await req.json();
 
-        if (!config) {
+        if (!rawConfig) {
             return NextResponse.json(
                 { message: 'Invalid configuration data' },
                 { status: 400 }
             );
         }
+
+        if (rawConfig.mapProvider !== undefined) {
+            const safe = sanitizeMapProviderInput(rawConfig.mapProvider);
+            if (safe === undefined) {
+                return NextResponse.json({ message: 'Invalid configuration data' }, { status: 400 });
+            }
+            rawConfig.mapProvider = safe;
+        }
+
+        const config = rawConfig;
 
         // Read current config to compare changes
         const oldConfig = await getSystemConfig();

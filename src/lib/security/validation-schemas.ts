@@ -490,15 +490,17 @@ export function validateInput<T>(
     try {
         const data = schema.parse(input);
         return { success: true, data };
-    } catch (error) {
-        if (error instanceof z.ZodError) {
-            const issues = error.issues.map(i => `${i.path.join('.')}: ${i.message}`);
+    } catch (error: any) {
+        if (error instanceof z.ZodError || error?.name === 'ZodError') {
+            const issues = error.issues?.map((i: any) => `${i.path.join('.')}: ${i.message}`) || [];
+            console.error('[validateInput] ❌ Validation failed:', issues);
             return {
                 success: false,
                 error: `Validation failed: ${issues.join(', ')}`,
                 details: error
             };
         }
+        console.error('[validateInput] ❌ Non-Zod error:', error);
         return { success: false, error: 'Invalid input' };
     }
 }

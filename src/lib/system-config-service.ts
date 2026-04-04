@@ -23,7 +23,7 @@ export interface SystemConfig {
     softBlock?: string;
     hardBlock?: string;
     version?: string;
-    mapProvider?: 'osm' | 'carto';
+    mapProvider?: 'osm' | 'carto' | 'google';
     lastUpdated?: string;
     updatedBy?: string;
     [key: string]: any;

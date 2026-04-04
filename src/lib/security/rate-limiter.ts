@@ -139,6 +139,8 @@ export const RateLimits = {
     // Real-time tracking
     LOCATION_UPDATE: { maxRequests: 60, windowMs: 60000 },  // 1 per second max
     WAITING_FLAG: { maxRequests: 20, windowMs: 60000 },     // 20 per minute
+    /** Authenticated Maps JS bootstrap (avoid hammering while key stays server-side). */
+    MAPS_CLIENT_CONFIG: { maxRequests: 30, windowMs: 60000 },
 
     // Admin operations
     ADMIN: { maxRequests: 100, windowMs: 60000 },           // 100 per minute

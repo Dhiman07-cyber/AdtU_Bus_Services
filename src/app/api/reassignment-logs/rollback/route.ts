@@ -14,6 +14,8 @@ import { withSecurity } from '@/lib/security/api-security';
 import { RateLimits } from '@/lib/security/rate-limiter';
 import { z } from 'zod';
 
+export const dynamic = 'force-dynamic';
+
 // ============================================================================
 // TYPES & SCHEMAS
 // ============================================================================
@@ -25,6 +27,21 @@ interface ChangeRecord {
     before: Record<string, any> | null;
     after: Record<string, any> | null;
     precondition?: Record<string, any>;
+}
+
+interface ReassignmentLog {
+    id: string;
+    operation_id: string;
+    type: string;
+    actor_id: string;
+    actor_label: string;
+    logged_at: string;
+    status: string;
+    summary: string | null;
+    changes: ChangeRecord[];
+    meta: Record<string, any>;
+    rollback_of: string | null;
+    created_at: string;
 }
 
 const RollbackSchema = z.object({
@@ -69,8 +86,8 @@ export const GET = withSecurity(
         }
 
         // Get the operation log
-        const { data: log, error } = await supabase
-            .from('reassignment_logs')
+        const { data: log, error } = await (supabase
+            .from('reassignment_logs') as any)
             .select('*')
             .eq('operation_id', operationId)
             .single();
@@ -79,18 +96,20 @@ export const GET = withSecurity(
             return NextResponse.json({ error: 'Operation not found' }, { status: 404 });
         }
 
+        const typedLog = log as unknown as ReassignmentLog;
+
         // Check if rollback is possible
-        if (log.status !== 'committed') {
+        if (typedLog.status !== 'committed') {
             return NextResponse.json({
                 canRollback: false,
-                reason: `Cannot rollback: status is '${log.status}', expected 'committed'`,
-                log,
+                reason: `Cannot rollback: status is '${typedLog.status}', expected 'committed'`,
+                log: typedLog,
             });
         }
 
         // Validate current state matches 'after' snapshots
         const conflicts: string[] = [];
-        const changes = log.changes as ChangeRecord[];
+        const changes = typedLog.changes;
 
         for (const change of changes) {
             if (!change.after || !change.collection || !change.docId) continue;
@@ -165,19 +184,21 @@ export const POST = withSecurity(
             return NextResponse.json({ error: 'Operation not found' }, { status: 404 });
         }
 
-        if (originalLog.status !== 'committed') {
+        const typedOriginalLog = originalLog as unknown as ReassignmentLog;
+
+        if (typedOriginalLog.status !== 'committed') {
             return NextResponse.json({
                 success: false,
-                error: `Cannot rollback: status is '${originalLog.status}'`,
+                error: `Cannot rollback: status is '${typedOriginalLog.status}'`,
             }, { status: 400 });
         }
 
-        const changes = originalLog.changes as ChangeRecord[];
+        const changes = typedOriginalLog.changes;
         const rollbackOpId = `rollback_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
 
         // Create pending rollback log
-        await supabase
-            .from('reassignment_logs')
+        await (supabase
+            .from('reassignment_logs') as any)
             .insert([{
                 operation_id: rollbackOpId,
                 type: 'rollback',
@@ -216,8 +237,8 @@ export const POST = withSecurity(
         const rollbackSuccess = errors.length === 0;
 
         // Update rollback log
-        await supabase
-            .from('reassignment_logs')
+        const { error: updateRollbackError } = await (supabase
+            .from('reassignment_logs') as any)
             .update({
                 status: rollbackSuccess ? 'committed' : 'failed',
                 changes: rollbackChanges,
@@ -230,26 +251,38 @@ export const POST = withSecurity(
             })
             .eq('operation_id', rollbackOpId);
 
+        if (updateRollbackError) {
+            console.error('Failed to update rollback log:', updateRollbackError);
+            errors.push(`Metadata error: Failed to finalized rollback audit log (${updateRollbackError.message})`);
+        }
+
         // Mark original as rolled_back (if successful)
         if (rollbackSuccess) {
-            await supabase
-                .from('reassignment_logs')
+            const { error: updateOriginalError } = await (supabase
+                .from('reassignment_logs') as any)
                 .update({
                     status: 'rolled_back',
                     meta: {
-                        ...originalLog.meta,
+                        ...typedOriginalLog.meta,
                         rolledBackBy: rollbackOpId,
                         rolledBackAt: new Date().toISOString(),
                     },
                 })
                 .eq('operation_id', operationId);
+
+            if (updateOriginalError) {
+                console.error('Failed to update original log status:', updateOriginalError);
+                errors.push(`Status update error: Rollback succeeded but original log status could not be updated (${updateOriginalError.message})`);
+            }
         }
 
         return NextResponse.json({
-            success: rollbackSuccess,
-            message: rollbackSuccess
+            success: rollbackSuccess && errors.length === 0,
+            message: (rollbackSuccess && errors.length === 0)
                 ? 'Rollback completed successfully'
-                : 'Rollback partially failed',
+                : rollbackSuccess
+                    ? 'Rollback completed (Firestore), but status update had errors'
+                    : 'Rollback partially failed',
             rollbackOperationId: rollbackOpId,
             revertedDocs,
             errors: errors.length > 0 ? errors : undefined,

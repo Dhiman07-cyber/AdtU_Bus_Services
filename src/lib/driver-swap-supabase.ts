@@ -315,6 +315,14 @@ export class DriverSwapSupabaseService {
 
             // Send notification to requester
             await this.sendSwapRejectedNotification(request);
+            
+            // Send real-time broadcast to both drivers
+            await this.broadcastSwapUpdate(requestId, 'swap_rejected', {
+              requestId,
+              rejectedBy: rejectorUid,
+              requesterName: request.requester_name,
+              candidateName: request.candidate_name
+            }, request);
 
             console.log('✅ Swap request rejected successfully');
             return { success: true };
@@ -366,6 +374,14 @@ export class DriverSwapSupabaseService {
             if (updateError) {
                 return { success: false, error: updateError.message };
             }
+
+            // Send real-time broadcast to both drivers
+            await this.broadcastSwapUpdate(requestId, 'swap_cancelled', {
+              requestId,
+              cancelledBy: cancellerUid,
+              requesterName: request.requester_name,
+              candidateName: request.candidate_name
+            }, request);
 
             console.log('✅ Swap request cancelled successfully');
             return { success: true };
@@ -1337,6 +1353,51 @@ export class DriverSwapSupabaseService {
         } catch (error) {
             console.error('❌ Error notifying students:', error);
             // Don't throw - notification failure shouldn't rollback swap
+        }
+    }
+
+    /**
+     * Broadcast real-time updates to both drivers involved in swap
+     */
+    private static async broadcastSwapUpdate(
+        requestId: string,
+        eventType: 'swap_cancelled' | 'swap_rejected' | 'swap_accepted',
+        payload: any,
+        request?: SwapRequest
+    ): Promise<void> {
+        try {
+            console.log(`📡 Broadcasting ${eventType} for request ${requestId}`);
+            
+            // Extract driver UIDs from payload or request
+            const requesterUID = payload.requesterUID || payload.rejectedBy || payload.cancelledBy || request?.requester_driver_uid;
+            const candidateUID = payload.candidateUID || request?.candidate_driver_uid;
+            
+            if (!requesterUID || !candidateUID) {
+                console.error('❌ Cannot broadcast: missing driver UIDs');
+                return;
+            }
+            
+            // Send broadcast to both drivers involved
+            const channels = [
+                supabase.channel(`driver_swap_requests:${requesterUID}`),
+                supabase.channel(`driver_swap_requests:${candidateUID}`)
+            ];
+
+            for (const channel of channels) {
+                await channel.send({
+                    type: 'broadcast',
+                    event: eventType,
+                    payload: {
+                        requestId,
+                        ...payload
+                    }
+                });
+            }
+
+            console.log(`✅ Broadcast sent for ${eventType}`);
+        } catch (error) {
+            console.error(`❌ Error broadcasting ${eventType}:`, error);
+            // Don't throw - broadcast failure shouldn't rollback the operation
         }
     }
 }

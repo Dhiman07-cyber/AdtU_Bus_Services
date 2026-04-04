@@ -352,7 +352,7 @@ export default function SystemRenewalConfigPage() {
         busFee: number;
         paymentExport: { startYear: number; interval: number };
         version?: string;
-        mapProvider?: 'osm' | 'carto';
+        mapProvider?: 'osm' | 'carto' | 'google';
     }>({
         appName: 'AdtU Bus Services',
         busFee: 5000,
@@ -365,7 +365,7 @@ export default function SystemRenewalConfigPage() {
         busFee: number;
         paymentExport: { startYear: number; interval: number };
         version?: string;
-        mapProvider?: 'osm' | 'carto';
+        mapProvider?: 'osm' | 'carto' | 'google';
     }>({
         appName: 'AdtU Bus Services',
         busFee: 5000,
@@ -990,7 +990,7 @@ export default function SystemRenewalConfigPage() {
                                                     <div className="flex items-center justify-between">
                                                         <Label className="text-sm font-medium text-gray-300 flex items-center gap-2">
                                                             <MapPin className="h-4 w-4 text-emerald-400" />
-                                                            Map Tile Provider
+                                                            Live tracking map
                                                         </Label>
                                                         <div className="flex items-center h-6">
                                                             <span className={`px-2 py-0.5 text-[10px] font-medium bg-amber-500/20 text-amber-400 rounded transition-opacity duration-200 ${(systemConfig.mapProvider !== originalSystemConfig.mapProvider) ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
@@ -1004,18 +1004,25 @@ export default function SystemRenewalConfigPage() {
                                                             onClick={(_e) => setSystemConfig(prev => ({ ...prev, mapProvider: 'osm' }))}
                                                             className={`flex-1 py-2 text-sm font-medium rounded-lg transition-all ${systemConfig.mapProvider === 'osm' ? 'bg-indigo-600 text-white shadow-lg' : 'text-gray-400 hover:text-white hover:bg-white/5'}`}
                                                         >
-                                                            OpenStreetMap (OSM)
+                                                            OSM (existing)
                                                         </button>
                                                         <button
                                                             type="button"
                                                             onClick={(_e) => setSystemConfig(prev => ({ ...prev, mapProvider: 'carto' }))}
                                                             className={`flex-1 py-2 text-sm font-medium rounded-lg transition-all ${systemConfig.mapProvider === 'carto' ? 'bg-indigo-600 text-white shadow-lg' : 'text-gray-400 hover:text-white hover:bg-white/5'}`}
                                                         >
-                                                            CARTO Voyager (Recommended)
+                                                            CARTO (existing)
+                                                        </button>
+                                                        <button
+                                                            type="button"
+                                                            onClick={(_e) => setSystemConfig(prev => ({ ...prev, mapProvider: 'google' }))}
+                                                            className={`flex-1 py-2 text-sm font-medium rounded-lg transition-all ${systemConfig.mapProvider === 'google' ? 'bg-emerald-600 text-white shadow-lg' : 'text-gray-400 hover:text-white hover:bg-white/5'}`}
+                                                        >
+                                                            Google Maps
                                                         </button>
                                                     </div>
                                                     <p className="text-xs text-gray-500 mt-2 hover:text-gray-300 transition-colors">
-                                                        CARTO uses high-performance CDNs ideal for live tracking. OSM strictly limits requests and frequently shows "Empty Tiles" or Error 429 when tracking live buses.
+                                                        Existing providers use OpenStreetMap tiles (no Google billing). Google Maps uses server env <code className="text-gray-400">GOOGLE_MAPS_API_KEY</code> (HTTP referrer–restricted). Set <code className="text-gray-400">DISABLE_GOOGLE_MAPS=1</code> to force fallback without changing admin UI.
                                                     </p>
                                                 </div>
                                             </div>

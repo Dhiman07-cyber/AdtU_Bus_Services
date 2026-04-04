@@ -10,7 +10,7 @@
     },
     {
       "path": "/api/cron/cleanup-notifications",
-      "schedule": "30 22 * * 6"
+      "schedule": "0 2 */3 * *"
     },
     {
       "path": "/api/cron/cleanup-expired-students",

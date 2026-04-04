@@ -1,5 +1,12 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '@/lib/supabase-client';
+import {
+  isValidLatLng,
+  isNewerTimestamp,
+  isImpossibleJump,
+  shouldEmitDisplayUpdate,
+  type ThrottleState,
+} from '@/lib/maps/location-display-guards';
 
 interface BusLocation {
   busId: string;
@@ -12,45 +19,159 @@ interface BusLocation {
   timestamp: string;
 }
 
+const CACHE_PREFIX = 'adtu_v1_bus_loc_';
+
+function readCache(busId: string): BusLocation | null {
+  if (typeof window === 'undefined' || !busId) return null;
+  try {
+    const raw = localStorage.getItem(CACHE_PREFIX + busId);
+    if (!raw) return null;
+    const p = JSON.parse(raw) as BusLocation;
+    if (!isValidLatLng(p.lat, p.lng)) return null;
+    return p;
+  } catch {
+    return null;
+  }
+}
+
+function writeCache(busId: string, loc: BusLocation) {
+  if (typeof window === 'undefined' || !busId) return;
+  try {
+    localStorage.setItem(CACHE_PREFIX + busId, JSON.stringify(loc));
+  } catch {
+    /* quota / private mode */
+  }
+}
+
 export const useBusLocation = (busId: string) => {
   const [currentLocation, setCurrentLocation] = useState<BusLocation | null>(null);
   const [history, setHistory] = useState<BusLocation[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
 
-  const channelRef = useRef<any>(null);
+  const lastAcceptedRef = useRef<{ lat: number; lng: number; atMs: number; ts: string } | null>(null);
+  const lastUiTsRef = useRef<string | null>(null);
+  const throttleRef = useRef<ThrottleState | null>(null);
+  const pageHiddenRef = useRef(
+    typeof document !== 'undefined' ? document.visibilityState === 'hidden' : false
+  );
 
-  // Handle bus location updates from realtime channel (optimized)
-  const handleBusLocationUpdate = useCallback((payload: any) => {
-    const locationData = payload.payload;
+  useEffect(() => {
+    const onVis = () => {
+      pageHiddenRef.current = document.visibilityState === 'hidden';
+    };
+    document.addEventListener('visibilitychange', onVis);
+    return () => document.removeEventListener('visibilitychange', onVis);
+  }, []);
 
-    // Create location object
-    const newLocation: BusLocation = {
-      busId: locationData.busId,
-      driverUid: locationData.driverUid,
-      lat: locationData.lat,
-      lng: locationData.lng,
-      speed: locationData.speed || 0,
-      heading: locationData.heading || 0,
-      accuracy: locationData.accuracy,
-      timestamp: locationData.ts || locationData.timestamp || new Date().toISOString()
+  const applyIncomingLocation = useCallback((newLocation: BusLocation, forceDisplay: boolean) => {
+    if (!isValidLatLng(newLocation.lat, newLocation.lng)) return;
+
+    if (
+      lastUiTsRef.current &&
+      !isNewerTimestamp(newLocation.timestamp, lastUiTsRef.current)
+    ) {
+      return;
+    }
+
+    const atMs = Date.parse(newLocation.timestamp) || Date.now();
+    const jumpFrom = lastAcceptedRef.current;
+    if (
+      jumpFrom &&
+      isImpossibleJump(
+        { lat: jumpFrom.lat, lng: jumpFrom.lng, atMs: jumpFrom.atMs },
+        { lat: newLocation.lat, lng: newLocation.lng, atMs },
+        80
+      )
+    ) {
+      return;
+    }
+
+    lastAcceptedRef.current = {
+      lat: newLocation.lat,
+      lng: newLocation.lng,
+      atMs,
+      ts: newLocation.timestamp,
     };
 
-    console.log('Received bus location update:', locationData);
+    writeCache(newLocation.busId, newLocation);
+
+    let emit = forceDisplay;
+    if (!forceDisplay) {
+      const t = shouldEmitDisplayUpdate(
+        { lat: newLocation.lat, lng: newLocation.lng },
+        Date.now(),
+        throttleRef.current,
+        {
+          minIntervalMs: 1600,
+          minMoveMeters: 12,
+          hiddenIntervalMs: 4500,
+        },
+        pageHiddenRef.current
+      );
+      throttleRef.current = t.nextState;
+      emit = t.emit;
+    } else {
+      throttleRef.current = {
+        lastEmitMs: Date.now(),
+        lastLat: newLocation.lat,
+        lastLng: newLocation.lng,
+      };
+    }
+
+    if (!emit) {
+      return;
+    }
+
+    lastUiTsRef.current = newLocation.timestamp;
     setCurrentLocation(newLocation);
-
-    // Add to history
-    setHistory(prev => {
-      // Keep only the last 50 locations
-      const newHistory = [...prev, newLocation];
-      return newHistory.slice(-50);
+    setHistory((prev) => {
+      const next = [...prev, newLocation];
+      return next.slice(-50);
     });
-
     setLoading(false);
   }, []);
 
-  // Fetch initial bus location data
+  const handleBusLocationUpdate = useCallback(
+    (payload: any) => {
+      const locationData = payload.payload;
+      const newLocation: BusLocation = {
+        busId: locationData.busId,
+        driverUid: locationData.driverUid,
+        lat: locationData.lat,
+        lng: locationData.lng,
+        speed: locationData.speed || 0,
+        heading: locationData.heading || 0,
+        accuracy: locationData.accuracy,
+        timestamp: locationData.ts || locationData.timestamp || new Date().toISOString(),
+      };
+      applyIncomingLocation(newLocation, false);
+    },
+    [applyIncomingLocation]
+  );
+
   useEffect(() => {
+    lastAcceptedRef.current = null;
+    throttleRef.current = null;
+
+    if (!busId) {
+      lastUiTsRef.current = null;
+      setCurrentLocation(null);
+      setHistory([]);
+      setLoading(false);
+      return;
+    }
+
+    const boot = readCache(busId);
+    if (boot) {
+      lastUiTsRef.current = boot.timestamp;
+      setCurrentLocation(boot);
+      setHistory([boot]);
+    } else {
+      lastUiTsRef.current = null;
+      setCurrentLocation(null);
+      setHistory([]);
+    }
+
     const fetchInitialLocation = async () => {
       if (!supabase || !busId) {
         setLoading(false);
@@ -60,14 +181,14 @@ export const useBusLocation = (busId: string) => {
       setLoading(true);
 
       try {
-        const { data: locations, error } = await supabase
+        const { data: locations, error: qErr } = await supabase
           .from('bus_locations')
           .select('*')
           .eq('bus_id', busId)
           .order('timestamp', { ascending: false })
           .limit(1);
 
-        if (!error && locations && locations.length > 0) {
+        if (!qErr && locations && locations.length > 0) {
           const location = locations[0];
           const busLocation: BusLocation = {
             busId: location.bus_id,
@@ -77,11 +198,18 @@ export const useBusLocation = (busId: string) => {
             speed: location.speed || 0,
             heading: location.heading || 0,
             accuracy: location.accuracy,
-            timestamp: location.timestamp || new Date().toISOString()
+            timestamp: location.timestamp || new Date().toISOString(),
           };
-
-          setCurrentLocation(busLocation);
-          setHistory([busLocation]);
+          if (isValidLatLng(busLocation.lat, busLocation.lng)) {
+            applyIncomingLocation(busLocation, true);
+            setHistory([busLocation]);
+          }
+        } else {
+          const c = readCache(busId);
+          if (c && isValidLatLng(c.lat, c.lng)) {
+            applyIncomingLocation(c, true);
+            setHistory([c]);
+          }
         }
       } catch (err) {
         console.error('Error fetching initial bus location:', err);
@@ -91,9 +219,8 @@ export const useBusLocation = (busId: string) => {
     };
 
     fetchInitialLocation();
-  }, [busId]);
+  }, [busId, applyIncomingLocation]);
 
-  // Subscribe to realtime channel
   useEffect(() => {
     if (!supabase || !busId) return;
 
@@ -101,42 +228,43 @@ export const useBusLocation = (busId: string) => {
     const channel = supabase.channel(channelName, {
       config: {
         broadcast: {
-          self: false
-        }
-      }
+          self: false,
+        },
+      },
     });
 
     channel.on('broadcast', { event: 'bus_location_update' }, handleBusLocationUpdate);
 
-    channel.on('postgres_changes', {
-      event: 'INSERT',
-      schema: 'public',
-      table: 'bus_locations',
-      filter: `bus_id=eq.${busId}`
-    }, (payload) => {
-      const newLoc = payload.new;
-      handleBusLocationUpdate({
-        payload: {
-          busId: newLoc.bus_id,
-          driverUid: newLoc.driver_uid,
-          lat: newLoc.lat,
-          lng: newLoc.lng,
-          speed: newLoc.speed || 0,
-          heading: newLoc.heading || 0,
-          accuracy: newLoc.accuracy,
-          ts: newLoc.timestamp
-        }
-      });
-    });
+    channel.on(
+      'postgres_changes',
+      {
+        event: 'INSERT',
+        schema: 'public',
+        table: 'bus_locations',
+        filter: `bus_id=eq.${busId}`,
+      },
+      (payload) => {
+        const newLoc = payload.new;
+        handleBusLocationUpdate({
+          payload: {
+            busId: newLoc.bus_id,
+            driverUid: newLoc.driver_uid,
+            lat: newLoc.lat,
+            lng: newLoc.lng,
+            speed: newLoc.speed || 0,
+            heading: newLoc.heading || 0,
+            accuracy: newLoc.accuracy,
+            ts: newLoc.timestamp,
+          },
+        });
+      }
+    );
 
     channel.subscribe((status) => {
       if (status === 'SUBSCRIBED') {
-        // Only resolve loading if we don't already have one from initial fetch
         console.log('✅ Subscribed to realtime bus location changes');
       }
     });
-
-    channelRef.current = channel;
 
     return () => {
       supabase.removeChannel(channel);
@@ -145,9 +273,11 @@ export const useBusLocation = (busId: string) => {
 
   return {
     currentLocation,
-    interpolatedLocation: null, // Removed for performance
+    interpolatedLocation: null,
     history,
     loading,
-    error
+    error: null as string | null,
+    /** @deprecated Legacy API — returns null (no interpolation). */
+    getInterpolatedPosition: (): null => null,
   };
 };

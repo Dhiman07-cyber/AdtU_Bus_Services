@@ -1,6 +1,7 @@
 /**
  * Migration Script: Single fcmToken field → tokens subcollection
  * 
+ * MIGRATES STUDENTS ONLY - FCM tokens should only be registered for students
  * Reads students/{uid}.fcmToken and creates:
  *   students/{uid}/tokens/{sha256(token)} { token, platform, lastSeen, valid }
  * 
@@ -58,7 +59,7 @@ async function main() {
   console.log(`\n🔄 FCM Token Migration ${dryRun ? '(DRY RUN)' : '(LIVE EXECUTION)'}`);
   console.log('─'.repeat(60));
 
-  const collections = ['students', 'drivers', 'moderators', 'admins'];
+  const collections = ['students']; // Only migrate students - FCM tokens are for students only
   let totalMigrated = 0;
   let totalSkipped = 0;
   let totalErrors = 0;
