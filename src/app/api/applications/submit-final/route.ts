@@ -42,8 +42,14 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Invalid JSON in request body' }, { status: 400 });
     }
 
-    const { formData, needsCapacityReview } = body;
+    let { formData, needsCapacityReview } = body;
     console.log('📋 Extracted data:', { hasFormData: !!formData, needsCapacityReview });
+
+    // Strip age from formData if it exists
+    if (formData && 'age' in formData) {
+      const { age: omittedAge, ...rest } = formData;
+      formData = rest;
+    }
 
     const isOnlinePayment = formData?.paymentInfo?.paymentMode === 'online';
     console.log('💳 Payment mode:', formData?.paymentInfo?.paymentMode, 'Is online:', isOnlinePayment);
@@ -86,13 +92,16 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // Strip age from formData before saving to Firestore
+    const { age: omittedAge, ...formDataWithoutAge } = formData;
+
     const applicationData = {
       applicationId: uid,
       applicantUid: uid,
       email: email || formData.email,
       state: 'submitted',
       formData: {
-        ...formData,
+        ...formDataWithoutAge,
         paymentId // Inject generated paymentId into formData for retrieval during approval
       },
       paymentId, // Store at top level too for easy access

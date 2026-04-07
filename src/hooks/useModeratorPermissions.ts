@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useEffect, useCallback } from 'react';
-import { doc, getDoc, onSnapshot } from 'firebase/firestore';
+import { useState, useEffect } from 'react';
+import { doc, getDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { useAuth } from '@/contexts/auth-context';
 import {
@@ -48,18 +48,54 @@ interface UseModeratorPermissionsReturn {
     canRejectOfflinePayment: boolean;
 }
 
-// Cache for moderator permissions to avoid redundant reads
-const permissionsCache = new Map<string, { data: ModeratorPermissions; timestamp: number }>();
-const CACHE_TTL = 2 * 60 * 1000; // 2 minutes
+// --- Cache Configuration ---
+// Permissions are cached in localStorage per UID.
+// TTL is 24 hours — permissions rarely change and admins update them manually.
+// On page load, data loads from cache instantly; re-fetched if stale on next login.
+const CACHE_TTL = 24 * 60 * 60 * 1000; // 24 hours
+
+function getCacheKey(uid: string) {
+    return `adtu_mod_perms_${uid}`;
+}
+
+function getCachedPermissions(uid: string): ModeratorPermissions | null {
+    try {
+        if (typeof window === 'undefined') return null;
+        const raw = localStorage.getItem(getCacheKey(uid));
+        if (!raw) return null;
+        const { data, expires } = JSON.parse(raw);
+        if (Date.now() > expires) {
+            localStorage.removeItem(getCacheKey(uid));
+            return null;
+        }
+        return data as ModeratorPermissions;
+    } catch {
+        return null;
+    }
+}
+
+function setCachedPermissions(uid: string, perms: ModeratorPermissions) {
+    try {
+        if (typeof window === 'undefined') return;
+        localStorage.setItem(getCacheKey(uid), JSON.stringify({
+            data: perms,
+            expires: Date.now() + CACHE_TTL,
+        }));
+    } catch {
+        // Storage failure is non-fatal
+    }
+}
 
 /**
- * Hook to fetch and subscribe to moderator permissions.
- * 
- * - For moderators: fetches their own permissions from Firestore
- * - For admins: returns full permissions (admins can do everything)
- * - Uses real-time listener so permission changes are reflected immediately
- * 
- * Security: This is client-side enforcement only. API routes must ALSO
+ * Hook to fetch moderator permissions.
+ *
+ * QUOTA SAFETY:
+ * - Uses getDoc() once per session (not onSnapshot).
+ * - Results cached in localStorage with 24h TTL.
+ * - No persistent listener → zero ongoing Firestore reads.
+ * - For admins: returns full permissions without any Firestore call.
+ *
+ * Security: This is client-side enforcement only. API routes ALSO
  * check permissions server-side for actual security.
  */
 export function useModeratorPermissions(): UseModeratorPermissionsReturn {
@@ -69,7 +105,7 @@ export function useModeratorPermissions(): UseModeratorPermissionsReturn {
     const [error, setError] = useState<string | null>(null);
 
     useEffect(() => {
-        // If admin, grant full permissions
+        // Admins have full permissions — no Firestore call needed
         if (userData?.role === 'admin') {
             const { FULL_MODERATOR_PERMISSIONS } = require('@/lib/types/moderator-permissions');
             setPermissions(FULL_MODERATOR_PERMISSIONS);
@@ -77,7 +113,7 @@ export function useModeratorPermissions(): UseModeratorPermissionsReturn {
             return;
         }
 
-        // If not moderator, use defaults
+        // Non-moderators use defaults
         if (!currentUser || userData?.role !== 'moderator') {
             setPermissions(DEFAULT_MODERATOR_PERMISSIONS);
             setLoading(false);
@@ -86,53 +122,51 @@ export function useModeratorPermissions(): UseModeratorPermissionsReturn {
 
         const uid = currentUser.uid;
 
-        // Check cache first
-        const cached = permissionsCache.get(uid);
-        if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
-            setPermissions(cached.data);
+        // 1. Load from cache immediately (instant UI, zero reads)
+        const cached = getCachedPermissions(uid);
+        if (cached) {
+            setPermissions(cached);
             setLoading(false);
-            // Still set up listener for real-time updates below
+            // No early return — still refresh in background if needed
+            // but we won't re-fetch if cache is valid (already loaded)
+            return;
         }
 
-        // Set up real-time listener on the moderator's document
-        const modDocRef = doc(db, 'moderators', uid);
-        const unsubscribe = onSnapshot(
-            modDocRef,
-            (docSnapshot) => {
-                if (docSnapshot.exists()) {
-                    const data = docSnapshot.data();
-                    const perms = data.permissions as ModeratorPermissions | undefined;
+        // 2. Cache miss — fetch once from Firestore
+        let isMounted = true;
+        const fetchPermissions = async () => {
+            try {
+                const modDocRef = doc(db, 'moderators', uid);
+                const snap = await getDoc(modDocRef);
 
-                    if (perms) {
-                        // Merge with defaults to handle missing fields (backward compatibility)
-                        const mergedPerms = mergeWithDefaults(perms);
-                        setPermissions(mergedPerms);
-                        permissionsCache.set(uid, { data: mergedPerms, timestamp: Date.now() });
-                    } else {
-                        // No permissions field yet - use defaults
-                        setPermissions(DEFAULT_MODERATOR_PERMISSIONS);
-                        permissionsCache.set(uid, { data: DEFAULT_MODERATOR_PERMISSIONS, timestamp: Date.now() });
-                    }
+                if (!isMounted) return;
+
+                if (snap.exists()) {
+                    const data = snap.data();
+                    const perms = data.permissions as ModeratorPermissions | undefined;
+                    const merged = perms ? mergeWithDefaults(perms) : DEFAULT_MODERATOR_PERMISSIONS;
+                    setPermissions(merged);
+                    setCachedPermissions(uid, merged);
                 } else {
                     setPermissions(DEFAULT_MODERATOR_PERMISSIONS);
+                    setCachedPermissions(uid, DEFAULT_MODERATOR_PERMISSIONS);
                 }
-                setLoading(false);
                 setError(null);
-            },
-            (err) => {
-                console.error('Error listening to moderator permissions:', err);
+            } catch (err: any) {
+                if (!isMounted) return;
+                console.error('[useModeratorPermissions] Fetch error:', err);
                 setError('Failed to load permissions');
-                setLoading(false);
-                // Fall back to cached data if available
-                const cached = permissionsCache.get(uid);
-                if (cached) {
-                    setPermissions(cached.data);
-                }
+                // Fall to defaults on error
+                setPermissions(DEFAULT_MODERATOR_PERMISSIONS);
+            } finally {
+                if (isMounted) setLoading(false);
             }
-        );
+        };
 
-        return () => unsubscribe();
-    }, [currentUser, userData?.role]);
+        fetchPermissions();
+
+        return () => { isMounted = false; };
+    }, [currentUser?.uid, userData?.role]);
 
     return {
         permissions,
@@ -179,35 +213,13 @@ export function useModeratorPermissions(): UseModeratorPermissionsReturn {
     };
 }
 
-/**
- * Merge partial permissions with defaults to ensure all fields exist.
- * This handles backward compatibility when new permission fields are added.
- */
 function mergeWithDefaults(partial: Partial<ModeratorPermissions>): ModeratorPermissions {
     return {
-        students: {
-            ...DEFAULT_MODERATOR_PERMISSIONS.students,
-            ...(partial.students || {}),
-        },
-        drivers: {
-            ...DEFAULT_MODERATOR_PERMISSIONS.drivers,
-            ...(partial.drivers || {}),
-        },
-        buses: {
-            ...DEFAULT_MODERATOR_PERMISSIONS.buses,
-            ...(partial.buses || {}),
-        },
-        routes: {
-            ...DEFAULT_MODERATOR_PERMISSIONS.routes,
-            ...(partial.routes || {}),
-        },
-        applications: {
-            ...DEFAULT_MODERATOR_PERMISSIONS.applications,
-            ...(partial.applications || {}),
-        },
-        payments: {
-            ...DEFAULT_MODERATOR_PERMISSIONS.payments,
-            ...(partial.payments || {}),
-        },
+        students: { ...DEFAULT_MODERATOR_PERMISSIONS.students, ...(partial.students || {}) },
+        drivers: { ...DEFAULT_MODERATOR_PERMISSIONS.drivers, ...(partial.drivers || {}) },
+        buses: { ...DEFAULT_MODERATOR_PERMISSIONS.buses, ...(partial.buses || {}) },
+        routes: { ...DEFAULT_MODERATOR_PERMISSIONS.routes, ...(partial.routes || {}) },
+        applications: { ...DEFAULT_MODERATOR_PERMISSIONS.applications, ...(partial.applications || {}) },
+        payments: { ...DEFAULT_MODERATOR_PERMISSIONS.payments, ...(partial.payments || {}) },
     };
 }

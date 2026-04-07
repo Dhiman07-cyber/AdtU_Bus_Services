@@ -14,7 +14,13 @@ export async function POST(request: NextRequest) {
     const uid = decodedToken.uid;
 
     const body = await request.json();
-    const { applicationId, formData } = body as { applicationId?: string; formData: ApplicationFormData };
+    let { applicationId, formData } = body as { applicationId?: string; formData: ApplicationFormData };
+
+    // Strip age from formData if it exists
+    if (formData && 'age' in formData) {
+      const { age: omittedAge, ...rest } = formData;
+      formData = rest as ApplicationFormData;
+    }
 
     const now = new Date().toISOString();
 

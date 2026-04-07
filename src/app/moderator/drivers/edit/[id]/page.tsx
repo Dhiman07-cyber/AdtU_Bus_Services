@@ -35,6 +35,7 @@ type DriverFormData = {
   address: string;
   status: 'active' | 'inactive' | 'suspended';
   approvedBy: string;
+  shift: string;
 };
 
 export default function EditDriverPage({ params }: { params: Promise<{ id: string }> }) {
@@ -69,7 +70,8 @@ export default function EditDriverPage({ params }: { params: Promise<{ id: strin
     employeeId: '',
     address: '',
     status: 'active',
-    approvedBy: ''
+    approvedBy: '',
+    shift: 'Both'
   });
 
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -111,7 +113,8 @@ export default function EditDriverPage({ params }: { params: Promise<{ id: strin
           employeeId: foundDriver.employeeId || foundDriver.driverId || '',
           address: foundDriver.address || foundDriver.location || '',
           status: foundDriver.status || 'active',
-          approvedBy: foundDriver.approvedBy || ''
+          approvedBy: foundDriver.approvedBy || '',
+          shift: foundDriver.shift === 'Morning & Evening' ? 'Both' : (foundDriver.shift || 'Both')
         };
 
         // If busAssigned is derived from ID, format it correctly
@@ -286,6 +289,7 @@ export default function EditDriverPage({ params }: { params: Promise<{ id: strin
 
         status: formData.status,
         employeeId: formData.employeeId,
+        shift: formData.shift === 'Morning & Evening' ? 'Both' : formData.shift,
         updatedAt: new Date().toISOString()
       };
 
@@ -487,6 +491,26 @@ export default function EditDriverPage({ params }: { params: Promise<{ id: strin
                       <Info className="h-3 w-3" />
                       Visit <Link href="/moderator/driver-assignment" className="underline hover:text-amber-400">Driver Reassignment</Link> to change bus assignment
                     </p>
+                  </div>
+
+                  <div>
+                    <Label htmlFor="shift" className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
+                      Shift <span className="text-red-500">*</span>
+                    </Label>
+                    <Select
+                      value={formData.shift === 'Morning & Evening' ? 'Both' : formData.shift}
+                      onValueChange={(value) => handleInputChange('shift', value)}
+                    >
+                      <SelectTrigger className="w-full h-9">
+                        <SelectValue placeholder="Select Shift" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="Morning">Morning</SelectItem>
+                        <SelectItem value="Evening">Evening</SelectItem>
+                        <SelectItem value="Both">Both</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <p className="text-[10px] text-gray-500 mt-1">Driver's working shift</p>
                   </div>
 
                   <div>

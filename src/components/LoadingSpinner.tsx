@@ -104,12 +104,14 @@ export function PremiumPageLoader({
   message = "Loading experience...",
   subMessage = "Optimizing your dashboard...",
   noWrapper = false,
-  fullScreen = false
+  fullScreen = false,
+  className = ""
 }: {
   message?: string;
   subMessage?: string;
   noWrapper?: boolean;
   fullScreen?: boolean;
+  className?: string;
 }) {
   const content = (
     <div className="flex flex-col items-center gap-5">
@@ -146,8 +148,11 @@ export function PremiumPageLoader({
   }
 
   return (
-    <div className={`flex-1 flex flex-col items-center justify-center w-full p-6 text-center animate-in fade-in duration-300 ${fullScreen ? 'min-h-dvh' : 'min-h-[50vh]'}`}>
-      {content}
+    <div className={`flex flex-col items-center justify-center w-full p-6 text-center animate-in fade-in duration-500 relative overflow-hidden ${fullScreen ? 'min-h-dvh' : 'min-h-[calc(100vh-120px)]'} ${className}`}>
+      {/* Visual adjustment to lift the content slightly above mathematical center for better ocular balance */}
+      <div className="w-full flex flex-col items-center gap-5 mt-[-10dvh] relative z-10">
+        {content}
+      </div>
     </div>
   );
 }

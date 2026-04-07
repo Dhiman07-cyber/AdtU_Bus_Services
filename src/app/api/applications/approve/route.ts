@@ -6,7 +6,6 @@ import { checkBusCapacity, incrementBusCapacity, validateAndSuggestBus } from '@
 import { calculateRenewalDate } from '@/lib/utils/renewal-utils';
 import { generateOfflinePaymentId, OfflinePaymentDocument } from '@/lib/types/payment';
 import { computeBlockDatesFromValidUntil } from '@/lib/utils/deadline-computation';
-import { createUpdatedByEntry } from '@/lib/utils/updatedBy';
 import { getDeadlineConfig } from '@/lib/deadline-config-service';
 
 // Helper function to normalize shift values (remove "Shift" word, standardize to "Morning"/"Evening")
@@ -203,7 +202,6 @@ export async function POST(request: NextRequest) {
     const studentDoc = {
       // Required fields only - as per specification
       address: formData.address,
-      age: formData.age,
       alternatePhone: formData.alternatePhone || '',
       approvedAt: approvedAt,
       approvedBy: approvedByDisplay,
@@ -240,7 +238,6 @@ export async function POST(request: NextRequest) {
       paymentAmount: formData.paymentInfo?.amountPaid || 0,
       paid_on: approvedAt, // Set paid_on to approval date
       // Audit trail - who created/updated this document
-      updatedBy: [createUpdatedByEntry(name, adminDoc.exists ? 'Admin' : empId)]
     };
 
     console.log('📝 Creating STUDENTS collection document for:', appData.applicantUid);

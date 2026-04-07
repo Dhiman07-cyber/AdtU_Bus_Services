@@ -39,9 +39,16 @@ export async function GET() {
         // Construct the public URL for the video
         const videoUrl = `${SUPABASE_URL}/storage/v1/object/public/${BUCKET_NAME}/${videoPath}`;
 
+        // Add cache control headers to prevent caching issues during auth transitions
         return NextResponse.json({
             success: true,
             url: videoUrl
+        }, {
+            headers: {
+                'Cache-Control': 'no-store, no-cache, must-revalidate',
+                'Pragma': 'no-cache',
+                'Expires': '0'
+            }
         });
     } catch (error) {
         console.error('Error getting landing video URL:', error);

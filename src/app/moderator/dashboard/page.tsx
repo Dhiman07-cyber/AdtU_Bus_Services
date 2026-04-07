@@ -50,50 +50,13 @@ export default function ModeratorDashboard() {
     }
   }, [userData, router]);
 
-  // Subscribe to global updates
+  // QUOTA-SAFE: One-time fetch on mount, no persistent channels.
+  // Moderator dashboard does not need real-time — data freshness on page load is sufficient.
   useEffect(() => {
     if (!supabase) return;
 
-    // Subscribe to driver status updates
-    const driverStatusChannel = supabase.channel('global_updates')
-      .on(
-        'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'driver_status' },
-        (payload: any) => {
-          console.log('Driver status insert:', payload);
-          setDriverStatuses(prev => [...prev, payload.new]);
-        }
-      )
-      .on(
-        'postgres_changes',
-        { event: 'UPDATE', schema: 'public', table: 'driver_status' },
-        (payload: any) => {
-          console.log('Driver status update:', payload);
-          setDriverStatuses(prev =>
-            prev.map(status =>
-              status.driver_uid === payload.new.driver_uid ? payload.new : status
-            )
-          );
-        }
-      )
-      .subscribe();
-
-    // Subscribe to notifications
-    const notificationChannel = supabase.channel('global_notifications')
-      .on(
-        'broadcast',
-        { event: 'notification_update' },
-        (payload: any) => {
-          console.log('Global notification:', payload);
-          setNotifications(prev => [payload.payload, ...prev.slice(0, 9)]); // Keep only last 10
-        }
-      )
-      .subscribe();
-
-    // Fetch initial data
     const fetchData = async () => {
       try {
-        // Fetch driver statuses
         const { data: statusData, error: statusError } = await supabase
           .from('driver_status')
           .select('*');
@@ -104,7 +67,6 @@ export default function ModeratorDashboard() {
           setDriverStatuses(statusData || []);
         }
 
-        // Fetch recent notifications
         const { data: notificationData, error: notificationError } = await supabase
           .from('notifications')
           .select('*')
@@ -125,14 +87,6 @@ export default function ModeratorDashboard() {
     };
 
     fetchData();
-
-    // Cleanup
-    return () => {
-      if (supabase) {
-        supabase.removeChannel(driverStatusChannel);
-        supabase.removeChannel(notificationChannel);
-      }
-    };
   }, []);
 
   if (loading) {

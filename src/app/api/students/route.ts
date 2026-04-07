@@ -48,7 +48,6 @@ export async function GET(request: NextRequest) {
         enrollmentId: data.enrollmentId || '',
         gender: data.gender || '',
         dob: data.dob || '',
-        age: data.age?.toString() || '',
         faculty: data.faculty || '',
         department: data.department || '',
         parentName: data.parentName || '',

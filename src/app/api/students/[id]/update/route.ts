@@ -3,7 +3,6 @@ import { getApps, initializeApp } from 'firebase-admin/app';
 import { getFirestore, FieldValue } from 'firebase-admin/firestore';
 import fs from 'fs';
 import path from 'path';
-import { createUpdatedByEntry } from '@/lib/utils/updatedBy';
 
 // Get the data directory path
 const dataDirectory = path.join(process.cwd(), 'src', 'data');
@@ -89,7 +88,6 @@ export async function PUT(request: Request, { params }: { params: Promise<{ id: 
           assignedRouteId: updatedStudentData.routeId || updatedStudentData.assignedRouteId,
           updatedAt: new Date().toISOString(),
           // Append to audit trail
-          updatedBy: FieldValue.arrayUnion(createUpdatedByEntry('Admin', 'Admin'))
         };
 
         await studentDocRef.update(unifiedUpdateData);
@@ -109,7 +107,6 @@ export async function PUT(request: Request, { params }: { params: Promise<{ id: 
               enrollmentId: data.enrollmentId || '',
               gender: data.gender || '',
               dob: data.dob || '',
-              age: data.age?.toString() || '',
               faculty: data.faculty || '',
               department: data.department || '',
               parentName: data.parentName || '',
@@ -148,11 +145,6 @@ export async function PUT(request: Request, { params }: { params: Promise<{ id: 
         }
 
         students[index] = { ...students[index], ...updatedStudentData };
-        // Add updatedBy for JSON file
-        if (!students[index].updatedBy) {
-          students[index].updatedBy = [];
-        }
-        students[index].updatedBy.push(createUpdatedByEntry('Admin', 'Admin'));
         writeJsonFile('Students.json', students);
         console.log(`Student with ID ${id} updated in JSON file`);
 

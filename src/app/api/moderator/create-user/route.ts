@@ -8,7 +8,6 @@ import { cert } from 'firebase-admin/app';
 import { computeBlockDatesFromValidUntil } from '@/lib/utils/deadline-computation';
 import { calculateValidUntilDate } from '@/lib/utils/date-utils';
 import { getDeadlineConfig } from '@/lib/deadline-config-service';
-import { createUpdatedByEntry } from '@/lib/utils/updatedBy';
 
 let adminApp: any;
 let auth: any;
@@ -263,7 +262,6 @@ export async function POST(request: Request) {
             createdAt: new Date().toISOString(),
             updatedAt: new Date().toISOString(),
             // Audit trail - who created/updated this document
-            updatedBy: [createUpdatedByEntry(currentUserName, currentUserEmployeeId)]
           };
 
           await db.collection('students').doc(uid).set(studentDocData);
@@ -289,7 +287,6 @@ export async function POST(request: Request) {
             createdAt: new Date().toISOString(),
             updatedAt: new Date().toISOString(),
             // Audit trail - who created/updated this document
-            updatedBy: [createUpdatedByEntry(currentUserName, currentUserEmployeeId)]
           };
 
           await db.collection('drivers').doc(uid).set(driverDocData);
@@ -390,7 +387,6 @@ export async function POST(request: Request) {
           feesStatus: 'draft',
           createdAt: Timestamp.now(),
           // Audit trail - who created/updated this document
-          updatedBy: [createUpdatedByEntry(currentUserName, currentUserEmployeeId)]
         };
 
         const studentDocRef = doc(db, 'students', userDocId);
@@ -416,7 +412,6 @@ export async function POST(request: Request) {
           status: 'active',
           createdAt: Timestamp.now(),
           // Audit trail - who created/updated this document
-          updatedBy: [createUpdatedByEntry(currentUserName, currentUserEmployeeId)]
         };
 
         const driverDocRef = doc(db, 'drivers', userDocId);

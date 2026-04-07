@@ -15,7 +15,7 @@ import {
   CheckCircle, XCircle, Loader2, Sparkles, Star,
   Crown, Award, Target, BarChart3, Hash, User, Monitor
 } from "lucide-react";
-import { collection, query, where, onSnapshot, doc } from "firebase/firestore";
+import { collection, doc, getDoc, getDocs } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import "@/styles/animations.css";
 import { PremiumPageLoader } from "@/components/LoadingSpinner";
@@ -72,118 +72,112 @@ export default function DriverDashboard() {
     return () => clearInterval(interval);
   }, [currentUser?.uid]);
 
-  // Real-time listener for driver data
+  // ── QUOTA-SAFE: One-time fetch driver/bus/route data ──────────────────────
+  // Uses getDoc() (not onSnapshot) + sessionStorage cache (30-min TTL per UID).
+  // No persistent Firestore listeners → zero ongoing reads after initial load.
   useEffect(() => {
     if (!currentUser?.uid) return;
 
-    console.log('🔄 Setting up driver real-time listener for UID:', currentUser.uid);
+    const uid = currentUser.uid;
+    const CACHE_KEY = `adtu_driver_dash_${uid}`;
+    const CACHE_TTL = 30 * 60 * 1000; // 30 minutes
 
-    const driverUnsubscribe = onSnapshot(
-      doc(db, 'drivers', currentUser.uid),
-      (doc) => {
-        if (doc.exists()) {
-          const driverData = { id: doc.id, ...doc.data() };
-          console.log('👤 Real-time driver update:', driverData);
-          setDriverDataFirestore(driverData);
-        } else {
-          console.log('❌ Driver document not found for UID:', currentUser.uid);
+    const loadFromCache = (): any | null => {
+      try {
+        const raw = sessionStorage.getItem(CACHE_KEY);
+        if (!raw) return null;
+        const { data, expires } = JSON.parse(raw);
+        if (Date.now() > expires) { sessionStorage.removeItem(CACHE_KEY); return null; }
+        return data;
+      } catch { return null; }
+    };
+
+    const saveToCache = (data: any) => {
+      try {
+        sessionStorage.setItem(CACHE_KEY, JSON.stringify({ data, expires: Date.now() + CACHE_TTL }));
+      } catch { }
+    };
+
+    const fetchDriverData = async () => {
+      // 1. Try cache first (instant, zero reads)
+      const cached = loadFromCache();
+      if (cached) {
+        console.log('✅ Driver dashboard loaded from sessionStorage cache');
+        setDriverDataFirestore(cached.driver);
+        if (cached.bus) setAssignedBusData(cached.bus);
+        if (cached.route) setAssignedRouteData(cached.route);
+        setDriverDataLoading(false);
+        return;
+      }
+
+      // 2. Cache miss — fetch once from Firestore
+      try {
+        console.log('📡 Fetching driver data from Firestore (one-time)...');
+        const driverSnap = await getDoc(doc(db, 'drivers', uid));
+        if (!driverSnap.exists()) {
+          console.warn('❌ Driver document not found');
           setDriverDataFirestore(null);
+          setDriverDataLoading(false);
+          return;
         }
-        setDriverDataLoading(false);
-      },
-      (error) => {
-        console.error('❌ Error listening to driver data:', error);
+
+        const driverData: any = { id: driverSnap.id, ...driverSnap.data() };
+        setDriverDataFirestore(driverData);
+
+        // 3. Derive busId and routeId from driver doc
+        let busId = driverData.assignedBusId || driverData.busId || driverData.busDetails ||
+          (Array.isArray(driverData.assignedBusIds) ? driverData.assignedBusIds[0] : null) ||
+          (Array.isArray(driverData.busId) ? driverData.busId[0] : null);
+        if (busId && typeof busId === 'string') {
+          if (busId.includes('(')) busId = busId.split('(')[0].trim();
+          if (busId.startsWith('route_')) busId = busId.replace('route_', 'bus_');
+        }
+
+        let routeId = driverData.assignedRouteId || driverData.routeId || driverData.routed ||
+          (Array.isArray(driverData.assignedRouteIds) ? driverData.assignedRouteIds[0] : null) ||
+          (Array.isArray(driverData.routeId) ? driverData.routeId[0] : null);
+        if (routeId && typeof routeId === 'string') {
+          if (routeId.includes('(')) routeId = routeId.split('(')[0].trim();
+          if (routeId.startsWith('bus_')) routeId = routeId.replace('bus_', 'route_');
+        }
+
+        // 4. Fetch bus and route docs (one-time)
+        let busData = null;
+        let routeData = null;
+
+        if (busId) {
+          try {
+            const busSnap = await getDoc(doc(db, 'buses', busId));
+            if (busSnap.exists()) {
+              busData = { id: busSnap.id, ...busSnap.data() };
+              setAssignedBusData(busData);
+            }
+          } catch (e) { console.warn('⚠️ Could not fetch bus:', e); }
+        }
+
+        if (routeId) {
+          try {
+            const routeSnap = await getDoc(doc(db, 'routes', routeId));
+            if (routeSnap.exists()) {
+              routeData = { id: routeSnap.id, ...routeSnap.data() };
+              setAssignedRouteData(routeData);
+            }
+          } catch (e) { console.warn('⚠️ Could not fetch route:', e); }
+        }
+
+        // 5. Cache the fetched data
+        saveToCache({ driver: driverData, bus: busData, route: routeData });
+        console.log('✅ Driver dashboard data fetched and cached');
+      } catch (error) {
+        console.error('❌ Error fetching driver data:', error);
+      } finally {
         setDriverDataLoading(false);
       }
-    );
-
-    // Cleanup function
-    return () => {
-      console.log('🧹 Cleaning up driver listener');
-      driverUnsubscribe();
     };
+
+    fetchDriverData();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentUser?.uid]);
-
-  // Real-time listener for driver's assigned bus and route
-  useEffect(() => {
-    // Extract robust ID identifiers covering all legacy or conflicting cases
-    let busId = driverDataFirestore?.assignedBusId || driverDataFirestore?.busId || driverDataFirestore?.busDetails ||
-      (Array.isArray(driverDataFirestore?.assignedBusIds) ? driverDataFirestore?.assignedBusIds[0] : driverDataFirestore?.assignedBusIds) ||
-      (Array.isArray(driverDataFirestore?.busId) ? driverDataFirestore?.busId[0] : driverDataFirestore?.busId);
-
-    if (busId && typeof busId === 'string') {
-      if (busId.includes('(')) busId = busId.split('(')[0].trim();
-      if (busId.startsWith('route_')) busId = busId.replace('route_', 'bus_');
-    }
-
-    let routeId = driverDataFirestore?.assignedRouteId || driverDataFirestore?.routeId || driverDataFirestore?.routed ||
-      (Array.isArray(driverDataFirestore?.assignedRouteIds) ? driverDataFirestore?.assignedRouteIds[0] : driverDataFirestore?.assignedRouteIds) ||
-      (Array.isArray(driverDataFirestore?.routeId) ? driverDataFirestore?.routeId[0] : driverDataFirestore?.routeId);
-
-    if (routeId && typeof routeId === 'string') {
-      if (routeId.includes('(')) routeId = routeId.split('(')[0].trim();
-      if (routeId.startsWith('bus_')) routeId = routeId.replace('bus_', 'route_');
-    }
-
-    // Clear bus/route data if driver has no assignments (reserved driver) or user is not authenticated
-    if (!currentUser || !busId || !routeId) {
-      console.log('🔄 Driver has no bus/route assignment or not authenticated - clearing data');
-      setAssignedBusData(null);
-      setAssignedRouteData(null);
-      return;
-    }
-
-    console.log('🔄 Setting up specific bus and route listeners for:', { busId, routeId });
-
-    // Listen to specific assigned bus
-    const busUnsubscribe = onSnapshot(
-      doc(db, 'buses', busId),
-      (doc) => {
-        if (doc.exists()) {
-          const busData = { id: doc.id, ...doc.data() };
-          console.log('🚌 Real-time assigned bus update:', busData);
-          setAssignedBusData(busData);
-        } else {
-          console.log('❌ Assigned bus document not found');
-          setAssignedBusData(null);
-        }
-      },
-      (error) => {
-        // Don't log permission errors when user is not authenticated
-        if (currentUser && !error.message.includes('Missing or insufficient permissions')) {
-          console.error('❌ Error listening to assigned bus:', error);
-        }
-      }
-    );
-
-    // Listen to specific assigned route
-    const routeUnsubscribe = onSnapshot(
-      doc(db, 'routes', routeId),
-      (doc) => {
-        if (doc.exists()) {
-          const routeData = { id: doc.id, ...doc.data() };
-          console.log('🗺️ Real-time assigned route update:', routeData);
-          setAssignedRouteData(routeData);
-        } else {
-          console.log('❌ Assigned route document not found');
-          setAssignedRouteData(null);
-        }
-      },
-      (error) => {
-        // Don't log permission errors when user is not authenticated
-        if (currentUser && !error.message.includes('Missing or insufficient permissions')) {
-          console.error('❌ Error listening to assigned route:', error);
-        }
-      }
-    );
-
-    // Cleanup function
-    return () => {
-      console.log('🧹 Cleaning up specific bus and route listeners');
-      busUnsubscribe();
-      routeUnsubscribe();
-    };
-  }, [driverDataFirestore, currentUser]);
 
   // One-time fetch for buses, routes, and students (tie to auth state)
   // SPARK PLAN SAFETY: Replaced onSnapshot with getDocs to prevent quota exhaustion
@@ -376,32 +370,8 @@ export default function DriverDashboard() {
 
     fetchCurrentStatus();
 
-    // 2. Real-time Database Listener on driver_status (Primary)
-    // We listen specifically to THIS driver's status
-    const driverStatusChannel = supabase
-      .channel(`driver_status_sync_${currentUser.uid}`)
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'driver_status',
-          filter: `driver_uid=eq.${currentUser.uid}`
-        },
-        (payload) => {
-          console.log('📡 Real-time driver_status change for me:', payload);
-          if (payload.eventType === 'DELETE') {
-            setHasActiveTrip(false);
-          } else {
-            const newStatus = (payload.new as any).status;
-            const isActive = newStatus === 'on_trip' || newStatus === 'enroute';
-            setHasActiveTrip(isActive);
-          }
-        }
-      )
-      .subscribe();
-
-    // 3. Broadcast Listener (Fallback for immediate UI responsiveness)
+    // 2. Broadcast Listener only (FREE — no DB reads)
+    // Trip events are pushed from server API routes via broadcast, so no postgres_changes needed.
     let tripBroadcastChannel: any = null;
     if (busId) {
       tripBroadcastChannel = supabase
@@ -418,7 +388,6 @@ export default function DriverDashboard() {
     }
 
     return () => {
-      supabase.removeChannel(driverStatusChannel);
       if (tripBroadcastChannel) supabase.removeChannel(tripBroadcastChannel);
     };
   }, [currentUser?.uid, busData?.busId, busData?.id]);

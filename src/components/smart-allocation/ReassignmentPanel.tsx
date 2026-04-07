@@ -17,6 +17,7 @@ import {
   Users,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import {
   Dialog,
@@ -118,6 +119,7 @@ interface AssignmentDetails {
   busId: string;
   stopId: string;
   stopName: string;
+  shift?: "Morning" | "Evening";
 }
 
 interface ProcessedStudent {
@@ -146,7 +148,7 @@ function isShiftCompatible(
     return normalizedBusShift === "morning" || normalizedBusShift === "both";
   }
   if (studentShift === "Evening") {
-    return normalizedBusShift === "both";
+    return normalizedBusShift === "evening" || normalizedBusShift === "both";
   }
   return false;
 }
@@ -225,10 +227,12 @@ export default function ReassignmentPanel({
   // Student Assignment State
   const [activeStudentId, setActiveStudentId] = useState<string | null>(null);
   const [assignmentTab, setAssignmentTab] = useState<"current" | "other">("current");
+  const [otherShiftTab, setOtherShiftTab] = useState<"Morning" | "Evening">("Morning");
   const [busStopSelections, setBusStopSelections] = useState<Record<string, string>>({});
 
   // Draft Assignments Map<StudentId, AssignmentDetails>
   const [draftAssignments, setDraftAssignments] = useState<Record<string, AssignmentDetails>>({});
+  const [busShiftSelections, setBusShiftSelections] = useState<Record<string, "Morning" | "Evening">>({});
 
   const activeStudent = useMemo(() =>
     selectedStudents.find(s => s.id === activeStudentId),
@@ -322,7 +326,8 @@ export default function ReassignmentPanel({
           initialMap[pStudent.student.id] = {
             busId: candidate.id,
             stopId: pStudent.student.stopId,
-            stopName: pStudent.student.stopName || ""
+            stopName: pStudent.student.stopName || "",
+            shift: shift
           };
 
           // Update simulation
@@ -338,7 +343,7 @@ export default function ReassignmentPanel({
 
   // 4. Derived State: Live Plan & Loads
   const { plan, busLoadImpacts, liveBusLoads } = useMemo(() => {
-    const planMap = new Map<string, { bus: BusData; students: (StudentData & { overrideStopId?: string; overrideStopName?: string })[] }>();
+    const planMap = new Map<string, { bus: BusData; students: (StudentData & { overrideStopId?: string; overrideStopName?: string; overrideShift?: "Morning" | "Evening" })[] }>();
 
     // Helper to get base loads
     const currentLoads = new Map<string, { morning: number; evening: number; capacity: number }>();
@@ -362,12 +367,13 @@ export default function ReassignmentPanel({
         planMap.get(details.busId)!.students.push({
           ...student,
           overrideStopId: details.stopId,
-          overrideStopName: details.stopName
+          overrideStopName: details.stopName,
+          overrideShift: details.shift
         });
 
         // Update live load
         const load = currentLoads.get(details.busId)!;
-        const shift = normalizeShift(student.shift);
+        const shift = details.shift || normalizeShift(student.shift);
         if (shift === "Morning") load.morning++;
         else load.evening++;
       }
@@ -378,7 +384,7 @@ export default function ReassignmentPanel({
     planMap.forEach((data, busId) => {
       let m = 0, e = 0;
       data.students.forEach(s => {
-        if (normalizeShift(s.shift) === "Morning") m++; else e++;
+        if ((s.overrideShift || normalizeShift(s.shift)) === "Morning") m++; else e++;
       });
       impacts.set(busId, { addedMorning: m, addedEvening: e });
     });
@@ -433,7 +439,7 @@ export default function ReassignmentPanel({
             fromBusId: currentBus.id,
             toBusId: item.bus.id,
             toBusNumber: item.bus.busNumber,
-            shift: normalizeShift(student.shift),
+            shift: student.overrideShift || normalizeShift(student.shift),
             stopId: student.overrideStopId || student.stopId,
             stopName: student.overrideStopName || student.stopName || student.stopId,
           });
@@ -775,6 +781,33 @@ export default function ReassignmentPanel({
                   </Button>
                 </div>
 
+                {assignmentTab === "other" && (
+                  <div className="px-5 py-2.5 border-b border-zinc-100 dark:border-zinc-800 bg-zinc-50/30 dark:bg-zinc-900/30 flex items-center gap-2">
+                    <button
+                      onClick={() => { setOtherShiftTab("Morning"); setBusStopSelections({}); }}
+                      className={cn(
+                        "py-1 px-4 text-[11px] uppercase tracking-wider font-bold rounded-full transition-all cursor-pointer border",
+                        otherShiftTab === "Morning"
+                          ? "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/30 shadow-sm"
+                          : "text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300 border-transparent hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                      )}
+                    >
+                      Morning
+                    </button>
+                    <button
+                      onClick={() => { setOtherShiftTab("Evening"); setBusStopSelections({}); }}
+                      className={cn(
+                        "py-1 px-4 text-[11px] uppercase tracking-wider font-bold rounded-full transition-all cursor-pointer border",
+                        otherShiftTab === "Evening"
+                          ? "bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border-indigo-500/30 shadow-sm"
+                          : "text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300 border-transparent hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                      )}
+                    >
+                      Evening
+                    </button>
+                  </div>
+                )}
+
                 <ScrollArea className="flex-1">
                   <div className="p-5 space-y-4">
                     {allBuses
@@ -785,8 +818,11 @@ export default function ReassignmentPanel({
                           return normalizeShift(activeStudent?.shift) === normalizeShift(bus.shift) || bus.shift === "both"
                             ? busCoversStop(bus, stopId)
                             : false;
+                        } else {
+                          // Filter for "Other Buses" using otherShiftTab
+                          const busShift = normalizeShift(bus.shift);
+                          return busShift === otherShiftTab || bus.shift?.toLowerCase() === "both";
                         }
-                        return true;
                       })
                       .map((bus, idx) => {
                         const shift = normalizeShift(activeStudent?.shift);
@@ -873,9 +909,37 @@ export default function ReassignmentPanel({
 
                             {/* Selection Logic */}
                             <div className="p-3 rounded-lg bg-zinc-950/50 border border-zinc-800/50">
+                              {assignmentTab === "current" && (
+                                <div className="mb-3">
+                                  <label className="text-[10px] uppercase font-bold text-zinc-500 flex items-center gap-1.5 pl-0.5 mb-1.5">
+                                    Shift Option
+                                  </label>
+                                  {bus.shift?.toLowerCase() === "both" ? (
+                                    <Select
+                                      value={busShiftSelections[bus.id] || "Morning"}
+                                      onValueChange={(val: "Morning"|"Evening") => setBusShiftSelections(prev => ({ ...prev, [bus.id]: val }))}
+                                    >
+                                      <SelectTrigger className="w-full h-9 bg-zinc-800 border-zinc-700 text-zinc-200">
+                                        <SelectValue />
+                                      </SelectTrigger>
+                                      <SelectContent className="bg-zinc-900 border-zinc-800 text-zinc-100">
+                                        <SelectItem value="Morning">Morning</SelectItem>
+                                        <SelectItem value="Evening">Evening</SelectItem>
+                                      </SelectContent>
+                                    </Select>
+                                  ) : (
+                                    <Input 
+                                      readOnly 
+                                      value={bus.shift?.toLowerCase() === "evening" ? "Evening" : "Morning"} 
+                                      className="h-9 w-full bg-zinc-800/50 border-zinc-700 text-zinc-400 cursor-not-allowed font-medium text-sm" 
+                                    />
+                                  )}
+                                </div>
+                              )}
+
                               {assignmentTab === "other" ? (
                                 <div className="space-y-3">
-                                  <div className="space-y-1.5">
+                                  <div className="space-y-1.5 ">
                                     <label className="text-[10px] uppercase font-bold text-zinc-500 flex items-center gap-1.5 pl-0.5">
                                       <MapPin className="w-3 h-3" />
                                       Select Stop (Compulsory)
@@ -906,7 +970,8 @@ export default function ReassignmentPanel({
                                         [activeStudent!.id]: {
                                           busId: bus.id,
                                           stopId: selectedStopId,
-                                          stopName: selectedStop?.name || ""
+                                          stopName: selectedStop?.name || "",
+                                          shift: otherShiftTab
                                         }
                                       }));
                                       setActiveStudentId(null);
@@ -927,7 +992,8 @@ export default function ReassignmentPanel({
                                       [activeStudent!.id]: {
                                         busId: bus.id,
                                         stopId: activeStudent!.stopId,
-                                        stopName: activeStudent!.stopName || ""
+                                        stopName: activeStudent!.stopName || "",
+                                        shift: bus.shift?.toLowerCase() === "both" ? (busShiftSelections[bus.id] || "Morning") : (bus.shift?.toLowerCase() === "evening" ? "Evening" : "Morning")
                                       }
                                     }));
                                     setActiveStudentId(null);

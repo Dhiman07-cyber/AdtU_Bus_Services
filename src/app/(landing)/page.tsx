@@ -15,27 +15,90 @@ function LandingVideo() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [videoUrl, setVideoUrl] = useState<string>('');
   const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const retryCountRef = useRef(0);
+  const maxRetries = 3;
 
-  // Fetch video URL from Supabase on mount
-  useEffect(() => {
-    const fetchVideoUrl = async () => {
-      try {
-        const response = await fetch('/api/landing-video');
-        if (response.ok) {
-          const data = await response.json();
-          if (data.success && data.url) {
-            setVideoUrl(data.url);
-          }
+  // Fetch video URL from Supabase on mount and retry on error
+  const fetchVideoUrl = async (retryCount = 0) => {
+    try {
+      setError(null);
+      const response = await fetch('/api/landing-video', {
+        cache: 'no-store' // Prevent caching issues during auth transitions
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        if (data.success && data.url) {
+          setVideoUrl(data.url);
+          retryCountRef.current = 0; // Reset retry count on success
+        } else {
+          throw new Error(data.error || 'Invalid video URL response');
         }
-      } catch (error) {
-        console.error('Failed to fetch video URL:', error);
-      } finally {
-        setIsLoading(false);
+      } else {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
       }
-    };
+    } catch (error) {
+      console.error(`Failed to fetch video URL (attempt ${retryCount + 1}):`, error);
+      
+      // Retry logic for transient errors
+      if (retryCount < maxRetries) {
+        const delay = Math.pow(2, retryCount) * 1000; // Exponential backoff
+        setTimeout(() => fetchVideoUrl(retryCount + 1), delay);
+      } else {
+        setError('Unable to load video. Please refresh the page.');
+      }
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
+  useEffect(() => {
     fetchVideoUrl();
   }, []);
+
+  // Enhanced video error handling
+  const handleVideoError = (e: React.SyntheticEvent<HTMLVideoElement>) => {
+    const videoElement = e.currentTarget;
+    let errorMessage = 'Video loading failed';
+    
+    // Provide specific error messages based on video state
+    if (videoElement.error) {
+      switch (videoElement.error.code) {
+        case videoElement.error.MEDIA_ERR_ABORTED:
+          errorMessage = 'Video loading was aborted';
+          break;
+        case videoElement.error.MEDIA_ERR_NETWORK:
+          errorMessage = 'Network error - video failed to load';
+          break;
+        case videoElement.error.MEDIA_ERR_DECODE:
+          errorMessage = 'Video format or decoding error';
+          break;
+        case videoElement.error.MEDIA_ERR_SRC_NOT_SUPPORTED:
+          errorMessage = 'Video format not supported';
+          break;
+        default:
+          errorMessage = `Video error (code: ${videoElement.error.code})`;
+      }
+    }
+    
+    console.error('❌ Video loading error:', { error: e, videoUrl, errorMessage });
+    
+    // Retry loading the video URL if we haven't exceeded max retries
+    if (retryCountRef.current < maxRetries) {
+      console.log(`🔄 Retrying video load (attempt ${retryCountRef.current + 1})`);
+      retryCountRef.current++;
+      fetchVideoUrl(retryCountRef.current);
+    } else {
+      setError(`${errorMessage}. Please refresh the page.`);
+    }
+  };
+
+  const handleVideoLoaded = () => {
+    console.log('✅ Movie loaded successfully:', videoUrl);
+    setError(null);
+    retryCountRef.current = 0; // Reset retry count on successful load
+  };
 
   // Video looping logic for 3:07 cutoff
   const handleTimeUpdate = () => {
@@ -56,6 +119,19 @@ function LandingVideo() {
           <div className="w-full h-full flex items-center justify-center">
             <div className="w-12 h-12 border-4 border-blue-500/30 border-t-blue-500 rounded-full animate-spin"></div>
           </div>
+        ) : error ? (
+          <div className="w-full h-full flex flex-col items-center justify-center text-center p-6">
+            <div className="text-red-400 mb-4">
+              <PlayCircle className="w-12 h-12 mx-auto mb-2" />
+              <p className="text-sm">{error}</p>
+            </div>
+            <button
+              onClick={() => fetchVideoUrl()}
+              className="px-4 py-2 bg-blue-500/20 border border-blue-500/30 rounded-lg text-blue-300 hover:bg-blue-500/30 transition-colors text-sm"
+            >
+              Retry
+            </button>
+          </div>
         ) : (
           <video
             ref={videoRef}
@@ -66,8 +142,9 @@ function LandingVideo() {
             playsInline
             onTimeUpdate={handleTimeUpdate}
             className="w-full h-full object-cover"
-            onLoadedData={() => console.log('✅ Movie loaded successfully:', videoUrl)}
-            onError={(e) => console.error('❌ Video loading error:', e)}
+            onLoadedData={handleVideoLoaded}
+            onError={handleVideoError}
+            key={videoUrl} // Force re-render when URL changes
           />
         )}
 

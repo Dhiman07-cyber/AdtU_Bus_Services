@@ -103,7 +103,6 @@ export async function POST(request: NextRequest) {
     const studentDoc = {
       // Required fields only - as per specification
       address: formData.address,
-      age: formData.age,
       alternatePhone: formData.alternatePhone || '',
       approvedAt: now,
       approvedBy: approvedByDisplay,

@@ -29,7 +29,7 @@ export default function Footer({ className = '' }: FooterProps) {
       <FeedbackModal isOpen={showFeedbackModal} onClose={() => setShowFeedbackModal(false)} />
 
       {/* Footer */}
-      <footer className={`border-t border-white/10 bg-[#0E0F12] py-4 sm:py-8 lg:py-10 px-4 sm:px-6 ${className}`}>
+      <footer className={`border-t border-white/10 bg-[#0E0F12] py-4 sm:py-8 lg:py-10 px-5 sm:px-7 lg:px-14 ${className}`}>
         <div className="max-w-6xl mx-auto">
           {/* Main Footer Content */}
           <div className="grid grid-cols-2 lg:grid-cols-12 gap-x-4 sm:gap-x-6 lg:gap-x-8 gap-y-8 sm:gap-y-10 lg:gap-y-0 mb-4 sm:mb-8">
@@ -155,7 +155,7 @@ export default function Footer({ className = '' }: FooterProps) {
           <div className="pt-3 sm:pt-6">
             <div className="text-center">
               <div className="text-[#9CA3AF] text-[10px] sm:text-xs pb-22">
-                © {new Date().getFullYear()} {appName}. Managed by Managing Team of AdtU. All Rights Reserved.
+                © {new Date().getFullYear()} {appName}. Managed by the Administrative Team of AdtU. All Rights Reserved.
               </div>
             </div>
           </div>
