@@ -6,39 +6,24 @@ import { db } from "@/lib/firebase";
 import { collection } from "firebase/firestore";
 import { useAuth } from "@/contexts/auth-context";
 import { toast } from "react-hot-toast";
+import { trackEvent } from "@/components/Analytics";
 import {
     Bus,
     Users,
     Search,
-    Filter,
     ArrowRightLeft,
     User,
-    CheckCircle2,
-    Plus,
-    Check,
-    X,
     MapPin,
     UserCog,
-    ChevronDown,
-    Sparkles,
     History,
+    Clock,
+    Bookmark,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
-import { Checkbox } from "@/components/ui/checkbox";
 import {
-    Select,
-    SelectContent,
-    SelectItem,
-    SelectTrigger,
-    SelectValue,
-} from "@/components/ui/select";
-import {
-    Tooltip,
-    TooltipContent,
     TooltipProvider,
-    TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
@@ -46,18 +31,15 @@ import { motion, AnimatePresence } from "framer-motion";
 import Avatar from "@/components/Avatar";
 
 // Assignment components and services
-import { DriverStagingArea } from "@/components/assignment/StagingArea";
 import { DriverConfirmationModal } from "@/components/assignment/DriverConfirmationModal";
 import { AssignmentFinalizeCard } from "@/components/assignment/AssignmentFinalizeCard";
 import { ReassignmentHistoryModal } from "@/components/assignment/ReassignmentHistoryModal";
+import { ShiftSlotPrompt, type ShiftSlotPayload, type DriverSlotInfo } from "@/components/assignment/ShiftSlotPrompt";
+import { DriverStagingAreaV2, type StagedDriverChange } from "@/components/assignment/DriverStagingAreaV2";
 import {
-    commitAssignments,
-    generateStagingId,
     formatDriverCode,
     getDriverStatus,
-    normalizeDriverAssignments,
     type StagedDriverAssignment,
-    type DriverAssignmentOperation,
 } from "@/lib/services/assignment-service";
 import {
     computeNetAssignments,
@@ -65,7 +47,6 @@ import {
     validateStagingPreCheck,
     type StagedOperation,
     type DbSnapshot,
-    type ConfirmationTableRow,
     type ComputeNetAssignmentsResult,
 } from "@/lib/services/net-assignment-service";
 
@@ -135,12 +116,51 @@ interface RouteData {
     estimatedTime?: string;
 }
 
-type ConflictChoice = "reserve" | "swap" | "cancel";
+// ============================================
+// HELPER: Normalize bus shift value
+// ============================================
+function normalizeBusShift(shift?: string): "Morning" | "Evening" | "Both" {
+    if (!shift) return "Both";
+    const s = shift.toLowerCase().trim();
+    if (s === "morning") return "Morning";
+    if (s === "evening") return "Evening";
+    if (s.includes("&") || s.includes("both") || s.includes("morning") && s.includes("evening")) return "Both";
+    return "Both";
+}
 
-interface ConflictState {
-    busId: string;
-    existingDriverId: string;
-    existingDriverName: string;
+// ============================================
+// HELPER: Get drivers assigned to bus slots
+// ============================================
+function getDriversForBusSlots(bus: BusData, drivers: DriverData[]): DriverSlotInfo[] {
+    const result: DriverSlotInfo[] = [];
+
+    // Check bus's assignedDriverId / activeDriverId
+    const driverIds = new Set<string>();
+    if (bus.assignedDriverId) driverIds.add(bus.assignedDriverId);
+    if (bus.activeDriverId && bus.activeDriverId !== bus.assignedDriverId) driverIds.add(bus.activeDriverId);
+
+    // Also check drivers who reference this bus
+    drivers.forEach(d => {
+        const dBusId = d.assignedBusId || d.busId;
+        if (dBusId === bus.id || dBusId === bus.busId) {
+            driverIds.add(d.id);
+        }
+    });
+
+    driverIds.forEach(dId => {
+        const driver = drivers.find(d => d.id === dId);
+        if (driver) {
+            result.push({
+                id: driver.id,
+                name: driver.fullName || driver.name || "Unknown",
+                code: formatDriverCode(driver.driverId || driver.employeeId || driver.id),
+                shift: driver.shift || "",
+                photoUrl: driver.profilePhotoUrl,
+            });
+        }
+    });
+
+    return result;
 }
 
 // ============================================
@@ -150,8 +170,6 @@ interface ConflictState {
 export default function SmartDriverAssignmentPage() {
     const { currentUser, userData, loading: authLoading } = useAuth();
     const router = useRouter();
-
-    // Refs
     const busesScrollRef = useRef<HTMLDivElement>(null);
 
     // Core Data State
@@ -160,29 +178,28 @@ export default function SmartDriverAssignmentPage() {
     const [routes, setRoutes] = useState<RouteData[]>([]);
     const [loading, setLoading] = useState(true);
 
-    // Selection State - support multi-select
-    const [selectedDriverIds, setSelectedDriverIds] = useState<Set<string>>(new Set());
-    const [lastSelectedDriverId, setLastSelectedDriverId] = useState<string | null>(null);
+    // Selection State
+    const [selectedDriverId, setSelectedDriverId] = useState<string | null>(null);
 
-    // Staging State
+    // Staging State (new V2 system)
+    const [stagedChanges, setStagedChanges] = useState<StagedDriverChange[]>([]);
+
+    // Legacy staging for commit compatibility
     const [stagedAssignments, setStagedAssignments] = useState<StagedDriverAssignment[]>([]);
 
     // UI State
     const [searchTerm, setSearchTerm] = useState("");
     const [statusFilter, setStatusFilter] = useState("all");
-    const [shiftFilter, setShiftFilter] = useState("all");
 
     // Confirmation Modal State
     const [showConfirmModal, setShowConfirmModal] = useState(false);
     const [showFinalizeCard, setShowFinalizeCard] = useState(false);
     const [processing, setProcessing] = useState(false);
-
-    // Net Assignment State (for the new confirmation modal)
     const [netAssignmentResult, setNetAssignmentResult] = useState<ComputeNetAssignmentsResult | null>(null);
 
-    // Conflict handling state
-    const [conflictState, setConflictState] = useState<ConflictState | null>(null);
-    const [pendingBusSelection, setPendingBusSelection] = useState<BusData | null>(null);
+    // Shift Slot Prompt State
+    const [showSlotPrompt, setShowSlotPrompt] = useState(false);
+    const [slotPromptBus, setSlotPromptBus] = useState<BusData | null>(null);
 
     // History Modal State
     const [showHistoryModal, setShowHistoryModal] = useState(false);
@@ -193,54 +210,64 @@ export default function SmartDriverAssignmentPage() {
 
     useEffect(() => {
         if (authLoading) return;
-
-        if (
-            !currentUser ||
-            (userData?.role !== "admin" && userData?.role !== "moderator")
-        ) {
+        if (!currentUser || (userData?.role !== "admin" && userData?.role !== "moderator")) {
             router.push("/login");
         }
     }, [currentUser, userData, authLoading, router]);
 
     // ============================================
-    // DATA LOADING
-    // SPARK PLAN SAFETY: Using getDocs (one-time) instead of onSnapshot (realtime)
-    // onSnapshot on entire collections was causing 8.9K+ reads!
+    // DATA LOADING (getDocs - one-time read, Spark-safe)
+    // PERF: Session-cached to avoid re-fetch on back-navigation
     // ============================================
 
-    const fetchAllData = useCallback(async () => {
+    const ASSIGN_CACHE_KEY = 'adtu_driver_assignment_cache';
+    const ASSIGN_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
+    const fetchAllData = useCallback(async (skipCache = false) => {
         if (!currentUser) return;
+
+        // Try cache first
+        if (!skipCache) {
+            try {
+                const raw = sessionStorage.getItem(ASSIGN_CACHE_KEY);
+                if (raw) {
+                    const { data, expires } = JSON.parse(raw);
+                    if (Date.now() < expires) {
+                        setDrivers(data.drivers);
+                        setBuses(data.buses);
+                        setRoutes(data.routes);
+                        setLoading(false);
+                        return;
+                    }
+                    sessionStorage.removeItem(ASSIGN_CACHE_KEY);
+                }
+            } catch { }
+        }
 
         setLoading(true);
         try {
             const { getDocs } = await import("firebase/firestore");
-
-            // Fetch all three collections in parallel (one-time reads)
-            const [driversSnapshot, busesSnapshot, routesSnapshot] = await Promise.all([
+            const [driversSnap, busesSnap, routesSnap] = await Promise.all([
                 getDocs(collection(db, "drivers")),
                 getDocs(collection(db, "buses")),
                 getDocs(collection(db, "routes")),
             ]);
 
-            const driversData: DriverData[] = driversSnapshot.docs.map((doc) => ({
-                id: doc.id,
-                ...doc.data(),
-            })) as DriverData[];
+            const driversData = driversSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })) as DriverData[];
+            const busesData = busesSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })) as BusData[];
+            const routesData = routesSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })) as RouteData[];
+
             setDrivers(driversData);
-
-            const busesData: BusData[] = busesSnapshot.docs.map((doc) => ({
-                id: doc.id,
-                ...doc.data(),
-            })) as BusData[];
             setBuses(busesData);
-
-            const routesData: RouteData[] = routesSnapshot.docs.map((doc) => ({
-                id: doc.id,
-                ...doc.data(),
-            })) as RouteData[];
             setRoutes(routesData);
 
-            console.log(`[DriverAssignment] Loaded: ${driversData.length} drivers, ${busesData.length} buses, ${routesData.length} routes`);
+            // Cache for back-navigation
+            try {
+                sessionStorage.setItem(ASSIGN_CACHE_KEY, JSON.stringify({
+                    data: { drivers: driversData, buses: busesData, routes: routesData },
+                    expires: Date.now() + ASSIGN_CACHE_TTL,
+                }));
+            } catch { }
         } catch (error: any) {
             console.error("Error loading data:", error);
             toast.error("Failed to load data. Please refresh.");
@@ -249,21 +276,17 @@ export default function SmartDriverAssignmentPage() {
         }
     }, [currentUser]);
 
-    useEffect(() => {
-        fetchAllData();
-    }, [fetchAllData]);
+    useEffect(() => { fetchAllData(); }, [fetchAllData]);
 
     // ============================================
     // COMPUTED VALUES
     // ============================================
 
-    // Filter and sort drivers by driverId ascending
     const filteredDrivers = useMemo(() => {
         return drivers
-            .filter((driver) => {
+            .filter(driver => {
                 const name = driver.fullName || driver.name || "";
                 const code = driver.driverId || driver.employeeId || "";
-
                 const matchesSearch =
                     name.toLowerCase().includes(searchTerm.toLowerCase()) ||
                     code.toLowerCase().includes(searchTerm.toLowerCase());
@@ -274,69 +297,45 @@ export default function SmartDriverAssignmentPage() {
                     (statusFilter === "assigned" && status === "Assigned") ||
                     (statusFilter === "reserved" && status === "Reserved");
 
-                const driverShift = (driver.shift || "").toLowerCase();
-                const matchesShift =
-                    shiftFilter === "all" ||
-                    driverShift.includes(shiftFilter);
-
-                return matchesSearch && matchesStatus && matchesShift;
+                return matchesSearch && matchesStatus;
             })
             .sort((a, b) => {
-                // Sort strictly by driverId (DB-00, DB-01, DB-02...)
-                const aCode = a.driverId || a.employeeId || "";
-                const bCode = b.driverId || b.employeeId || "";
-                const aNum = parseInt(aCode.replace(/\D/g, ""), 10) || 0;
-                const bNum = parseInt(bCode.replace(/\D/g, ""), 10) || 0;
+                const aNum = parseInt((a.driverId || a.employeeId || "").replace(/\D/g, ""), 10) || 0;
+                const bNum = parseInt((b.driverId || b.employeeId || "").replace(/\D/g, ""), 10) || 0;
                 return aNum - bNum;
             });
-    }, [drivers, searchTerm, statusFilter, shiftFilter]);
+    }, [drivers, searchTerm, statusFilter]);
 
-    // Get bus info for a driver
+    const selectedDriver = useMemo(() =>
+        selectedDriverId ? drivers.find(d => d.id === selectedDriverId) || null : null
+        , [selectedDriverId, drivers]);
+
     const getBusForDriver = useCallback((driver: DriverData): BusData | null => {
         const busId = driver.assignedBusId || driver.busId;
         if (!busId) return null;
-        return buses.find((b) => b.id === busId || b.busId === busId) || null;
+        return buses.find(b => b.id === busId || b.busId === busId) || null;
     }, [buses]);
 
-    // Get route info for a bus
     const getRouteForBus = useCallback((bus: BusData): RouteData | null => {
         if (!bus.routeId) return null;
-        return routes.find((r) => r.id === bus.routeId || r.routeId === bus.routeId) || null;
+        return routes.find(r => r.id === bus.routeId || r.routeId === bus.routeId) || null;
     }, [routes]);
 
-    // Get driver for a bus
     const getDriverForBus = useCallback((bus: BusData): DriverData | null => {
         const driverId = bus.activeDriverId || bus.assignedDriverId;
         if (driverId) {
-            const driver = drivers.find((d) => d.id === driverId);
+            const driver = drivers.find(d => d.id === driverId);
             if (driver) return driver;
         }
-
-        // Fallback: search drivers for anyone assigned to this bus (handles data inconsistencies)
-        // Check both 'busId' and 'assignedBusId' fields on the driver document
-        const falloutDriver = drivers.find((d) => d.assignedBusId === bus.id || d.busId === bus.id);
-        return falloutDriver || null;
+        return drivers.find(d => d.assignedBusId === bus.id || d.busId === bus.id) || null;
     }, [drivers]);
 
-    // Selected driver(s) - for single selection display
-    const selectedDriver = useMemo(() => {
-        const ids = Array.from(selectedDriverIds);
-        if (ids.length === 1) {
-            return drivers.find((d) => d.id === ids[0]) || null;
-        }
-        return null;
-    }, [selectedDriverIds, drivers]);
+    const selectedDriverBus = useMemo(() =>
+        selectedDriver ? getBusForDriver(selectedDriver) : null
+        , [selectedDriver, getBusForDriver]);
 
-    // Get the assigned bus for selected driver
-    const selectedDriverBus = useMemo(() => {
-        if (!selectedDriver) return null;
-        return getBusForDriver(selectedDriver);
-    }, [selectedDriver, getBusForDriver]);
-
-    // Buses sorted: currently assigned bus first, then rest
     const sortedBuses = useMemo(() => {
         if (!selectedDriverBus) return buses;
-
         return [...buses].sort((a, b) => {
             if (a.id === selectedDriverBus.id) return -1;
             if (b.id === selectedDriverBus.id) return 1;
@@ -344,324 +343,254 @@ export default function SmartDriverAssignmentPage() {
         });
     }, [buses, selectedDriverBus]);
 
-    // Compute merged bus assignment for a driver (considering staged changes)
-    const getMergedBusForDriver = useCallback((driver: DriverData): { bus: BusData | null; isStaged: boolean; isReserved: boolean; stagedBusNumber?: string } => {
-        // First check if this driver is in any staged assignment
-        // Case 1: Driver is being assigned to a new bus
-        const asNewOperator = stagedAssignments.find(s => s.driverId === driver.id);
-        if (asNewOperator) {
-            const stagedBus = buses.find(b => b.id === asNewOperator.newBusId);
-            return {
-                bus: stagedBus || null,
-                isStaged: true,
-                isReserved: false,
-                stagedBusNumber: asNewOperator.newBusNumber
-            };
-        }
+    // ============================================
+    // MERGED STATE (considering staging)
+    // ============================================
 
-        // Case 2: Driver was previous operator and is being displaced (marked as reserved)
-        const asDisplacedOperator = stagedAssignments.find(
-            s => s.previousOperatorId === driver.id && s.affectOnPreviousOperator === 'reserved'
+    const getMergedBusForDriver = useCallback((driver: DriverData): {
+        bus: BusData | null; isStaged: boolean; isReserved: boolean; stagedBusNumber?: string
+    } => {
+        // Check if driver is assigned in staging
+        const asNewDriver = stagedChanges.find(s =>
+            s.newDriver.id === driver.id && s.action !== "make_reserved"
         );
-        if (asDisplacedOperator) {
-            return { bus: null, isStaged: true, isReserved: true };
+        if (asNewDriver) {
+            const stagedBus = buses.find(b => b.id === asNewDriver.busId);
+            return { bus: stagedBus || null, isStaged: true, isReserved: false, stagedBusNumber: asNewDriver.busNumber };
         }
 
-        // Case 3: Driver was previous operator and is being swapped to another bus
-        const asSwappedOperator = stagedAssignments.find(
-            s => s.previousOperatorId === driver.id && s.affectOnPreviousOperator === 'swapped'
+        // Check if driver is being displaced (reserved or split)
+        const asDisplaced = stagedChanges.find(s =>
+            s.oldDrivers.some(od => od.id === driver.id && (od.impact === "reserved" || od.impact === "split"))
         );
-        if (asSwappedOperator && asSwappedOperator.swappedToBusId) {
-            const swappedBus = buses.find(b => b.id === asSwappedOperator.swappedToBusId);
-            return {
-                bus: swappedBus || null,
-                isStaged: true,
-                isReserved: false,
-                stagedBusNumber: asSwappedOperator.swappedToBusNumber || undefined
-            };
+        if (asDisplaced) return { bus: null, isStaged: true, isReserved: true };
+
+        // Check if driver is being made reserved explicitly
+        const asMakeReserved = stagedChanges.find(s =>
+            s.action === "make_reserved" && s.newDriver.id === driver.id
+        );
+        if (asMakeReserved) return { bus: null, isStaged: true, isReserved: true };
+
+        // Check if driver is being swapped to another bus
+        const asSwapped = stagedChanges.find(s =>
+            s.oldDrivers.some(od => od.id === driver.id && od.impact === "swapped")
+        );
+        if (asSwapped) {
+            // Swapped driver goes to the new driver's old bus
+            const newDriverOldBus = getBusForDriver({ id: asSwapped.newDriver.id } as DriverData);
+            return { bus: newDriverOldBus || null, isStaged: true, isReserved: false };
         }
 
-        // Case 4: No staging affects this driver, use live data
+        // No staging affects this driver
         const liveBus = getBusForDriver(driver);
         return { bus: liveBus, isStaged: false, isReserved: !liveBus };
-    }, [stagedAssignments, buses, getBusForDriver]);
+    }, [stagedChanges, buses, getBusForDriver]);
 
-    // Compute merged driver for a bus (considering staged changes)
-    // This is used through display on bus cards in the right panel
-    const getMergedDriverForBus = useCallback((bus: BusData): { driver: DriverData | null; isStaged: boolean; stagedDriverName?: string } => {
-        // Check if a new driver is being assigned to this bus (staged)
-        const stagedToBus = stagedAssignments.find(s => s.newBusId === bus.id);
+    const getMergedDriverForBus = useCallback((bus: BusData): {
+        driver: DriverData | null; isStaged: boolean; stagedDriverName?: string
+    } => {
+        // Check if a new driver is staged to this bus
+        const stagedToBus = stagedChanges.find(s => s.busId === bus.id && s.action !== "make_reserved");
         if (stagedToBus) {
-            const newDriver = drivers.find(d => d.id === stagedToBus.driverId);
-            return {
-                driver: newDriver || null,
-                isStaged: true,
-                stagedDriverName: stagedToBus.driverName
-            };
+            const newDriver = drivers.find(d => d.id === stagedToBus.newDriver.id);
+            return { driver: newDriver || null, isStaged: true, stagedDriverName: stagedToBus.newDriver.name };
         }
 
-        // Check if the current driver of this bus is being moved away
+        // Check if the current driver is being moved away
         const liveDriver = getDriverForBus(bus);
         if (liveDriver) {
-            // Is liveDriver being moved to another bus?
-            const driverBeingMoved = stagedAssignments.find(s => s.driverId === liveDriver.id);
-            if (driverBeingMoved && driverBeingMoved.newBusId !== bus.id) {
-                // Driver is being moved to different bus, so this bus will have no driver
-                return { driver: null, isStaged: true };
-            }
-
-            // Is liveDriver being marked as reserved (displaced) from another staging?
-            const driverDisplaced = stagedAssignments.find(
-                s => s.previousOperatorId === liveDriver.id && s.affectOnPreviousOperator === 'reserved'
+            const driverBeingMoved = stagedChanges.find(s =>
+                s.newDriver.id === liveDriver.id && s.busId !== bus.id
             );
-            if (driverDisplaced) {
-                // Driver is being marked as reserved, so this bus will have no driver
-                return { driver: null, isStaged: true };
-            }
+            if (driverBeingMoved) return { driver: null, isStaged: true };
 
-            // Is liveDriver being swapped somewhere else?
-            const driverSwapped = stagedAssignments.find(
-                s => s.previousOperatorId === liveDriver.id && s.affectOnPreviousOperator === 'swapped'
+            const driverDisplaced = stagedChanges.find(s =>
+                s.oldDrivers.some(od => od.id === liveDriver.id && (od.impact === "reserved" || od.impact === "split"))
             );
-            if (driverSwapped) {
-                // Driver is being swapped, check what's happening
-                // The new driver should come from another staging that swaps into this bus
-                const incomingSwap = stagedAssignments.find(s => s.swappedToBusId === bus.id);
-                if (incomingSwap) {
-                    const incomingDriver = drivers.find(d => d.id === incomingSwap.previousOperatorId);
-                    return {
-                        driver: incomingDriver || null,
-                        isStaged: true,
-                        stagedDriverName: incomingSwap.previousOperatorName || undefined
-                    };
-                }
-                return { driver: null, isStaged: true };
-            }
+            if (driverDisplaced) return { driver: null, isStaged: true };
+
+            const driverMadeReserved = stagedChanges.find(s =>
+                s.action === "make_reserved" && s.newDriver.id === liveDriver.id
+            );
+            if (driverMadeReserved) return { driver: null, isStaged: true };
         }
 
-        // No staging affects this bus, use live data
         return { driver: liveDriver, isStaged: false };
-    }, [stagedAssignments, drivers, getDriverForBus]);
+    }, [stagedChanges, drivers, getDriverForBus]);
 
     // ============================================
     // HANDLERS
     // ============================================
 
-    // Handle driver selection - single-select
-    const handleDriverSelect = (driverId: string, event: React.MouseEvent) => {
-        // Only allow selecting one driver at a time
-        const newSelection = new Set([driverId]);
-
-        setSelectedDriverIds(newSelection);
-        setLastSelectedDriverId(driverId);
-
-        // Scroll to assigned bus if selection exists
-        if (newSelection.size === 1) {
-            const driver = drivers.find((d) => d.id === driverId);
-            if (driver && busesScrollRef.current) {
-                busesScrollRef.current.scrollTo({ top: 0, behavior: "smooth" });
-            }
+    const handleDriverSelect = (driverId: string) => {
+        setSelectedDriverId(prev => prev === driverId ? null : driverId);
+        if (busesScrollRef.current) {
+            busesScrollRef.current.scrollTo({ top: 0, behavior: "smooth" });
         }
     };
 
-    // Handle checkbox toggle - disabled for now as we use single select
-    const handleCheckboxToggle = (driverId: string, checked: boolean) => {
-        handleDriverSelect(driverId, {} as React.MouseEvent);
-    };
-
-    // Handle make reserved for selected driver
     const handleMakeReserved = () => {
-        if (selectedDriverIds.size === 0) {
+        if (!selectedDriverId) {
             toast.error("No driver selected");
             return;
         }
+        const driver = drivers.find(d => d.id === selectedDriverId);
+        if (!driver) return;
 
-        selectedDriverIds.forEach(driverId => {
-            const driver = drivers.find(d => d.id === driverId);
-            if (!driver) return;
+        const currentBus = getBusForDriver(driver);
+        const driverCode = formatDriverCode(driver.driverId || driver.employeeId || driver.id);
 
-            const mergedBusInfo = getMergedBusForDriver(driver);
-            if (mergedBusInfo.isReserved && !mergedBusInfo.isStaged) {
-                toast("Driver is already reserved", { icon: "ℹ️" });
-                return;
-            }
+        // Check if already staged
+        const existingIdx = stagedChanges.findIndex(s =>
+            s.newDriver.id === driver.id || s.oldDrivers.some(od => od.id === driver.id)
+        );
 
-            const currentBus = getBusForDriver(driver);
+        const change: StagedDriverChange = {
+            id: `stg-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+            busId: currentBus?.id || "",
+            busNumber: currentBus?.busNumber || "N/A",
+            busShift: currentBus ? normalizeBusShift(currentBus.shift) : "Both",
+            action: "make_reserved",
+            newDriver: {
+                id: driver.id,
+                name: driver.fullName || driver.name || "Unknown",
+                code: driverCode,
+                shift: driver.shift || "",
+            },
+            oldDrivers: [],
+            targetSlot: "Both",
+            status: "pending",
+        };
 
-            const assignment: StagedDriverAssignment = {
-                id: generateStagingId(),
-                driverId: driver.id,
-                driverName: driver.fullName || driver.name || "Unknown",
-                driverCode: formatDriverCode(driver.driverId || driver.employeeId || driver.id),
-                newBusId: "",
-                newBusNumber: "Reserved",
-                newRouteId: "",
-                newRouteName: "None",
-                oldBusId: currentBus?.id || null,
-                oldBusNumber: currentBus?.busNumber || null,
-                previousOperatorId: null,
-                previousOperatorName: null,
-                previousOperatorCode: null,
-                affectOnPreviousOperator: "none",
-                driverPreviousState: currentBus ? "assigned" : "reserved",
-                status: "pending",
-            };
-
-            const existingIndex = stagedAssignments.findIndex(s => s.driverId === driver.id);
-            if (existingIndex >= 0) {
-                const updated = [...stagedAssignments];
-                updated[existingIndex] = assignment;
-                setStagedAssignments(updated);
-            } else {
-                setStagedAssignments(prev => [...prev, assignment]);
-            }
-            toast.success(`${driver.fullName || driver.name} staged as Reserved`);
-        });
+        if (existingIdx >= 0) {
+            const updated = [...stagedChanges];
+            updated[existingIdx] = change;
+            setStagedChanges(updated);
+        } else {
+            setStagedChanges(prev => [...prev, change]);
+        }
+        toast.success(`${driver.fullName || driver.name} staged as Reserved`);
     };
 
-    // Handle bus card click
+    // CENTRALIZED RESOLVER: When a bus card is clicked
     const handleBusSelect = (bus: BusData) => {
-        if (selectedDriverIds.size === 0) {
+        if (!selectedDriverId) {
             toast.error("Please select a driver first");
             return;
         }
-
         if (bus.activeTripId) {
             toast.error(`Bus ${bus.busNumber} has an active trip. Cannot assign.`);
             return;
         }
 
-        // Check if selected driver(s) are already assigned to this bus (considering staging)
-        for (const driverId of selectedDriverIds) {
-            const driver = drivers.find((d) => d.id === driverId);
-            if (driver) {
-                const mergedBusInfo = getMergedBusForDriver(driver);
-                if (mergedBusInfo.bus?.id === bus.id) {
-                    toast("This bus is already assigned to the selected driver", { icon: "ℹ️" });
-                    return;
-                }
-            }
-        }
+        const driver = drivers.find(d => d.id === selectedDriverId);
+        if (!driver) return;
 
-        // Check for conflicts using merged driver info (considers staging)
-        const mergedDriverInfo = getMergedDriverForBus(bus);
-        const existingDriver = mergedDriverInfo.driver;
-        if (existingDriver && !selectedDriverIds.has(existingDriver.id)) {
-            setConflictState({
-                busId: bus.id,
-                existingDriverId: existingDriver.id,
-                existingDriverName: mergedDriverInfo.stagedDriverName || existingDriver.fullName || existingDriver.name || "Unknown",
-            });
-            setPendingBusSelection(bus);
+        // Check if selected driver is already assigned to this bus
+        const mergedBusInfo = getMergedBusForDriver(driver);
+        if (mergedBusInfo.bus?.id === bus.id) {
+            toast("This bus is already assigned to the selected driver", { icon: "ℹ️" });
             return;
         }
 
-        // No conflict - stage assignments for all selected drivers
-        stageAssignmentsForSelectedDrivers(bus);
+        // Open the ShiftSlotPrompt with bus context
+        setSlotPromptBus(bus);
+        setShowSlotPrompt(true);
     };
 
-    // Handle conflict resolution
-    const handleConflictChoice = (choice: ConflictChoice) => {
-        if (!pendingBusSelection || !conflictState) return;
+    // Handle ShiftSlotPrompt result
+    const handleSlotStage = (payload: ShiftSlotPayload) => {
+        const driver = drivers.find(d => d.id === payload.newDriver.id);
+        if (!driver) return;
 
-        if (choice === "cancel") {
-            setConflictState(null);
-            setPendingBusSelection(null);
-            return;
+        const driverCode = formatDriverCode(driver.driverId || driver.employeeId || driver.id);
+
+        const change: StagedDriverChange = {
+            id: `stg-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+            busId: payload.busId,
+            busNumber: payload.busNumber,
+            busShift: payload.busShift,
+            action: payload.action,
+            newDriver: {
+                id: driver.id,
+                name: driver.fullName || driver.name || "Unknown",
+                code: driverCode,
+                shift: driver.shift || "",
+            },
+            oldDrivers: payload.oldDrivers,
+            targetSlot: payload.targetSlot,
+            status: "pending",
+        };
+
+        // Replace existing staging for this driver if any
+        const existingIdx = stagedChanges.findIndex(s =>
+            s.newDriver.id === driver.id
+        );
+        if (existingIdx >= 0) {
+            const updated = [...stagedChanges];
+            updated[existingIdx] = change;
+            setStagedChanges(updated);
+        } else {
+            setStagedChanges(prev => [...prev, change]);
         }
 
-        stageAssignmentsForSelectedDrivers(pendingBusSelection, choice);
-        setConflictState(null);
-        setPendingBusSelection(null);
+        toast.success(`Staged: ${driver.fullName || driver.name} → ${payload.busNumber} (${payload.targetSlot})`);
+        setSelectedDriverId(null);
     };
 
-    // Stage assignments for all selected drivers
-    const stageAssignmentsForSelectedDrivers = (bus: BusData, conflictResolution?: ConflictChoice) => {
-        const route = getRouteForBus(bus);
-        const existingDriver = getDriverForBus(bus);
-
-        selectedDriverIds.forEach((driverId) => {
-            const driver = drivers.find((d) => d.id === driverId);
-            if (!driver) return;
-
-            const existingIndex = stagedAssignments.findIndex((s) => s.driverId === driverId);
-            const currentBus = getBusForDriver(driver);
-
-            // Determine driver's previous state
-            const driverPreviousState = currentBus ? "assigned" : "reserved";
-
-            // Determine what happens to the previous operator
-            let affectOnPreviousOperator: "reserved" | "swapped" | "none" = "none";
-            let swappedToBusId: string | null = null;
-            let swappedToBusNumber: string | null = null;
-
-            if (existingDriver && existingDriver.id !== driverId) {
-                if (conflictResolution === "swap" && currentBus) {
-                    affectOnPreviousOperator = "swapped";
-                    swappedToBusId = currentBus.id;
-                    swappedToBusNumber = currentBus.busNumber;
-                } else {
-                    affectOnPreviousOperator = "reserved";
-                }
-            }
-
-            const assignment: StagedDriverAssignment = {
-                id: generateStagingId(),
-                driverId: driver.id,
-                driverName: driver.fullName || driver.name || "Unknown",
-                driverCode: formatDriverCode(driver.driverId || driver.employeeId || driver.id),
-                newBusId: bus.id,
-                newBusNumber: bus.busNumber,
-                newRouteId: route?.routeId || route?.id,
-                newRouteName: route?.routeName || bus.routeName,
-                oldBusId: currentBus?.id,
-                oldBusNumber: currentBus?.busNumber,
-                // New fields for enhanced staging table
-                previousOperatorId: existingDriver?.id || null,
-                previousOperatorName: existingDriver ? (existingDriver.fullName || existingDriver.name || "Unknown") : null,
-                previousOperatorCode: existingDriver ? formatDriverCode(existingDriver.driverId || existingDriver.employeeId || existingDriver.id) : null,
-                affectOnPreviousOperator,
-                swappedToBusId,
-                swappedToBusNumber,
-                driverPreviousState,
-                driverPreviousBusId: currentBus?.id || null,
-                driverPreviousBusNumber: currentBus?.busNumber || null,
-                status: "pending",
-            };
-
-            if (existingIndex >= 0) {
-                const updated = [...stagedAssignments];
-                updated[existingIndex] = assignment;
-                setStagedAssignments(updated);
-            } else {
-                setStagedAssignments((prev) => [...prev, assignment]);
-            }
-        });
-
-        toast.success(`Staged ${selectedDriverIds.size} assignment(s) → ${bus.busNumber}`);
-        setSelectedDriverIds(new Set());
-    };
-
-    // Remove from staging
-    const removeFromStaging = (stagingId: string) => {
-        setStagedAssignments((prev) => prev.filter((s) => s.id !== stagingId));
+    const removeFromStaging = (id: string) => {
+        setStagedChanges(prev => prev.filter(s => s.id !== id));
         toast.success("Removed from staging");
     };
 
-    // Clear all staging
     const clearAllStaging = () => {
-        setStagedAssignments([]);
+        setStagedChanges([]);
         toast.success("All staged changes cleared");
     };
 
-    // Open confirmation modal - computes net assignments first
+    // ============================================
+    // CONFIRMATION FLOW (bridge to existing commit system)
+    // ============================================
+
     const openConfirmModal = () => {
-        if (stagedAssignments.length === 0) {
+        if (stagedChanges.length === 0) {
             toast.error("No changes to confirm");
             return;
         }
 
-        // Build the database snapshot for net computation
+        // Convert StagedDriverChange[] to StagedDriverAssignment[] for compatibility
+        const legacyAssignments: StagedDriverAssignment[] = stagedChanges.map(change => {
+            const currentBus = change.action !== "make_reserved"
+                ? getBusForDriver({ id: change.newDriver.id } as DriverData)
+                : null;
+
+            return {
+                id: change.id,
+                driverId: change.newDriver.id,
+                driverName: change.newDriver.name,
+                driverCode: change.newDriver.code,
+                newBusId: change.action === "make_reserved" ? "" : change.busId,
+                newBusNumber: change.action === "make_reserved" ? "Reserved" : change.busNumber,
+                newRouteId: "",
+                newRouteName: "",
+                oldBusId: currentBus?.id || null,
+                oldBusNumber: currentBus?.busNumber || null,
+                previousOperatorId: change.oldDrivers[0]?.id || null,
+                previousOperatorName: change.oldDrivers[0]?.name || null,
+                previousOperatorCode: change.oldDrivers[0]?.code || null,
+                affectOnPreviousOperator: change.action === "swap" ? "swapped"
+                    : change.action === "split" ? "reserved"
+                    : change.oldDrivers.length > 0 ? "reserved" : "none",
+                swappedToBusId: change.action === "swap" ? (currentBus?.id || null) : null,
+                swappedToBusNumber: change.action === "swap" ? (currentBus?.busNumber || null) : null,
+                driverPreviousState: currentBus ? "assigned" : "reserved",
+                status: "pending",
+            } as StagedDriverAssignment;
+        });
+
+        setStagedAssignments(legacyAssignments);
+
+        // Build DB snapshot
         const dbSnapshot: DbSnapshot = {
             drivers: drivers.map(d => ({
                 id: d.id,
@@ -680,37 +609,28 @@ export default function SmartDriverAssignmentPage() {
             })),
         };
 
-        // Convert staged assignments to StagedOperation format
-        const stagedOperations: StagedOperation[] = stagedAssignments.map((s, index) => {
+        // Convert to StagedOperation for net computation
+        const stagedOps: StagedOperation[] = legacyAssignments.map((s, i) => {
             let type: "assign" | "swap" | "markReserved" = "assign";
             if (s.affectOnPreviousOperator === "swapped") type = "swap";
             if (s.newBusNumber === "Reserved") type = "markReserved";
 
             return {
-                id: s.id,
-                type,
-                driverId: s.driverId,
-                driverName: s.driverName,
-                driverCode: s.driverCode,
-                busId: s.newBusId || null,
-                busNumber: s.newBusNumber,
+                id: s.id, type,
+                driverId: s.driverId, driverName: s.driverName, driverCode: s.driverCode,
+                busId: s.newBusId || null, busNumber: s.newBusNumber,
                 swapDriverId: s.affectOnPreviousOperator === "swapped" ? s.previousOperatorId : null,
                 swapDriverName: s.affectOnPreviousOperator === "swapped" ? s.previousOperatorName : null,
-                stagedAt: Date.now() + index,
+                stagedAt: Date.now() + i,
                 oldBusNumber: s.oldBusNumber,
             };
         });
 
-        // Compute net assignments
-        const result = computeNetAssignments(stagedOperations, dbSnapshot);
+        const result = computeNetAssignments(stagedOps, dbSnapshot);
         setNetAssignmentResult(result);
 
-        // Validate staging pre-check
-        const validation = validateStagingPreCheck(stagedOperations, dbSnapshot);
-        if (validation.warnings.length > 0) {
-            validation.warnings.forEach(w => toast(w, { icon: "⚠️" }));
-        }
-
+        const validation = validateStagingPreCheck(stagedOps, dbSnapshot);
+        if (validation.warnings.length > 0) validation.warnings.forEach(w => toast(w, { icon: "⚠️" }));
         if (!validation.isValid) {
             validation.errors.forEach(e => toast.error(e));
             return;
@@ -719,7 +639,6 @@ export default function SmartDriverAssignmentPage() {
         setShowConfirmModal(true);
     };
 
-    // Handle revert - close modal and keep staging
     const handleRevert = useCallback(() => {
         setShowConfirmModal(false);
         setShowFinalizeCard(false);
@@ -727,80 +646,56 @@ export default function SmartDriverAssignmentPage() {
         toast.success("Action reverted. No changes applied.");
     }, []);
 
-    // Initiates the finalization phase (closes modal, shows floating card)
     const handleFinalizeInitiate = useCallback(() => {
         setShowConfirmModal(false);
         setShowFinalizeCard(true);
     }, []);
 
-    // Performs the actual Firestore commit
     const performCommit = async () => {
-        if (!currentUser?.uid) {
-            toast.error("Not authenticated");
-            return;
-        }
-
+        if (!currentUser?.uid) { toast.error("Not authenticated"); return; }
         if (!netAssignmentResult || !netAssignmentResult.hasChanges) {
             toast.success("No net changes to apply");
-            setStagedAssignments([]);
-            setShowFinalizeCard(false);
-            setNetAssignmentResult(null);
+            setStagedChanges([]); setStagedAssignments([]);
+            setShowFinalizeCard(false); setNetAssignmentResult(null);
             return;
         }
 
         setProcessing(true);
-
         try {
-            // Build staged operations for audit log
-            const stagedOps: StagedOperation[] = stagedAssignments.map((s, index) => {
+            const stagedOps: StagedOperation[] = stagedAssignments.map((s, i) => {
                 let type: "assign" | "swap" | "markReserved" = "assign";
                 if (s.affectOnPreviousOperator === "swapped") type = "swap";
                 if (s.newBusNumber === "Reserved") type = "markReserved";
-
                 return {
-                    id: s.id,
-                    type,
-                    driverId: s.driverId,
-                    driverName: s.driverName,
-                    driverCode: s.driverCode,
-                    busId: s.newBusId || null,
-                    busNumber: s.newBusNumber,
+                    id: s.id, type,
+                    driverId: s.driverId, driverName: s.driverName, driverCode: s.driverCode,
+                    busId: s.newBusId || null, busNumber: s.newBusNumber,
                     swapDriverId: s.affectOnPreviousOperator === "swapped" ? s.previousOperatorId : null,
                     swapDriverName: s.affectOnPreviousOperator === "swapped" ? s.previousOperatorName : null,
-                    stagedAt: Date.now() + index,
+                    stagedAt: Date.now() + i,
                     oldBusNumber: s.oldBusNumber,
                 };
             });
 
-            // Commit using the new atomic transaction function
             const adminName = userData?.fullName || userData?.name || "Admin";
-
             const result = await commitNetChanges(
                 netAssignmentResult.netChanges,
                 netAssignmentResult.driverFinalState,
                 stagedOps,
                 currentUser.uid,
-                {
-                    name: adminName,
-                    role: "admin",
-                    label: `${adminName} (Admin)`
-                }
+                { name: adminName, role: "admin", label: `${adminName} (Admin)` }
             );
 
             if (result.success) {
+                trackEvent('driver_reassignment');
                 toast.success(`✅ Successfully assigned ${result.updatedDrivers.length} driver(s)`);
-                fetchAllData(); // REFTECH to ensure UI reflects CHANGES
+                fetchAllData();
                 setTimeout(() => {
-                    setStagedAssignments([]);
-                    setShowFinalizeCard(false);
-                    setNetAssignmentResult(null);
+                    setStagedChanges([]); setStagedAssignments([]);
+                    setShowFinalizeCard(false); setNetAssignmentResult(null);
                 }, 1000);
             } else {
-                if (result.conflictDetails) {
-                    toast.error(`Conflict detected: ${result.conflictDetails}`);
-                } else {
-                    toast.error(result.message || "Failed to commit assignments");
-                }
+                toast.error(result.conflictDetails ? `Conflict: ${result.conflictDetails}` : (result.message || "Failed to commit"));
             }
         } catch (error: any) {
             console.error("Commit error:", error);
@@ -810,8 +705,6 @@ export default function SmartDriverAssignmentPage() {
         }
     };
 
-
-
     // ============================================
     // RENDER: LOADING STATE
     // ============================================
@@ -820,20 +713,31 @@ export default function SmartDriverAssignmentPage() {
         return (
             <div className="flex items-center justify-center min-h-screen" style={{ backgroundColor: tokens.darkBg }}>
                 <div className="flex flex-col items-center gap-4">
-                    <div
-                        className="w-16 h-16 border-4 border-t-transparent rounded-full animate-spin"
-                        style={{ borderColor: `${tokens.primaryOrange}40`, borderTopColor: tokens.primaryOrange }}
-                    />
-                    <p
-                        className="text-lg font-semibold animate-pulse"
-                        style={{ color: tokens.primaryOrange }}
-                    >
+                    <div className="w-16 h-16 border-4 border-t-transparent rounded-full animate-spin"
+                        style={{ borderColor: `${tokens.primaryOrange}40`, borderTopColor: tokens.primaryOrange }} />
+                    <p className="text-lg font-semibold animate-pulse" style={{ color: tokens.primaryOrange }}>
                         Loading driver assignment system...
                     </p>
                 </div>
             </div>
         );
     }
+
+    // ============================================
+    // Prepare ShiftSlotPrompt props
+    // ============================================
+    const promptNewDriver: DriverSlotInfo | null = selectedDriver ? {
+        id: selectedDriver.id,
+        name: selectedDriver.fullName || selectedDriver.name || "Unknown",
+        code: formatDriverCode(selectedDriver.driverId || selectedDriver.employeeId || selectedDriver.id),
+        shift: selectedDriver.shift || "",
+        photoUrl: selectedDriver.profilePhotoUrl,
+    } : null;
+
+    const promptExistingDrivers: DriverSlotInfo[] = slotPromptBus
+        ? getDriversForBusSlots(slotPromptBus, drivers)
+            .filter(d => d.id !== selectedDriverId) // exclude self
+        : [];
 
     // ============================================
     // RENDER: MAIN UI
@@ -845,9 +749,7 @@ export default function SmartDriverAssignmentPage() {
                 {/* Header */}
                 <div className="flex flex-col md:flex-row md:justify-between md:items-center gap-4 flex-shrink-0">
                     <div className="flex items-center gap-2.5">
-                        <div
-                            className="w-10 h-10 rounded-xl flex items-center justify-center shadow-lg bg-gradient-to-br from-purple-500 to-pink-500"
-                        >
+                        <div className="w-10 h-10 rounded-xl flex items-center justify-center shadow-lg bg-gradient-to-br from-purple-500 to-pink-500">
                             <UserCog className="w-5 h-5 text-white" />
                         </div>
                         <div>
@@ -859,25 +761,22 @@ export default function SmartDriverAssignmentPage() {
                                 Smart Driver Assignment
                             </motion.h1>
                             <p className="mt-0.5 text-xs text-muted-foreground">
-                                Reassign drivers to different buses permanently
+                                Shift-aware driver reassignment with staging workflow
                             </p>
                         </div>
                     </div>
-                    <div className="flex items-center gap-3">
-                        <Button
-                            variant="outline"
-                            size="default"
-                            className="h-9 text-sm bg-white dark:bg-zinc-800 border-zinc-300 dark:border-zinc-700 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-700 shadow-sm"
-                            onClick={() => setShowHistoryModal(true)}
-                        >
-                            <History className="w-4 h-4 mr-2" />
-                            View History
-                        </Button>
-                    </div>
+                    <Button
+                        variant="outline"
+                        size="default"
+                        className="h-9 text-sm bg-white dark:bg-zinc-800 border-zinc-300 dark:border-zinc-700 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-700 shadow-sm"
+                        onClick={() => setShowHistoryModal(true)}
+                    >
+                        <History className="w-4 h-4 mr-2" />
+                        View History
+                    </Button>
                 </div>
 
-                {/* Main Grid - Two Equal Cards with Fixed Height */}
-                {/* Main Grid - Two Equal Cards with Fixed Height */}
+                {/* Main Grid */}
                 <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-stretch w-full">
 
                     {/* Left Panel - Driver List */}
@@ -885,16 +784,12 @@ export default function SmartDriverAssignmentPage() {
                         className="lg:col-span-4 rounded-2xl border overflow-hidden flex flex-col h-[465px]"
                         style={{ backgroundColor: '#0F172A', borderColor: tokens.borderDark }}
                     >
-                        {/* Header - No top whitespace */}
-                        <div
-                            className="px-4 py-3 rounded-t-2xl flex-shrink-0"
-                            style={{ background: 'linear-gradient(to right, rgba(147, 51, 234, 0.08), rgba(219, 39, 119, 0.08))' }}
-                        >
+                        {/* Header */}
+                        <div className="px-4 py-3 rounded-t-2xl flex-shrink-0"
+                            style={{ background: 'linear-gradient(to right, rgba(147, 51, 234, 0.08), rgba(219, 39, 119, 0.08))' }}>
                             <div className="flex items-center justify-between">
                                 <div className="flex items-center gap-2">
-                                    <div
-                                        className="w-8 h-8 rounded-lg flex items-center justify-center bg-gradient-to-br from-purple-500 to-pink-500"
-                                    >
+                                    <div className="w-8 h-8 rounded-lg flex items-center justify-center bg-gradient-to-br from-purple-500 to-pink-500">
                                         <Users className="w-4 h-4 text-white" />
                                     </div>
                                     <div>
@@ -902,16 +797,13 @@ export default function SmartDriverAssignmentPage() {
                                         <p className="text-xs" style={{ color: tokens.textMuted }}>Sorted by Driver ID</p>
                                     </div>
                                 </div>
-                                <Badge
-                                    className="text-xs"
-                                    style={{ backgroundColor: `${tokens.success}20`, color: tokens.success }}
-                                >
+                                <Badge className="text-xs" style={{ backgroundColor: `${tokens.success}20`, color: tokens.success }}>
                                     {filteredDrivers.length} shown
                                 </Badge>
                             </div>
                         </div>
 
-                        {/* Search and Filters */}
+                        {/* Search */}
                         <div className="px-3 pt-3 pb-2">
                             <div className="relative">
                                 <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5" style={{ color: tokens.textMuted }} />
@@ -920,29 +812,25 @@ export default function SmartDriverAssignmentPage() {
                                     value={searchTerm}
                                     onChange={(e) => setSearchTerm(e.target.value)}
                                     className="pl-8 h-8 text-xs border-0 w-full"
-                                    style={{
-                                        backgroundColor: '#1E293B',
-                                        color: tokens.textPrimary,
-                                    }}
+                                    style={{ backgroundColor: '#1E293B', color: tokens.textPrimary }}
                                 />
                             </div>
                         </div>
+
                         <ScrollArea className="flex-1">
                             <div className="px-3 pb-3 space-y-2">
-                                {filteredDrivers.map((driver) => {
+                                {filteredDrivers.map(driver => {
                                     const mergedBusInfo = getMergedBusForDriver(driver);
-                                    const isSelected = selectedDriverIds.has(driver.id);
+                                    const isSelected = selectedDriverId === driver.id;
                                     const driverCode = formatDriverCode(driver.driverId || driver.employeeId || driver.id);
 
                                     return (
                                         <motion.div
                                             key={driver.id}
-                                            onClick={(e) => handleDriverSelect(driver.id, e)}
+                                            onClick={() => handleDriverSelect(driver.id)}
                                             className={cn(
                                                 "h-20 p-3 rounded-xl cursor-pointer transition-all duration-200 border",
-                                                isSelected
-                                                    ? "border-opacity-100 shadow-md"
-                                                    : "border-transparent hover:border-opacity-30"
+                                                isSelected ? "border-opacity-100 shadow-md" : "border-transparent hover:border-opacity-30"
                                             )}
                                             style={{
                                                 backgroundColor: isSelected ? `${tokens.primaryPurple}15` : '#131C2E',
@@ -953,65 +841,41 @@ export default function SmartDriverAssignmentPage() {
                                         >
                                             <div className="flex items-center justify-between h-full">
                                                 <div className="flex items-center gap-3">
-                                                    {/* Checkbox removed as per single-select requirement */}
-                                                    <Avatar
-                                                        src={driver.profilePhotoUrl}
-                                                        name={driver.fullName || driver.name}
-                                                        size="sm"
-                                                    />
+                                                    <Avatar src={driver.profilePhotoUrl} name={driver.fullName || driver.name} size="sm" />
                                                     <div>
                                                         <p className="font-medium text-sm" style={{ color: tokens.textPrimary }}>
                                                             {driver.fullName || driver.name || "Unknown"}
                                                         </p>
-                                                        <p className="text-xs" style={{ color: tokens.textMuted }}>
-                                                            {driverCode}
-                                                        </p>
+                                                        <p className="text-xs" style={{ color: tokens.textMuted }}>{driverCode}</p>
                                                     </div>
                                                 </div>
                                                 <div className="flex flex-col items-end gap-1">
                                                     {mergedBusInfo.bus ? (
-                                                        <Badge
-                                                            className="text-[9px] px-1.5 py-0"
-                                                            style={{
-                                                                backgroundColor: mergedBusInfo.isStaged
-                                                                    ? `${tokens.primaryOrange}20`
-                                                                    : `${tokens.success}20`,
-                                                                color: mergedBusInfo.isStaged
-                                                                    ? tokens.primaryOrange
-                                                                    : tokens.success,
-                                                                border: `1px solid ${mergedBusInfo.isStaged ? tokens.primaryOrange : tokens.success}40`
-                                                            }}
-                                                        >
+                                                        <Badge className="text-[9px] px-1.5 py-0" style={{
+                                                            backgroundColor: mergedBusInfo.isStaged ? `${tokens.primaryOrange}20` : `${tokens.success}20`,
+                                                            color: mergedBusInfo.isStaged ? tokens.primaryOrange : tokens.success,
+                                                            border: `1px solid ${mergedBusInfo.isStaged ? tokens.primaryOrange : tokens.success}40`
+                                                        }}>
                                                             <Bus className="w-2.5 h-2.5 mr-1" />
                                                             {mergedBusInfo.stagedBusNumber || mergedBusInfo.bus.busNumber}
                                                         </Badge>
                                                     ) : (
-                                                        <Badge
-                                                            className="text-[9px] px-1.5 py-0"
-                                                            style={{
-                                                                backgroundColor: mergedBusInfo.isStaged
-                                                                    ? `${tokens.primaryOrange}20`
-                                                                    : `${tokens.reserved}20`,
-                                                                color: mergedBusInfo.isStaged
-                                                                    ? tokens.primaryOrange
-                                                                    : tokens.reserved,
-                                                                border: `1px solid ${mergedBusInfo.isStaged ? tokens.primaryOrange : tokens.reserved}40`
-                                                            }}
-                                                        >
+                                                        <Badge className="text-[9px] px-1.5 py-0" style={{
+                                                            backgroundColor: mergedBusInfo.isStaged ? `${tokens.primaryOrange}20` : `${tokens.reserved}20`,
+                                                            color: mergedBusInfo.isStaged ? tokens.primaryOrange : tokens.reserved,
+                                                            border: `1px solid ${mergedBusInfo.isStaged ? tokens.primaryOrange : tokens.reserved}40`
+                                                        }}>
                                                             Reserved
                                                         </Badge>
                                                     )}
                                                     {driver.shift && (
-                                                        <span className="text-[9px]" style={{ color: tokens.textMuted }}>
-                                                            {driver.shift}
-                                                        </span>
+                                                        <span className="text-[9px]" style={{ color: tokens.textMuted }}>{driver.shift}</span>
                                                     )}
                                                 </div>
                                             </div>
                                         </motion.div>
                                     );
                                 })}
-
                                 {filteredDrivers.length === 0 && (
                                     <div className="flex flex-col items-center justify-center py-12 text-center">
                                         <Users className="h-12 w-12 mb-3" style={{ color: tokens.textMuted }} />
@@ -1028,15 +892,10 @@ export default function SmartDriverAssignmentPage() {
                         style={{ backgroundColor: tokens.cardBg, borderColor: tokens.borderDark }}
                     >
                         {/* Header */}
-                        <div
-                            className="px-4 py-3 rounded-t-2xl flex-shrink-0"
-                            style={{ background: tokens.cardHeader }}
-                        >
+                        <div className="px-4 py-3 rounded-t-2xl flex-shrink-0" style={{ background: tokens.cardHeader }}>
                             <div className="flex items-center justify-between pt-3 pb-3">
                                 <div className="flex items-center gap-2">
-                                    <div
-                                        className="w-8 h-8 rounded-lg flex items-center justify-center bg-gradient-to-br from-blue-500 to-indigo-500"
-                                    >
+                                    <div className="w-8 h-8 rounded-lg flex items-center justify-center bg-gradient-to-br from-blue-500 to-indigo-500">
                                         <Bus className="w-4 h-4 text-white" />
                                     </div>
                                     <div>
@@ -1047,12 +906,12 @@ export default function SmartDriverAssignmentPage() {
                                         </h3>
                                         <p className="text-xs" style={{ color: tokens.textMuted }}>
                                             {selectedDriver
-                                                ? "Select a bus below to stage assignment"
-                                                : "Select a driver from the left panel to see available buses"}
+                                                ? "Select a bus below to configure shift & stage assignment"
+                                                : "Select a driver from the left panel first"}
                                         </p>
                                     </div>
                                 </div>
-                                {selectedDriverIds.size >= 1 ? (
+                                {selectedDriverId ? (
                                     <Button
                                         size="sm"
                                         className="h-8 text-xs text-white px-4 bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 shadow-lg shadow-orange-500/20 transition-all active:scale-95"
@@ -1061,10 +920,11 @@ export default function SmartDriverAssignmentPage() {
                                         Make Reserved
                                     </Button>
                                 ) : (
-                                    <Badge
-                                        className="text-xs"
-                                        style={{ backgroundColor: `${tokens.primaryPurple}20`, color: tokens.primaryPurple, border: `1px solid ${tokens.primaryPurple}40` }}
-                                    >
+                                    <Badge className="text-xs" style={{
+                                        backgroundColor: `${tokens.primaryPurple}20`,
+                                        color: tokens.primaryPurple,
+                                        border: `1px solid ${tokens.primaryPurple}40`
+                                    }}>
                                         {buses.length} Buses
                                     </Badge>
                                 )}
@@ -1073,238 +933,150 @@ export default function SmartDriverAssignmentPage() {
 
                         {/* Bus Content */}
                         <ScrollArea className="flex-1" ref={busesScrollRef}>
-                            {selectedDriverIds.size === 1 ? (
+                            {selectedDriverId && selectedDriver ? (
                                 <div className="p-3 space-y-4">
-                                    {/* Currently Assigned (only for single selection) */}
-                                    {selectedDriverBus && selectedDriver && (
+                                    {/* Currently Assigned */}
+                                    {selectedDriverBus && (
                                         <div>
-                                            <p className="text-xs font-medium mb-2 px-1" style={{ color: tokens.textMuted }}>
-                                                Currently Assigned
-                                            </p>
-                                            <CurrentAssignmentCard
-                                                bus={selectedDriverBus}
-                                                route={getRouteForBus(selectedDriverBus)}
-                                                driver={selectedDriver}
-                                            />
+                                            <p className="text-xs font-medium mb-2 px-1" style={{ color: tokens.textMuted }}>Currently Assigned</p>
+                                            <CurrentAssignmentCard bus={selectedDriverBus} route={getRouteForBus(selectedDriverBus)} driver={selectedDriver} />
                                         </div>
                                     )}
 
                                     {/* Available Buses */}
                                     <div>
-                                        <p className="text-xs font-medium mb-2 px-1" style={{ color: tokens.textMuted }}>
-                                            Available Buses
-                                        </p>
+                                        <p className="text-xs font-medium mb-2 px-1" style={{ color: tokens.textMuted }}>Available Buses</p>
                                         <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
                                             {sortedBuses
-                                                .filter((bus) => bus.id !== selectedDriverBus?.id)
-                                                .map((bus) => {
+                                                .filter(bus => bus.id !== selectedDriverBus?.id)
+                                                .map(bus => {
                                                     const hasActiveTrip = !!bus.activeTripId;
                                                     const mergedDriverInfo = getMergedDriverForBus(bus);
                                                     const route = getRouteForBus(bus);
-                                                    const isConflictTarget = conflictState?.busId === bus.id;
                                                     const displayedDriver = mergedDriverInfo.driver;
                                                     const displayedDriverName = mergedDriverInfo.stagedDriverName || displayedDriver?.fullName || displayedDriver?.name;
+                                                    const busShift = normalizeBusShift(bus.shift);
 
                                                     return (
-                                                        <div key={bus.id} className="relative">
-                                                            <motion.div
-                                                                whileHover={!hasActiveTrip ? { scale: 1.02, backgroundColor: '#1E293B' } : {}}
-                                                                whileTap={!hasActiveTrip ? { scale: 0.98 } : {}}
-                                                                onClick={() => !hasActiveTrip && handleBusSelect(bus)}
-                                                                className={cn(
-                                                                    "min-h-[120px] p-4 rounded-xl border cursor-pointer transition-all duration-300 relative overflow-hidden group",
-                                                                    hasActiveTrip && "opacity-50 cursor-not-allowed",
-                                                                    mergedDriverInfo.isStaged && "ring-2 ring-orange-500/30"
-                                                                )}
-                                                                style={{
-                                                                    backgroundColor: '#131C2E',
-                                                                    borderColor: hasActiveTrip ? '#EF4444' : mergedDriverInfo.isStaged ? tokens.primaryOrange : tokens.borderDark,
-                                                                }}
-                                                            >
-                                                                {/* Interactive Glow Effect */}
-                                                                {!hasActiveTrip && (
-                                                                    <div className="absolute -inset-1 opacity-0 group-hover:opacity-10 transition-opacity duration-500 bg-gradient-to-r from-purple-500 via-pink-500 to-orange-500 blur-xl" />
-                                                                )}
+                                                        <motion.div
+                                                            key={bus.id}
+                                                            whileHover={!hasActiveTrip ? { scale: 1.02, backgroundColor: '#1E293B' } : {}}
+                                                            whileTap={!hasActiveTrip ? { scale: 0.98 } : {}}
+                                                            onClick={() => !hasActiveTrip && handleBusSelect(bus)}
+                                                            className={cn(
+                                                                "min-h-[120px] p-4 rounded-xl border cursor-pointer transition-all duration-300 relative overflow-hidden group",
+                                                                hasActiveTrip && "opacity-50 cursor-not-allowed",
+                                                                mergedDriverInfo.isStaged && "ring-2 ring-orange-500/30"
+                                                            )}
+                                                            style={{
+                                                                backgroundColor: '#131C2E',
+                                                                borderColor: hasActiveTrip ? '#EF4444' : mergedDriverInfo.isStaged ? tokens.primaryOrange : tokens.borderDark,
+                                                            }}
+                                                        >
+                                                            {!hasActiveTrip && (
+                                                                <div className="absolute -inset-1 opacity-0 group-hover:opacity-10 transition-opacity duration-500 bg-gradient-to-r from-purple-500 via-pink-500 to-orange-500 blur-xl" />
+                                                            )}
 
-                                                                <div className="flex items-start justify-between relative z-10">
-                                                                    <div className="flex items-center gap-3">
-                                                                        <div
-                                                                            className="w-10 h-10 rounded-xl flex items-center justify-center shadow-lg transition-transform duration-300 group-hover:scale-110"
-                                                                            style={{
-                                                                                background: hasActiveTrip
-                                                                                    ? 'linear-gradient(135deg, #EF4444, #991B1B)'
-                                                                                    : displayedDriver
-                                                                                        ? mergedDriverInfo.isStaged
-                                                                                            ? 'linear-gradient(135deg, #F97316, #C2410C)'
-                                                                                            : 'linear-gradient(135deg, #F59E0B, #B45309)'
-                                                                                        : 'linear-gradient(135deg, #F97316, #EA580C)'
-                                                                            }}
-                                                                        >
-                                                                            <Bus className="w-5 h-5 text-white" />
-                                                                        </div>
-                                                                        <div>
-                                                                            <p className="font-bold text-sm tracking-tight" style={{ color: tokens.textPrimary }}>
-                                                                                {bus.busNumber}
+                                                            <div className="flex items-start justify-between relative z-10">
+                                                                <div className="flex items-center gap-3">
+                                                                    <div className="w-10 h-10 rounded-xl flex items-center justify-center shadow-lg transition-transform duration-300 group-hover:scale-110"
+                                                                        style={{
+                                                                            background: hasActiveTrip ? 'linear-gradient(135deg, #EF4444, #991B1B)'
+                                                                                : displayedDriver
+                                                                                    ? mergedDriverInfo.isStaged
+                                                                                        ? 'linear-gradient(135deg, #F97316, #C2410C)'
+                                                                                        : 'linear-gradient(135deg, #F59E0B, #B45309)'
+                                                                                    : 'linear-gradient(135deg, #F97316, #EA580C)'
+                                                                        }}>
+                                                                        <Bus className="w-5 h-5 text-white" />
+                                                                    </div>
+                                                                    <div>
+                                                                        <p className="font-bold text-sm tracking-tight" style={{ color: tokens.textPrimary }}>{bus.busNumber}</p>
+                                                                        <div className="flex items-center gap-1">
+                                                                            <MapPin className="w-2.5 h-2.5" style={{ color: tokens.primaryOrange }} />
+                                                                            <p className="text-[10px] font-medium" style={{ color: tokens.textMuted }}>
+                                                                                {route?.routeName || bus.routeName || "No Route"}
                                                                             </p>
-                                                                            <div className="flex items-center gap-1">
-                                                                                <MapPin className="w-2.5 h-2.5" style={{ color: tokens.primaryOrange }} />
-                                                                                <p className="text-[10px] font-medium" style={{ color: tokens.textMuted }}>
-                                                                                    {route?.routeName || bus.routeName || "No Route"}
-                                                                                </p>
-                                                                            </div>
                                                                         </div>
                                                                     </div>
+                                                                </div>
 
-                                                                    <div className="flex flex-col items-end gap-1.5">
-                                                                        {hasActiveTrip ? (
-                                                                            <Badge className="bg-red-500 text-white text-[9px] h-5">
-                                                                                IN TRIP
-                                                                            </Badge>
-                                                                        ) : displayedDriver ? (
-                                                                            <Badge
-                                                                                className="text-[9px] h-5 border-none"
-                                                                                style={{
-                                                                                    backgroundColor: mergedDriverInfo.isStaged
-                                                                                        ? `${tokens.primaryOrange}25`
-                                                                                        : `${tokens.occupied}25`,
-                                                                                    color: mergedDriverInfo.isStaged
-                                                                                        ? tokens.primaryOrange
-                                                                                        : tokens.occupied,
-                                                                                }}
-                                                                            >
-                                                                                {mergedDriverInfo.isStaged ? "STAGED" : "OCCUPIED"}
-                                                                            </Badge>
-                                                                        ) : (
-                                                                            <Badge
-                                                                                className="text-[9px] h-5 border-none"
-                                                                                style={{
-                                                                                    backgroundColor: `${tokens.success}25`,
-                                                                                    color: tokens.success,
-                                                                                }}
-                                                                            >
-                                                                                AVAILABLE
-                                                                            </Badge>
+                                                                <div className="flex flex-col items-end gap-1.5">
+                                                                    {hasActiveTrip ? (
+                                                                        <Badge className="bg-red-500 text-white text-[9px] h-5">IN TRIP</Badge>
+                                                                    ) : displayedDriver ? (
+                                                                        <Badge className="text-[9px] h-5 border-none" style={{
+                                                                            backgroundColor: mergedDriverInfo.isStaged ? `${tokens.primaryOrange}25` : `${tokens.occupied}25`,
+                                                                            color: mergedDriverInfo.isStaged ? tokens.primaryOrange : tokens.occupied,
+                                                                        }}>
+                                                                            {mergedDriverInfo.isStaged ? "STAGED" : "OCCUPIED"}
+                                                                        </Badge>
+                                                                    ) : (
+                                                                        <Badge className="text-[9px] h-5 border-none" style={{
+                                                                            backgroundColor: `${tokens.success}25`,
+                                                                            color: tokens.success,
+                                                                        }}>AVAILABLE</Badge>
+                                                                    )}
+                                                                    {/* Shift badge */}
+                                                                    <Badge className="text-[7px] px-1 py-0 border-none" style={{
+                                                                        backgroundColor: `${tokens.primaryPurple}15`,
+                                                                        color: tokens.primaryPurple,
+                                                                    }}>
+                                                                        <Clock className="w-2 h-2 mr-0.5" />
+                                                                        {busShift}
+                                                                    </Badge>
+                                                                </div>
+                                                            </div>
+
+                                                            {/* Route stops preview */}
+                                                            {route?.stops && route.stops.length > 0 && (
+                                                                <div className="mt-3 py-1.5 px-3 rounded-lg bg-black/20 flex gap-2 items-center group-hover:bg-black/30 transition-colors duration-300">
+                                                                    <span className="text-[10px] text-slate-400 font-bold truncate">
+                                                                        {route.stops[0].name} — {route.stops[route.stops.length - 1].name}
+                                                                    </span>
+                                                                    <span className="text-[9px] text-slate-500 font-medium whitespace-nowrap ml-auto">
+                                                                        ... Net {route.stops.length} stops
+                                                                    </span>
+                                                                </div>
+                                                            )}
+
+                                                            {/* Operator Info */}
+                                                            <div className="mt-3 flex items-center justify-between relative z-10 border-t border-white/5 pt-2">
+                                                                {displayedDriver ? (
+                                                                    <div className="flex items-center gap-1.5 text-[11px] font-medium" style={{
+                                                                        color: mergedDriverInfo.isStaged ? tokens.primaryOrange : tokens.textMuted
+                                                                    }}>
+                                                                        <User className="w-3 h-3" />
+                                                                        <span className="truncate max-w-[120px]">{displayedDriverName}</span>
+                                                                        {mergedDriverInfo.isStaged && (
+                                                                            <Badge className="text-[7px] p-0 px-1 bg-orange-500/20 text-orange-500 border-none scale-90">STG</Badge>
                                                                         )}
                                                                     </div>
-                                                                </div>
-
-                                                                {/* Compact Route Stops Preview */}
-                                                                {route?.stops && route.stops.length > 0 && (
-                                                                    <div className="mt-3 py-1.5 px-3 rounded-lg bg-black/20 flex gap-2 items-center group-hover:bg-black/30 transition-colors duration-300">
-                                                                        <span className="text-[10px] text-slate-400 font-bold truncate">
-                                                                            {route.stops[0].name} — {route.stops[route.stops.length - 1].name}
-                                                                        </span>
-                                                                        <span className="text-[9px] text-slate-500 font-medium whitespace-nowrap ml-auto">
-                                                                            ... Net {route.stops.length} stops
-                                                                        </span>
-                                                                    </div>
+                                                                ) : (
+                                                                    <span className="text-[10px] text-slate-500 font-medium">No operator assigned</span>
                                                                 )}
-
-                                                                {/* Operator Info */}
-                                                                <div className="mt-3 flex items-center justify-between relative z-10 border-t border-white/5 pt-2">
-                                                                    {displayedDriver ? (
-                                                                        <div className="flex items-center gap-1.5 text-[11px] font-medium" style={{ color: mergedDriverInfo.isStaged ? tokens.primaryOrange : tokens.textMuted }}>
-                                                                            <User className="w-3 h-3" />
-                                                                            <span className="truncate max-w-[120px]">{displayedDriverName}</span>
-                                                                            {mergedDriverInfo.isStaged && (
-                                                                                <Badge className="text-[7px] p-0 px-1 bg-orange-500/20 text-orange-500 border-none scale-90">STG</Badge>
-                                                                            )}
-                                                                        </div>
-                                                                    ) : (
-                                                                        <span className="text-[10px] text-slate-500 font-medium">No operator assigned</span>
-                                                                    )}
-                                                                    <div className="flex items-center gap-1 opacity-60">
-                                                                        <div className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: displayedDriver ? (mergedDriverInfo.isStaged ? tokens.primaryOrange : tokens.occupied) : tokens.success }}></div>
-                                                                        <span className="text-[9px] font-semibold text-slate-500 uppercase tracking-widest">{bus.capacity} CAP</span>
-                                                                    </div>
+                                                                <div className="flex items-center gap-2 opacity-80 group-hover:opacity-100 transition-opacity">
+                                                                    <div className="w-1.5 h-1.5 rounded-full" style={{
+                                                                        backgroundColor: displayedDriver ? (mergedDriverInfo.isStaged ? tokens.primaryOrange : tokens.occupied) : tokens.success
+                                                                    }} />
+                                                                    <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">
+                                                                        Capacity: {bus.currentMembers || 0}/{bus.capacity || 0}
+                                                                    </span>
                                                                 </div>
-                                                            </motion.div>
-
-                                                            {/* Inline Conflict Resolution */}
-                                                            <AnimatePresence>
-                                                                {isConflictTarget && (
-                                                                    <motion.div
-                                                                        initial={{ opacity: 0, scale: 0.95 }}
-                                                                        animate={{ opacity: 1, scale: 1 }}
-                                                                        exit={{ opacity: 0, scale: 0.95 }}
-                                                                        className="absolute inset-0 rounded-xl p-4 flex flex-col justify-center z-10 backdrop-blur-sm"
-                                                                        style={{ backgroundColor: 'rgba(11, 18, 32, 0.97)' }}
-                                                                    >
-                                                                        <p className="text-xs text-center mb-3" style={{ color: tokens.textPrimary }}>
-                                                                            Bus has driver: <span style={{ color: tokens.occupied }}>{conflictState.existingDriverName}</span>
-                                                                        </p>
-                                                                        <div className="flex flex-row gap-2 justify-center flex-wrap">
-                                                                            <Button
-                                                                                size="sm"
-                                                                                className="h-7 text-xs text-white px-3"
-                                                                                style={{ backgroundColor: tokens.reserved }}
-                                                                                onClick={() => handleConflictChoice("reserve")}
-                                                                            >
-                                                                                Move to Reserved
-                                                                            </Button>
-                                                                            {selectedDriverBus && (
-                                                                                <Button
-                                                                                    size="sm"
-                                                                                    variant="outline"
-                                                                                    className="h-7 text-xs px-3"
-                                                                                    style={{ borderColor: `${tokens.deepPurple}50`, color: tokens.deepPurple }}
-                                                                                    onClick={() => handleConflictChoice("swap")}
-                                                                                >
-                                                                                    Swap Drivers
-                                                                                </Button>
-                                                                            )}
-                                                                            <Button
-                                                                                size="sm"
-                                                                                variant="ghost"
-                                                                                className="h-7 text-xs px-3"
-                                                                                style={{ color: tokens.textMuted }}
-                                                                                onClick={() => handleConflictChoice("cancel")}
-                                                                            >
-                                                                                Cancel
-                                                                            </Button>
-                                                                        </div>
-                                                                    </motion.div>
-                                                                )}
-                                                            </AnimatePresence>
-                                                        </div>
+                                                            </div>
+                                                        </motion.div>
                                                     );
                                                 })}
                                         </div>
                                     </div>
                                 </div>
-                            ) : selectedDriverIds.size > 1 ? (
-                                <div className="flex flex-col items-center justify-center h-full text-center p-6">
-                                    <div
-                                        className="w-20 h-20 rounded-full flex items-center justify-center mb-4"
-                                        style={{ backgroundColor: `${tokens.reserved}15` }}
-                                    >
-                                        <Users className="w-10 h-10" style={{ color: tokens.reserved }} />
-                                    </div>
-                                    <h3 className="text-lg font-semibold mb-2" style={{ color: tokens.textPrimary }}>
-                                        Multiple Drivers Selected
-                                    </h3>
-                                    <p className="text-sm max-w-xs mb-4" style={{ color: tokens.textMuted }}>
-                                        {selectedDriverIds.size} drivers selected. Use the "Make Reserved" button to mark them as reserved.
-                                    </p>
-                                    <Button
-                                        className="text-white"
-                                        style={{ backgroundColor: tokens.reserved }}
-                                        onClick={handleMakeReserved}
-                                    >
-                                        Make Reserved
-                                    </Button>
-                                </div>
                             ) : (
                                 <div className="flex flex-col items-center justify-center h-full text-center p-6 mt-14">
-                                    <div
-                                        className="w-20 h-20 rounded-full flex items-center justify-center mb-4"
-                                        style={{ backgroundColor: `${tokens.primaryOrange}15` }}
-                                    >
+                                    <div className="w-20 h-20 rounded-full flex items-center justify-center mb-4"
+                                        style={{ backgroundColor: `${tokens.primaryOrange}15` }}>
                                         <ArrowRightLeft className="w-10 h-10" style={{ color: tokens.primaryOrange }} />
                                     </div>
-                                    <h3 className="text-lg font-semibold mb-2" style={{ color: tokens.textPrimary }}>
-                                        Select a Driver
-                                    </h3>
+                                    <h3 className="text-lg font-semibold mb-2" style={{ color: tokens.textPrimary }}>Select a Driver</h3>
                                     <p className="text-sm max-w-xs" style={{ color: tokens.textMuted }}>
                                         Choose a driver from the left panel to view their current assignment and stage a new one
                                     </p>
@@ -1314,23 +1086,35 @@ export default function SmartDriverAssignmentPage() {
                     </div>
                 </div>
 
-                {/* Staging Area */}
+                {/* Staging Area V2 */}
                 <div className="w-full">
-                    <DriverStagingArea
-                        stagedAssignments={stagedAssignments}
+                    <DriverStagingAreaV2
+                        stagedChanges={stagedChanges}
                         onRemove={removeFromStaging}
                         onClearAll={clearAllStaging}
                         onConfirm={openConfirmModal}
                     />
                 </div>
 
-                {/* Confirmation Modal - New 3-Step Workflow */}
+                {/* Shift Slot Prompt */}
+                {promptNewDriver && slotPromptBus && (
+                    <ShiftSlotPrompt
+                        isOpen={showSlotPrompt}
+                        onClose={() => { setShowSlotPrompt(false); setSlotPromptBus(null); }}
+                        onStage={handleSlotStage}
+                        busId={slotPromptBus.id}
+                        busNumber={slotPromptBus.busNumber}
+                        busShift={normalizeBusShift(slotPromptBus.shift)}
+                        routeName={getRouteForBus(slotPromptBus)?.routeName || slotPromptBus.routeName}
+                        newDriver={promptNewDriver}
+                        existingDrivers={promptExistingDrivers}
+                    />
+                )}
+
+                {/* Confirmation Modal */}
                 <DriverConfirmationModal
                     isOpen={showConfirmModal}
-                    onClose={() => {
-                        setShowConfirmModal(false);
-                        setNetAssignmentResult(null);
-                    }}
+                    onClose={() => { setShowConfirmModal(false); setNetAssignmentResult(null); }}
                     onFinalConfirm={handleFinalizeInitiate}
                     onRevert={handleRevert}
                     confirmationRows={netAssignmentResult?.confirmationRows || []}
@@ -1352,7 +1136,7 @@ export default function SmartDriverAssignmentPage() {
                     timerDuration={120}
                 />
 
-                {/* Reassignment History Modal */}
+                {/* History Modal */}
                 <ReassignmentHistoryModal
                     open={showHistoryModal}
                     onOpenChange={setShowHistoryModal}
@@ -1368,74 +1152,44 @@ export default function SmartDriverAssignmentPage() {
 // CURRENT ASSIGNMENT CARD COMPONENT
 // ============================================
 
-interface CurrentAssignmentCardProps {
-    bus: BusData;
-    route: RouteData | null;
-    driver: DriverData;
-}
-
-function CurrentAssignmentCard({ bus, route, driver }: CurrentAssignmentCardProps) {
+function CurrentAssignmentCard({ bus, route, driver }: { bus: BusData; route: RouteData | null; driver: DriverData }) {
+    const busShift = normalizeBusShift(bus.shift);
     return (
-        <div
-            className="p-4 rounded-xl border"
-            style={{
-                backgroundColor: `${tokens.success}10`,
-                borderColor: `${tokens.success}50`
-            }}
-        >
+        <div className="p-4 rounded-xl border" style={{ backgroundColor: `${tokens.success}10`, borderColor: `${tokens.success}50` }}>
             <div className="flex items-start justify-between mb-3">
                 <div className="flex items-center gap-3">
-                    <div
-                        className="w-12 h-12 rounded-xl flex items-center justify-center"
-                        style={{ backgroundColor: tokens.success }}
-                    >
+                    <div className="w-12 h-12 rounded-xl flex items-center justify-center" style={{ backgroundColor: tokens.success }}>
                         <Bus className="w-6 h-6 text-white" />
                     </div>
                     <div>
-                        <p className="font-semibold text-base" style={{ color: tokens.textPrimary }}>
-                            {bus.busNumber}
-                        </p>
-                        <p className="text-xs" style={{ color: tokens.textMuted }}>
-                            {route?.routeName || bus.routeName || "No Route"}
-                        </p>
+                        <p className="font-semibold text-base" style={{ color: tokens.textPrimary }}>{bus.busNumber}</p>
+                        <p className="text-xs" style={{ color: tokens.textMuted }}>{route?.routeName || bus.routeName || "No Route"}</p>
                     </div>
                 </div>
-                <Badge
-                    className="text-xs"
-                    style={{ backgroundColor: tokens.success, color: 'white' }}
-                >
-                    Current Assignment
-                </Badge>
+                <div className="flex flex-col items-end gap-1">
+                    <Badge className="text-xs" style={{ backgroundColor: tokens.success, color: 'white' }}>Current Assignment</Badge>
+                    <Badge className="text-[8px] px-1 py-0 border-none" style={{
+                        backgroundColor: `${tokens.primaryPurple}20`, color: tokens.primaryPurple
+                    }}>
+                        <Clock className="w-2 h-2 mr-0.5" />{busShift}
+                    </Badge>
+                </div>
             </div>
 
-            {/* Route Stops Pills */}
             {route?.stops && route.stops.length > 0 && (
                 <div className="mb-3">
-                    <p className="text-[10px] font-medium mb-1.5" style={{ color: tokens.textMuted }}>
-                        Route Stops
-                    </p>
+                    <p className="text-[10px] font-medium mb-1.5" style={{ color: tokens.textMuted }}>Route Stops</p>
                     <div className="flex flex-wrap gap-1.5">
                         {route.stops.slice(0, 6).map((stop, idx) => (
-                            <Badge
-                                key={idx}
-                                variant="outline"
-                                className="text-[9px] px-2 py-0.5"
-                                style={{
-                                    backgroundColor: `${tokens.success}15`,
-                                    borderColor: `${tokens.success}30`,
-                                    color: tokens.textPrimary
-                                }}
-                            >
+                            <Badge key={idx} variant="outline" className="text-[9px] px-2 py-0.5"
+                                style={{ backgroundColor: `${tokens.success}15`, borderColor: `${tokens.success}30`, color: tokens.textPrimary }}>
                                 <MapPin className="w-2.5 h-2.5 mr-1" style={{ color: tokens.success }} />
                                 {stop.name}
                             </Badge>
                         ))}
                         {route.stops.length > 6 && (
-                            <Badge
-                                variant="outline"
-                                className="text-[9px] px-2 py-0.5"
-                                style={{ borderColor: tokens.borderDark, color: tokens.textMuted }}
-                            >
+                            <Badge variant="outline" className="text-[9px] px-2 py-0.5"
+                                style={{ borderColor: tokens.borderDark, color: tokens.textMuted }}>
                                 +{route.stops.length - 6} more
                             </Badge>
                         )}
@@ -1443,19 +1197,13 @@ function CurrentAssignmentCard({ bus, route, driver }: CurrentAssignmentCardProp
                 </div>
             )}
 
-            {/* Driver Info */}
-            <div
-                className="flex items-center gap-2 text-xs pt-2 border-t"
-                style={{ borderColor: `${tokens.success}30`, color: tokens.textMuted }}
-            >
+            <div className="flex items-center gap-2 text-xs pt-2 border-t"
+                style={{ borderColor: `${tokens.success}30`, color: tokens.textMuted }}>
                 <User className="w-3.5 h-3.5" />
                 <span>Driver: <strong style={{ color: tokens.textPrimary }}>{driver.fullName || driver.name}</strong></span>
                 {driver.shift && (
-                    <Badge
-                        variant="outline"
-                        className="text-[9px] ml-2"
-                        style={{ borderColor: tokens.borderDark, color: tokens.textMuted }}
-                    >
+                    <Badge variant="outline" className="text-[9px] ml-2"
+                        style={{ borderColor: tokens.borderDark, color: tokens.textMuted }}>
                         {driver.shift}
                     </Badge>
                 )}

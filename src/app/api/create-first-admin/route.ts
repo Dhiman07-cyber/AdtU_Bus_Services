@@ -36,6 +36,28 @@ try {
 
 export async function POST(request: Request) {
   try {
+    const bootstrapSecret = process.env.FIRST_ADMIN_BOOTSTRAP_SECRET;
+    if (!bootstrapSecret) {
+      return new Response(JSON.stringify({
+        success: false,
+        error: 'Bootstrap is disabled'
+      }), {
+        status: 403,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+
+    const headerSecret = request.headers.get('x-bootstrap-secret');
+    if (headerSecret !== bootstrapSecret) {
+      return new Response(JSON.stringify({
+        success: false,
+        error: 'Unauthorized bootstrap request'
+      }), {
+        status: 401,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+
     const { uid, email, name } = await request.json();
     
     // Validate input

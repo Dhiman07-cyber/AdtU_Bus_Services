@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { db as adminDb } from '@/lib/firebase-admin';
 import { notifyRoute } from '@/lib/services/fcm-notification-service';
-import { createClient } from '@supabase/supabase-js';
+import { getSupabaseServer } from '@/lib/supabase-server';
 import { FieldValue, Timestamp } from 'firebase-admin/firestore';
 import { snapStops, type SnapResult } from '@/lib/coordinate-snapping';
 import { getRobustRoute } from '@/lib/ors-robust-client';
@@ -12,6 +12,8 @@ import { RateLimits } from '@/lib/security/rate-limiter';
 import crypto from 'crypto';
 
 const ORS_API_KEY = process.env.ORS_API_KEY || '';
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
 /**
  * POST /api/driver/start-journey-v2
@@ -218,9 +220,6 @@ export const POST = withSecurity(
     console.log(`\n⚡ STEP 1: Bus lock acquired successfully.`);
 
     // Initialize Supabase client
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-    const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
     if (!supabaseUrl || !supabaseKey) {
       return NextResponse.json(
         { error: 'Server configuration error: Missing Supabase credentials' },
@@ -229,7 +228,7 @@ export const POST = withSecurity(
     }
 
     // Create new client for this request context
-    const supabase = createClient(supabaseUrl, supabaseKey);
+    const supabase = getSupabaseServer();
 
     // Initialize Supabase realtime state IMMEDIATELY
     const { error: driverStatusError } = await supabase

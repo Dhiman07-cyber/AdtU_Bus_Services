@@ -8,8 +8,6 @@ import {
   query,
   where,
   getDocs,
-  doc,
-  getDoc,
 } from "firebase/firestore";
 import { useAuth } from "@/contexts/auth-context";
 import { toast } from "react-hot-toast";
@@ -199,8 +197,30 @@ export default function SmartAllocationPage() {
 
     setLoading(true);
     try {
-      const busesSnapshot = await getDocs(collection(db, "buses"));
+      const [busesSnapshot, driversSnapshot, studentsSnapshot] = await Promise.all([
+        getDocs(collection(db, "buses")),
+        getDocs(collection(db, "drivers")),
+        getDocs(collection(db, "students")),
+      ]);
       const busData: BusData[] = [];
+      const driverMap = new Map<string, any>();
+      const stopCountsByBus = new Map<string, Map<string, number>>();
+
+      driversSnapshot.forEach((driverDoc) => {
+        driverMap.set(driverDoc.id, driverDoc.data());
+      });
+      studentsSnapshot.forEach((studentDoc) => {
+        const student = studentDoc.data() as any;
+        const busId = student.assignedBusId || student.busId;
+        if (!busId) return;
+        if (!stopCountsByBus.has(busId)) {
+          stopCountsByBus.set(busId, new Map<string, number>());
+        }
+        const stopCounts = stopCountsByBus.get(busId)!;
+        const stopId = student.stopId || '';
+        if (!stopId) return;
+        stopCounts.set(stopId, (stopCounts.get(stopId) || 0) + 1);
+      });
 
       for (const busDoc of busesSnapshot.docs) {
         const data = busDoc.data();
@@ -216,17 +236,12 @@ export default function SmartAllocationPage() {
         let driverData = {};
         const driverId = data.activeDriverId || data.assignedDriverId;
         if (driverId) {
-          try {
-            const driverDoc = await getDoc(doc(db, "drivers", driverId));
-            if (driverDoc.exists()) {
-              const driver = driverDoc.data();
-              driverData = {
-                driverName: driver.fullName,
-                driverPhoto: driver.photoURL,
-              };
-            }
-          } catch (err) {
-            console.error("Error fetching driver:", err);
+          const driver = driverMap.get(driverId);
+          if (driver) {
+            driverData = {
+              driverName: driver.fullName,
+              driverPhoto: driver.photoURL,
+            };
           }
         }
 
@@ -303,19 +318,7 @@ export default function SmartAllocationPage() {
         }
 
         // Count students per stop
-        const stopCounts = new Map<string, number>();
-        if (data.currentMembers > 0) {
-          const studentsQuery = query(
-            collection(db, "students"),
-            where("assignedBusId", "==", busDoc.id)
-          );
-          const studentsSnap = await getDocs(studentsQuery);
-          studentsSnap.forEach((studentDoc) => {
-            const student = studentDoc.data();
-            const count = stopCounts.get(student.stopId) || 0;
-            stopCounts.set(student.stopId, count + 1);
-          });
-        }
+        const stopCounts = stopCountsByBus.get(busDoc.id) || new Map<string, number>();
 
         // Format route name properly
         let formattedRouteName =
@@ -720,7 +723,7 @@ export default function SmartAllocationPage() {
   };
 
   if (loading) {
-    return <PremiumPageLoader message="Smart Stop Allocation" subMessage="Loading allocation system..." />;
+    return <PremiumPageLoader fullScreen message="Smart Stop Allocation" subMessage="Loading allocation system..." />;
   }
 
   return (

@@ -60,7 +60,6 @@ export async function POST(req: NextRequest) {
     const newHistoryEntry = {
       amount: oldAmount,
       updatedAt: systemConfig?.busFee?.updatedAt || new Date().toISOString(),
-      updatedBy: systemConfig?.busFee?.updatedBy || 'system'
     };
 
     // Construct new config object
@@ -70,7 +69,6 @@ export async function POST(req: NextRequest) {
       busFee: {
         amount: amount,
         updatedAt: new Date().toISOString(),
-        updatedBy: uid,
         version: (systemConfig?.busFee?.version || 0) + 1,
         history: [...existingHistory, newHistoryEntry]
       }

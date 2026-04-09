@@ -20,6 +20,7 @@ import { db } from "@/lib/firebase";
 import "@/styles/animations.css";
 import { PremiumPageLoader } from "@/components/LoadingSpinner";
 import { supabase } from "@/lib/supabase-client";
+import { authApiFetch } from "@/lib/secure-api-client";
 
 export default function DriverDashboard() {
   const { userData, currentUser } = useAuth();
@@ -46,8 +47,10 @@ export default function DriverDashboard() {
     const checkExpiredSwaps = async () => {
       try {
         console.log('🔍 Checking for expired swap requests...');
-        const response = await fetch('/api/driver-swap/check-expired', {
-          method: 'POST'
+        const response = await authApiFetch(currentUser, '/api/driver-swap/check-expired', {
+          method: 'POST',
+          cache: 'no-store',
+          timeoutMs: 10000,
         });
 
         if (response.ok) {
@@ -179,10 +182,8 @@ export default function DriverDashboard() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentUser?.uid]);
 
-  // One-time fetch for buses, routes, and students (tie to auth state)
-  // SPARK PLAN SAFETY: Replaced onSnapshot with getDocs to prevent quota exhaustion
+  // Targeted fetch for only assigned bus/route/students.
   useEffect(() => {
-    // Skip setting up listeners when signed out; also clear local state
     if (!currentUser) {
       setBuses([]);
       setRoutes([]);
@@ -193,59 +194,60 @@ export default function DriverDashboard() {
       return;
     }
 
-    const fetchAllData = async () => {
-      console.log('📦 Fetching buses, routes, and students (one-time independently)...');
-
+    const fetchAssignedData = async () => {
       try {
-        const { getDocs } = await import('firebase/firestore');
+        const { query, where } = await import('firebase/firestore');
+        const assignedBusId = assignedBusData?.id || driverDataFirestore?.assignedBusId || driverDataFirestore?.busId;
+        const assignedRouteId = assignedRouteData?.id || driverDataFirestore?.assignedRouteId || driverDataFirestore?.routeId;
 
-        // Fetch collections independently to avoid Promise.all failure if rules reject one (e.g., students collection)
-        getDocs(collection(db, 'buses'))
-          .then(snapshot => {
-            const busesData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-            console.log('🚌 Loaded buses:', busesData.length);
-            setBuses(busesData);
-            setBusesLoading(false);
-          })
-          .catch(error => {
-            console.error('❌ Error fetching buses:', error);
-            setBusesLoading(false);
-          });
+        const [busResult, routeResult, studentsResult] = await Promise.allSettled([
+          assignedBusId ? getDoc(doc(db, 'buses', assignedBusId)) : Promise.resolve(null),
+          assignedRouteId ? getDoc(doc(db, 'routes', assignedRouteId)) : Promise.resolve(null),
+          assignedBusId
+            ? getDocs(query(collection(db, 'students'), where('busId', '==', assignedBusId), where('status', '==', 'active')))
+            : Promise.resolve(null),
+        ]);
 
-        getDocs(collection(db, 'routes'))
-          .then(snapshot => {
-            const routesData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-            console.log('🗺️ Loaded routes:', routesData.length);
-            setRoutes(routesData);
-            setRoutesLoading(false);
-          })
-          .catch(error => {
-            console.error('❌ Error fetching routes:', error);
-            setRoutesLoading(false);
-          });
+        if (busResult.status === 'fulfilled' && busResult.value?.exists?.()) {
+          const bus = { id: busResult.value.id, ...busResult.value.data() };
+          setBuses([bus]);
+          if (!assignedBusData) setAssignedBusData(bus);
+        } else {
+          setBuses([]);
+        }
 
-        getDocs(collection(db, 'students'))
-          .then(snapshot => {
-            const studentsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-            console.log('👥 Loaded students:', studentsData.length);
-            setStudents(studentsData);
-            setStudentsLoading(false);
-          })
-          .catch(error => {
-            console.error('❌ Error fetching students (possibly security rules restricted):', error);
-            setStudentsLoading(false);
-          });
+        if (routeResult.status === 'fulfilled' && routeResult.value?.exists?.()) {
+          const route = { id: routeResult.value.id, ...routeResult.value.data() };
+          setRoutes([route]);
+          if (!assignedRouteData) setAssignedRouteData(route);
+        } else {
+          setRoutes([]);
+        }
 
+        if (studentsResult.status === 'fulfilled' && studentsResult.value) {
+          setStudents(studentsResult.value.docs.map((studentDoc) => ({ id: studentDoc.id, ...studentDoc.data() })));
+        } else {
+          setStudents([]);
+        }
       } catch (error: any) {
-        console.error('❌ General error initializing fetch:', error);
+        console.error('❌ Error fetching assigned driver data:', error);
+      } finally {
         setBusesLoading(false);
         setRoutesLoading(false);
         setStudentsLoading(false);
       }
     };
 
-    fetchAllData();
-  }, [currentUser]);
+    fetchAssignedData();
+  }, [
+    currentUser,
+    driverDataFirestore?.assignedBusId,
+    driverDataFirestore?.busId,
+    driverDataFirestore?.assignedRouteId,
+    driverDataFirestore?.routeId,
+    assignedBusData,
+    assignedRouteData,
+  ]);
 
   // Use Firestore data
   const driverData = driverDataFirestore;
@@ -336,7 +338,6 @@ export default function DriverDashboard() {
     const fetchCurrentStatus = async () => {
       try {
         console.log('🔍 Fetching current driver status from Supabase...');
-        const idToken = await currentUser.getIdToken();
         const { data, error } = await supabase
           .from('driver_status')
           .select('status, bus_id')
@@ -352,10 +353,9 @@ export default function DriverDashboard() {
         } else {
           // If no driver_status row for UID, check by busId as fallback
           if (busId) {
-            const response = await fetch(`/api/student/trip-status?busId=${encodeURIComponent(busId)}`, {
-              headers: {
-                'Authorization': `Bearer ${idToken}`
-              }
+            const response = await authApiFetch(currentUser, '/api/student/trip-status', {
+              query: { busId },
+              timeoutMs: 8000,
             });
             if (response.ok) {
               const result = await response.json();

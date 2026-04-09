@@ -1,12 +1,9 @@
 import { NextResponse } from 'next/server';
 import { DriverSwapSupabaseService } from '@/lib/driver-swap-supabase';
-import { createClient } from '@supabase/supabase-js';
+import { getSupabaseServer } from '@/lib/supabase-server';
+import { withCronSecurity } from '@/lib/security/api-security';
 
-// Supabase client for quick counts
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
+const supabase = getSupabaseServer();
 
 /**
  * Scheduled Cron Job: Cleanup old swap requests
@@ -18,7 +15,7 @@ const supabase = createClient(
  * 1. Expire pending requests that have passed their acceptance window
  * 2. End accepted swaps that have passed their end time (but skips if trip is ongoing)
  */
-export async function GET(request: Request) {
+const _get = async (request: Request) => {
   try {
     console.log('🕐 [CRON] Starting scheduled swap cleanup (Supabase)...');
     const startTime = Date.now();
@@ -89,9 +86,11 @@ export async function GET(request: Request) {
       { status: 500 }
     );
   }
-}
+};
 
 // Also support POST for manual triggers
 export async function POST(request: Request) {
   return GET(request);
 }
+
+export const GET = withCronSecurity(_get);

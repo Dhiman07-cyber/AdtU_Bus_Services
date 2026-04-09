@@ -1,7 +1,6 @@
 import { NextResponse } from 'next/server';
 import { adminAuth, adminDb } from '@/lib/firebase-admin';
 import { FieldValue, Transaction, DocumentSnapshot, DocumentReference } from 'firebase-admin/firestore';
-import { createUpdatedByEntry } from '@/lib/utils/updatedBy';
 import { withSecurity } from '@/lib/security/api-security';
 import { UpdateStudentSchema } from '@/lib/security/validation-schemas';
 import { RateLimits } from '@/lib/security/rate-limiter';
@@ -52,7 +51,6 @@ export const POST = withSecurity(
                 }, {} as any);
 
                 cleanedUpdateData.updatedAt = new Date().toISOString();
-                cleanedUpdateData.updatedBy = FieldValue.arrayUnion(createUpdatedByEntry(currentUserName, currentUserEmployeeId));
 
                 const busChanged = oldBusId !== newBusId;
                 const shiftChanged = oldShift !== newShift;

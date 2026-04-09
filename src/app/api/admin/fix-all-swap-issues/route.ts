@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db as adminDb } from '@/lib/firebase-admin';
+import { withSecurity } from '@/lib/security/api-security';
+import { RateLimits } from '@/lib/security/rate-limiter';
 
 /**
  * COMPREHENSIVE FIX: Fix all driver swap validation issues
@@ -9,7 +11,7 @@ import { db as adminDb } from '@/lib/firebase-admin';
  * 2. Bus driver IDs (maps legacy IDs to Firebase UIDs)
  * 3. Validates all relationships
  */
-export async function POST(req: NextRequest) {
+const _post = async (req: NextRequest) => {
   try {
     console.log('🔧 Starting comprehensive driver swap fix...\n');
 
@@ -129,4 +131,9 @@ export async function POST(req: NextRequest) {
       { status: 500 }
     );
   }
-}
+};
+
+export const POST = withSecurity(_post, {
+  requiredRoles: ['admin'],
+  rateLimit: RateLimits.BULK_OPERATION,
+});

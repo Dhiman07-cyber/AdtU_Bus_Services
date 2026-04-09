@@ -35,8 +35,6 @@ async function writeToSupabaseViaAPI(payload: {
     changes: ChangeRecord[];
     meta: Record<string, any>;
 }): Promise<boolean> {
-    console.log('[writeToSupabaseViaAPI] 🚀 Writing to Supabase...');
-    console.log('[writeToSupabaseViaAPI] Operation:', payload.operationId, 'Type:', payload.type);
 
     try {
         // Get current user token
@@ -59,14 +57,12 @@ async function writeToSupabaseViaAPI(payload: {
         });
 
         const result = await response.json();
-        console.log('[writeToSupabaseViaAPI] Response:', response.status, JSON.stringify(result));
 
         if (!response.ok) {
             console.error('[writeToSupabaseViaAPI] ❌ API error:', result.error);
             return false;
         }
 
-        console.log('[writeToSupabaseViaAPI] ✅ SUCCESS - Log ID:', result.data?.id);
         return true;
     } catch (err: any) {
         console.error('[writeToSupabaseViaAPI] ❌ Exception:', err.message);
@@ -519,8 +515,6 @@ export async function commitNetChanges(
     const updatedDrivers: string[] = [];
 
     try {
-        console.log("🚀 [commitNetChanges] Starting transaction...");
-        console.log(`Changes to apply: ${netChanges.size} bus updates`);
 
         // Validate actor
         if (!adminUid) {
@@ -603,7 +597,6 @@ export async function commitNetChanges(
 
         // Write audit log (outside transaction for performance)
         try {
-            console.log('🔵 [commitNetChanges] Calling writeAssignmentAuditLog...');
             await writeAssignmentAuditLog(
                 adminUid,
                 updatedBuses,
@@ -613,7 +606,6 @@ export async function commitNetChanges(
                 stagingSnapshot,
                 actorInfo
             );
-            console.log('🟢 [commitNetChanges] writeAssignmentAuditLog completed');
         } catch (auditError) {
             console.error('🔴 [commitNetChanges] Audit log write failed:', auditError);
         }
@@ -648,8 +640,6 @@ async function writeAssignmentAuditLog(
     stagingSnapshot?: StagedOperation[],
     actorInfo?: { name: string; role: string; label?: string }
 ): Promise<void> {
-    console.log('📝 [writeAssignmentAuditLog] START');
-    console.log('📝 [writeAssignmentAuditLog] Buses:', updatedBuses.length, 'Drivers:', updatedDrivers.length);
 
     const ttlDate = new Date();
     ttlDate.setDate(ttlDate.getDate() + 30); // 30-day TTL
@@ -685,7 +675,6 @@ async function writeAssignmentAuditLog(
 
 
     // Also write to Supabase reassignment_logs with full change records for rollback
-    console.log('📝 [writeAssignmentAuditLog] Preparing Supabase write...');
     try {
         // Build change records with before/after for rollback support
         const supabaseChanges: ChangeRecord[] = [];
@@ -734,8 +723,6 @@ async function writeAssignmentAuditLog(
 
         // Generate operation ID
         const operationId = `driver_reassignment_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
-        console.log('📝 [writeAssignmentAuditLog] Operation ID:', operationId);
-        console.log('📝 [writeAssignmentAuditLog] Changes count:', supabaseChanges.length);
 
         // Generate actor label
         let actorLabel = actorInfo?.label;
@@ -758,7 +745,6 @@ async function writeAssignmentAuditLog(
         }
 
         // Write to Supabase via API route (works from client side)
-        console.log('📝 [writeAssignmentAuditLog] Calling writeToSupabaseViaAPI...');
         const writeResult = await writeToSupabaseViaAPI({
             operationId,
             type: 'driver_reassignment',
@@ -774,7 +760,6 @@ async function writeAssignmentAuditLog(
             },
         });
         if (writeResult) {
-            console.log('✅ [writeAssignmentAuditLog] Supabase write SUCCESS');
         } else {
             console.error('❌ [writeAssignmentAuditLog] Supabase write FAILED');
         }
@@ -783,7 +768,6 @@ async function writeAssignmentAuditLog(
         console.error('❌ [writeAssignmentAuditLog] Supabase error:', supabaseError);
     }
 
-    console.log('📝 [writeAssignmentAuditLog] END');
 }
 
 // ============================================

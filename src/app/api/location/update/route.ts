@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { auth, db as adminDb, FieldValue } from '@/lib/firebase-admin';
+import { getSupabaseServer } from '@/lib/supabase-server';
 import { createClient } from '@supabase/supabase-js';
 
 const supabase = createClient(

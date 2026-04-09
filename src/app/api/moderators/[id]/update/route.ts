@@ -3,7 +3,7 @@ import { getApps, initializeApp } from 'firebase-admin/app';
 import { getFirestore, FieldValue } from 'firebase-admin/firestore';
 import fs from 'fs';
 import path from 'path';
-import { createUpdatedByEntry, getUpdaterInfo } from '@/lib/utils/updatedBy';
+import {  getUpdaterInfo } from '@/lib/utils/updatedBy';
 
 // Get the data directory path
 const dataDirectory = path.join(process.cwd(), 'src', 'data');
@@ -82,7 +82,6 @@ export async function PUT(request: Request, { params }: { params: Promise<{ id: 
         }
 
         // Add audit trail entry
-        updatedModeratorData.updatedBy = FieldValue.arrayUnion(createUpdatedByEntry('Admin', 'Admin'));
         updatedModeratorData.updatedAt = new Date().toISOString();
 
         await moderatorDocRef.update(updatedModeratorData);
@@ -136,11 +135,6 @@ export async function PUT(request: Request, { params }: { params: Promise<{ id: 
         }
 
         moderators[index] = { ...moderators[index], ...updatedModeratorData };
-        // Add updatedBy for JSON file (as simple string entry since FieldValue doesn't work here)
-        if (!moderators[index].updatedBy) {
-          moderators[index].updatedBy = [];
-        }
-        moderators[index].updatedBy.push(createUpdatedByEntry('Admin', 'Admin'));
         writeJsonFile('Moderators.json', moderators);
         console.log(`Moderator with ID ${id} updated in JSON file`);
 

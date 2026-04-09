@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { db as adminDb, auth as adminAuth } from '@/lib/firebase-admin';
-import { createClient } from '@supabase/supabase-js';
+import { getSupabaseServer } from '@/lib/supabase-server';
 import { FieldValue } from 'firebase-admin/firestore';
 import { withSecurity } from '@/lib/security/api-security';
 import { AcceptSwapSchema } from '@/lib/security/validation-schemas';
@@ -86,10 +86,7 @@ export const POST = withSecurity(
     // ===== Post-transaction actions =====
 
     // Initialize Supabase client
-    const supabase = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL || '',
-      process.env.SUPABASE_SERVICE_ROLE_KEY || ''
-    );
+    const supabase = getSupabaseServer();
 
     // Get bus data for notifications
     const busDoc = await busRef.get();

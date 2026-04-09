@@ -18,6 +18,7 @@ export async function GET(request: NextRequest) {
         const mode = searchParams.get('mode') || 'days';
 
         const stats = await paymentsSupabaseService.getPaymentStats();
+        const methodTrend = await paymentsSupabaseService.getPaymentMethodTrend();
 
         let trend;
         if (mode === 'months') {
@@ -30,7 +31,8 @@ export async function GET(request: NextRequest) {
             success: true,
             data: {
                 ...stats,
-                trend
+                trend,
+                methodTrend
             }
         });
 

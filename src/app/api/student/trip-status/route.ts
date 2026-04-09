@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
+import { getSupabaseServer } from '@/lib/supabase-server';
 import { withSecurity } from '@/lib/security/api-security';
 import { TripStatusQuerySchema } from '@/lib/security/validation-schemas';
 import { RateLimits } from '@/lib/security/rate-limiter';
@@ -24,11 +24,8 @@ export const GET = withSecurity(
             }, { status: 400 });
         }
 
-        // Initialize Supabase client
-        const supabase = createClient(
-            process.env.NEXT_PUBLIC_SUPABASE_URL || '',
-            process.env.SUPABASE_SERVICE_ROLE_KEY || ''
-        );
+        // PERF: Use singleton Supabase client instead of creating one per request
+        const supabase = getSupabaseServer();
 
         // Query driver_status for active trips
         const { data, error } = await supabase

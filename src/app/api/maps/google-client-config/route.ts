@@ -36,7 +36,7 @@ export async function GET(req: NextRequest) {
         }
 
         const uid = decoded.uid;
-        const userRl = applyRateLimit(createRateLimitId(uid, 'maps-google-client-config'), RateLimits.MAPS_CLIENT_CONFIG);
+        const userRl = await applyRateLimit(createRateLimitId(uid, 'maps-google-client-config'), RateLimits.MAPS_CLIENT_CONFIG);
         if (!userRl.allowed) {
             return NextResponse.json(
                 { ok: false },

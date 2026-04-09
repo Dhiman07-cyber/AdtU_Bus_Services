@@ -13,6 +13,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { adminAuth, adminDb } from '@/lib/firebase-admin';
 
+// PERF: Module-scoped role cache (5-min TTL) — avoids Firestore reads for repeat auth checks
+const _authRoleCache = new Map<string, { role: string; name: string; employeeId: string; expiresAt: number }>();
+const AUTH_ROLE_CACHE_TTL = 5 * 60 * 1000;
+
 // ============================================================================
 // TYPES
 // ============================================================================
@@ -111,12 +115,19 @@ export async function verifyApiAuth(
         const uid = decodedToken.uid;
         const email = decodedToken.email || '';
 
-        // 3. Look up user role from Firestore
+
+
+        // 3. Look up user role from Firestore (with cache)
         let role = '';
         let name = '';
         let employeeId = '';
 
-        if (adminDb) {
+        const cached = _authRoleCache.get(uid);
+        if (cached && Date.now() < cached.expiresAt) {
+            role = cached.role;
+            name = cached.name;
+            employeeId = cached.employeeId;
+        } else if (adminDb) {
             // PERF: Check users collection first (most common), then parallel fallback
             const userDoc = await adminDb.collection('users').doc(uid).get();
             if (userDoc.exists) {
@@ -146,6 +157,16 @@ export async function verifyApiAuth(
                 } else if (studentDoc.exists) {
                     role = 'student';
                     name = studentDoc.data()?.fullName || studentDoc.data()?.name || '';
+                }
+            }
+
+            // Cache the result
+            if (role) {
+                _authRoleCache.set(uid, { role, name, employeeId, expiresAt: Date.now() + AUTH_ROLE_CACHE_TTL });
+                // Evict oldest if over 2000 entries
+                if (_authRoleCache.size > 2000) {
+                    const firstKey = _authRoleCache.keys().next().value;
+                    if (firstKey) _authRoleCache.delete(firstKey);
                 }
             }
         }

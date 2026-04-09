@@ -170,12 +170,31 @@ export default function SmartRouteAllocationPage() {
 
     // ============================================
     // DATA LOADING
-    // SPARK PLAN SAFETY: Using getDocs (one-time) instead of onSnapshot (realtime)
-    // onSnapshot on entire collections was causing excessive reads!
+    // PERF: Session-cached to avoid re-fetch on back-navigation
     // ============================================
 
-    const fetchAllData = useCallback(async () => {
+    const ROUTE_CACHE_KEY = 'adtu_route_allocation_cache';
+    const ROUTE_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
+    const fetchAllData = useCallback(async (skipCache = false) => {
         if (!currentUser) return;
+
+        // Try cache first
+        if (!skipCache) {
+            try {
+                const raw = sessionStorage.getItem(ROUTE_CACHE_KEY);
+                if (raw) {
+                    const { data, expires } = JSON.parse(raw);
+                    if (Date.now() < expires) {
+                        setBuses(data.buses);
+                        setRoutes(data.routes);
+                        setLoading(false);
+                        return;
+                    }
+                    sessionStorage.removeItem(ROUTE_CACHE_KEY);
+                }
+            } catch { }
+        }
 
         setLoading(true);
         try {
@@ -197,7 +216,13 @@ export default function SmartRouteAllocationPage() {
             })) as RouteData[];
             setRoutes(routesData);
 
-            console.log(`[RouteAllocation] Loaded: ${busesData.length} buses, ${routesData.length} routes`);
+            // Cache for back-navigation
+            try {
+                sessionStorage.setItem(ROUTE_CACHE_KEY, JSON.stringify({
+                    data: { buses: busesData, routes: routesData },
+                    expires: Date.now() + ROUTE_CACHE_TTL,
+                }));
+            } catch { }
         } catch (error: any) {
             console.error("Error loading data:", error);
             toast.error("Failed to load data. Please refresh.");

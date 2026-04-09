@@ -131,7 +131,6 @@ function handleChunkLoadError(message: string) {
     setTimeout(() => {
       // Only reload if user is still on the page and online
       if (navigator.onLine && !document.hidden) {
-        console.log('♻️ Reloading page to recover from chunk errors...');
         window.location.reload();
       }
     }, 1000);
@@ -143,14 +142,12 @@ function handleChunkLoadError(message: string) {
  */
 function handleVisibilityChange() {
   if (document.hidden) {
-    console.log('📱 App backgrounded');
     // Clear any pending reconnect attempts
     if (reconnectTimeoutId) {
       clearTimeout(reconnectTimeoutId);
       reconnectTimeoutId = null;
     }
   } else {
-    console.log('📱 App foregrounded');
 
     // Check network status and trigger reconnection if needed
     if (navigator.onLine) {
@@ -173,7 +170,6 @@ function handleOnlineStatusChange() {
 
   if (isOnline && !lastOnlineStatus) {
     // Just came back online
-    console.log('🌐 Connection restored');
 
     // Clear any pending reconnect
     if (reconnectTimeoutId) {
@@ -188,7 +184,6 @@ function handleOnlineStatusChange() {
 
   } else if (!isOnline && lastOnlineStatus) {
     // Just went offline
-    console.log('📴 Connection lost');
     window.dispatchEvent(new CustomEvent('app-offline'));
   }
 
@@ -204,7 +199,6 @@ export function initMobileErrorHandler() {
     return;
   }
 
-  console.log('📱 Initializing enhanced mobile error handler...');
 
   // Initialize online status
   lastOnlineStatus = navigator.onLine;
@@ -351,7 +345,6 @@ export function initMobileErrorHandler() {
   }
 
   isInitialized = true;
-  console.log('✅ Enhanced mobile error handler initialized');
 }
 
 /**

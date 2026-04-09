@@ -3,7 +3,6 @@ import { getApps, initializeApp } from 'firebase-admin/app';
 import { getFirestore, FieldValue } from 'firebase-admin/firestore';
 import fs from 'fs';
 import path from 'path';
-import { createUpdatedByEntry } from '@/lib/utils/updatedBy';
 
 // Get the data directory path
 const dataDirectory = path.join(process.cwd(), 'src', 'data');
@@ -82,7 +81,6 @@ export async function PUT(request: Request, { params }: { params: Promise<{ id: 
         }
 
         // Add audit trail entry
-        updatedDriverData.updatedBy = FieldValue.arrayUnion(createUpdatedByEntry('Admin', 'Admin'));
         updatedDriverData.updatedAt = new Date().toISOString();
 
         await driverDocRef.update(updatedDriverData);
@@ -137,11 +135,6 @@ export async function PUT(request: Request, { params }: { params: Promise<{ id: 
         }
 
         drivers[index] = { ...drivers[index], ...updatedDriverData };
-        // Add updatedBy for JSON file
-        if (!drivers[index].updatedBy) {
-          drivers[index].updatedBy = [];
-        }
-        drivers[index].updatedBy.push(createUpdatedByEntry('Admin', 'Admin'));
         writeJsonFile('Drivers.json', drivers);
         console.log(`Driver with ID ${id} updated in JSON file`);
 

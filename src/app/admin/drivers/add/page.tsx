@@ -11,12 +11,12 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { RefreshCw, Info, Camera, Trash2 } from "lucide-react";
+import { RefreshCw, Info, Camera, Trash2, AlertTriangle } from "lucide-react";
 import { OptimizedInput, OptimizedTextarea } from '@/components/forms';
 import EnhancedDatePicker from "@/components/enhanced-date-picker";
 import ProfileImageAddModal from '@/components/ProfileImageAddModal';
 import Image from 'next/image';
-import { getAllRoutes, getAllBuses, getAllDrivers, getModeratorById } from '@/lib/dataService';
+import { getAllRoutes, getAllBuses, getAllDrivers, getModeratorById, updateDriver } from '@/lib/dataService';
 import { Route } from '@/lib/types';
 import RouteSelect from '@/components/RouteSelect';
 import { useDebouncedStorage } from '@/hooks/useDebouncedStorage';
@@ -57,6 +57,10 @@ export default function AddDriver() {
   const [routes, setRoutes] = useState<Route[]>([]);
   const [buses, setBuses] = useState<any[]>([]);
   const [busOptions, setBusOptions] = useState<any[]>([]);
+  const [driversList, setDriversList] = useState<any[]>([]);
+  const [availableShifts, setAvailableShifts] = useState<string[]>(['Morning', 'Evening', 'Both']);
+  const [showConflictModal, setShowConflictModal] = useState(false);
+  const [conflictDriver, setConflictDriver] = useState<any>(null);
   const [loadingRoutes, setLoadingRoutes] = useState(true);
   const [hoveredRoute, setHoveredRoute] = useState<string | null>(null);
   const hoverTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -78,7 +82,7 @@ export default function AddDriver() {
     driverId: '',
     address: '',
     approvedBy: '',
-    shift: 'Morning & Evening',
+    shift: 'Both',
   };
 
   // Always initialize with empty form data - no auto-fill
@@ -182,6 +186,7 @@ export default function AddDriver() {
         ]);
         setRoutes(routesData);
         setBuses(busesData);
+        setDriversList(driversData);
 
         // Logic for Employee ID: DB-XY
         const nextCount = driversData.length + 1;
@@ -202,6 +207,45 @@ export default function AddDriver() {
 
     fetchData();
   }, [addToast]);
+
+  useEffect(() => {
+    if (!formData.busId || formData.routeId === 'reserved') {
+      setAvailableShifts(['Morning', 'Evening', 'Both']);
+      return;
+    }
+
+    const existingDriver = driversList.find(d => 
+      (d.busId === formData.busId || d.assignedBusId === formData.busId) && !d.isReserved
+    );
+
+    if (existingDriver) {
+      const existingShift = (existingDriver.shift || '').toLowerCase();
+      
+      // Update available shifts base on what's occupied
+      if (existingShift === 'both' || existingShift === 'morning & evening') {
+        // Bus is fully covered, but we allow adding another if user confirms later
+        setAvailableShifts(['Morning', 'Evening']); 
+        setConflictDriver(existingDriver);
+      } else if (existingShift === 'morning') {
+        setAvailableShifts(['Morning', 'Evening']);
+        // Auto-suggest the other shift
+        if (formData.shift === 'Morning' || formData.shift === 'Both' || formData.shift === 'Morning & Evening') {
+          setFormData(prev => ({ ...prev, shift: 'Evening' }));
+        }
+        setConflictDriver(null);
+      } else if (existingShift === 'evening') {
+        setAvailableShifts(['Morning', 'Evening']);
+        // Auto-suggest the other shift
+        if (formData.shift === 'Evening' || formData.shift === 'Both' || formData.shift === 'Morning & Evening') {
+          setFormData(prev => ({ ...prev, shift: 'Morning' }));
+        }
+        setConflictDriver(null);
+      }
+    } else {
+      setAvailableShifts(['Morning', 'Evening', 'Both']);
+      setConflictDriver(null);
+    }
+  }, [formData.busId, driversList]);
 
   useEffect(() => {
     if (!loading && !currentUser) {
@@ -396,11 +440,31 @@ export default function AddDriver() {
     setFormData(prev => ({ ...prev, profilePhoto: null }));
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleSubmit = async (e?: React.FormEvent) => {
+    if (e && typeof e.preventDefault === 'function') {
+      e.preventDefault();
+    }
 
     if (!validateForm()) {
       return;
+    }
+
+    if (e) {
+      const existingDriver = driversList.find(d => 
+        (d.busId === formData.busId || d.assignedBusId === formData.busId) && !d.isReserved
+      );
+      
+      if (existingDriver) {
+        const eShift = (existingDriver.shift || '').toLowerCase();
+        const fShift = (formData.shift === 'Morning & Evening' ? 'both' : formData.shift).toLowerCase();
+        
+        // CONFLICT: Either already Both, or same shift
+        if (eShift === 'both' || eShift === 'morning & evening' || eShift === fShift) {
+          setConflictDriver(existingDriver);
+          setShowConflictModal(true);
+          return; 
+        }
+      }
     }
 
     setLoadingSubmit(true);
@@ -463,7 +527,7 @@ export default function AddDriver() {
           assignedBusId: assignedBusId,
           assignedRouteId: assignedRouteId,
           approvedBy: formData.approvedBy,
-          shift: formData.shift
+          shift: formData.shift === 'Morning & Evening' ? 'Both' : formData.shift
         }),
       });
 
@@ -511,7 +575,7 @@ export default function AddDriver() {
       driverId: '',
       address: '',
       approvedBy: approvedByValue,
-      shift: 'Morning & Evening',
+      shift: 'Both',
     });
     setPreviewUrl(null);
     setFinalImageUrl(null);
@@ -863,19 +927,22 @@ export default function AddDriver() {
                     Shift <span className="text-red-500">*</span>
                   </Label>
                   <Select
-                    value={formData.shift}
+                    value={formData.shift === 'Morning & Evening' ? 'Both' : formData.shift}
                     onValueChange={(value) => setFormData(prev => ({ ...prev, shift: value }))}
+                    disabled={!formData.busId && formData.routeId !== 'reserved'}
                   >
                     <SelectTrigger className="w-full h-9">
                       <SelectValue placeholder="Select Shift" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="Morning">Morning</SelectItem>
-                      <SelectItem value="Evening">Evening</SelectItem>
-                      <SelectItem value="Morning & Evening">Morning & Evening</SelectItem>
+                      {availableShifts.includes('Morning') && <SelectItem value="Morning">Morning</SelectItem>}
+                      {availableShifts.includes('Evening') && <SelectItem value="Evening">Evening</SelectItem>}
+                      {availableShifts.includes('Both') && <SelectItem value="Both">Both</SelectItem>}
                     </SelectContent>
                   </Select>
-                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">Driver's working shift</p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                    {!formData.busId && formData.routeId !== 'reserved' ? "Select a bus first" : "Driver's working shift"}
+                  </p>
                 </div>
 
                 <div>
@@ -926,7 +993,59 @@ export default function AddDriver() {
             </div>
           )}
         </div>
-      </div>
+    </div>
+
+      {/* Conflict Resolution Modal */}
+      {showConflictModal && conflictDriver && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-300">
+          <div className="bg-gradient-to-br from-[#0E0F12] to-[#1A1B23] border border-white/10 rounded-2xl p-6 sm:p-8 max-w-md w-full shadow-2xl transform animate-in zoom-in-95 duration-300">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-10 h-10 rounded-full bg-amber-500/10 flex items-center justify-center border border-amber-500/20">
+                <AlertTriangle className="h-5 w-5 text-amber-500" />
+              </div>
+              <h3 className="text-xl font-bold text-white">Shift Overlap Warning</h3>
+            </div>
+            
+            <div className="space-y-4 mb-6">
+              <p className="text-gray-300 text-sm leading-relaxed">
+                There already exists a driver named <span className="text-blue-400 font-semibold">{conflictDriver.fullName || conflictDriver.name || 'Unknown'}</span> who is looking for <span className="text-amber-400 font-semibold">{(conflictDriver.shift === 'Both' || conflictDriver.shift === 'Morning & Evening') ? 'both Morning & Evening' : conflictDriver.shift}</span> shift(s).
+              </p>
+              <div className="bg-white/5 border border-white/10 rounded-xl p-4">
+                <p className="text-[10px] text-gray-500 uppercase tracking-wider font-bold mb-1">Impact Analysis</p>
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-gray-400">Target Bus:</span>
+                  <span className="text-xs text-white font-medium">{formData.busAssigned}</span>
+                </div>
+                <div className="flex items-center justify-between mt-1">
+                  <span className="text-xs text-gray-400">Current Occupancy:</span>
+                  <span className="text-xs text-amber-500 font-bold">{(conflictDriver.shift === 'Both' || conflictDriver.shift === 'Morning & Evening') ? 'Full' : 'Partial'}</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex flex-col sm:flex-row gap-3">
+              <Button
+                variant="outline"
+                type="button"
+                onClick={() => setShowConflictModal(false)}
+                className="flex-1 bg-white/5 border-white/10 hover:bg-white/10 text-white"
+              >
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                onClick={() => {
+                  setShowConflictModal(false);
+                  handleSubmit(); // Proceed with null event to bypass check
+                }}
+                className="flex-1 bg-amber-600 hover:bg-amber-700 text-white shadow-lg shadow-amber-900/20"
+              >
+                Assign Anyways
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

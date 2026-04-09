@@ -20,6 +20,7 @@ import Link from 'next/link';
 import { motion } from "framer-motion";
 import StudentQRDisplay from "@/components/bus-pass/StudentQRDisplay";
 import { supabase } from '@/lib/supabase-client';
+import { authApiFetch } from '@/lib/secure-api-client';
 // SPARK PLAN SAFETY: Migrated to usePaginatedCollection
 
 
@@ -96,130 +97,90 @@ export default function StudentDashboard() {
         const { collection, query, where, getDocs, limit, doc, getDoc } = await import('firebase/firestore');
         const { db } = await import('@/lib/firebase');
 
-        // 1. Fetch Bus Data
-        if (studentBusId) {
-          setBusesLoading(true);
-          try {
-            // Try fetching as document ID first
-            const docRef = doc(db, 'buses', studentBusId);
-            const docSnap = await getDoc(docRef);
-            if (docSnap.exists()) {
-              setBusData({ id: docSnap.id, ...docSnap.data() });
-            } else {
-              // Fallback: Query by busId/busNumber (1 read)
-              const q = query(collection(db, 'buses'), where('busId', '==', studentBusId), limit(1));
-              const snap = await getDocs(q);
-              if (!snap.empty) {
-                setBusData({ id: snap.docs[0].id, ...snap.docs[0].data() });
-              } else {
-                const q2 = query(collection(db, 'buses'), where('busNumber', '==', studentBusId), limit(1));
-                const snap2 = await getDocs(q2);
-                if (!snap2.empty) {
-                  setBusData({ id: snap2.docs[0].id, ...snap2.docs[0].data() });
-                }
-              }
-            }
-          } catch (e) { console.error(e); }
-          setBusesLoading(false);
-        }
+        // PERF: Fire bus, route, and driver fetches in PARALLEL instead of sequential
+        setBusesLoading(true);
+        setRoutesLoading(true);
+        setDriverLoading(true);
 
-        // 2. Fetch Route Data
-        if (studentRouteId) {
-          setRoutesLoading(true);
+        const fetchBus = async () => {
+          if (!studentBusId) return null;
+          // Try document ID first (most common)
+          const docSnap = await getDoc(doc(db, 'buses', studentBusId));
+          if (docSnap.exists()) return { id: docSnap.id, ...docSnap.data() };
+          // Fallback: query by busId field
+          const q = query(collection(db, 'buses'), where('busId', '==', studentBusId), limit(1));
+          const snap = await getDocs(q);
+          if (!snap.empty) return { id: snap.docs[0].id, ...snap.docs[0].data() };
+          // Fallback: query by busNumber
+          const q2 = query(collection(db, 'buses'), where('busNumber', '==', studentBusId), limit(1));
+          const snap2 = await getDocs(q2);
+          if (!snap2.empty) return { id: snap2.docs[0].id, ...snap2.docs[0].data() };
+          return null;
+        };
+
+        const fetchRoute = async () => {
+          if (!studentRouteId) return null;
           const normalizedRouteId = studentRouteId.startsWith('route_') ? `Route-${studentRouteId.replace('route_', '')}` : studentRouteId;
-          try {
-            // Try fetching as document ID first
-            const docRef = doc(db, 'routes', normalizedRouteId);
-            const docSnap = await getDoc(docRef);
-            if (docSnap.exists()) {
-              setRouteData({ id: docSnap.id, ...docSnap.data() });
-            } else {
-              // Fallback: Query (1 read)
-              const q = query(collection(db, 'routes'), where('routeId', '==', studentRouteId), limit(1));
-              const snap = await getDocs(q);
-              if (!snap.empty) {
-                setRouteData({ id: snap.docs[0].id, ...snap.docs[0].data() });
-              } else {
-                const q2 = query(collection(db, 'routes'), where('routeName', '==', studentRouteId), limit(1));
-                const snap2 = await getDocs(q2);
-                if (!snap2.empty) {
-                  setRouteData({ id: snap2.docs[0].id, ...snap2.docs[0].data() });
-                }
-              }
-            }
-          } catch (e) { console.error(e); }
-          setRoutesLoading(false);
-        }
+          const docSnap = await getDoc(doc(db, 'routes', normalizedRouteId));
+          if (docSnap.exists()) return { id: docSnap.id, ...docSnap.data() };
+          const q = query(collection(db, 'routes'), where('routeId', '==', studentRouteId), limit(1));
+          const snap = await getDocs(q);
+          if (!snap.empty) return { id: snap.docs[0].id, ...snap.docs[0].data() };
+          const q2 = query(collection(db, 'routes'), where('routeName', '==', studentRouteId), limit(1));
+          const snap2 = await getDocs(q2);
+          if (!snap2.empty) return { id: snap2.docs[0].id, ...snap2.docs[0].data() };
+          return null;
+        };
 
-        // 3. Fetch Driver Data based on shift matching
-        if (studentBusId) {
-          setDriverLoading(true);
-          try {
-            const studentShift = studentData.shift || 'Morning';
+        const fetchDriver = async () => {
+          if (!studentBusId) return null;
+          const studentShift = studentData.shift || 'Morning';
+          const driversQuery = query(
+            collection(db, 'drivers'),
+            where('assignedBusId', '==', studentBusId)
+          );
+          const driversSnap = await getDocs(driversQuery);
+          if (driversSnap.empty) return null;
 
-            // Query drivers assigned to this bus
-            const driversQuery = query(
-              collection(db, 'drivers'),
-              where('assignedBusId', '==', studentBusId)
-            );
-            const driversSnap = await getDocs(driversQuery);
+          const drivers = driversSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+          const normalizedStudentShift = studentShift.toString().replace(/\s*Shift\s*$/i, '').trim().toLowerCase();
 
-            if (!driversSnap.empty) {
-              const drivers = driversSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+          // Priority 1: Exact shift match
+          let matchedDriver = drivers
+            .filter((d: any) => {
+              const driverShift = (d.shift || 'Morning & Evening').toString().replace(/\s*Shift\s*$/i, '').trim().toLowerCase();
+              return driverShift === normalizedStudentShift;
+            })
+            .sort((a: any, b: any) => (a.createdAt?.seconds || 0) - (b.createdAt?.seconds || 0))[0] || null;
 
-              // Filter drivers based on shift matching logic
-              let matchedDriver = null;
-
-              const normalizedStudentShift = studentShift.toString().replace(/\s*Shift\s*$/i, '').trim().toLowerCase();
-
-              // Priority 1: Exact shift match (sort by timestamp to pick oldest if multiple)
-              const exactMatchDrivers = drivers.filter((d: any) => {
+          // Priority 2: Driver with "Both" shift
+          if (!matchedDriver) {
+            matchedDriver = drivers
+              .filter((d: any) => {
                 const driverShift = (d.shift || 'Morning & Evening').toString().replace(/\s*Shift\s*$/i, '').trim().toLowerCase();
-                return driverShift === normalizedStudentShift;
-              });
-
-              if (exactMatchDrivers.length > 0) {
-                exactMatchDrivers.sort((a: any, b: any) => {
-                  const aTime = a.createdAt?.seconds || 0;
-                  const bTime = b.createdAt?.seconds || 0;
-                  return aTime - bTime;
-                });
-                matchedDriver = exactMatchDrivers[0];
-              }
-
-              // Priority 2: Driver with "Morning & Evening" or "Both" shift
-              if (!matchedDriver) {
-                const bothMatchDrivers = drivers.filter((d: any) => {
-                  const driverShift = (d.shift || 'Morning & Evening').toString().replace(/\s*Shift\s*$/i, '').trim().toLowerCase();
-                  return driverShift === 'morning & evening' || driverShift === 'both';
-                });
-
-                if (bothMatchDrivers.length > 0) {
-                  bothMatchDrivers.sort((a: any, b: any) => {
-                    const aTime = a.createdAt?.seconds || 0;
-                    const bTime = b.createdAt?.seconds || 0;
-                    return aTime - bTime;
-                  });
-                  matchedDriver = bothMatchDrivers[0];
-                }
-              }
-
-              // Fallback: If still no match, take the first driver
-              if (!matchedDriver && drivers.length > 0) {
-                matchedDriver = drivers[0];
-              }
-
-              if (matchedDriver) {
-                setDriverData(matchedDriver);
-              }
-            }
-          } catch (e) {
-            console.error('Error fetching driver:', e);
+                return driverShift === 'morning & evening' || driverShift === 'both';
+              })
+              .sort((a: any, b: any) => (a.createdAt?.seconds || 0) - (b.createdAt?.seconds || 0))[0] || null;
           }
-          setDriverLoading(false);
-        }
+
+          // Fallback: first driver
+          return matchedDriver || drivers[0] || null;
+        };
+
+        // Fire all 3 in parallel
+        const [busResult, routeResult, driverResult] = await Promise.allSettled([
+          fetchBus(),
+          fetchRoute(),
+          fetchDriver(),
+        ]);
+
+        if (busResult.status === 'fulfilled' && busResult.value) setBusData(busResult.value);
+        if (routeResult.status === 'fulfilled' && routeResult.value) setRouteData(routeResult.value);
+        if (driverResult.status === 'fulfilled' && driverResult.value) setDriverData(driverResult.value);
+
       } catch (error) {
         console.error('Error fetching assigned data:', error);
+      } finally {
         setBusesLoading(false);
         setRoutesLoading(false);
         setDriverLoading(false);
@@ -245,11 +206,9 @@ export default function StudentDashboard() {
 
     const checkActiveTrip = async () => {
       try {
-
-        // Use API endpoint with auth token
-        const token = await currentUser?.getIdToken();
-        const response = await fetch(`/api/student/trip-status?busId=${encodeURIComponent(busId)}`, {
-          headers: token ? { Authorization: `Bearer ${token}` } : {}
+        const response = await authApiFetch(currentUser, '/api/student/trip-status', {
+          query: { busId },
+          timeoutMs: 8000,
         });
 
         // Handle non-OK responses gracefully
@@ -259,25 +218,8 @@ export default function StudentDashboard() {
           return;
         }
 
-        // Get response text first to handle empty responses
-        const text = await response.text();
-        if (!text || text.trim() === '') {
-          console.warn('⚠️ Trip status API returned empty response');
-          setTripActive(false);
-          return;
-        }
-
-        // Parse JSON safely
-        let result;
-        try {
-          result = JSON.parse(text);
-        } catch (parseError) {
-          console.error('❌ Failed to parse trip status response:', parseError);
-          setTripActive(false);
-          return;
-        }
-
-          setTripActive(result.tripActive);
+        const result = await response.json();
+        setTripActive(!!result.tripActive);
       } catch (err) {
         console.error('Error checking trip status:', err);
         // Keep current state on error
@@ -334,7 +276,7 @@ export default function StudentDashboard() {
       supabase.removeChannel(channel);
       supabase.removeChannel(tripChannel);
     };
-  }, [studentData?.busId, studentData?.assignedBusId]);
+  }, [studentData?.busId, studentData?.assignedBusId, currentUser]);
 
   // NOTE: The "Current Status" card now uses tripActive state directly from Supabase driver_status table
   // This provides accurate real-time trip status instead of the Firestore bus.status field

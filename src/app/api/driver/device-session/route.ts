@@ -1,8 +1,11 @@
 import { NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
+import { getSupabaseServer } from '@/lib/supabase-server';
 import { withSecurity } from '@/lib/security/api-security';
 import { DeviceSessionSchema } from '@/lib/security/validation-schemas';
 import { RateLimits } from '@/lib/security/rate-limiter';
+
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
 /**
  * POST /api/driver/device-session
@@ -19,14 +22,11 @@ export const POST = withSecurity(
         const userId = auth.uid;
 
         // Use service role key (bypasses RLS)
-        const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-        const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
         if (!supabaseUrl || !supabaseKey) {
             return NextResponse.json({ error: 'Server configuration error' }, { status: 500 });
         }
 
-        const supabase = createClient(supabaseUrl, supabaseKey);
+        const supabase = getSupabaseServer();
 
         switch (action) {
             case 'check': {

@@ -11,12 +11,15 @@
 
 import { NextResponse } from 'next/server';
 import { db as adminDb, messaging } from '@/lib/firebase-admin';
-import { createClient } from '@supabase/supabase-js';
+import { getSupabaseServer } from '@/lib/supabase-server';
 import { FieldValue } from 'firebase-admin/firestore';
 import { withSecurity } from '@/lib/security/api-security';
 import { EndTripSchema } from '@/lib/security/validation-schemas';
 import { RateLimits } from '@/lib/security/rate-limiter';
 import { notifyRoute } from '@/lib/services/fcm-notification-service';
+
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
 interface CleanupStats {
   busLocations: number;
@@ -226,9 +229,6 @@ export const POST = withSecurity(
     const driverUid = auth.uid;
 
     // Initialize Supabase client
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-    const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
     if (!supabaseUrl || !supabaseKey) {
       console.error("❌ Missing Supabase credentials in end-journey-v2");
       return NextResponse.json(
@@ -238,7 +238,7 @@ export const POST = withSecurity(
     }
 
     // Create client inside handler
-    const supabase = createClient(supabaseUrl, supabaseKey);
+    const supabase = getSupabaseServer();
 
     console.log(`🏁 Ending journey for bus ${busId}, trip ${tripId || 'current'}...`);
 

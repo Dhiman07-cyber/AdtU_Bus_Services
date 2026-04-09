@@ -82,7 +82,6 @@ async function sendBusFeeUpdateNotification(
             data: {
                 newAmount,
                 previousAmount,
-                updatedBy: adminName,
                 updatedAt: new Date().toISOString()
             },
             timestamp: new Date().toISOString(),

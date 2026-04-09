@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
+import { getSupabaseServer } from '@/lib/supabase-server';
 import { getRobustRoute, type ORSConfig } from '@/lib/ors-robust-client';
 import { validateCoordinates } from '@/lib/coordinate-validator';
 import { withSecurity } from '@/lib/security/api-security';
@@ -7,10 +7,7 @@ import { ProxyORSSchema, EmptySchema } from '@/lib/security/validation-schemas';
 import { RateLimits } from '@/lib/security/rate-limiter';
 
 // Initialize Supabase client
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL || '',
-  process.env.SUPABASE_SERVICE_ROLE_KEY || ''
-);
+const supabase = getSupabaseServer();
 
 const ORS_API_KEY = process.env.ORS_API_KEY || '';
 const ORS_BASE_URL = 'https://api.openrouteservice.org';

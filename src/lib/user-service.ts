@@ -80,7 +80,6 @@ export async function signInWithGoogle() {
 
       // If the document ID is not the Firebase Auth UID (e.g. Doc ID was email), migrate it
       if (oldDocId !== user.uid) {
-        console.log(`📦 Migrating user doc ${oldDocId} -> ${user.uid}`);
 
         // Create new document with Firebase Auth UID
         const newUserDocRef = doc(db, 'users', user.uid);
@@ -127,9 +126,7 @@ export async function signInWithGoogle() {
     // User not found in users collection
     // Create an entry in unauthUsers collection for tracking
     try {
-      console.log('🔄 Creating unauth-users document for new user:', user.email);
       const token = await user.getIdToken();
-      console.log('🔑 Got ID token for unauth-user creation');
 
       const response = await fetch('/api/unauth-users/create', {
         method: 'POST',
@@ -139,11 +136,9 @@ export async function signInWithGoogle() {
         }
       });
 
-      console.log('📡 Unauth-user API response status:', response.status);
 
       if (response.ok) {
         const data = await response.json();
-        console.log('✅ UnauthUser entry created/updated:', data);
       } else {
         const errorData = await response.json();
         console.error('❌ Failed to create unauthUser entry:', errorData);
@@ -180,11 +175,9 @@ export async function signInWithGoogle() {
     // Handle specific Firebase errors
     if (error.code === 'auth/popup-closed-by-user') {
       // User closed the popup without signing in - this is normal behavior
-      console.log('ℹ️ User closed sign-in popup');
       return { success: false, error: 'Sign in was cancelled' };
     } else if (error.code === 'auth/cancelled-popup-request') {
       // Another popup request cancelled this one - this can be ignored
-      console.log('ℹ️ Sign-in popup was cancelled by another request');
       return { success: false, error: 'Sign in was cancelled' };
     } else if (error.code === 'auth/popup-blocked') {
       // Popup was blocked by the browser

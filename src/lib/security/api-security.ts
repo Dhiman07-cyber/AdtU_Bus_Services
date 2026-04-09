@@ -36,6 +36,8 @@ import { validateInput, type ValidationResult } from '@/lib/security/validation-
 import { z } from 'zod';
 import crypto from 'crypto';
 
+const MAX_JSON_BODY_BYTES = 256 * 1024; // 256KB per API request body
+
 // ============================================================================
 // TYPES
 // ============================================================================
@@ -105,20 +107,50 @@ function extractToken(request: Request, body: any, allowBodyToken: boolean): str
 }
 
 // ============================================================================
-// ROLE RESOLUTION
+// ROLE RESOLUTION (with TTL cache)
 // ============================================================================
+
+/** Cached role resolution entry */
+interface RoleCacheEntry {
+    role: string;
+    name: string;
+    expiresAt: number;
+}
+
+/** In-memory cache: uid → { role, name, expiresAt } */
+const _roleCache = new Map<string, RoleCacheEntry>();
+const ROLE_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+const ROLE_CACHE_MAX = 2000;
+
+/** Periodic cleanup every 10 min */
+if (typeof setInterval !== 'undefined') {
+    setInterval(() => {
+        const now = Date.now();
+        for (const [key, entry] of _roleCache) {
+            if (now > entry.expiresAt) _roleCache.delete(key);
+        }
+    }, 10 * 60 * 1000);
+}
 
 async function resolveUserRole(uid: string): Promise<{ role: string; name: string }> {
     if (!adminDb) return { role: '', name: '' };
+
+    // PERF: Check cache first
+    const cached = _roleCache.get(uid);
+    if (cached && Date.now() < cached.expiresAt) {
+        return { role: cached.role, name: cached.name };
+    }
 
     // Check users collection first (fastest, most common case)
     const userDoc = await adminDb.collection('users').doc(uid).get();
     if (userDoc.exists) {
         const data = userDoc.data();
-        return {
+        const result = {
             role: data?.role || 'student',
             name: data?.name || data?.fullName || '',
         };
+        _cacheRole(uid, result);
+        return result;
     }
 
     // PERF: Parallel lookup across all role-specific collections instead of sequential waterfall
@@ -129,12 +161,23 @@ async function resolveUserRole(uid: string): Promise<{ role: string; name: strin
         adminDb.collection('students').doc(uid).get(),
     ]);
 
-    if (adminDoc.exists) return { role: 'admin', name: adminDoc.data()?.name || '' };
-    if (modDoc.exists) return { role: 'moderator', name: modDoc.data()?.fullName || '' };
-    if (driverDoc.exists) return { role: 'driver', name: driverDoc.data()?.fullName || '' };
-    if (studentDoc.exists) return { role: 'student', name: studentDoc.data()?.fullName || '' };
+    let result = { role: '', name: '' };
+    if (adminDoc.exists) result = { role: 'admin', name: adminDoc.data()?.name || '' };
+    else if (modDoc.exists) result = { role: 'moderator', name: modDoc.data()?.fullName || '' };
+    else if (driverDoc.exists) result = { role: 'driver', name: driverDoc.data()?.fullName || '' };
+    else if (studentDoc.exists) result = { role: 'student', name: studentDoc.data()?.fullName || '' };
 
-    return { role: '', name: '' };
+    if (result.role) _cacheRole(uid, result);
+    return result;
+}
+
+function _cacheRole(uid: string, entry: { role: string; name: string }): void {
+    // Evict oldest if at capacity
+    if (_roleCache.size >= ROLE_CACHE_MAX) {
+        const firstKey = _roleCache.keys().next().value;
+        if (firstKey) _roleCache.delete(firstKey);
+    }
+    _roleCache.set(uid, { ...entry, expiresAt: Date.now() + ROLE_CACHE_TTL });
 }
 
 // ============================================================================
@@ -161,7 +204,14 @@ async function safeParseBody(request: Request): Promise<any> {
             // For non-JSON content types, return empty object
             return {};
         }
+        const contentLength = Number(request.headers.get('content-length') || 0);
+        if (Number.isFinite(contentLength) && contentLength > MAX_JSON_BODY_BYTES) {
+            return '__PAYLOAD_TOO_LARGE__';
+        }
         const text = await request.text();
+        if (text.length > MAX_JSON_BODY_BYTES) {
+            return '__PAYLOAD_TOO_LARGE__';
+        }
         if (!text || text.trim().length === 0) return {};
         return JSON.parse(text);
     } catch {
@@ -211,6 +261,12 @@ export function withSecurity<T = any>(
             let rawBody: any = {};
             if (['POST', 'PUT', 'PATCH'].includes(method)) {
                 rawBody = await safeParseBody(request);
+                if (rawBody === '__PAYLOAD_TOO_LARGE__') {
+                    return NextResponse.json(
+                        { success: false, error: 'Payload too large', requestId },
+                        { status: 413 }
+                    );
+                }
                 if (rawBody === null) {
                     return NextResponse.json(
                         { success: false, error: 'Invalid JSON in request body', requestId },
@@ -280,7 +336,7 @@ export function withSecurity<T = any>(
                 ? `ip:${ip}:${limiterKey}`
                 : createRateLimitId(auth.uid, limiterKey);
 
-            const rateLimitResult = applyRateLimit(rateLimitId, rateLimit);
+            const rateLimitResult = await applyRateLimit(rateLimitId, rateLimit);
 
             if (!rateLimitResult.allowed) {
                 console.warn(`[${requestId}] Rate limited: ${auth.uid || ip} on ${url}`);
@@ -324,6 +380,9 @@ export function withSecurity<T = any>(
             // ── 8. Add security headers to response ──
             response.headers.set('X-Request-Id', requestId);
             response.headers.set('X-RateLimit-Remaining', rateLimitResult.headers['X-RateLimit-Remaining']);
+            response.headers.set('Cache-Control', 'no-store, no-cache, must-revalidate');
+            response.headers.set('Pragma', 'no-cache');
+            response.headers.set('X-Content-Type-Options', 'nosniff');
 
             return response;
 

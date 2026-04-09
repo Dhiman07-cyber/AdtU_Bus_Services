@@ -11,7 +11,7 @@ export async function GET(request: NextRequest) {
     if (!auth.authenticated) return auth.response;
 
     // Rate limit
-    const rl = applyRateLimit(createRateLimitId(auth.uid, 'get-bus-data'), RateLimits.READ);
+    const rl = await applyRateLimit(createRateLimitId(auth.uid, 'get-bus-data'), RateLimits.READ);
     if (!rl.allowed) {
       return NextResponse.json({ error: 'Too many requests' }, { status: 429, headers: rl.headers });
     }

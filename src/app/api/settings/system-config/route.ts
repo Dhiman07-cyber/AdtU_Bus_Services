@@ -72,7 +72,6 @@ export async function POST(req: NextRequest) {
             ...oldConfig,
             ...config,
             lastUpdated: new Date().toISOString(),
-            updatedBy: uid
         };
 
         // Special handling for bus fee updates (history, notifications)
@@ -81,14 +80,12 @@ export async function POST(req: NextRequest) {
             updatedConfig.busFee = {
                 ...updatedConfig.busFee,
                 updatedAt: new Date().toISOString(),
-                updatedBy: uid,
                 version: (oldConfig.busFee?.version || 0) + 1,
                 history: [
                     ...(oldConfig.busFee?.history || []),
                     {
                         amount: oldConfig.busFee?.amount || 0,
                         updatedAt: oldConfig.busFee?.updatedAt || new Date().toISOString(),
-                        updatedBy: oldConfig.busFee?.updatedBy || 'system'
                     }
                 ]
             };

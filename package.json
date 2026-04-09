@@ -29,6 +29,7 @@
     "load-test:firestore": "node loadtests/firestore_reads_safety_test.js"
   },
   "dependencies": {
+    "@google-analytics/data": "^5.2.1",
     "@hookform/resolvers": "^5.2.2",
     "@radix-ui/react-alert-dialog": "^1.1.15",
     "@radix-ui/react-avatar": "^1.1.11",

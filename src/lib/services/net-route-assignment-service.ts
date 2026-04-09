@@ -33,7 +33,6 @@ async function writeToSupabaseViaAPI(payload: {
     changes: ChangeRecord[];
     meta: Record<string, any>;
 }): Promise<boolean> {
-    console.log('[writeToSupabaseViaAPI-Route] 🚀 Writing to Supabase...');
 
     try {
         const user = auth.currentUser;
@@ -55,14 +54,12 @@ async function writeToSupabaseViaAPI(payload: {
         });
 
         const result = await response.json();
-        console.log('[writeToSupabaseViaAPI-Route] Response:', response.status, JSON.stringify(result));
 
         if (!response.ok) {
             console.error('[writeToSupabaseViaAPI-Route] ❌ API error:', result.error);
             return false;
         }
 
-        console.log('[writeToSupabaseViaAPI-Route] ✅ SUCCESS');
         return true;
     } catch (err: any) {
         console.error('[writeToSupabaseViaAPI-Route] ❌ Exception:', err.message);

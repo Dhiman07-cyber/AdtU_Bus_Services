@@ -12,11 +12,13 @@
  */
 
 import { NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
+import { getSupabaseServer } from '@/lib/supabase-server';
 import { db as adminDb, FieldValue } from '@/lib/firebase-admin';
 
 // Configuration
 const HEARTBEAT_TIMEOUT_SECONDS = 300;
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
 // SECURITY: Fail-closed cron auth verification
 function verifyCronAuth(request: Request): boolean {
@@ -47,9 +49,6 @@ export async function GET(request: Request) {
 
     try {
         // Initialize Supabase
-        const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-        const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
         if (!supabaseUrl || !supabaseKey) {
             return NextResponse.json(
                 { error: 'Missing Supabase configuration' },
@@ -57,7 +56,7 @@ export async function GET(request: Request) {
             );
         }
 
-        const supabase = createClient(supabaseUrl, supabaseKey);
+        const supabase = getSupabaseServer();
 
         console.log('🔄 Running stale lock cleanup...');
 

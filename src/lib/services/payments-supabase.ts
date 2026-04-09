@@ -518,35 +518,68 @@ class PaymentsSupabaseService {
         completedPayments: number;
         pendingPayments: number;
         totalRevenue: number;
+        onlinePayments: number;
+        offlinePayments: number;
     }> {
         if (!this.isReady()) {
-            return { totalPayments: 0, completedPayments: 0, pendingPayments: 0, totalRevenue: 0 };
+            return { totalPayments: 0, completedPayments: 0, pendingPayments: 0, totalRevenue: 0, onlinePayments: 0, offlinePayments: 0 };
         }
 
         try {
             const { data, error } = await this.supabase
                 .from('payments')
-                .select('status, amount');
+                .select('status, amount, method');
 
             if (error) {
                 console.error('[PaymentsSupabaseService] Stats error:', error);
-                return { totalPayments: 0, completedPayments: 0, pendingPayments: 0, totalRevenue: 0 };
+                return { totalPayments: 0, completedPayments: 0, pendingPayments: 0, totalRevenue: 0, onlinePayments: 0, offlinePayments: 0 };
             }
 
             const payments = data || [];
-            const completed = payments.filter(p => p.status === 'Completed');
-            const pending = payments.filter(p => p.status === 'Pending');
+            const completed = payments.filter(p => (p.status || '').toLowerCase() === 'completed' || p.status === 'Completed');
+            const pending = payments.filter(p => (p.status || '').toLowerCase() === 'pending' || p.status === 'Pending');
             const totalRevenue = completed.reduce((sum, p) => sum + (p.amount || 0), 0);
+            
+            const onlinePayments = completed.filter(p => (p.method || '').toLowerCase() === 'online').length;
+            const offlinePayments = completed.filter(p => (p.method || '').toLowerCase() === 'offline').length;
 
             return {
                 totalPayments: payments.length,
                 completedPayments: completed.length,
                 pendingPayments: pending.length,
                 totalRevenue,
+                onlinePayments,
+                offlinePayments
             };
         } catch (error) {
             console.error('[PaymentsSupabaseService] Stats error:', error);
-            return { totalPayments: 0, completedPayments: 0, pendingPayments: 0, totalRevenue: 0 };
+            return { totalPayments: 0, completedPayments: 0, pendingPayments: 0, totalRevenue: 0, onlinePayments: 0, offlinePayments: 0 };
+        }
+    }
+
+    /**
+     * Get payment method preference trend (Online vs Offline)
+     */
+    async getPaymentMethodTrend(): Promise<{ name: string; value: number; color: string }[]> {
+        if (!this.isReady()) return [];
+        
+        try {
+            const { data, error } = await this.supabase
+                .from('payments')
+                .select('method')
+                .or('status.eq.Completed,status.eq.completed');
+                
+            if (error) return [];
+            
+            const online = data.filter(p => (p.method || '').toLowerCase() === 'online').length;
+            const offline = data.filter(p => (p.method || '').toLowerCase() === 'offline').length;
+            
+            return [
+                { name: 'Online Payments', value: online, color: '#6366f1' },
+                { name: 'Offline Payments', value: offline, color: '#10b981' }
+            ];
+        } catch (error) {
+            return [];
         }
     }
 

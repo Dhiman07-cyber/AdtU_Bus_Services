@@ -10,12 +10,9 @@
 
 import { NextResponse } from 'next/server';
 import { auth, db as adminDb } from '@/lib/firebase-admin';
-import { createClient } from '@supabase/supabase-js';
+import { getSupabaseServer } from '@/lib/supabase-server';
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL || '',
-  process.env.SUPABASE_SERVICE_ROLE_KEY || ''
-);
+const supabase = getSupabaseServer();
 
 export async function POST(request: Request) {
   const startTime = Date.now();
@@ -137,7 +134,6 @@ export async function POST(request: Request) {
           timestamp: new Date().toISOString()
         }
       });
-      console.log(`📢 Acknowledgment broadcast to student ${flag.student_uid}`);
     }
 
     // Broadcast update to all drivers on this bus
@@ -166,19 +162,8 @@ export async function POST(request: Request) {
     }
 
     // Log operation (audit_logs moved to Supabase)
-    console.log(`📝 Waiting flag ${action}:`, {
-      actorUid: driverUid,
-      action: `waiting_flag_${action}`,
-      flagId,
-      studentUid: flag.student_uid,
-      busId: flag.bus_id,
-      previousStatus: flag.status,
-      newStatus,
-      timestamp: new Date().toISOString()
-    });
 
     const elapsed = Date.now() - startTime;
-    console.log(`✅ Flag ${action} completed in ${elapsed}ms`);
 
     return NextResponse.json({
       success: true,

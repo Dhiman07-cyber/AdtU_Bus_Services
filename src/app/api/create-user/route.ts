@@ -23,7 +23,7 @@ export async function POST(request: NextRequest) {
     if (!auth.authenticated) return auth.response;
 
     // Rate limit
-    const rl = applyRateLimit(createRateLimitId(auth.uid, 'create-user'), RateLimits.CREATE);
+    const rl = await applyRateLimit(createRateLimitId(auth.uid, 'create-user'), RateLimits.CREATE);
     if (!rl.allowed) {
       return NextResponse.json({ error: 'Too many requests' }, { status: 429, headers: rl.headers });
     }

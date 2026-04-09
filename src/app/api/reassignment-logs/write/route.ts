@@ -6,8 +6,12 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
+import { getSupabaseServer } from '@/lib/supabase-server';
 import { adminAuth, adminDb } from '@/lib/firebase-admin';
+import { createClient } from '@supabase/supabase-js';
+
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
 export async function POST(request: NextRequest) {
     console.log('[reassignment-logs/write] ========== START ==========');
@@ -50,9 +54,6 @@ export async function POST(request: NextRequest) {
         }
 
         // 4. Create Supabase client
-        const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-        const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-        
         console.log('[reassignment-logs/write] Supabase URL:', supabaseUrl ? 'SET' : 'MISSING');
         console.log('[reassignment-logs/write] Supabase Key:', supabaseKey ? `SET (${supabaseKey.length} chars)` : 'MISSING');
 

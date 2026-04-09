@@ -47,12 +47,6 @@ export const uploadImage = async (
   folder: string = 'adtu'
 ): Promise<string | null> => {
   try {
-    console.log('📤 [uploadImage] Starting upload:', {
-      fileName: file.name,
-      fileSize: `${(file.size / 1024 / 1024).toFixed(2)} MB`,
-      fileType: file.type,
-      isMobile: isMobileDevice(),
-    });
 
     // ── Client-side pre-validation ────────────────────────────────────────
     if (!ALLOWED_TYPES.has(file.type)) {
@@ -68,11 +62,7 @@ export const uploadImage = async (
     // ── Mobile compression ────────────────────────────────────────────────
     let processedFile = file;
     if (isMobileDevice() && file.size > 1 * 1024 * 1024) {
-      console.log('📱 Mobile device detected, compressing image...');
       processedFile = await compressImageForMobile(file, 2);
-      console.log(
-        `📱 Image compressed: ${(file.size / 1024 / 1024).toFixed(2)}MB → ${(processedFile.size / 1024 / 1024).toFixed(2)}MB`
-      );
     }
 
     // ── Get auth token ────────────────────────────────────────────────────
@@ -91,7 +81,6 @@ export const uploadImage = async (
 
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       try {
-        console.log(`📤 Upload attempt ${attempt}/${maxRetries}`);
 
         if (attempt > 1) {
           await new Promise((resolve) =>
@@ -124,7 +113,6 @@ export const uploadImage = async (
         }
 
         const data = await response.json();
-        console.log('✅ [uploadImage] Upload successful:', data.url);
         return data.url;
       } catch (uploadError: any) {
         console.error(`❌ Upload attempt ${attempt} failed:`, uploadError);

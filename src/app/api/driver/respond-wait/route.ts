@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
+import { getSupabaseServer } from '@/lib/supabase-server';
 import { withSecurity } from '@/lib/security/api-security';
 import { RespondWaitSchema } from '@/lib/security/validation-schemas';
 import { RateLimits } from '@/lib/security/rate-limiter';
@@ -16,10 +16,7 @@ export const POST = withSecurity(
         console.log(`📣 Driver responded to wait request for ${studentId}: ${response}`);
 
         // Initialize Supabase client
-        const supabase = createClient(
-            process.env.NEXT_PUBLIC_SUPABASE_URL || '',
-            process.env.SUPABASE_SERVICE_ROLE_KEY || ''
-        );
+        const supabase = getSupabaseServer();
 
         // Broadcast to student channel
         // Channel name: student_wait_response_{studentId}

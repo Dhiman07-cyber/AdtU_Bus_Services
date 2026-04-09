@@ -10,7 +10,6 @@ import {
     StudentAddedEmailData,
 } from '@/lib/services/admin-email.service';
 import { generateReceiptPdf } from '@/lib/services/receipt.service';
-import { createUpdatedByEntry } from '@/lib/utils/updatedBy';
 import { getSystemConfig } from '@/lib/system-config-service';
 import { getDeadlineConfig } from '@/lib/deadline-config-service';
 import { withSecurity } from '@/lib/security/api-security';
@@ -146,7 +145,6 @@ export const POST = withSecurity(
 
             const studentDoc: any = {
                 address: address || '',
-                age: age ? parseInt(age as string) : 0,
                 alternatePhone: alternatePhone || '',
                 approvedAt: now,
                 approvedBy: approvedByDisplay,
@@ -180,7 +178,6 @@ export const POST = withSecurity(
                 hardBlock: blockDates.hardBlock,
                 paymentAmount: 0,
                 paid_on: now,
-                updatedBy: [createUpdatedByEntry(currentUserName, currentUserEmployeeId)]
             };
 
             const systemConfig = await getSystemConfig();
@@ -280,7 +277,6 @@ export const POST = withSecurity(
                 assignedRouteId: assignedRouteId || routeId || null, assignedBusId: assignedBusId || busId || null,
                 shift: shift || 'Morning & Evening', approvedBy: approvedByDisplay, dob: dob || '',
                 status: 'active', createdAt: now, updatedAt: now,
-                updatedBy: [createUpdatedByEntry(currentUserName, currentUserEmployeeId)]
             };
 
             await adminDb.collection('drivers').doc(uid).set(driverDocData);
@@ -307,7 +303,6 @@ export const POST = withSecurity(
                 staffId: employeeId || staffId || '', employeeId: employeeId || staffId || '',
                 profilePhotoUrl: profilePhotoUrl || '', approvedBy: approvedByDisplay,
                 address: address || '', status: status || 'active', createdAt: now, updatedAt: now,
-                updatedBy: [createUpdatedByEntry(currentUserName, currentUserEmployeeId)]
             };
             await adminDb.collection('moderators').doc(uid).set(moderatorDocData);
             await adminDb.collection('users').doc(uid).set({
@@ -330,4 +325,4 @@ export const POST = withSecurity(
         rateLimit: RateLimits.CREATE,
         allowBodyToken: true
     }
-);
+);

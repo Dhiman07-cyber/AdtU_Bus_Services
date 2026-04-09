@@ -1,5 +1,7 @@
 import { NextResponse } from 'next/server';
 import { DriverSwapSupabaseService } from '@/lib/driver-swap-supabase';
+import { withSecurity } from '@/lib/security/api-security';
+import { RateLimits } from '@/lib/security/rate-limiter';
 
 /**
  * POST /api/driver-swap/check-expired
@@ -11,7 +13,7 @@ import { DriverSwapSupabaseService } from '@/lib/driver-swap-supabase';
  * 1. Expire pending requests (acceptance window passed)
  * 2. End accepted swaps that have passed their end time (skips if trip ongoing)
  */
-export async function POST(request: Request) {
+const _post = async (request: Request) => {
   try {
     console.log('🔄 Running swap expiry check (Supabase)...');
     const startTime = Date.now();
@@ -43,7 +45,7 @@ export async function POST(request: Request) {
       { status: 500 }
     );
   }
-}
+};
 
 /**
  * GET /api/driver-swap/check-expired
@@ -53,3 +55,8 @@ export async function POST(request: Request) {
 export async function GET(request: Request) {
   return POST(request);
 }
+
+export const POST = withSecurity(_post, {
+  requiredRoles: ['admin', 'driver'],
+  rateLimit: RateLimits.ADMIN,
+});

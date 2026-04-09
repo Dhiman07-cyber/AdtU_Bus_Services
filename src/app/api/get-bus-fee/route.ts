@@ -17,7 +17,6 @@ export async function GET(request: NextRequest) {
       data: {
         amount: feeData.amount,
         updatedAt: feeData.updatedAt,
-        updatedBy: feeData.updatedBy
       }
     });
   } catch (error: any) {

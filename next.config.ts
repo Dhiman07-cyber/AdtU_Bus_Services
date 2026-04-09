@@ -35,6 +35,13 @@ const nextConfig: NextConfig = {
       'firebase',
       'firebase/firestore',
       'firebase/auth',
+      'react-hot-toast',
+      'zod',
+      'crypto-js',
+      'uuid',
+      'class-variance-authority',
+      'clsx',
+      'tailwind-merge',
     ],
     // Faster builds in development
     serverActions: {
@@ -86,14 +93,35 @@ const nextConfig: NextConfig = {
         cacheDirectory: require('path').resolve('.next/cache/webpack'),
       };
     } else if (!isServer) {
-      // Production optimizations
+      // Production optimizations — split large vendors into separate cacheable chunks
       config.optimization.splitChunks = {
         chunks: 'all',
+        maxInitialRequests: 25,
+        minSize: 20000,
         cacheGroups: {
+          firebase: {
+            test: /[\\/]node_modules[\\/](firebase|@firebase)[\\/]/,
+            name: 'firebase',
+            chunks: 'all',
+            priority: 40,
+          },
+          supabase: {
+            test: /[\\/]node_modules[\\/](@supabase)[\\/]/,
+            name: 'supabase',
+            chunks: 'all',
+            priority: 35,
+          },
+          uiLibs: {
+            test: /[\\/]node_modules[\\/](@radix-ui|framer-motion|recharts|lucide-react|class-variance-authority)[\\/]/,
+            name: 'ui-libs',
+            chunks: 'all',
+            priority: 30,
+          },
           vendor: {
             test: /[\\/]node_modules[\\/]/,
             name: 'vendors',
             chunks: 'all',
+            priority: 10,
           },
         },
       };
@@ -122,7 +150,7 @@ const nextConfig: NextConfig = {
     ],
     // Image optimization settings - prioritize quality
     formats: ['image/webp', 'image/avif'],
-    minimumCacheTTL: 60,
+    minimumCacheTTL: 3600,
     dangerouslyAllowSVG: true,
     contentSecurityPolicy: "default-src 'self'; script-src 'none'; sandbox;",
     // Disable automatic optimization for Cloudinary URLs to preserve quality
@@ -157,13 +185,13 @@ const nextConfig: NextConfig = {
         key: 'Content-Security-Policy',
         value: [
           "default-src 'self'",
-          "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://checkout.razorpay.com https://*.razorpay.com https://apis.google.com https://www.gstatic.com https://vercel.live https://*.vercel.live https://va.vercel-scripts.com",
+          "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://checkout.razorpay.com https://*.razorpay.com https://apis.google.com https://www.gstatic.com https://www.googletagmanager.com https://www.google-analytics.com https://vercel.live https://*.vercel.live https://va.vercel-scripts.com",
           "style-src 'self' 'unsafe-inline' https://checkout.razorpay.com https://fonts.googleapis.com https://vercel.live https://*.vercel.live",
           "img-src 'self' data: blob: https: https://res.cloudinary.com https://lh3.googleusercontent.com https://api.dicebear.com https://checkout.razorpay.com https://www.google.com https://vercel.live https://*.vercel.live",
           "font-src 'self' data: https://checkout.razorpay.com https://fonts.gstatic.com https://vercel.live https://*.vercel.live",
           isProduction
-            ? "connect-src 'self' https://*.razorpay.com https://api.razorpay.com wss://*.supabase.co https://*.supabase.co https://*.supabase.in https://firestore.googleapis.com https://securetoken.googleapis.com https://identitytoolkit.googleapis.com https://*.googleapis.com https://apis.google.com https://accounts.google.com https://www.google.com https://api.cloudinary.com https://*.cloudinary.com https://vercel.live https://*.vercel.live https://vitals.vercel-insights.com"
-            : "connect-src 'self' http://localhost:* http://127.0.0.1:* https://*.razorpay.com https://api.razorpay.com wss://*.supabase.co https://*.supabase.co https://*.supabase.in https://firestore.googleapis.com https://securetoken.googleapis.com https://identitytoolkit.googleapis.com https://*.googleapis.com https://apis.google.com https://accounts.google.com https://www.google.com https://api.cloudinary.com https://*.cloudinary.com https://vercel.live https://*.vercel.live https://vitals.vercel-insights.com",
+            ? "connect-src 'self' https://*.razorpay.com https://api.razorpay.com wss://*.supabase.co https://*.supabase.co https://*.supabase.in https://firestore.googleapis.com https://securetoken.googleapis.com https://identitytoolkit.googleapis.com https://*.googleapis.com https://apis.google.com https://accounts.google.com https://www.google.com https://www.googletagmanager.com https://analytics.google.com https://www.google-analytics.com https://api.cloudinary.com https://*.cloudinary.com https://vercel.live https://*.vercel.live https://vitals.vercel-insights.com"
+            : "connect-src 'self' http://localhost:* http://127.0.0.1:* https://*.razorpay.com https://api.razorpay.com wss://*.supabase.co https://*.supabase.co https://*.supabase.in https://firestore.googleapis.com https://securetoken.googleapis.com https://identitytoolkit.googleapis.com https://*.googleapis.com https://apis.google.com https://accounts.google.com https://www.google.com https://www.googletagmanager.com https://analytics.google.com https://www.google-analytics.com https://api.cloudinary.com https://*.cloudinary.com https://vercel.live https://*.vercel.live https://vitals.vercel-insights.com",
           "frame-src 'self' https://api.razorpay.com https://checkout.razorpay.com https://accounts.google.com https://*.firebaseapp.com https://vercel.live https://*.vercel.live",
           "media-src 'self' blob: data: https://*.supabase.co https://*.supabase.in",
           "base-uri 'self'",
@@ -177,9 +205,11 @@ const nextConfig: NextConfig = {
       { key: 'X-Frame-Options', value: 'DENY' },
       { key: 'X-XSS-Protection', value: '1; mode=block' },
       { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
+      { key: 'X-DNS-Prefetch-Control', value: 'on' },
+      { key: 'X-Permitted-Cross-Domain-Policies', value: 'none' },
       {
         key: 'Permissions-Policy',
-        value: 'camera=(self), microphone=(), geolocation=(self), payment=(self), usb=(), bluetooth=(), serial=(), hid=(), magnetometer=(), gyroscope=(), accelerometer=(self)',
+        value: 'camera=(self), microphone=(), geolocation=(self), payment=(self), usb=(), bluetooth=(), serial=(), hid=(), magnetometer=(), gyroscope=(), accelerometer=(self), ambient-light-sensor=(), autoplay=(), document-domain=()',
       },
       { key: 'Cross-Origin-Resource-Policy', value: 'same-origin' },
     ];

@@ -11,7 +11,16 @@ import AppShell from '@/components/AppShell';
 import MobileErrorHandler from '@/components/MobileErrorHandler';
 import SmoothScrollProvider from '@/components/smooth-scroll-provider';
 import { SpeedInsights } from "@vercel/speed-insights/next";
-import { Analytics } from "@vercel/analytics/next";
+import { Analytics as VercelAnalytics } from "@vercel/analytics/next";
+import Script from 'next/script';
+import { Suspense } from 'react';
+
+declare global {
+  interface Window {
+    gtag: (...args: any[]) => void;
+    dataLayer: any[];
+  }
+}
 
 // Configure Inter font with only CSS variable to prevent hydration issues
 const inter = Inter({
@@ -67,6 +76,21 @@ export default function RootLayout({
     <html lang="en" className={`dark ${inter.variable} h-full`} suppressHydrationWarning>
 
       <head>
+        {/* Google Analytics */}
+        <Script
+          src="https://www.googletagmanager.com/gtag/js?id=G-61NME56S7Y"
+          strategy="afterInteractive"
+        />
+        <Script id="ga-script" strategy="afterInteractive">
+          {`
+            window.dataLayer = window.dataLayer || [];
+            function gtag(){dataLayer.push(arguments);}
+            window.gtag = gtag;
+            gtag('js', new Date());
+            gtag('config', 'G-61NME56S7Y');
+          `}
+        </Script>
+        
         {/* Unregister old service worker to fix cache issues */}
         <script
           dangerouslySetInnerHTML={{
@@ -94,7 +118,7 @@ export default function RootLayout({
                     <AppShell>
                       {children}
                       <SpeedInsights />
-                      <Analytics />
+                      <VercelAnalytics />
                     </AppShell>
                   </SmoothScrollProvider>
                 </NotificationProvider>

@@ -75,7 +75,6 @@ const PUBLIC_API_ROUTES = [
     '/api/health',
     '/api/health/db',
     '/api/check-first-user',
-    '/api/create-first-admin',
     '/api/auth/google',
     '/api/landing-video',
     '/api/get-rules-content',
@@ -86,8 +85,6 @@ const PUBLIC_API_ROUTES = [
     '/api/settings/ui-config',
     '/api/settings/landing-config',
     '/api/settings/system-config',
-    '/api/settings/deadline-config',
-    '/api/settings/bus-fees',
     '/api/payment/webhook/razorpay', // Webhooks verify their own signatures
     '/api/faculties',
     '/api/moderators/get-all',
@@ -227,7 +224,12 @@ function getAllowedOrigins(): string[] {
         origins.push('http://localhost:3000', 'http://127.0.0.1:3000');
     }
 
-    return origins;
+    const explicit = (process.env.ALLOWED_ORIGINS || '')
+        .split(',')
+        .map(s => s.trim())
+        .filter(Boolean);
+
+    return [...new Set([...origins, ...explicit])];
 }
 
 /**
@@ -260,8 +262,6 @@ function validateOrigin(request: NextRequest): boolean {
     // Check origin header
     if (origin) {
         if (allowedOrigins.some(allowed => origin === allowed)) return true;
-        // Allow Vercel preview deployments
-        if (/^https:\/\/.*\.vercel\.app$/.test(origin)) return true;
         if (process.env.NODE_ENV === 'development' && origin.startsWith('http://localhost:')) return true;
     }
 
@@ -271,7 +271,6 @@ function validateOrigin(request: NextRequest): boolean {
             const refererUrl = new URL(referer);
             const refererOrigin = refererUrl.origin;
             if (allowedOrigins.some(allowed => refererOrigin === allowed)) return true;
-            if (/^https:\/\/.*\.vercel\.app$/.test(refererOrigin)) return true;
             if (process.env.NODE_ENV === 'development' && refererOrigin.startsWith('http://localhost:')) return true;
         } catch {
             // Invalid referer URL — reject

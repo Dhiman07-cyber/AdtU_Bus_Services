@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { db as adminDb } from '@/lib/firebase-admin';
-import { createClient } from '@supabase/supabase-js';
+import { getSupabaseServer } from '@/lib/supabase-server';
 import { withSecurity } from '@/lib/security/api-security';
 import { 
     WaitingFlagPostSchema, 
@@ -20,10 +20,7 @@ export const POST = withSecurity(
         const studentUid = auth.uid;
 
         // Initialize Supabase client
-        const supabase = createClient(
-            process.env.NEXT_PUBLIC_SUPABASE_URL || '',
-            process.env.SUPABASE_SERVICE_ROLE_KEY || ''
-        );
+        const supabase = getSupabaseServer();
 
         // 1. Get student data and verify assignment
         let studentDoc = await adminDb.collection('students').doc(studentUid).get();
@@ -161,10 +158,7 @@ export const DELETE = withSecurity(
         const studentUid = auth.uid;
 
         // Initialize Supabase client
-        const supabase = createClient(
-            process.env.NEXT_PUBLIC_SUPABASE_URL || '',
-            process.env.SUPABASE_SERVICE_ROLE_KEY || ''
-        );
+        const supabase = getSupabaseServer();
 
         // 1. Get student document to match ID format used in waiting_flags
         const studentQuery = await adminDb.collection('students')
@@ -233,10 +227,7 @@ export const GET = withSecurity(
         // (Wait, we need to handle doc ID vs auth UID here too)
         
         // Initialize Supabase client
-        const supabase = createClient(
-            process.env.NEXT_PUBLIC_SUPABASE_URL || '',
-            process.env.SUPABASE_SERVICE_ROLE_KEY || ''
-        );
+        const supabase = getSupabaseServer();
 
         const { data, error } = await supabase
             .from('waiting_flags')

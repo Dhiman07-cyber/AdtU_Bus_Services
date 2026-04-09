@@ -4,6 +4,7 @@ import { useState, useEffect, useRef, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/contexts/auth-context";
 import { Button } from "@/components/ui/button";
+import { trackEvent } from "@/components/Analytics";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Bus, LogIn, Chrome } from "lucide-react";
 import {
@@ -67,6 +68,7 @@ function LoginContent() {
         // Default role-based redirect
         switch (userData.role) {
           case "admin":
+            trackEvent('admin_login');
             router.push("/admin");
             break;
           case "moderator":

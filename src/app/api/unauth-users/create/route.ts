@@ -7,8 +7,6 @@ import { adminAuth, adminDb } from '@/lib/firebase-admin';
  */
 export async function POST(request: NextRequest) {
   try {
-    console.log('📥 UnauthUser create API called');
-    console.log('📥 Request headers:', Object.fromEntries(request.headers.entries()));
 
     const token = request.headers.get('Authorization')?.replace('Bearer ', '');
 
@@ -28,7 +26,6 @@ export async function POST(request: NextRequest) {
     const uid = decodedToken.uid;
     const email = decodedToken.email;
 
-    console.log('✅ Token verified for user:', uid, email);
 
     if (!email) {
       console.error('❌ No email in token');
@@ -51,11 +48,9 @@ export async function POST(request: NextRequest) {
     }
 
     // Check if user already exists in users collection
-    console.log('🔍 Checking users collection for existing user:', uid);
     const userDoc = await adminDb.collection('users').doc(uid).get();
 
     if (userDoc.exists) {
-      console.log('✅ User already exists in users collection');
       return NextResponse.json({
         success: false,
         message: 'User already exists in users collection',
@@ -64,13 +59,11 @@ export async function POST(request: NextRequest) {
     }
 
     // Check if user already exists in unauthUsers collection
-    console.log('🔍 Checking unauthUsers collection for existing user:', uid);
     const unauthUserDoc = await adminDb.collection('unauthUsers').doc(uid).get();
 
     const now = new Date().toISOString();
 
     if (unauthUserDoc.exists) {
-      console.log('✅ Updating existing unauthUser document');
       // Update lastLoginAt
       await adminDb.collection('unauthUsers').doc(uid).update({
         lastLoginAt: now
@@ -95,12 +88,9 @@ export async function POST(request: NextRequest) {
       needsApplication: true
     };
 
-    console.log('💾 Creating new unauthUser document for:', uid);
-    console.log('📄 Document data:', JSON.stringify(unauthUserData, null, 2));
 
     try {
       await adminDb.collection('unauthUsers').doc(uid).set(unauthUserData);
-      console.log('✅ UnauthUser document created successfully');
     } catch (dbError: any) {
       console.error('❌ Firestore write error:', dbError);
       console.error('Error code:', dbError.code);

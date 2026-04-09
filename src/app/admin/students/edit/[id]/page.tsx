@@ -13,10 +13,11 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from '@/contexts/toast-context';
-import { Info, Camera } from "lucide-react";
+import { Info, Camera, AlertTriangle } from "lucide-react";
 import { getAllRoutes, getAllBuses, Route, getStudentById, updateStudent } from '@/lib/dataService';
 import EnhancedDatePicker from "@/components/enhanced-date-picker";
 import ProfileImageAddModal from "@/components/ProfileImageAddModal";
+import { cn } from "@/lib/utils";
 
 // Define the form data type - matching ADD form exactly
 type StudentFormData = {
@@ -145,6 +146,19 @@ export default function EditStudentPage({ params }: { params: Promise<{ id: stri
     }
   }, [buses, formData.busId]);
 
+
+  const calculateAge = (dobString: string) => {
+    if (!dobString) return '';
+    const birthDate = new Date(dobString);
+    const today = new Date();
+    let age = today.getFullYear() - birthDate.getFullYear();
+    const monthDiff = today.getMonth() - birthDate.getMonth();
+    if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birthDate.getDate())) {
+      age--;
+    }
+    return age.toString();
+  };
+
   const fetchStudentData = async () => {
     try {
       setLoading(true);
@@ -159,7 +173,7 @@ export default function EditStudentPage({ params }: { params: Promise<{ id: stri
           enrollmentId: studentData.enrollmentId || '',
           gender: studentData.gender || '',
           dob: studentData.dob || '',
-          age: studentData.age?.toString() || '',
+          age: calculateAge(studentData.dob || ''),
           faculty: studentData.faculty || '',
           department: studentData.department || '',
           semester: studentData.semester || '',
@@ -416,7 +430,6 @@ export default function EditStudentPage({ params }: { params: Promise<{ id: stri
           alternatePhone: formData.alternatePhone,
           enrollmentId: formData.enrollmentId,
           gender: formData.gender,
-          age: parseInt(formData.age),
           faculty: formData.faculty,
           department: formData.department,
           semester: formData.semester,
@@ -464,6 +477,11 @@ export default function EditStudentPage({ params }: { params: Promise<{ id: stri
     }
     addToast('Form reset successfully', 'info');
   };
+
+  const selectedBus = buses.find(b => b.id === formData.busId || b.busId === formData.busId);
+  const busShift = selectedBus?.shift?.toLowerCase() || '';
+  const selectedShift = formData.shift?.toLowerCase() || '';
+  const hasShiftConflict = selectedBus && busShift !== 'both' && busShift !== selectedShift;
 
   if (loading || loadingRoutes || loadingBuses) {
     return (
@@ -772,6 +790,14 @@ export default function EditStudentPage({ params }: { params: Promise<{ id: stri
                       <SelectItem value="Evening">Evening Shift</SelectItem>
                     </SelectContent>
                   </Select>
+                  {hasShiftConflict && (
+                    <div className="text-[10px] text-red-500 mt-2 bg-red-500/10 border border-red-500/20 p-2 rounded flex items-start gap-1.5 leading-relaxed">
+                      <AlertTriangle className="w-3 h-3 mt-0.5 shrink-0" />
+                      <span>
+                        The assigned bus ({formData.busAssigned}) does not operate in the {formData.shift} shift. Please use the <Link href="/admin/smart-allocation" className="underline hover:text-red-400">Student Reassignment</Link> portal to change shift and bus together, or revert the shift.
+                      </span>
+                    </div>
+                  )}
                 </div>
 
                 <div>
@@ -920,10 +946,15 @@ export default function EditStudentPage({ params }: { params: Promise<{ id: stri
                 </Button>
                 <Button
                   type="submit"
-                  disabled={loading}
-                  className="w-full sm:w-auto bg-blue-600 hover:bg-blue-700 text-white px-8 shadow-lg shadow-blue-900/20 transition-all duration-200 order-1 sm:order-3"
+                  disabled={loading || !!hasShiftConflict}
+                  className={cn(
+                    "w-full sm:w-auto px-8 transition-all duration-200 order-1 sm:order-3",
+                    hasShiftConflict 
+                      ? "bg-red-600/50 text-white/50 cursor-not-allowed" 
+                      : "bg-blue-600 hover:bg-blue-700 shadow-lg shadow-blue-900/20 text-white"
+                  )}
                 >
-                  {loading ? 'Updating...' : 'Update Student'}
+                  {loading ? 'Updating...' : hasShiftConflict ? 'Shift Conflict' : 'Update Student'}
                 </Button>
               </div>
             </div>

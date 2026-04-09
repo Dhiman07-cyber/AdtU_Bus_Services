@@ -12,10 +12,10 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Info, Camera } from "lucide-react";
+import { Info, Camera, AlertTriangle } from "lucide-react";
 import ProfileImageAddModal from "@/components/ProfileImageAddModal";
 import EnhancedDatePicker from "@/components/enhanced-date-picker";
-import { getAllRoutes, getAllBuses, getDriverById, updateDriver } from '@/lib/dataService';
+import { getAllRoutes, getAllBuses, getDriverById, updateDriver, getAllDrivers } from '@/lib/dataService';
 import { Route } from '@/lib/types';
 import RouteSelect from '@/components/RouteSelect';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -37,6 +37,7 @@ type DriverFormData = {
   employeeId: string;
   address: string;
   approvedBy: string;
+  shift: string;
 };
 
 export default function EditDriverPage({ params }: { params: Promise<{ id: string }> }) {
@@ -48,6 +49,10 @@ export default function EditDriverPage({ params }: { params: Promise<{ id: strin
   const [routes, setRoutes] = useState<Route[]>([]);
   const [buses, setBuses] = useState<any[]>([]);
   const [busOptions, setBusOptions] = useState<any[]>([]);
+  const [driversList, setDriversList] = useState<any[]>([]);
+  const [availableShifts, setAvailableShifts] = useState<string[]>(['Morning', 'Evening', 'Both']);
+  const [showConflictModal, setShowConflictModal] = useState(false);
+  const [conflictDriver, setConflictDriver] = useState<any>(null);
   const [loadingRoutes, setLoadingRoutes] = useState(true);
   const [hoveredRoute, setHoveredRoute] = useState<string | null>(null);
   const hoverTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -73,6 +78,7 @@ export default function EditDriverPage({ params }: { params: Promise<{ id: strin
     employeeId: '',
     address: '',
     approvedBy: '',
+    shift: 'Both',
   });
 
   // Debounced storage to prevent input lag
@@ -95,14 +101,16 @@ export default function EditDriverPage({ params }: { params: Promise<{ id: strin
     const fetchData = async () => {
       try {
         setLoading(true);
-        const [routesData, busesData, foundDriver] = await Promise.all([
+        const [routesData, busesData, foundDriver, driversData] = await Promise.all([
           getAllRoutes(),
           getAllBuses(),
-          getDriverById(driverId)
+          getDriverById(driverId),
+          getAllDrivers()
         ]);
 
         setRoutes(routesData);
         setBuses(busesData);
+        setDriversList(driversData);
 
         if (foundDriver) {
           setDriver(foundDriver);
@@ -123,6 +131,7 @@ export default function EditDriverPage({ params }: { params: Promise<{ id: strin
             employeeId: foundDriver.employeeId || foundDriver.driverId || '',
             address: foundDriver.address || foundDriver.location || '',
             approvedBy: foundDriver.approvedBy || '',
+            shift: foundDriver.shift === 'Morning & Evening' ? 'Both' : (foundDriver.shift || 'Both'),
           };
 
           // If busAssigned is derived from ID (legacy), format it correctly and recover ID
@@ -188,6 +197,7 @@ export default function EditDriverPage({ params }: { params: Promise<{ id: strin
           employeeId: foundDriver.employeeId || foundDriver.driverId || '',
           address: foundDriver.address || foundDriver.location || '',
           approvedBy: foundDriver.approvedBy || '',
+          shift: foundDriver.shift === 'Morning & Evening' ? 'Both' : (foundDriver.shift || 'Both'),
         };
 
         if (initialFormData.busAssigned && !initialFormData.busAssigned.includes('Bus-')) {
@@ -216,6 +226,39 @@ export default function EditDriverPage({ params }: { params: Promise<{ id: strin
       setBusOptions([]);
     }
   }, [routes, buses, formData.routeId]);
+
+  useEffect(() => {
+    if (!formData.busId || formData.routeId?.toLowerCase() === 'reserved' || formData.routeId?.toLowerCase() === 'none') {
+      setAvailableShifts(['Morning', 'Evening', 'Both']);
+      return;
+    }
+
+    const existingDriver = driversList.find(d => 
+      (d.busId === formData.busId || d.assignedBusId === formData.busId) && 
+      !d.isReserved && 
+      (d.driverId || d.id) !== driverId
+    );
+
+    if (existingDriver) {
+      const existingShift = (existingDriver.shift || '').toLowerCase();
+      
+      // Update available shifts base on what's occupied
+      if (existingShift === 'both' || existingShift === 'morning & evening') {
+        // Bus is fully covered, but we allow editing if user confirms later
+        setAvailableShifts(['Morning', 'Evening']); 
+        setConflictDriver(existingDriver);
+      } else if (existingShift === 'morning') {
+        setAvailableShifts(['Morning', 'Evening']);
+        setConflictDriver(null);
+      } else if (existingShift === 'evening') {
+        setAvailableShifts(['Morning', 'Evening']);
+        setConflictDriver(null);
+      }
+    } else {
+      setAvailableShifts(['Morning', 'Evening', 'Both']);
+      setConflictDriver(null);
+    }
+  }, [formData.busId, driversList, driverId]);
 
   const validateForm = () => {
     const newErrors: Record<string, string> = {};
@@ -361,12 +404,34 @@ export default function EditDriverPage({ params }: { params: Promise<{ id: strin
   // Get selected route for display
   const selectedRoute = routes.find(route => route.routeId === formData.routeId);
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleSubmit = async (e?: React.FormEvent) => {
+    if (e && typeof e.preventDefault === 'function') {
+      e.preventDefault();
+    }
 
     if (!validateForm()) {
       addToast('Please fix the errors in the form', 'error');
       return;
+    }
+
+    if (e) {
+      const existingDriver = driversList.find(d => 
+        (d.busId === formData.busId || d.assignedBusId === formData.busId) && 
+        !d.isReserved && 
+        (d.driverId || d.id) !== driverId
+      );
+      
+      if (existingDriver) {
+        const eShift = (existingDriver.shift || '').toLowerCase();
+        const fShift = (formData.shift === 'Morning & Evening' ? 'both' : formData.shift).toLowerCase();
+        
+        // CONFLICT: Either already Both, or same shift
+        if (eShift === 'both' || eShift === 'morning & evening' || eShift === fShift) {
+          setConflictDriver(existingDriver);
+          setShowConflictModal(true);
+          return; 
+        }
+      }
     }
 
     setLoadingSubmit(true);
@@ -446,6 +511,7 @@ export default function EditDriverPage({ params }: { params: Promise<{ id: strin
         assignedBusId: assignedBusId,
         assignedRouteId: assignedRouteId,
         approvedBy: formData.approvedBy,
+        shift: formData.shift === 'Morning & Evening' ? 'Both' : formData.shift,
         updatedAt: new Date().toISOString()
       };
 
@@ -791,6 +857,26 @@ export default function EditDriverPage({ params }: { params: Promise<{ id: strin
                   </div>
 
                   <div>
+                    <Label htmlFor="shift" className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
+                      Shift <span className="text-red-500">*</span>
+                    </Label>
+                    <Select
+                      value={formData.shift === 'Morning & Evening' ? 'Both' : formData.shift}
+                      onValueChange={(value) => handleSelectChange('shift', value)}
+                    >
+                      <SelectTrigger className="w-full h-9">
+                        <SelectValue placeholder="Select Shift" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {availableShifts.map(shift => (
+                          <SelectItem key={shift} value={shift}>{shift === 'Both' ? 'Morning & Evening' : shift}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <p className="text-[10px] text-gray-500 mt-1">Driver's working shift</p>
+                  </div>
+
+                  <div>
                     <Label htmlFor="approvedBy" className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
                       Approved By
                     </Label>
@@ -847,6 +933,58 @@ export default function EditDriverPage({ params }: { params: Promise<{ id: strin
         onConfirm={handleImageConfirm}
         immediateUpload={false}
       />
+
+      {/* Conflict Resolution Modal */}
+      {showConflictModal && conflictDriver && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-300">
+          <div className="bg-gradient-to-br from-[#0E0F12] to-[#1A1B23] border border-white/10 rounded-2xl p-6 sm:p-8 max-w-md w-full shadow-2xl transform animate-in zoom-in-95 duration-300">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-10 h-10 rounded-full bg-amber-500/10 flex items-center justify-center border border-amber-500/20">
+                <AlertTriangle className="h-5 w-5 text-amber-500" />
+              </div>
+              <h3 className="text-xl font-bold text-white">Shift Overlap Warning</h3>
+            </div>
+            
+            <div className="space-y-4 mb-6">
+              <p className="text-gray-300 text-sm leading-relaxed">
+                There already exists a driver named <span className="text-blue-400 font-semibold">{conflictDriver.fullName || conflictDriver.name || 'Unknown'}</span> who is looking for <span className="text-amber-400 font-semibold">{(conflictDriver.shift === 'Both' || conflictDriver.shift === 'Morning & Evening') ? 'both Morning & Evening' : conflictDriver.shift}</span> shift(s).
+              </p>
+              <div className="bg-white/5 border border-white/10 rounded-xl p-4">
+                <p className="text-[10px] text-gray-500 uppercase tracking-wider font-bold mb-1">Impact Analysis</p>
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-gray-400">Target Bus:</span>
+                  <span className="text-xs text-white font-medium">{formData.busAssigned}</span>
+                </div>
+                <div className="flex items-center justify-between mt-1">
+                  <span className="text-xs text-gray-400">Current Occupancy:</span>
+                  <span className="text-xs text-amber-500 font-bold">{(conflictDriver.shift === 'Both' || conflictDriver.shift === 'Morning & Evening') ? 'Full' : 'Partial'}</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex flex-col sm:flex-row gap-3">
+              <Button
+                variant="outline"
+                type="button"
+                onClick={() => setShowConflictModal(false)}
+                className="flex-1 bg-white/5 border-white/10 hover:bg-white/10 text-white"
+              >
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                onClick={() => {
+                  setShowConflictModal(false);
+                  handleSubmit(); // Proceed with null event to bypass check
+                }}
+                className="flex-1 bg-amber-600 hover:bg-amber-700 text-white shadow-lg shadow-amber-900/20"
+              >
+                Assign Anyways
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div >
   );
 }

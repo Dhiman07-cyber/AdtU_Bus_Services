@@ -34,7 +34,6 @@ async function getBrowser() {
 
 export async function generateReceiptPdf(paymentId: string): Promise<Buffer | null> {
   try {
-    console.log('[ReceiptService] Generating PDF for paymentId:', paymentId);
 
     // 1. Fetch Payment Details
     const payment = await paymentsSupabaseService.getPaymentById(paymentId);
@@ -42,7 +41,6 @@ export async function generateReceiptPdf(paymentId: string): Promise<Buffer | nu
       console.error('[ReceiptService] Payment not found in Supabase for paymentId:', paymentId);
       return null;
     }
-    console.log('[ReceiptService] Payment found:', payment.student_name, 'Amount:', payment.amount);
 
     // 2. Security & Signature
     const paymentMethod = (payment.method || 'Offline') as 'Online' | 'Offline';

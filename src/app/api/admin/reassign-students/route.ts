@@ -1,23 +1,10 @@
 import { NextResponse } from 'next/server';
 import { adminDb } from '@/lib/firebase-admin';
 import { FieldValue } from 'firebase-admin/firestore';
-import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import { getSupabaseServer } from '@/lib/supabase-server';
 import { withSecurity } from '@/lib/security/api-security';
 import { ReassignStudentsSchema } from '@/lib/security/validation-schemas';
 import { RateLimits } from '@/lib/security/rate-limiter';
-
-// Lazy Supabase client initialization
-let supabaseClient: SupabaseClient | null = null;
-
-function getSupabaseClient(): SupabaseClient {
-    if (!supabaseClient) {
-        const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-        const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-        if (!url || !key) throw new Error('Missing Supabase environment variables');
-        supabaseClient = createClient(url, key, { auth: { persistSession: false } });
-    }
-    return supabaseClient;
-}
 
 export const POST = withSecurity(
     async (request, { auth, body }) => {
@@ -50,6 +37,18 @@ export const POST = withSecurity(
         // Use a batch for atomic writes
         const batch = adminDb.batch();
         const busLoadChanges = new Map<string, { morningDelta: number; eveningDelta: number }>();
+        const busIdsToLoad = new Set<string>();
+        for (const assignment of assignments) {
+            busIdsToLoad.add(assignment.toBusId);
+            busIdsToLoad.add(assignment.fromBusId);
+        }
+        const busSnapshots = new Map<string, any>();
+        await Promise.all(
+            Array.from(busIdsToLoad).map(async (busId) => {
+                const snap = await adminDb.collection('buses').doc(busId).get();
+                busSnapshots.set(busId, snap);
+            })
+        );
 
         // Process each assignment
         for (const assignment of assignments) {
@@ -57,7 +56,7 @@ export const POST = withSecurity(
             const studentRef = adminDb.collection('students').doc(studentId);
 
             // Get target bus data for routeId
-            const targetBusSnap = await adminDb.collection('buses').doc(toBusId).get();
+            const targetBusSnap = busSnapshots.get(toBusId);
             if (!targetBusSnap.exists) throw new Error(`Target bus ${toBusId} not found`);
             const targetBusData = targetBusSnap.data()!;
 
@@ -86,7 +85,7 @@ export const POST = withSecurity(
         // Apply bus load changes
         for (const [busId, deltas] of busLoadChanges.entries()) {
             const busRef = adminDb.collection('buses').doc(busId);
-            const busSnap = await busRef.get();
+            const busSnap = busSnapshots.get(busId);
             if (busSnap.exists) {
                 const busData = busSnap.data()!;
                 const currentLoad = busData.load || { morningCount: 0, eveningCount: 0 };
@@ -111,7 +110,7 @@ export const POST = withSecurity(
             const busLabels = new Map<string, string>();
 
             for (const bId of uniqueBusIds) {
-                const bSnap = await adminDb.collection('buses').doc(bId).get();
+                const bSnap = busSnapshots.get(bId);
                 if (bSnap.exists) {
                     const bData = bSnap.data()!;
                     const bNum = bId.replace(/[^0-9]/g, '') || '?';
@@ -134,7 +133,7 @@ export const POST = withSecurity(
             }
 
             for (const [busId, deltas] of busLoadChanges.entries()) {
-                const busSnap = await adminDb.collection('buses').doc(busId).get();
+                const busSnap = busSnapshots.get(busId);
                 if (busSnap.exists) {
                     const busData = busSnap.data()!;
                     const currentLoad = busData.load || { morningCount: 0, eveningCount: 0 };
@@ -150,7 +149,7 @@ export const POST = withSecurity(
                 }
             }
 
-            const supabase = getSupabaseClient();
+            const supabase = getSupabaseServer();
             await supabase.from('reassignment_logs').delete().eq('type', 'student_reassignment');
             await supabase.from('reassignment_logs').insert([{
                 operation_id: operationId,

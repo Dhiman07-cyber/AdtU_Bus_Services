@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db as adminDb } from '@/lib/firebase-admin';
+import { withSecurity } from '@/lib/security/api-security';
+import { RateLimits } from '@/lib/security/rate-limiter';
 
 /**
  * FORCE FIX: Aggressively fix ALL bus driver assignments
@@ -8,7 +10,7 @@ import { db as adminDb } from '@/lib/firebase-admin';
  * 1. Get the driver's busId from their driver document
  * 2. Update that bus to use the driver's Firebase UID
  */
-export async function POST(req: NextRequest) {
+const _post = async (req: NextRequest) => {
   try {
     console.log('🔧 Starting FORCE FIX of bus-driver assignments...\n');
 
@@ -91,4 +93,9 @@ export async function POST(req: NextRequest) {
       { status: 500 }
     );
   }
-}
+};
+
+export const POST = withSecurity(_post, {
+  requiredRoles: ['admin'],
+  rateLimit: RateLimits.BULK_OPERATION,
+});

@@ -7,7 +7,6 @@ import { adminAuth, adminDb } from '@/lib/firebase-admin';
  */
 export async function POST(request: NextRequest) {
   try {
-    console.log('🧹 Starting unauth-users cleanup process');
 
     if (!adminDb) {
       console.error('❌ Admin Firestore not initialized');
@@ -18,14 +17,9 @@ export async function POST(request: NextRequest) {
     const thirtyDaysAgo = new Date(now.getTime() - (30 * 24 * 60 * 60 * 1000));
     const fortyFiveDaysAgo = new Date(now.getTime() - (45 * 24 * 60 * 60 * 1000));
 
-    console.log('📅 Cleanup thresholds:', {
-      thirtyDaysAgo: thirtyDaysAgo.toISOString(),
-      fortyFiveDaysAgo: fortyFiveDaysAgo.toISOString()
-    });
 
     // Get all unauth users
     const unauthUsersQuery = await adminDb.collection('unauthUsers').get();
-    console.log(`📊 Found ${unauthUsersQuery.docs.length} unauth users to check`);
 
     let deletedCount = 0;
     let movedCount = 0;
@@ -37,15 +31,9 @@ export async function POST(request: NextRequest) {
       const createdAt = new Date(userData.createdAt);
       const lastLoginAt = new Date(userData.lastLoginAt);
 
-      console.log(`🔍 Processing user ${userId}:`, {
-        createdAt: createdAt.toISOString(),
-        lastLoginAt: lastLoginAt.toISOString(),
-        status: userData.status
-      });
 
       // Check if user should be deleted (45+ days old with no activity)
       if (lastLoginAt < fortyFiveDaysAgo) {
-        console.log(`🗑️ Deleting old user ${userId} (45+ days inactive)`);
         
         try {
           // Delete from Firebase Auth
@@ -70,13 +58,11 @@ export async function POST(request: NextRequest) {
 
       // Check if user should be moved to users collection (approved applications)
       if (userData.status === 'approved') {
-        console.log(`📦 Moving approved user ${userId} to users collection`);
         
         try {
           // Check if user already exists in users collection
           const existingUserDoc = await adminDb.collection('users').doc(userId).get();
           if (existingUserDoc.exists) {
-            console.log(`⚠️ User ${userId} already exists in users collection, skipping`);
             continue;
           }
 
@@ -92,7 +78,6 @@ export async function POST(request: NextRequest) {
           };
 
           await adminDb.collection('users').doc(userId).set(userDocData);
-          console.log(`✅ Created user document for ${userId}`);
 
           // Create student document
           const studentDocData = {
@@ -105,11 +90,9 @@ export async function POST(request: NextRequest) {
           };
 
           await adminDb.collection('students').doc(userId).set(studentDocData);
-          console.log(`✅ Created student document for ${userId}`);
 
           // Delete from unauthUsers collection
           await adminDb.collection('unauthUsers').doc(userId).delete();
-          console.log(`✅ Removed from unauthUsers collection: ${userId}`);
           
           movedCount++;
           cleanupResults.push({
@@ -125,7 +108,6 @@ export async function POST(request: NextRequest) {
 
       // Check if user should be deleted (rejected applications)
       if (userData.status === 'rejected') {
-        console.log(`🗑️ Deleting rejected user ${userId}`);
         
         try {
           // Delete from Firebase Auth
@@ -148,15 +130,8 @@ export async function POST(request: NextRequest) {
         continue;
       }
 
-      console.log(`⏳ User ${userId} kept (status: ${userData.status}, within time limits)`);
     }
 
-    console.log('✅ Cleanup completed:', {
-      totalProcessed: unauthUsersQuery.docs.length,
-      deleted: deletedCount,
-      moved: movedCount,
-      kept: unauthUsersQuery.docs.length - deletedCount - movedCount
-    });
 
     return NextResponse.json({
       success: true,

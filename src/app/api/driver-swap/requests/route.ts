@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { auth, db as adminDb } from '@/lib/firebase-admin';
 import { DriverSwapSupabaseService } from '@/lib/driver-swap-supabase';
+import { getSupabaseServer } from '@/lib/supabase-server';
 import { createClient } from '@supabase/supabase-js';
 
 // Server-side Supabase client

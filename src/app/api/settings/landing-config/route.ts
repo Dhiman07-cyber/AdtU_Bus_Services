@@ -65,7 +65,6 @@ export async function POST(req: NextRequest) {
         await adminDb.collection(COLLECTION_NAME).doc(DOC_ID).set({
             ...config,
             lastUpdated: new Date().toISOString(),
-            updatedBy: decodedToken.uid
         }, { merge: true });
 
         return NextResponse.json({ success: true, message: 'Config updated' });

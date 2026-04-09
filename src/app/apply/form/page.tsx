@@ -32,6 +32,7 @@ import {
   Camera,
   ArrowRight
 } from 'lucide-react';
+import { trackEvent } from '@/components/Analytics';
 import ProfileImageAddModal from '@/components/ProfileImageAddModal';
 import { ApplicationFormData, ApplicationState, ModeratorProfile } from '@/lib/types/application';
 import Image from 'next/image';
@@ -1137,6 +1138,7 @@ const handleSubmitApplication = async () => {
       const data = await response.json();
       console.log('âœ… Application submission confirmed by server');
 
+      trackEvent('student_added');
       showToast('Application submitted successfully! Waiting for approval from the Managing Team.', 'success');
 
       // Clean up all localStorage data related to the application

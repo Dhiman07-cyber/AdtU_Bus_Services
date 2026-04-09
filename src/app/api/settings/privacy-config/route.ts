@@ -76,7 +76,6 @@ export async function POST(req: NextRequest) {
 
         // Update lastUpdated
         config.lastUpdated = new Date().toISOString().split('T')[0];
-        config.updatedBy = decodedToken.uid;
 
         // Save to Firestore
         await adminDb.collection(COLLECTION_NAME).doc(DOC_ID).set(config);
