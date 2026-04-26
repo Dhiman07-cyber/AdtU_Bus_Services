@@ -1,7 +1,16 @@
-import { Coordinate, RouteGeometry, fetchRouteGeometryViaProxy } from './ors-service';
+/**
+ * Interface for basic coordinates
+ */
+export interface Coordinate {
+  lat: number;
+  lng: number;
+}
+
+// Average bus speed in meters per second (approx 30 km/h)
+const AVERAGE_SPEED_MPS = 8.33;
 
 /**
- * Calculate ETA to a specific stop along a route
+ * Calculate ETA to a specific stop along a route using pure math (Haversine distance / speed)
  * @param routeStops All stops on the route in order
  * @param currentBusLocation Current location of the bus
  * @param targetStopIndex Index of the target stop in the routeStops array
@@ -18,22 +27,29 @@ export async function calculateETAtoStop(
   }
 
   try {
-    // Get the segment of the route from current bus location to target stop
-    const routeSegment: Coordinate[] = [currentBusLocation];
+    let totalDistance = 0;
+    
+    // Distance from bus to the first relevant stop
+    totalDistance += haversineDistance(
+      currentBusLocation.lat,
+      currentBusLocation.lng,
+      routeStops[0].lat,
+      routeStops[0].lng
+    );
 
-    // Add all stops from current position to target stop
-    for (let i = 0; i <= targetStopIndex; i++) {
-      routeSegment.push(routeStops[i]);
+    // Sum up the straight-line distance between stops up to the target
+    for (let i = 1; i <= targetStopIndex; i++) {
+      totalDistance += haversineDistance(
+        routeStops[i - 1].lat,
+        routeStops[i - 1].lng,
+        routeStops[i].lat,
+        routeStops[i].lng
+      );
     }
 
-    // Fetch route geometry for this segment
-    const routeGeometry = await fetchRouteGeometryViaProxy(routeSegment);
-
-    if (routeGeometry) {
-      return routeGeometry.duration;
-    }
-
-    return null;
+    // Time = Distance / Speed
+    const etaSeconds = Math.round(totalDistance / AVERAGE_SPEED_MPS);
+    return etaSeconds;
   } catch (error) {
     console.error('Error calculating ETA to stop:', error);
     return null;
@@ -41,7 +57,11 @@ export async function calculateETAtoStop(
 }
 
 /**
- * Calculate ETA to all stops on a route
+ * Calculate ETA to all stops on a route using pure math
+ * 
+ * PERF: Uses pure mathematical distance approximation instead of external API calls.
+ * Zero latency, fully offline, and highly efficient.
+ * 
  * @param routeStops All stops on the route in order
  * @param currentBusLocation Current location of the bus
  * @returns Array of ETAs in seconds for each stop, or null if calculation fails
@@ -50,13 +70,19 @@ export async function calculateETAtoAllStops(
   routeStops: Coordinate[],
   currentBusLocation: Coordinate
 ): Promise<(number | null)[]> {
+  if (routeStops.length === 0) return [];
+
   try {
     const etas: (number | null)[] = [];
+    let cumulativeDistance = 0;
 
-    // Calculate ETA for each stop
     for (let i = 0; i < routeStops.length; i++) {
-      const eta = await calculateETAtoStop(routeStops, currentBusLocation, i);
-      etas.push(eta);
+      const from = i === 0 ? currentBusLocation : routeStops[i - 1];
+      const to = routeStops[i];
+      const d = haversineDistance(from.lat, from.lng, to.lat, to.lng);
+      
+      cumulativeDistance += d;
+      etas.push(Math.round(cumulativeDistance / AVERAGE_SPEED_MPS));
     }
 
     return etas;

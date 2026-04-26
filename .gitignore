@@ -52,3 +52,6 @@ firestore_data.json
 .gemini/
 .next
 .vscode
+
+# Map data
+public/maps/guwahati.pmtiles

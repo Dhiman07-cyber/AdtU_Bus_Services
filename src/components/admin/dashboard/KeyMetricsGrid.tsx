@@ -20,6 +20,7 @@ import { Button } from '@/components/ui/button';
 import { DashboardStats } from './types';
 import { cn } from '@/lib/utils';
 import { ResponsiveContainer, AreaChart, Area } from 'recharts';
+import { useTheme } from '@/components/theme-provider';
 
 // Mini sparkline data simulation
 const generateSparklineData = (base: number) => {
@@ -51,11 +52,13 @@ const MetricCard = ({
   className,
   sparklineBase
 }: MetricCardProps) => {
+  const { theme } = useTheme();
   const data = sparklineBase ? generateSparklineData(sparklineBase) : [];
 
   return (
     <Card className={cn(
-      "relative overflow-hidden group border-slate-800 bg-slate-900/40 backdrop-blur-xl hover:bg-slate-900/60 transition-all duration-500",
+      "relative overflow-hidden group backdrop-blur-xl transition-all duration-500",
+      theme === 'dark' ? "border-slate-800 bg-slate-900/40 hover:bg-slate-900/60" : "border-[#E5E7EB] bg-white hover:bg-gray-50",
       className
     )}>
       <CardContent className="p-2 md:p-2.5 flex flex-col items-center justify-center text-center">
@@ -69,10 +72,10 @@ const MetricCard = ({
         </div>
 
         <div className="space-y-0.5 w-full">
-          <h3 className="text-[10px] font-bold text-slate-500 uppercase tracking-[0.12em]">{title}</h3>
+          <h3 className={cn("text-[10px] font-bold uppercase tracking-[0.12em]", theme === 'dark' ? "text-slate-500" : "text-[#6B7280]")}>{title}</h3>
           <div className="flex flex-col items-center">
-            <span className="text-2xl font-black text-white tracking-tight">{value}</span>
-            {subValue && <span className="text-[10px] font-semibold text-slate-500">{subValue}</span>}
+            <span className={cn("text-2xl font-black tracking-tight", theme === 'dark' ? "text-white" : "text-[#111827]")}>{value}</span>
+            {subValue && <span className={cn("text-[10px] font-semibold", theme === 'dark' ? "text-slate-500" : "text-[#6B7280]")}>{subValue}</span>}
           </div>
         </div>
 
@@ -83,10 +86,15 @@ const MetricCard = ({
 
 export default function KeyMetricsGrid({ stats, role = 'admin' }: { stats: DashboardStats, role?: 'admin' | 'moderator' }) {
   const router = useRouter();
+  const { theme } = useTheme();
+
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-9 gap-3 mb-8">
       {/* Primary Revenue/Payment Card - Spans 5/9 columns (~55%) and 2 rows on large screens */}
-      <Card className="md:col-span-2 lg:col-span-5 lg:row-span-2 relative overflow-hidden group border-slate-700/50 bg-slate-900/40 backdrop-blur-2xl hover:bg-slate-900/60 shadow-2xl transition-all duration-500">
+      <Card className={cn(
+        "md:col-span-2 lg:col-span-5 lg:row-span-2 relative overflow-hidden group backdrop-blur-2xl shadow-2xl transition-all duration-500",
+        theme === 'dark' ? "border-slate-700/50 bg-slate-900/40 hover:bg-slate-900/60" : "border-[#E5E7EB] bg-white hover:bg-gray-50"
+      )}>
         <div className="absolute top-16 right-0 p-8 opacity-10 group-hover:opacity-20 transition-opacity">
           {role === 'admin' ? (
             <IndianRupee className="w-32 h-32 text-indigo-500" />
@@ -98,7 +106,10 @@ export default function KeyMetricsGrid({ stats, role = 'admin' }: { stats: Dashb
         <CardContent className="p-2.5 md:p-3 px-5 md:px-6 pb-1.5 flex flex-col justify-between h-full relative z-10">
           <div className="space-y-2">
             <div className="flex items-center justify-between">
-              <div className="px-4 py-1.5 rounded-full bg-emerald-500/10 border border-emerald-500/20 flex items-center gap-2">
+              <div className={cn(
+                "px-4 py-1.5 rounded-full border flex items-center gap-2",
+                theme === 'dark' ? "bg-emerald-500/10 border-emerald-500/20" : "bg-emerald-50 border-emerald-200"
+              )}>
                 <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
                 <span className="text-[10px] font-black text-emerald-400 uppercase tracking-widest">
                   {role === 'admin' ? 'Real-time Revenue' : 'Payment Processing'}
@@ -107,7 +118,7 @@ export default function KeyMetricsGrid({ stats, role = 'admin' }: { stats: Dashb
               <Button
                 size="sm"
                 variant="ghost"
-                className="text-slate-400 hover:text-white group/btn"
+                className={cn("group/btn", theme === 'dark' ? "text-slate-400 hover:text-white" : "text-[#6B7280] hover:text-[#111827]")}
                 onClick={() => router.push(role === 'admin' ? '/admin/renewal-service' : '/moderator/renewal-service')}
               >
                 <span className="text-[10px] font-bold uppercase tracking-widest mr-2">Audit Log</span>
@@ -116,12 +127,12 @@ export default function KeyMetricsGrid({ stats, role = 'admin' }: { stats: Dashb
             </div>
 
             <div className="space-y-1">
-              <h3 className="text-sm font-bold text-slate-400 uppercase tracking-widest">
+              <h3 className={cn("text-sm font-bold uppercase tracking-widest", theme === 'dark' ? "text-slate-400" : "text-[#6B7280]")}>
                 {role === 'admin' ? 'Total Cumulative Revenue' : 'Online vs Offline Preference'}
               </h3>
               <div className="flex items-baseline gap-4">
                 {role === 'admin' ? (
-                  <span className="text-3xl md:text-4xl font-black text-white tracking-tighter">
+                  <span className={cn("text-3xl md:text-4xl font-black tracking-tighter", theme === 'dark' ? "text-white" : "text-[#111827]")}>
                     {stats.totalRevenue ? stats.totalRevenue.toLocaleString('en-IN', {
                       style: 'currency',
                       currency: 'INR',
@@ -132,42 +143,42 @@ export default function KeyMetricsGrid({ stats, role = 'admin' }: { stats: Dashb
                   <div className="flex items-center gap-6">
                     <div className="flex flex-col">
                       <span className="text-3xl font-black text-indigo-400">{stats.onlinePayments || 0}</span>
-                      <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Online</span>
+                      <span className={cn("text-[10px] font-bold uppercase tracking-widest", theme === 'dark' ? "text-slate-500" : "text-[#6B7280]")}>Online</span>
                     </div>
-                    <div className="h-10 w-px bg-white/10 mx-2" />
+                    <div className={cn("h-10 w-px mx-2", theme === 'dark' ? "bg-white/10" : "bg-[#E5E7EB]")} />
                     <div className="flex flex-col">
                       <span className="text-3xl font-black text-emerald-400">{stats.offlinePayments || 0}</span>
-                      <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Offline</span>
+                      <span className={cn("text-[10px] font-bold uppercase tracking-widest", theme === 'dark' ? "text-slate-500" : "text-[#6B7280]")}>Offline</span>
                     </div>
                   </div>
                 )}
               </div>
             </div>
           </div>
-          <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mt-4 pt-3 border-t border-white/5">
+          <div className={cn("grid grid-cols-2 md:grid-cols-3 gap-3 mt-4 pt-3 border-t", theme === 'dark' ? "border-white/5" : "border-[#E5E7EB]")}>
             <div className="space-y-1">
-              <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">System Bus fee</span>
-              <div className="text-xl font-bold text-white">₹{typeof stats.systemBusFee === 'number' ? stats.systemBusFee.toLocaleString('en-IN') : '...'}</div>
+              <span className={cn("text-[10px] font-bold uppercase tracking-widest", theme === 'dark' ? "text-slate-500" : "text-[#6B7280]")}>System Bus fee</span>
+              <div className={cn("text-xl font-bold", theme === 'dark' ? "text-white" : "text-[#111827]")}>₹{typeof stats.systemBusFee === 'number' ? stats.systemBusFee.toLocaleString('en-IN') : '...'}</div>
             </div>
             {role === 'admin' ? (
               <>
                 <div className="space-y-1">
-                  <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Online Payments</span>
+                  <span className={cn("text-[10px] font-bold uppercase tracking-widest", theme === 'dark' ? "text-slate-500" : "text-[#6B7280]")}>Online Payments</span>
                   <div className="text-xl font-bold text-indigo-400">{stats.onlinePayments || 0}</div>
                 </div>
                 <div className="space-y-1">
-                  <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Offline Payments</span>
+                  <span className={cn("text-[10px] font-bold uppercase tracking-widest", theme === 'dark' ? "text-slate-500" : "text-[#6B7280]")}>Offline Payments</span>
                   <div className="text-xl font-bold text-emerald-400">{stats.offlinePayments || 0}</div>
                 </div>
               </>
             ) : (
               <>
                 <div className="space-y-1">
-                  <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Currency</span>
+                  <span className={cn("text-[10px] font-bold uppercase tracking-widest", theme === 'dark' ? "text-slate-500" : "text-[#6B7280]")}>Currency</span>
                   <div className="text-xl font-bold text-cyan-400">INR</div>
                 </div>
                 <div className="space-y-1">
-                  <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Payment Gateway</span>
+                  <span className={cn("text-[10px] font-bold uppercase tracking-widest", theme === 'dark' ? "text-slate-500" : "text-[#6B7280]")}>Payment Gateway</span>
                   <div className="text-xl font-bold text-orange-400">Razorpay</div>
                 </div>
               </>

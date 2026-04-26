@@ -476,16 +476,20 @@ export class BusReassignmentServiceV2 {
           }
         }
 
-        // Validate and update buses
+        // 1. Parallel fetch all necessary bus documents
+        const busIds = Array.from(busShiftChanges.keys());
+        const busRefs = busIds.map(id => doc(db, 'buses', id));
+        const busSnaps = await Promise.all(busRefs.map(ref => transaction.get(ref)));
+        
+        const busDataMap = new Map<string, any>();
+        busSnaps.forEach((snap, idx) => {
+            if (!snap.exists()) throw new Error(`Bus ${busIds[idx]} not found`);
+            busDataMap.set(busIds[idx], snap.data());
+        });
+
+        // 2. Validate and update buses
         for (const [busId, changes] of busShiftChanges) {
-          const busRef = doc(db, 'buses', busId);
-          const busSnap = await transaction.get(busRef);
-
-          if (!busSnap.exists()) {
-            throw new Error(`Bus ${busId} not found`);
-          }
-
-          const busData = busSnap.data();
+          const busData = busDataMap.get(busId);
           const currentLoad = busData.load || { morningCount: 0, eveningCount: 0 };
 
           const newMorningCount = Math.max(0, (currentLoad.morningCount || 0) + changes.morningDelta);
@@ -493,18 +497,14 @@ export class BusReassignmentServiceV2 {
 
           // Check capacity constraints
           if (changes.morningDelta > 0 && newMorningCount > busData.capacity) {
-            throw new Error(
-              `Bus ${busData.busNumber} would exceed morning capacity (${newMorningCount}/${busData.capacity})`
-            );
+            throw new Error(`Bus ${busData.busNumber} would exceed morning capacity (${newMorningCount}/${busData.capacity})`);
           }
           if (changes.eveningDelta > 0 && newEveningCount > busData.capacity) {
-            throw new Error(
-              `Bus ${busData.busNumber} would exceed evening capacity (${newEveningCount}/${busData.capacity})`
-            );
+            throw new Error(`Bus ${busData.busNumber} would exceed evening capacity (${newEveningCount}/${busData.capacity})`);
           }
 
           // Update bus load
-          transaction.update(busRef, {
+          transaction.update(doc(db, 'buses', busId), {
             'load.morningCount': newMorningCount,
             'load.eveningCount': newEveningCount,
             updatedAt: serverTimestamp()
@@ -522,26 +522,27 @@ export class BusReassignmentServiceV2 {
           });
         }
 
-        // Update students with PRE-READ for accurate rollback log
-        for (const plan of plans) {
-          const studentRef = doc(db, 'students', plan.studentId);
-          const studentSnap = await transaction.get(studentRef);
+        // 3. Parallel fetch all student documents
+        const studentRefs = plans.map(p => doc(db, 'students', p.studentId));
+        const studentSnaps = await Promise.all(studentRefs.map(ref => transaction.get(ref)));
+        
+        // 4. Update students
+        studentSnaps.forEach((snap, idx) => {
+          if (!snap.exists()) return;
 
-          if (!studentSnap.exists()) continue;
-
-          const studentData = studentSnap.data();
+          const plan = plans[idx];
+          const studentData = snap.data();
           const beforeState = {
             busId: studentData.busId,
             routeId: studentData.routeId,
             stopId: studentData.stopId,
             shift: studentData.shift,
-            assignedBusId: studentData.assignedBusId // Capture legacy field
+            assignedBusId: studentData.assignedBusId
           };
 
-          // Update both busId and assignedBusId for consistency
-          transaction.update(studentRef, {
+          transaction.update(snap.ref, {
             busId: plan.toBusId,
-            assignedBusId: plan.toBusId, // Sync legacy field
+            assignedBusId: plan.toBusId,
             routeId: plan.toRouteId,
             stopId: plan.stopId,
             updatedAt: serverTimestamp()
@@ -549,16 +550,16 @@ export class BusReassignmentServiceV2 {
 
           updatedStudents.push({
             uid: plan.studentId,
-            oldBusId: beforeState.busId, // Use actual DB state
+            oldBusId: beforeState.busId,
             newBusId: plan.toBusId,
             oldRouteId: beforeState.routeId,
             newRouteId: plan.toRouteId,
             stopId: plan.stopId,
-            beforeState, // Pass full before state to log
+            beforeState,
           });
 
           affectedStops.add(plan.stopId);
-        }
+        });
 
         return {
           updatedStudents,
@@ -1007,72 +1008,60 @@ export class BusReassignmentServiceV2 {
    * ═══════════════════════════════════════════════════════════════════════
    */
   async reconcileBusLoads(busIds?: string[]): Promise<Map<string, BusLoad>> {
-    console.log('🔧 Reconciling bus load counts...');
-
+    console.log('🔧 Reconciling bus load counts (Batch Mode)...');
     const results = new Map<string, BusLoad>();
 
     try {
-      // Get all buses or specific buses
-      let busesToReconcile: BusData[];
+      // 1. Fetch all active students once
+      const studentsSnap = await getDocs(query(
+        collection(db, 'students'),
+        where('status', '==', 'active')
+      ));
 
-      if (busIds && busIds.length > 0) {
-        busesToReconcile = [];
-        for (const busId of busIds) {
-          const busDoc = await getDoc(doc(db, 'buses', busId));
-          if (busDoc.exists()) {
-            busesToReconcile.push({ id: busDoc.id, ...busDoc.data() } as BusData);
-          }
+      // 2. Group students by bus and shift in memory
+      const busCounts = new Map<string, { morning: number; evening: number }>();
+      studentsSnap.forEach(docSnap => {
+        const data = docSnap.data();
+        if (!data.busId) return;
+        
+        if (!busCounts.has(data.busId)) {
+          busCounts.set(data.busId, { morning: 0, evening: 0 });
         }
-      } else {
+        const counts = busCounts.get(data.busId)!;
+        if (data.shift === 'Morning') counts.morning++;
+        else if (data.shift === 'Evening') counts.evening++;
+      });
+
+      // 3. Get target buses
+      let busesToUpdate: string[] = busIds || [];
+      if (busesToUpdate.length === 0) {
         const busesSnap = await getDocs(collection(db, 'buses'));
-        busesToReconcile = busesSnap.docs.map(d => ({ id: d.id, ...d.data() } as BusData));
+        busesToUpdate = busesSnap.docs.map(d => d.id);
       }
 
-      console.log('Reconciling', busesToReconcile.length, 'buses');
-
-      for (const bus of busesToReconcile) {
-        // Count students by shift
-        const studentsQuery = query(
-          collection(db, 'students'),
-          where('busId', '==', bus.id),
-          where('status', '==', 'active')
-        );
-
-        const studentsSnap = await getDocs(studentsQuery);
-
-        let morningCount = 0;
-        let eveningCount = 0;
-
-        studentsSnap.forEach(doc => {
-          const student = doc.data();
-          if (student.shift === 'Morning') {
-            morningCount++;
-          } else if (student.shift === 'Evening') {
-            eveningCount++;
-          }
+      // 4. Batch update buses
+      const batch = writeBatch(db);
+      for (const busId of busesToUpdate) {
+        const counts = busCounts.get(busId) || { morning: 0, evening: 0 };
+        const busRef = doc(db, 'buses', busId);
+        
+        batch.update(busRef, {
+          'load.morningCount': counts.morning,
+          'load.eveningCount': counts.evening,
+          'load.totalCount': counts.morning + counts.evening,
+          'currentMembers': counts.morning + counts.evening,
+          updatedAt: serverTimestamp()
         });
 
-        // Update bus document
-        await runTransaction(db, async (transaction) => {
-          const busRef = doc(db, 'buses', bus.id);
-          transaction.update(busRef, {
-            'load.morningCount': morningCount,
-            'load.eveningCount': eveningCount,
-            'load.totalCount': morningCount + eveningCount,
-            updatedAt: serverTimestamp()
-          });
+        results.set(busId, {
+          morningCount: counts.morning,
+          eveningCount: counts.evening,
+          totalCount: counts.morning + counts.evening
         });
-
-        results.set(bus.id, {
-          morningCount,
-          eveningCount,
-          totalCount: morningCount + eveningCount
-        });
-
-        console.log(`✓ ${bus.busNumber}: M=${morningCount}, E=${eveningCount}`);
       }
 
-      console.log('✅ Reconciliation complete');
+      await batch.commit();
+      console.log(`✅ Reconciled ${busesToUpdate.length} buses using memory grouping.`);
       return results;
 
     } catch (error: any) {

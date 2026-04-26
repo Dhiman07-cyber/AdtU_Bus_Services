@@ -317,5 +317,5 @@ function GoogleBusMapInner({
 }
 
 export default function GoogleBusMap(props: GoogleBusMapProps) {
-    return <GoogleBusMapInner key={props.busId} {...props} />;
+    return <GoogleBusMapInner {...props} />;
 }

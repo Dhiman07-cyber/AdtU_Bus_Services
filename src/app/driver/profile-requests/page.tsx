@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { getDriverById } from "@/lib/dataService";
+import Image from "next/image";
 
 interface ProfileUpdateRequest {
   requestId: string;
@@ -213,14 +214,12 @@ export default function DriverProfileRequestsPage() {
                     </h4>
                     <div className="border rounded-lg p-4">
                       {request.currentImageUrl ? (
-                        <img 
+                        <Image 
                           src={request.currentImageUrl} 
                           alt="Current profile" 
+                          width={128}
+                          height={128}
                           className="w-32 h-32 rounded-full mx-auto object-cover"
-                          onError={(e) => {
-                            const target = e.target as HTMLImageElement;
-                            target.style.display = 'none';
-                          }}
                         />
                       ) : (
                         <div className="w-32 h-32 rounded-full bg-gray-200 flex items-center justify-center mx-auto">
@@ -238,14 +237,12 @@ export default function DriverProfileRequestsPage() {
                     </h4>
                     <div className="border rounded-lg p-4">
                       {request.newImageUrl ? (
-                        <img 
+                        <Image 
                           src={request.newImageUrl} 
                           alt="New profile" 
+                          width={128}
+                          height={128}
                           className="w-32 h-32 rounded-full mx-auto object-cover"
-                          onError={(e) => {
-                            const target = e.target as HTMLImageElement;
-                            target.style.display = 'none';
-                          }}
                         />
                       ) : (
                         <div className="w-32 h-32 rounded-full bg-gray-200 flex items-center justify-center mx-auto">

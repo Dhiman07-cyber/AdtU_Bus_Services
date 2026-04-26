@@ -17,6 +17,7 @@ import { withSecurity } from '@/lib/security/api-security';
 import { EndTripSchema } from '@/lib/security/validation-schemas';
 import { RateLimits } from '@/lib/security/rate-limiter';
 import { notifyRoute } from '@/lib/services/fcm-notification-service';
+import { formatIdForDisplay } from '@/lib/utils';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -242,87 +243,54 @@ export const POST = withSecurity(
 
     console.log(`🏁 Ending journey for bus ${busId}, trip ${tripId || 'current'}...`);
 
-    // Get active trip if tripId not provided - from BUSES collection
-    let activeTripId = tripId;
-    if (!activeTripId) {
-      const busDoc = await adminDb.collection('buses').doc(busId).get();
-      if (!busDoc.exists) {
-        return NextResponse.json({ error: 'Bus not found' }, { status: 404 });
-      }
-      activeTripId = busDoc.data()?.activeTripId;
-
-      if (!activeTripId) {
-        console.warn('⚠️ No active trip ID found on bus, assuming cleanup already done or stateless end.');
-        // Generate a fallback ID so cleanup functions still work nicely
-        const crypto = require('crypto');
-        activeTripId = `trip_${busId}_${crypto.randomUUID()}`;
-      }
-    }
-
-    // Get bus details
+    // 1. Single Firestore read for bus metadata and lock verification
     const busDoc = await adminDb.collection('buses').doc(busId).get();
+    if (!busDoc.exists) return NextResponse.json({ error: 'Bus not found' }, { status: 404 });
+    
     const busData = busDoc.data();
-    const busNumber = busData?.busNumber || busId;
+    let activeTripId = tripId || busData?.activeTripId;
+    
+    if (!activeTripId) {
+        activeTripId = `trip_${busId}_${crypto.randomUUID()}`;
+    }
 
-    // =====================================================
-    // MULTI-DRIVER LOCK VERIFICATION
-    // Only the driver who holds the lock can end the trip
-    // =====================================================
+    const rawBusNumber = busData?.busNumber || busId;
+    const busNumber = formatIdForDisplay(rawBusNumber);
+    const rawRouteName = busData?.routeName || `Route for Bus ${busNumber}`;
+    const routeName = formatIdForDisplay(rawRouteName);
+
+    // Lock verification
     const lock = busData?.activeTripLock;
-
     if (lock?.active && lock.driverId && lock.driverId !== driverUid) {
-      console.error(`🔒 Lock mismatch: Driver ${driverUid} trying to end trip owned by ${lock.driverId}`);
-      return NextResponse.json(
-        {
-          success: false,
-          error: 'You cannot end this trip. Another driver is currently operating this bus.',
-          errorCode: 'NOT_LOCK_HOLDER'
-        },
-        { status: 403 }
-      );
+      return NextResponse.json({ error: 'Not the lock holder', errorCode: 'NOT_LOCK_HOLDER' }, { status: 403 });
     }
 
-    // If no active lock, allow the end (might be cleanup or expired lock)
-    if (!lock?.active) {
-      console.warn(`⚠️ No active lock found for bus ${busId}, proceeding with cleanup anyway`);
-    } else {
-      console.log(`✅ Lock verification passed: Driver ${driverUid} is the lock holder`);
-    }
+    // 2. Parallelize ALL Cleanup and Notification Tasks
+    const finalizationTasks = [
+        // Firestore: Release lock
+        adminDb.collection('buses').doc(busId).update({
+            activeTripLock: { active: false, tripId: null, driverId: null, shift: null, since: null, expiresAt: null },
+            activeTripId: null, activeDriverId: null, lastEndedAt: FieldValue.serverTimestamp()
+        }),
 
-    // Clear trip-related fields from bus document including the lock
-    await adminDb.collection('buses').doc(busId).update({
-      activeTripLock: {
-        active: false,
-        tripId: null,
-        driverId: null,
-        shift: null,
-        since: null,
-        expiresAt: null
-      },
-      activeTripId: null,
-      activeDriverId: null,
-      lastEndedAt: FieldValue.serverTimestamp()
-    });
+        // Supabase: Comprehensive Cleanup
+        cleanupSupabase(supabase, busId, activeTripId, driverUid),
 
-    // CRITICAL: Comprehensive cleanup of ALL trip-related Supabase tables
-    console.log('\n🚀 STARTING COMPREHENSIVE SUPABASE CLEANUP...\n');
+        // Supabase: Broadcasts
+        broadcastTripEnd(supabase, busId, activeTripId, busNumber),
 
-    const supabaseStats = await cleanupSupabase(supabase, busId, activeTripId, driverUid);
+        // FCM: Notifications
+        notifyRoute({
+            routeId: busData?.routeId || busData?.route_id || busId,
+            tripId: activeTripId, routeName, busId, eventType: 'TRIP_ENDED'
+        })
+    ];
 
-    // Broadcast trip end to all subscribers
-    await broadcastTripEnd(supabase, busId, activeTripId, busNumber);
-
-    // Send FCM notifications to students (uses the 100% reliable centralized service)
-    await notifyRoute({
-      routeId: busData?.routeId || busData?.route_id || busId, // Fallback if route_id not set directly
-      tripId: activeTripId,
-      routeName: busData?.routeName || `Route for Bus ${busNumber}`,
-      busId,
-      eventType: 'TRIP_ENDED'
-    }).catch(err => {
-      console.error('❌ FCM notification error on end-journey-v2:', err);
-    });
-
+    const taskResults = await Promise.allSettled(finalizationTasks);
+    
+    // Extract stats from cleanup task (index 1)
+    const supabaseStats = taskResults[1].status === 'fulfilled' ? (taskResults[1].value as any) : {};
+    
     const totalElapsed = Date.now() - startTime;
 
     // Prepare cleanup summary

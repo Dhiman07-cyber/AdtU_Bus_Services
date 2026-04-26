@@ -120,14 +120,44 @@ export async function GET(request: NextRequest) {
                     sessionEndYear: studentData.sessionEndYear
                 };
 
+                // SAFETY CHECK: Skip students without sessionEndYear (likely new/incomplete)
+                if (!studentData.sessionEndYear) {
+                    console.warn(`🛡️ SAFETY CANCELLED: Student ${uid} has no sessionEndYear. Likely new student - skipping deletion.`);
+                    continue;
+                }
+                
                 // Check using optimized stored-date functions with dynamic config override
                 const needsSoftBlock = shouldBlockAccessFromStoredDates(studentCheckData, null, config);
                 const needsHardDelete = shouldHardDeleteFromStoredDates(studentCheckData, null, config);
 
                 // --- HARD DELETE EXECUTION ---
                 if (needsHardDelete) {
+                    // SAFETY CHECK: Log before deletion
                     console.log(`🗑️ HARD DELETE triggered for ${studentData.fullName || 'Unknown'} (${uid})`);
                     console.log(`   hardBlock date: ${hardBlockStr}`);
+                    console.log(`   validUntil: ${validUntilStr}`);
+                    console.log(`   status: ${studentData.status}`);
+                    
+                    // SAFETY CHECK: Verify student is actually expired
+                    const today = new Date();
+                    if (validUntilStr) {
+                        const validUntilDate = new Date(validUntilStr);
+                        if (validUntilDate > today) {
+                            console.warn(`🛡️ SAFETY CANCELLED: Student ${uid} has validUntil ${validUntilStr} which is in the future. Skipping deletion.`);
+                            continue;
+                        }
+                    }
+                    
+                    // SAFETY CHECK: Don't delete if student was recently active (last 30 days)
+                    const lastActiveAt = studentData.lastActiveAt || studentData.lastLoginAt || studentData.updatedAt;
+                    if (lastActiveAt) {
+                        const lastActiveDate = new Date(lastActiveAt);
+                        const daysSinceActive = Math.floor((today.getTime() - lastActiveDate.getTime()) / (1000 * 60 * 60 * 24));
+                        if (daysSinceActive < 30) {
+                            console.warn(`🛡️ SAFETY CANCELLED: Student ${uid} was active ${daysSinceActive} days ago. Skipping deletion.`);
+                            continue;
+                        }
+                    }
 
                     // 1. Delete profile photo from Cloudinary
                     const profilePhotoUrl = studentData.profilePhotoUrl || studentData.profileImage || studentData.photoUrl || studentData.imageUrl;
@@ -223,6 +253,8 @@ export async function GET(request: NextRequest) {
                     }
 
                     // 8. Delete Firestore Documents
+                    console.log(`🚨 [AUDIT] Deleting student document ${uid}. CALLER STACK:`, new Error().stack);
+                    console.log(`   Student Metadata: sessionEndYear=${studentData.sessionEndYear}, validUntil=${validUntilStr}, status=${studentData.status}`);
                     await adminDb.collection('students').doc(uid).delete();
                     try {
                         await adminDb.collection('users').doc(uid).delete();

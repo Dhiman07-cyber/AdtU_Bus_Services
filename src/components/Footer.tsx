@@ -1,9 +1,10 @@
 "use client";
 
-import { useState } from 'react';
+import React, { useState } from 'react';
 import { useAuth } from '@/contexts/auth-context';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
+import Image from 'next/image';
 import { Button } from '@/components/ui/button';
 import { MessageSquare } from 'lucide-react';
 import FeedbackModal from '@/components/FeedbackModal';
@@ -13,7 +14,7 @@ interface FooterProps {
   className?: string;
 }
 
-export default function Footer({ className = '' }: FooterProps) {
+const Footer = React.memo(function Footer({ className = '' }: FooterProps) {
   const { currentUser, userData } = useAuth();
   const { appName } = useSystemConfig();
   const router = useRouter();
@@ -36,7 +37,7 @@ export default function Footer({ className = '' }: FooterProps) {
             {/* Branding */}
             <div className="space-y-1.5 sm:space-y-3 col-span-2 lg:col-span-3">
               <div className="space-y-1.5 sm:space-y-2">
-                <img src="/adtu-new-logo.svg" alt="AdtU Logo" className="w-24 h-9 sm:w-36 sm:h-14" />
+                <Image src="/adtu-new-logo.svg" alt="AdtU Logo" width={144} height={56} className="w-24 h-9 sm:w-36 sm:h-14" />
                 <div>
                   <h3 className="text-sm sm:text-lg font-bold text-white">{appName}</h3>
                   <p className="text-[10px] sm:text-xs text-[#9CA3AF] leading-relaxed max-w-[280px]">Official Real-Time Campus Transportation Management Platform</p>
@@ -163,5 +164,6 @@ export default function Footer({ className = '' }: FooterProps) {
       </footer>
     </>
   );
-}
+});
 
+export default Footer;

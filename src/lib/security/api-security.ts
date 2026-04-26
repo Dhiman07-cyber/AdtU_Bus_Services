@@ -257,6 +257,32 @@ export function withSecurity<T = any>(
         const url = request instanceof NextRequest ? request.nextUrl.pathname : new URL(request.url).pathname;
 
         try {
+            // ── 0. CSRF origin check for state-changing methods ──
+            if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(method)) {
+                const origin = request.headers.get('origin');
+                if (origin) {
+                    const allowedOrigins = [
+                        process.env.NEXTAUTH_URL,
+                        process.env.NEXT_PUBLIC_APP_URL,
+                        process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : null,
+                        process.env.NODE_ENV !== 'production' ? 'http://localhost:3000' : null,
+                    ].filter(Boolean) as string[];
+
+                    const originHost = new URL(origin).host;
+                    const isAllowed = allowedOrigins.some(allowed => {
+                        try { return new URL(allowed).host === originHost; } catch { return false; }
+                    });
+
+                    if (!isAllowed) {
+                        console.warn(`[${requestId}] CSRF: Rejected origin ${origin} for ${method} ${url}`);
+                        return NextResponse.json(
+                            { success: false, error: 'Invalid request origin', requestId },
+                            { status: 403 }
+                        );
+                    }
+                }
+            }
+
             // ── 1. Parse body ──
             let rawBody: any = {};
             if (['POST', 'PUT', 'PATCH'].includes(method)) {

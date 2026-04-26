@@ -89,6 +89,13 @@ export class ReassignmentService {
         // First, we need to get student shifts to calculate proper deltas
         const studentShifts = new Map<string, string>();
         for (const plan of plans) {
+          // Optimization: If shift is already provided in the plan, use it!
+          if (plan.studentShift) {
+            studentShifts.set(plan.studentId, plan.studentShift);
+            continue;
+          }
+
+          // Fallback only if shift is missing (e.g., from older client versions or different logic)
           const studentDoc = await transaction.get(doc(db, 'students', plan.studentId));
           if (studentDoc.exists()) {
             const shift = studentDoc.data().shift || 'Morning';

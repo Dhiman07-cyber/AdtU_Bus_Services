@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { db as adminDb } from '@/lib/firebase-admin';
+import { adminDb } from '@/lib/firebase-admin';
 import { getSupabaseServer } from '@/lib/supabase-server';
 import { withSecurity } from '@/lib/security/api-security';
 import { 
@@ -18,61 +18,45 @@ export const POST = withSecurity(
     async (request, { auth, body }) => {
         const { busId, lat, lng, message, timestamp, routeId, stopName, stopId, stopLat, stopLng } = body as any;
         const studentUid = auth.uid;
-
-        // Initialize Supabase client
         const supabase = getSupabaseServer();
 
-        // 1. Get student data and verify assignment
-        let studentDoc = await adminDb.collection('students').doc(studentUid).get();
-        let studentData: any = null;
-
-        if (studentDoc.exists) {
-            studentData = studentDoc.data();
-        } else {
-            const studentQuery = await adminDb.collection('students')
-                .where('uid', '==', studentUid)
+        // 1. Parallelize student profile fetch and duplicate flag check
+        const [studentDoc, existingFlagRes] = await Promise.all([
+            adminDb.collection('students').doc(studentUid).get().then(doc => {
+                if (doc.exists) return doc;
+                return adminDb.collection('students').where('uid', '==', studentUid).limit(1).get().then(q => q.empty ? null : q.docs[0]);
+            }),
+            supabase.from('waiting_flags')
+                .select('id')
+                .eq('student_uid', studentUid)
+                .eq('bus_id', busId)
+                .in('status', ['raised', 'waiting', 'acknowledged'])
                 .limit(1)
-                .get();
+        ]);
 
-            if (!studentQuery.empty) {
-                studentDoc = studentQuery.docs[0];
-                studentData = studentDoc.data();
-            }
-        }
-
-        if (!studentData) {
-            return NextResponse.json({ error: 'Student record not found' }, { status: 404 });
-        }
-
+        if (!studentDoc) return NextResponse.json({ error: 'Student record not found' }, { status: 404 });
+        
+        const studentData = studentDoc.data()!;
         const studentBusId = studentData.busId || studentData.assignedBusId;
+        
         if (!studentBusId || studentBusId !== busId) {
             return NextResponse.json({
                 error: `Forbidden: You are not assigned to bus ${busId}. Your assigned bus is ${studentBusId || 'none'}.`
             }, { status: 403 });
         }
 
-        // 2. Prevent duplicate active flags
-        const actualStudentId = studentDoc.id;
-        const { data: existingFlags } = await supabase
-            .from('waiting_flags')
-            .select('id')
-            .eq('student_uid', actualStudentId)
-            .eq('bus_id', busId)
-            .in('status', ['raised', 'waiting', 'acknowledged'])
-            .limit(1);
-
-        if (existingFlags && existingFlags.length > 0) {
+        if (existingFlagRes.data && existingFlagRes.data.length > 0) {
             return NextResponse.json({
                 success: false,
                 error: 'You already have an active waiting flag for this bus',
-                existingFlagId: existingFlags[0].id
+                existingFlagId: existingFlagRes.data[0].id
             }, { status: 409 });
         }
 
-        // 3. Prepare flag data
+        // 2. Prepare flag data
         const currentTimestamp = timestamp || Date.now();
         const flagData: any = {
-            student_uid: actualStudentId,
+            student_uid: studentUid,
             student_name: studentData.fullName || studentData.name || 'Student',
             bus_id: busId,
             route_id: routeId || 'unknown',
@@ -91,52 +75,41 @@ export const POST = withSecurity(
             flagData.stop_lat = parseFloat(stopLat as any);
             flagData.stop_lng = parseFloat(stopLng as any);
         } else {
-            return NextResponse.json({
-                error: 'Location is required to raise a waiting flag.',
-                code: 'LOCATION_REQUIRED'
-            }, { status: 400 });
+            return NextResponse.json({ error: 'Location is required', code: 'LOCATION_REQUIRED' }, { status: 400 });
         }
 
-        // 4. Insert into Supabase
-        const { data, error: supabaseError } = await supabase
+        // 3. Atomic Insert
+        const { data: insertData, error: insertError } = await supabase
             .from('waiting_flags')
             .insert(flagData)
-            .select();
+            .select()
+            .single();
 
-        if (supabaseError) {
-            console.error('Supabase insert error:', supabaseError);
+        if (insertError) {
+            console.error('Supabase insert error:', insertError);
             return NextResponse.json({ error: 'Failed to create waiting flag' }, { status: 500 });
         }
 
-        const insertedFlag = data[0];
-
-        // 5. Broadcast to driver
-        try {
-            const channel = supabase.channel(`waiting_flags_${busId}`);
-            await new Promise<void>((resolve) => {
-                const timeout = setTimeout(() => resolve(), 2000);
-                channel.subscribe((status) => {
-                    if (status === 'SUBSCRIBED') {
-                        clearTimeout(timeout);
-                        resolve();
-                    }
+        // 4. Non-blocking Broadcast (Background)
+        (async () => {
+            try {
+                const channel = supabase.channel(`waiting_flags_${busId}`);
+                await channel.subscribe();
+                await channel.send({
+                    type: 'broadcast',
+                    event: 'waiting_flag_created',
+                    payload: insertData
                 });
-            });
-
-            await channel.send({
-                type: 'broadcast',
-                event: 'waiting_flag_created',
-                payload: insertedFlag
-            });
-            await supabase.removeChannel(channel);
-        } catch (err) {
-            console.warn('Broadcast failed (non-critical):', err);
-        }
+                await supabase.removeChannel(channel);
+            } catch (err) {
+                console.warn('Broadcast failed (non-critical):', err);
+            }
+        })();
 
         return NextResponse.json({
             success: true,
-            flagId: insertedFlag.id,
-            flag: insertedFlag
+            flagId: insertData.id,
+            flag: insertData
         });
     },
     {
@@ -156,52 +129,35 @@ export const DELETE = withSecurity(
     async (request, { auth, body }) => {
         const { flagId, busId } = body as any;
         const studentUid = auth.uid;
-
-        // Initialize Supabase client
         const supabase = getSupabaseServer();
 
-        // 1. Get student document to match ID format used in waiting_flags
-        const studentQuery = await adminDb.collection('students')
-            .where('uid', '==', studentUid)
-            .limit(1)
-            .get();
-
-        const actualStudentId = studentQuery.empty ? studentUid : studentQuery.docs[0].id;
-
-        // 2. Update status in Supabase (don't delete for audit)
+        // 1. Concurrent status update (audit-safe)
         const { error: supabaseError } = await supabase
             .from('waiting_flags')
             .update({ status: 'cancelled' })
             .eq('id', flagId)
-            .eq('student_uid', actualStudentId);
+            .eq('student_uid', studentUid);
 
         if (supabaseError) {
             console.error('Supabase error:', supabaseError);
             return NextResponse.json({ error: 'Failed to cancel waiting flag' }, { status: 500 });
         }
 
-        // 3. Broadcast removal
-        try {
-            const channel = supabase.channel(`waiting_flags_${busId}`);
-            await new Promise<void>((resolve) => {
-                const timeout = setTimeout(() => resolve(), 2000);
-                channel.subscribe((status) => {
-                    if (status === 'SUBSCRIBED') {
-                        clearTimeout(timeout);
-                        resolve();
-                    }
+        // 2. Non-blocking Broadcast (Background)
+        (async () => {
+            try {
+                const channel = supabase.channel(`waiting_flags_${busId}`);
+                await channel.subscribe();
+                await channel.send({
+                    type: 'broadcast',
+                    event: 'waiting_flag_removed',
+                    payload: { flagId, studentUid }
                 });
-            });
-
-            await channel.send({
-                type: 'broadcast',
-                event: 'waiting_flag_removed',
-                payload: { flagId, studentUid: actualStudentId }
-            });
-            await supabase.removeChannel(channel);
-        } catch (err) {
-            console.warn('Broadcast failed (non-critical):', err);
-        }
+                await supabase.removeChannel(channel);
+            } catch (err) {
+                console.warn('Broadcast failed (non-critical):', err);
+            }
+        })();
 
         return NextResponse.json({ success: true });
     },
@@ -222,11 +178,6 @@ export const GET = withSecurity(
     async (request, { auth, body }) => {
         const { studentUid } = body as any;
         const requesterUid = auth.uid;
-
-        // Security check: Only allow fetching your own flag
-        // (Wait, we need to handle doc ID vs auth UID here too)
-        
-        // Initialize Supabase client
         const supabase = getSupabaseServer();
 
         const { data, error } = await supabase

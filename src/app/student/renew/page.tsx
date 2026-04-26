@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '@/contexts/auth-context';
 import { useRouter } from 'next/navigation';
+import Image from 'next/image';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
@@ -148,33 +149,17 @@ export default function StudentRenewalPage() {
 
   // Fetch student data
   useEffect(() => {
-    const fetchStudentData = async () => {
-      if (!currentUser || !userData) return;
+    if (!currentUser || !userData) return;
 
-      try {
-        const studentDoc = await getDoc(doc(db, 'students', currentUser.uid));
-        if (studentDoc.exists()) {
-          const data = studentDoc.data();
-          setStudentData(data);
+    // Optimization: Use userData from context instead of re-fetching student doc
+    setStudentData(userData);
 
-          if (data.validUntil) {
-            const validUntilDate = parseFirestoreDate(data.validUntil);
-            const daysUntilExpiry = daysUntil(validUntilDate);
-
-            if (hasCompletedPayment(currentUser.uid, 'renewal')) {
-              setRenewalCompleted(true);
-            }
-          }
-        }
-      } catch (error) {
-        console.error('Error fetching student data:', error);
-        toast.error('Failed to load student information');
-      } finally {
-        setLoadingStudent(false);
+    if (userData.validUntil) {
+      if (hasCompletedPayment(currentUser.uid, 'renewal')) {
+        setRenewalCompleted(true);
       }
-    };
-
-    fetchStudentData();
+    }
+    setLoadingStudent(false);
   }, [currentUser, userData]);
 
   // Fetch transaction history
@@ -434,7 +419,7 @@ export default function StudentRenewalPage() {
                     <div className="relative w-full h-full rounded-full bg-[#0a0c12] border-[3px] border-[#0a0c12] p-1.5 flex items-center justify-center overflow-hidden z-10">
                       {studentData?.profilePhotoUrl ? (
                         <div className="w-full h-full rounded-full overflow-hidden border border-white/10 ring-1 ring-white/5">
-                          <img src={studentData.profilePhotoUrl} alt="Profile" className="w-full h-full object-cover rounded-full" />
+                          <Image src={studentData.profilePhotoUrl} alt="Profile" width={96} height={96} className="w-full h-full object-cover rounded-full" />
                         </div>
                       ) : (
                         <div className="w-full h-full rounded-full bg-white/5 flex items-center justify-center">

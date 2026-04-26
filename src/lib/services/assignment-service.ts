@@ -533,35 +533,37 @@ export async function commitAssignments(
     let successCount = 0;
     let failureCount = 0;
 
-    // Process operations one by one for granular error handling
-    // In production, you might batch these for performance
-    for (let i = 0; i < operations.length; i++) {
-        const op = operations[i];
+    // Optimization: Parallelize assignment commits where possible
+    // Note: Since these are independent transactions in the current design,
+    // we can use Promise.all to run them in parallel.
+    const commitPromises = operations.map(async (op, i) => {
         let result: { success: boolean; message?: string };
-
         if (op.type === "driverAssign") {
             result = await commitDriverAssignment(op as DriverAssignmentOperation, adminUid);
         } else {
             result = await commitRouteAssignment(op as RouteAssignmentOperation, adminUid);
         }
 
-        if (result.success) {
-            successCount++;
-            results.push({
-                index: i,
-                operationType: op.type,
-                status: "success",
-            });
-        } else {
-            failureCount++;
-            results.push({
-                index: i,
-                operationType: op.type,
-                status: "error",
-                message: result.message,
-            });
-        }
-    }
+        return {
+            index: i,
+            operationType: op.type,
+            status: result.success ? "success" : "error",
+            message: result.message
+        };
+    });
+
+    const commitResults = await Promise.all(commitPromises);
+
+    commitResults.forEach(res => {
+        results.push({
+            index: res.index,
+            operationType: res.operationType,
+            status: res.status as "success" | "error",
+            message: res.message
+        });
+        if (res.status === "success") successCount++;
+        else failureCount++;
+    });
 
     // Optional: Write minimal audit log with TTL
     if (successCount > 0) {
@@ -876,9 +878,9 @@ export async function commitStagingRows(
     let successCount = 0;
     let failureCount = 0;
 
-    for (const row of staging) {
+    // Optimization: Parallelize staging row commits
+    const commitPromises = staging.map(async (row) => {
         let result: StagingRowCommitResult;
-
         if (row.type === 'driver') {
             result = await commitDriverStagingRow(row as DriverStagingRow, adminUid);
         } else if (row.type === 'route') {
@@ -886,7 +888,12 @@ export async function commitStagingRows(
         } else {
             result = { rowId: (row as StagingRow).id, status: 'error', message: 'Unknown staging row type' };
         }
+        return result;
+    });
 
+    const commitResults = await Promise.all(commitPromises);
+
+    for (const result of commitResults) {
         results.push(result);
         if (result.status === 'success') {
             successCount++;

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useCallback } from "react";
+import { usePathname } from "next/navigation";
 import { useAuth } from "@/contexts/auth-context";
 import { useToast } from "@/contexts/toast-context";
 import { 
@@ -36,6 +37,7 @@ const LS_LAST_SYNC_PREFIX = 'fcm_last_sync_';
  */
 export function FCMTokenManager() {
   const { currentUser, userData } = useAuth();
+  const pathname = usePathname();
   const { addToast } = useToast();
   const addToastRef = useRef(addToast);
   const isSyncing = useRef(false);
@@ -178,6 +180,15 @@ export function FCMTokenManager() {
         const title = payload?.notification?.title;
         const body = payload?.notification?.body;
 
+        // SKIP toasts if user is on the track-bus page (page handles its own low-latency toasts)
+        const isTrackingPage = pathname === '/student/track-bus';
+        const isTripEvent = data.type === 'TRIP_STARTED' || data.type === 'TRIP_ENDED';
+
+        if (isTrackingPage && isTripEvent) {
+          console.log('🔇 Skipping FCM toast - user is on tracking page');
+          return;
+        }
+
         if (data.type === 'TRIP_STARTED') {
           addToastRef.current?.(
             body || '🚌 Your bus has started its journey! Track it live now.',
@@ -200,7 +211,7 @@ export function FCMTokenManager() {
     return () => {
       if (unsubscribe) unsubscribe();
     };
-  }, [currentUser?.uid, userData]);
+  }, [currentUser?.uid, userData, pathname]);
 
   // This component doesn't render any UI
   return null;

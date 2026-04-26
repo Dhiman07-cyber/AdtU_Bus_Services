@@ -23,7 +23,8 @@ export interface SystemConfig {
     softBlock?: string;
     hardBlock?: string;
     version?: string;
-    mapProvider?: 'osm' | 'carto' | 'google';
+    // Legacy values ("osm", "carto") are kept for backward compatibility.
+    mapProvider?: 'osm' | 'carto' | 'google' | 'guwahati';
     lastUpdated?: string;
     updatedBy?: string;
     [key: string]: any;

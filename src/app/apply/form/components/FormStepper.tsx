@@ -133,7 +133,10 @@ export default function FormStepper({
               </div>
 
               {/* Step Title */}
-              <div className="absolute -bottom-8 w-max text-center">
+              <div className={cn(
+                "absolute -bottom-8 w-max text-center transition-all duration-300",
+                !isActive && "hidden md:block"
+              )}>
                 <span 
                   className={cn(
                     "text-[10px] sm:text-[11px] font-bold tracking-wide transition-colors duration-300",

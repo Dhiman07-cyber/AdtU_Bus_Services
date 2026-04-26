@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useAuth } from '@/contexts/auth-context';
 import { useRouter } from 'next/navigation';
+import Image from 'next/image';
 import { Button } from '@/components/ui/button';
 import {
   Camera,
@@ -731,7 +732,7 @@ export default function DriverScanPassPage() {
                     {/* Header with Logo */}
                     <div className="w-full px-4 py-3 flex items-center justify-between border-b border-white/5 bg-gradient-to-r from-[#1a1b2e] to-[#0f1019] relative">
                       <div className="flex items-center gap-2.5">
-                        <img src="/adtu-new-logo.svg" alt="AdtU" className="h-6 w-auto flex-shrink-0" />
+                        <Image src="/adtu-new-logo.svg" alt="AdtU" width={96} height={24} className="h-6 w-auto flex-shrink-0" />
                         <span className="text-[10px] font-black text-white/90 uppercase tracking-wider">Assam down town University</span>
                       </div>
                       <div className="w-2.5 h-2.5 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]" />
@@ -763,7 +764,7 @@ export default function DriverScanPassPage() {
                               <div className="flex flex-col items-center flex-shrink-0 w-[110px] sm:w-[130px]">
                                 <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-full bg-gradient-to-br from-blue-500/20 to-indigo-500/20 border-2 border-blue-500/30 overflow-hidden shadow-lg mb-1.5">
                                   {scanResult.studentData.profilePhotoUrl ? (
-                                    <img src={scanResult.studentData.profilePhotoUrl} className="w-full h-full object-cover" alt="Profile" />
+                                    <Image src={scanResult.studentData.profilePhotoUrl} width={64} height={64} className="w-full h-full object-cover" alt="Profile" />
                                   ) : (
                                     <div className="w-full h-full flex items-center justify-center">
                                       <User className="h-7 w-7 text-blue-400/40" />
@@ -806,7 +807,7 @@ export default function DriverScanPassPage() {
                             {/* Profile Photo */}
                             <div className="w-20 h-20 rounded-full bg-gradient-to-br from-blue-500/20 to-indigo-500/20 border-4 border-blue-500/30 overflow-hidden shadow-2xl mb-4">
                               {scanResult.studentData.profilePhotoUrl ? (
-                                <img src={scanResult.studentData.profilePhotoUrl} className="w-full h-full object-cover" alt="Profile" />
+                                <Image src={scanResult.studentData.profilePhotoUrl} width={80} height={80} className="w-full h-full object-cover" alt="Profile" />
                               ) : (
                                 <div className="w-full h-full flex items-center justify-center">
                                   <User className="h-10 w-10 text-blue-400/40" />

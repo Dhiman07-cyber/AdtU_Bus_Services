@@ -14,6 +14,8 @@ export interface PaymentTransaction {
   validUntil: string; // ISO string - for compatibility
   status?: 'completed' | 'pending' | 'failed';
   offlineTransactionId?: string; // UPI ID or Reference ID
+  sessionStartYear?: number;
+  sessionEndYear?: number;
 
   // Extended Audit Fields (Optional - for offline/manual renewals)
   studentEmail?: string;
@@ -54,19 +56,40 @@ export interface PaymentTransaction {
 export class PaymentTransactionService {
   /**
    * Save a transaction record - NOW WRITES TO SUPABASE (Firestore is blocked)
+   * Prevents duplicates by checking for existing records first.
    */
   static async saveTransaction(transaction: PaymentTransaction): Promise<void> {
     try {
-
-      // Map legacy status to unified status
+      // 1. Check if record already exists to avoid redundant creation
+      const existing = await paymentsSupabaseService.getPaymentById(transaction.paymentId);
+      
+      // Map legacy status/method to Supabase format
       let status: 'Pending' | 'Completed' = 'Completed';
       if (transaction.status === 'pending') status = 'Pending';
-      if (transaction.status === 'failed') status = 'Pending'; // Map failed to Pending as Rejected is not supported for now
-
-      // Map legacy method to unified method
+      if (transaction.status === 'failed') status = 'Pending';
+      
       const method: 'Online' | 'Offline' = (transaction.paymentMethod === 'online') ? 'Online' : 'Offline';
 
-      // Create payment in Supabase
+      if (existing) {
+        // If it exists and is already completed, don't re-save unless it's a forced update
+        if (existing.status === 'Completed' && status === 'Completed') {
+          console.log(`[PaymentTransaction] Record ${transaction.paymentId} already completed, skipping.`);
+          return;
+        }
+
+        // It exists but needs status/validity update (e.g. Pending -> Completed)
+        console.log(`[PaymentTransaction] Updating existing record: ${transaction.paymentId}`);
+        await paymentsSupabaseService.updatePaymentStatus(
+          transaction.paymentId,
+          status as any,
+          typeof transaction.approvedBy === 'object' ? (transaction.approvedBy as any) : undefined
+        );
+        
+        // Return as the status update is usually the main goal of re-saving during approval
+        return;
+      }
+
+      // 2. Create new payment in Supabase (Uses upsert internally for safety)
       const paymentId = await paymentsSupabaseService.createPayment({
         paymentId: transaction.paymentId,
         studentId: transaction.studentId,
@@ -75,14 +98,15 @@ export class PaymentTransactionService {
         amount: transaction.amount,
         method,
         status,
+        sessionStartYear: transaction.sessionStartYear,
+        sessionEndYear: transaction.sessionEndYear,
         durationYears: transaction.durationYears,
         validUntil: transaction.validUntil ? new Date(transaction.validUntil) : undefined,
         transactionDate: transaction.timestamp ? new Date(transaction.timestamp) : new Date(),
         offlineTransactionId: transaction.offlineTransactionId,
-        approvedBy: typeof transaction.approvedBy === 'object' ? transaction.approvedBy : undefined,
+        approvedBy: typeof transaction.approvedBy === 'object' ? (transaction.approvedBy as any) : undefined,
         approvedAt: transaction.approvedAtISO ? new Date(transaction.approvedAtISO) : undefined,
       });
-
 
       if (!paymentId) {
         throw new Error('Failed to save transaction to Supabase');

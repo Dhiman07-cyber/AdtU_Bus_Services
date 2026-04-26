@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAuth } from '@/contexts/auth-context';
 import dynamic from 'next/dynamic';
 import { supabase } from '@/lib/supabase-client';
@@ -66,12 +66,12 @@ interface DynamicStudentMapProps {
   busId: string;
   routeId: string;
   journeyActive?: boolean;
-  studentLocation?: { accuracy: number };
+  studentLocation?: { lat: number; lng: number; accuracy: number };
   onWaitingFlagCreate?: (flagId: string) => void;
   onWaitingFlagRemove?: (flagId: string) => void;
 }
 
-export default function DynamicStudentMap({ 
+function DynamicStudentMap({ 
   busId, 
   routeId,
   journeyActive = false,
@@ -248,7 +248,6 @@ export default function DynamicStudentMap({
             'Authorization': `Bearer ${token}`
           },
           body: JSON.stringify({
-            idToken: token,
             flagId: currentFlagId,
             busId: busId
           })
@@ -271,7 +270,6 @@ export default function DynamicStudentMap({
             'Authorization': `Bearer ${token}`
           },
           body: JSON.stringify({
-            idToken: token,
             busId: busId,
             accuracy: studentLocation.accuracy,
             message: 'Waiting for bus',
@@ -346,9 +344,9 @@ export default function DynamicStudentMap({
           )}
           <AssamRestrictedMap key={`student-map-${busId}`} restrictToGuwahati={true} style={{ height: '500px' }}>
             {/* Bus Location Marker - Only show when journey is active */}
-            {journeyActive && busLocation && mapIcons && (
+            {journeyActive && busLocation && busLocation.lat && busLocation.lng && mapIcons && (
               <Marker
-                position={[0, 0]}
+                position={[busLocation.lat, busLocation.lng]}
                 icon={mapIcons.bus}
               >
                 <Popup>
@@ -369,9 +367,9 @@ export default function DynamicStudentMap({
             )}
 
             {/* Student's Own Location */}
-            {studentLocation && mapIcons && (
+            {studentLocation && studentLocation.lat && studentLocation.lng && mapIcons && (
               <Marker
-                position={[0, 0]}
+                position={[studentLocation.lat, studentLocation.lng]}
                 icon={mapIcons.student}
               >
                 <Popup>
@@ -487,3 +485,5 @@ export default function DynamicStudentMap({
     </div>
   );
 }
+
+export default React.memo(DynamicStudentMap);

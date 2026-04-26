@@ -21,22 +21,13 @@ import "@/styles/animations.css";
 import { PremiumPageLoader } from "@/components/LoadingSpinner";
 import { supabase } from "@/lib/supabase-client";
 import { authApiFetch } from "@/lib/secure-api-client";
+import { formatIdForDisplay } from "@/lib/utils";
 
 export default function DriverDashboard() {
   const { userData, currentUser } = useAuth();
   const router = useRouter();
   // Initialize trip state based on local storage or default to false, will sync with DB
   const [hasActiveTrip, setHasActiveTrip] = useState(false);
-  const [driverDataFirestore, setDriverDataFirestore] = useState<any>(null);
-  const [driverDataLoading, setDriverDataLoading] = useState(true);
-  const [assignedBusData, setAssignedBusData] = useState<any>(null);
-  const [assignedRouteData, setAssignedRouteData] = useState<any>(null);
-  const [buses, setBuses] = useState<any[]>([]);
-  const [routes, setRoutes] = useState<any[]>([]);
-  const [students, setStudents] = useState<any[]>([]);
-  const [busesLoading, setBusesLoading] = useState(true);
-  const [routesLoading, setRoutesLoading] = useState(true);
-  const [studentsLoading, setStudentsLoading] = useState(true);
 
   // NOTE: Cache clearing removed for production - caching is now enabled
 
@@ -76,178 +67,49 @@ export default function DriverDashboard() {
   }, [currentUser?.uid]);
 
   // ── QUOTA-SAFE: One-time fetch driver/bus/route data ──────────────────────
-  // Uses getDoc() (not onSnapshot) + sessionStorage cache (30-min TTL per UID).
-  // No persistent Firestore listeners → zero ongoing reads after initial load.
+  const [driverDataFirestore, setDriverDataFirestore] = useState<any>(null);
+  const [assignedBusData, setAssignedBusData] = useState<any>(null);
+  const [assignedRouteData, setAssignedRouteData] = useState<any>(null);
+  const [studentCount, setStudentCount] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [tripData, setTripData] = useState<any>(null);
+
+  // CONSOLIDATED DATA FETCH
   useEffect(() => {
     if (!currentUser?.uid) return;
 
-    const uid = currentUser.uid;
-    const CACHE_KEY = `adtu_driver_dash_${uid}`;
-    const CACHE_TTL = 30 * 60 * 1000; // 30 minutes
-
-    const loadFromCache = (): any | null => {
+    const fetchDashboardData = async () => {
       try {
-        const raw = sessionStorage.getItem(CACHE_KEY);
-        if (!raw) return null;
-        const { data, expires } = JSON.parse(raw);
-        if (Date.now() > expires) { sessionStorage.removeItem(CACHE_KEY); return null; }
-        return data;
-      } catch { return null; }
-    };
-
-    const saveToCache = (data: any) => {
-      try {
-        sessionStorage.setItem(CACHE_KEY, JSON.stringify({ data, expires: Date.now() + CACHE_TTL }));
-      } catch { }
-    };
-
-    const fetchDriverData = async () => {
-      // 1. Try cache first (instant, zero reads)
-      const cached = loadFromCache();
-      if (cached) {
-        console.log('✅ Driver dashboard loaded from sessionStorage cache');
-        setDriverDataFirestore(cached.driver);
-        if (cached.bus) setAssignedBusData(cached.bus);
-        if (cached.route) setAssignedRouteData(cached.route);
-        setDriverDataLoading(false);
-        return;
-      }
-
-      // 2. Cache miss — fetch once from Firestore
-      try {
-        console.log('📡 Fetching driver data from Firestore (one-time)...');
-        const driverSnap = await getDoc(doc(db, 'drivers', uid));
-        if (!driverSnap.exists()) {
-          console.warn('❌ Driver document not found');
-          setDriverDataFirestore(null);
-          setDriverDataLoading(false);
-          return;
+        const response = await authApiFetch(currentUser, '/api/driver/dashboard-data');
+        
+        if (response.ok) {
+          const result = await response.json();
+          setDriverDataFirestore(result.driver);
+          setAssignedBusData(result.bus);
+          setAssignedRouteData(result.route);
+          setStudentCount(result.studentCount);
+          setHasActiveTrip(result.tripActive);
+          setTripData(result.tripData);
         }
-
-        const driverData: any = { id: driverSnap.id, ...driverSnap.data() };
-        setDriverDataFirestore(driverData);
-
-        // 3. Derive busId and routeId from driver doc
-        let busId = driverData.assignedBusId || driverData.busId || driverData.busDetails ||
-          (Array.isArray(driverData.assignedBusIds) ? driverData.assignedBusIds[0] : null) ||
-          (Array.isArray(driverData.busId) ? driverData.busId[0] : null);
-        if (busId && typeof busId === 'string') {
-          if (busId.includes('(')) busId = busId.split('(')[0].trim();
-          if (busId.startsWith('route_')) busId = busId.replace('route_', 'bus_');
-        }
-
-        let routeId = driverData.assignedRouteId || driverData.routeId || driverData.routed ||
-          (Array.isArray(driverData.assignedRouteIds) ? driverData.assignedRouteIds[0] : null) ||
-          (Array.isArray(driverData.routeId) ? driverData.routeId[0] : null);
-        if (routeId && typeof routeId === 'string') {
-          if (routeId.includes('(')) routeId = routeId.split('(')[0].trim();
-          if (routeId.startsWith('bus_')) routeId = routeId.replace('bus_', 'route_');
-        }
-
-        // 4. Fetch bus and route docs (one-time)
-        let busData = null;
-        let routeData = null;
-
-        if (busId) {
-          try {
-            const busSnap = await getDoc(doc(db, 'buses', busId));
-            if (busSnap.exists()) {
-              busData = { id: busSnap.id, ...busSnap.data() };
-              setAssignedBusData(busData);
-            }
-          } catch (e) { console.warn('⚠️ Could not fetch bus:', e); }
-        }
-
-        if (routeId) {
-          try {
-            const routeSnap = await getDoc(doc(db, 'routes', routeId));
-            if (routeSnap.exists()) {
-              routeData = { id: routeSnap.id, ...routeSnap.data() };
-              setAssignedRouteData(routeData);
-            }
-          } catch (e) { console.warn('⚠️ Could not fetch route:', e); }
-        }
-
-        // 5. Cache the fetched data
-        saveToCache({ driver: driverData, bus: busData, route: routeData });
-        console.log('✅ Driver dashboard data fetched and cached');
       } catch (error) {
-        console.error('❌ Error fetching driver data:', error);
+        console.error('Error fetching driver dashboard:', error);
       } finally {
-        setDriverDataLoading(false);
+        setLoading(false);
       }
     };
 
-    fetchDriverData();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentUser?.uid]);
+    fetchDashboardData();
+  }, [currentUser]);
 
-  // Targeted fetch for only assigned bus/route/students.
+  // Sync buses, routes and students lists for UI components that expect arrays
+  const [buses, setBuses] = useState<any[]>([]);
+  const [routes, setRoutes] = useState<any[]>([]);
+  const [students, setStudents] = useState<any[]>([]);
+
   useEffect(() => {
-    if (!currentUser) {
-      setBuses([]);
-      setRoutes([]);
-      setStudents([]);
-      setBusesLoading(false);
-      setRoutesLoading(false);
-      setStudentsLoading(false);
-      return;
-    }
-
-    const fetchAssignedData = async () => {
-      try {
-        const { query, where } = await import('firebase/firestore');
-        const assignedBusId = assignedBusData?.id || driverDataFirestore?.assignedBusId || driverDataFirestore?.busId;
-        const assignedRouteId = assignedRouteData?.id || driverDataFirestore?.assignedRouteId || driverDataFirestore?.routeId;
-
-        const [busResult, routeResult, studentsResult] = await Promise.allSettled([
-          assignedBusId ? getDoc(doc(db, 'buses', assignedBusId)) : Promise.resolve(null),
-          assignedRouteId ? getDoc(doc(db, 'routes', assignedRouteId)) : Promise.resolve(null),
-          assignedBusId
-            ? getDocs(query(collection(db, 'students'), where('busId', '==', assignedBusId), where('status', '==', 'active')))
-            : Promise.resolve(null),
-        ]);
-
-        if (busResult.status === 'fulfilled' && busResult.value?.exists?.()) {
-          const bus = { id: busResult.value.id, ...busResult.value.data() };
-          setBuses([bus]);
-          if (!assignedBusData) setAssignedBusData(bus);
-        } else {
-          setBuses([]);
-        }
-
-        if (routeResult.status === 'fulfilled' && routeResult.value?.exists?.()) {
-          const route = { id: routeResult.value.id, ...routeResult.value.data() };
-          setRoutes([route]);
-          if (!assignedRouteData) setAssignedRouteData(route);
-        } else {
-          setRoutes([]);
-        }
-
-        if (studentsResult.status === 'fulfilled' && studentsResult.value) {
-          setStudents(studentsResult.value.docs.map((studentDoc) => ({ id: studentDoc.id, ...studentDoc.data() })));
-        } else {
-          setStudents([]);
-        }
-      } catch (error: any) {
-        console.error('❌ Error fetching assigned driver data:', error);
-      } finally {
-        setBusesLoading(false);
-        setRoutesLoading(false);
-        setStudentsLoading(false);
-      }
-    };
-
-    fetchAssignedData();
-  }, [
-    currentUser,
-    driverDataFirestore?.assignedBusId,
-    driverDataFirestore?.busId,
-    driverDataFirestore?.assignedRouteId,
-    driverDataFirestore?.routeId,
-    assignedBusData,
-    assignedRouteData,
-  ]);
+    if (assignedBusData) setBuses([assignedBusData]);
+    if (assignedRouteData) setRoutes([assignedRouteData]);
+  }, [assignedBusData, assignedRouteData]);
 
   // Use Firestore data
   const driverData = driverDataFirestore;
@@ -460,20 +322,13 @@ export default function DriverDashboard() {
     return null;
   }, [driverData, routes, busData, assignedRouteData]);
 
-  const studentCount = useMemo(() => {
-    if (!busData || !students.length) return 0;
-    return students.filter((s: any) => {
-      const sBusId = s.busId || s.assignedBusId;
-      return sBusId === busData.busId || sBusId === busData.id;
-    }).length;
-  }, [busData, students]);
 
   // Calculate bus capacity information
   const busCapacityInfo = useMemo(() => {
     if (!busData) return { current: 0, total: 50, percentage: 0, capacityString: '0%' };
 
-    const current = busData.currentMembers || studentCount;
-    const total = busData.totalCapacity || 50;
+    const current = busData?.currentMembers || studentCount || 0;
+    const total = busData?.totalCapacity || 50;
     const percentage = Math.min((current / total) * 100, 100);
     const capacityString = `${percentage.toFixed(0)}%`;
 
@@ -505,7 +360,6 @@ export default function DriverDashboard() {
     return { distance, percentage, distanceString };
   }, [busData, routeData]);
 
-  const loading = driverDataLoading || busesLoading || routesLoading || studentsLoading;
 
   // Extract key information with better fallbacks
   const driverName = driverData?.fullName || driverData?.name || userData?.name || 'Driver';
@@ -752,7 +606,7 @@ export default function DriverDashboard() {
                 <div className="flex items-center justify-between text-[10px] sm:text-xs">
                   <span className="text-gray-500 dark:text-gray-400 font-medium">Assigned Route</span>
                   <span className="text-purple-600 dark:text-purple-400 font-bold max-w-[60%] truncate text-right">
-                    {routeData?.routeName || routeData?.id || busData?.routeId?.replace('route_', 'Route-') || 'N/A'}
+                    {routeData?.routeName || routeData?.id || formatIdForDisplay(busData?.routeId) || 'N/A'}
                   </span>
                 </div>
                 <div className="flex items-center justify-between pt-1 border-t border-purple-100 dark:border-purple-800/30 text-[10px] sm:text-xs">
@@ -884,7 +738,7 @@ export default function DriverDashboard() {
                           Route
                         </p>
                         <p className="text-xs sm:text-sm font-bold text-blue-600 dark:text-blue-400 group-hover/item:text-blue-700 dark:group-hover/item:text-blue-300 transition-colors truncate">
-                          {busData ? `Route-${busData.id?.replace('bus_', '') || busData.busId?.replace('bus_', '') || 'N/A'}` : 'N/A'}
+                          {busData ? `Route-${busData?.id?.replace('bus_', '') || busData?.busId?.replace('bus_', '') || 'N/A'}` : 'N/A'}
                         </p>
                       </div>
                       <div className="group/item space-y-1 sm:space-y-1.5">
@@ -1341,10 +1195,10 @@ export default function DriverDashboard() {
                 </div>
               </div>
             </CardContent>
-          </Card >
+          </Card>
 
           {/* Quick Tips Card */}
-          < Card className="group relative overflow-hidden border-0 shadow-xl hover:shadow-2xl transition-all duration-300 hover:scale-[1.01] bg-gradient-to-br from-white to-indigo-50/30 dark:from-gray-800 dark:to-indigo-950/30 border-2 border-indigo-100 dark:border-indigo-800/50" >
+          <Card className="group relative overflow-hidden border-0 shadow-xl hover:shadow-2xl transition-all duration-300 hover:scale-[1.01] bg-gradient-to-br from-white to-indigo-50/30 dark:from-gray-800 dark:to-indigo-950/30 border-2 border-indigo-100 dark:border-indigo-800/50">
             <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-indigo-500 to-purple-500" />
             <div className="absolute top-0 right-0 w-48 h-48 bg-gradient-to-br from-indigo-500/10 to-purple-500/10 rounded-full blur-3xl opacity-50 group-hover:opacity-70 transition-opacity duration-500" />
 
@@ -1401,9 +1255,9 @@ export default function DriverDashboard() {
                 </div>
               </div>
             </CardContent>
-          </Card >
-        </div >
-      </div >
-    </div >
+          </Card>
+        </div>
+      </div>
+    </div>
   );
 }

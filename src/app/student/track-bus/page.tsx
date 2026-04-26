@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useAuth } from "@/contexts/auth-context";
 import { useRouter } from "next/navigation";
+import Image from "next/image";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -33,6 +34,7 @@ import { useBusLocation } from '@/hooks/useBusLocation';
 import StudentAccessBlockScreen from "@/components/StudentAccessBlockScreen";
 import { shouldBlockAccess } from "@/lib/utils/renewal-utils";
 import { useSystemConfig } from "@/contexts/SystemConfigContext";
+import { formatIdForDisplay } from "@/lib/utils";
 
 const LiveTrackingBusMap = dynamic(() => import("@/components/maps/LiveTrackingBusMap"), {
   ssr: false,
@@ -83,8 +85,17 @@ export default function StudentTrackBusPage() {
   const [pendingRaise, setPendingRaise] = useState(false);
   const [countdown, setCountdown] = useState(5);
 
-  // Use ref to prevent stale closure issues with handleRaiseWaitingFlag
   const handleRaiseWaitingFlagRef = useRef<(() => Promise<void>) | null>(null);
+
+  // Deadline config state (must be declared before any early returns — React rules of hooks)
+  const [deadlineConfig, setDeadlineConfig] = useState<any>(null);
+
+  // Exit full screen mode automatically when trip ends
+  useEffect(() => {
+    if (!tripActive && isFullScreenMap) {
+      setIsFullScreenMap(false);
+    }
+  }, [tripActive, isFullScreenMap]);
 
   // Handle countdown timer - using ref to avoid dependency on handleRaiseWaitingFlag
   useEffect(() => {
@@ -205,14 +216,20 @@ export default function StudentTrackBusPage() {
         addToast("Asking driver to wait... (10s)", "info");
 
         // Set safety timeout (15s) - slightly longer than driver's 10s timer
+        // BUGFIX: Use callback form of setState to avoid stale closure reading
+        // the initial 'pending' value forever.
         setTimeout(async () => {
-          if (waitRequestStatus === 'pending') { // Still pending after timeout
-            console.log("⏱️ Wait request timed out. Proceeding with standard logic.");
-            setWaitRequestStatus('rejected'); // Consider it rejected/ignored
-            setWaitRequestPending(false);
-            supabase.removeChannel(responseChannel);
-            await proceedWithStandardMissedBusRequest();
-          }
+          setWaitRequestStatus((current) => {
+            if (current === 'pending') {
+              console.log("⏱️ Wait request timed out. Proceeding with standard logic.");
+              setWaitRequestPending(false);
+              supabase.removeChannel(responseChannel);
+              // Fire-and-forget the fallback — we can't await inside setState
+              proceedWithStandardMissedBusRequest();
+              return 'rejected';
+            }
+            return current; // Already resolved, do nothing
+          });
         }, 15000);
 
         return; // Stop here, let the async response handle next steps
@@ -357,21 +374,30 @@ export default function StudentTrackBusPage() {
 
   // Get student's current location 
   useEffect(() => {
-    if (!isWaiting) {
-      // Clear watch when not waiting
-      if (locationWatchIdRef.current !== null) {
-        navigator.geolocation.clearWatch(locationWatchIdRef.current);
-        locationWatchIdRef.current = null;
-      }
-      return;
-    }
-
+    // Start location tracking immediately to show distance to bus
     if (!navigator.geolocation) {
       console.warn("Geolocation not supported");
       return;
     }
 
-    console.log("Starting location tracking for waiting student (HIGH ACCURACY)...");
+    console.log("Starting location tracking for student (HIGH ACCURACY)...");
+
+    // Get initial position immediately
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        const initial = {
+          lat: position.coords.latitude,
+          lng: position.coords.longitude,
+          accuracy: position.coords.accuracy,
+        };
+        setStudentLocation(initial);
+        console.log("Initial student location caught:", initial);
+      },
+      (err) => console.log("Initial location error:", err.message),
+      { enableHighAccuracy: true }
+    );
+
+
 
     // Watch position continuously when waiting
     locationWatchIdRef.current = navigator.geolocation.watchPosition(
@@ -400,7 +426,7 @@ export default function StudentTrackBusPage() {
         locationWatchIdRef.current = null;
       }
     };
-  }, [isWaiting]);
+  }, []); // Run once on mount
 
   // Fetch student data
   useEffect(() => {
@@ -419,15 +445,8 @@ export default function StudentTrackBusPage() {
       }
 
       try {
-        const student = await getStudentByUid(currentUser.uid);
-        if (!student) {
-          console.error("❌ Student profile not found (Hard Deleted or Missing)");
-          addToast("Account not found. It may have been deactivated.", "error");
-          await signOut(); // Force signout
-          router.push("/login"); // Redirect to login
-          return;
-        }
-
+        // Optimization: Use userData from context instead of re-fetching student doc
+        const student = userData;
         setStudentData(student);
 
         // Run subsequent queries in parallel to significantly reduce waterfall loading
@@ -535,7 +554,8 @@ export default function StudentTrackBusPage() {
   const {
     currentLocation: hookBusLocation,
     loading: busLocationLoading
-  } = useBusLocation(tripActive ? (busData?.busId || studentData?.busId || studentData?.assignedBusId || '') : '');
+  } = useBusLocation(busData?.busId || studentData?.busId || studentData?.assignedBusId || '');
+
 
   // Update local busLocation state whenever hook location changes
   useEffect(() => {
@@ -544,35 +564,7 @@ export default function StudentTrackBusPage() {
     }
   }, [hookBusLocation]);
 
-  // Subscribe to trip end broadcast — UI state reset only (FCM handles user toast)
-  useEffect(() => {
-    const busId = busData?.busId || studentData?.busId || studentData?.assignedBusId;
-    if (!busId) return;
-
-    const tripEndChannel = supabase
-      .channel(`bus_${busId}_end_notification`, {
-        config: {
-          broadcast: { self: false }
-        }
-      })
-      .on("broadcast", { event: "trip_ended" }, (payload) => {
-        console.log("🏁 Trip ended broadcast received:", payload);
-
-        setIsWaiting(false);
-        setCurrentFlagId(null);
-        setTripActive(false);
-        setIsFullScreenMap(false);
-        setBusLocation(null); // Clear location on trip end
-
-        const toastMessage = payload.payload?.message || `Your trip for Bus ${payload.payload?.busNumber || ''} has ended successfully!`;
-        addToast(toastMessage, "success");
-      })
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(tripEndChannel);
-    };
-  }, [busData?.busId, studentData?.busId, studentData?.assignedBusId, addToast]);
+  // NO-OP: Removed redundant tripEndChannel hook (consolidated below)
 
   // Check for active trip with realtime subscription
   useEffect(() => {
@@ -600,10 +592,8 @@ export default function StudentTrackBusPage() {
           setTripActive(true);
         } else {
           console.log('ℹ️ No active trip found via API');
-          // Only set to false if we haven't received a location update recently
-          if (!busLocation) {
-            setTripActive(false);
-          }
+          setTripActive(false);
+          setBusLocation(null); // Clear stale location if trip not active
         }
       } catch (error) {
         console.error("❌ Error checking active trip:", error);
@@ -652,13 +642,18 @@ export default function StudentTrackBusPage() {
       .on("broadcast", { event: "trip_started" }, (payload) => {
         console.log("🚀 Trip started broadcast received:", payload);
         setTripActive(true);
-        addToast("🚌 Your bus has started the trip!", "success");
+        const routeName = payload.payload?.routeName || payload.payload?.routeId;
+        addToast(`🚌 Trip started for ${formatIdForDisplay(routeName)}!`, "success");
       })
       .on("broadcast", { event: "trip_ended" }, (payload) => {
         console.log("🛑 Trip ended broadcast received:", payload);
         setTripActive(false);
         setBusLocation(null);
-        addToast("🏁 Trip has ended", "info");
+        setIsFullScreenMap(false);
+        setIsWaiting(false);
+        setCurrentFlagId(null);
+        const busNum = payload.payload?.busNumber || payload.payload?.busId;
+        addToast(`🏁 Trip for ${formatIdForDisplay(busNum)} has ended`, "success");
       })
       .subscribe();
 
@@ -1028,8 +1023,8 @@ export default function StudentTrackBusPage() {
 
       setIsWaiting(false);
       setCurrentFlagId(null);
-      setBusLocation(null);
-      setTripActive(false);
+      // NOTE: Do NOT clear busLocation or tripActive here.
+      // The trip continues regardless of the student's waiting flag.
       setEta(null);
       setDistanceToBus(null);
 
@@ -1063,6 +1058,22 @@ export default function StudentTrackBusPage() {
     }
   };
 
+  // Fetch deadline config
+  useEffect(() => {
+    const fetchDeadlineConfig = async () => {
+      try {
+        const response = await fetch('/api/settings/deadline-config');
+        if (response.ok) {
+          const data = await response.json();
+          setDeadlineConfig(data.config || data);
+        }
+      } catch (error) {
+        console.error("Error fetching deadline config:", error);
+      }
+    };
+    fetchDeadlineConfig();
+  }, []);
+
   // Show loading while auth is loading
   if (loading) {
     return (
@@ -1074,31 +1085,6 @@ export default function StudentTrackBusPage() {
       </div>
     );
   }
-
-  // Deadline config state
-  const [deadlineConfig, setDeadlineConfig] = useState<any>(null);
-
-  // Fetch deadline config
-  useEffect(() => {
-    const fetchDeadlineConfig = async () => {
-      try {
-        const response = await fetch('/api/settings/deadline-config');
-        if (response.ok) {
-          const data = await response.json();
-          // The API returns { config: ... } or just the config object?
-          // Based on previous checks, it likely returns the config object directly or { config: ... }
-          // Let's assume the API returns the config object directly as per valid responses usually.
-          // Wait, /api/settings/deadline-config usually returns { config: ... } or just the JSON?
-          // Let's safe check.
-          setDeadlineConfig(data.config || data);
-          console.log("📅 [Track Bus] Fetched deadline config:", data.config || data);
-        }
-      } catch (error) {
-        console.error("Error fetching deadline config:", error);
-      }
-    };
-    fetchDeadlineConfig();
-  }, []);
 
   // Check if student should be soft-blocked based on dynamic deadline config
   if (userData) {
@@ -1229,57 +1215,78 @@ export default function StudentTrackBusPage() {
       <div className="container mx-auto px-4 pb-4 pt-20 md:px-6 md:pb-6 md:pt-24 space-y-6">
         {/* Optimized Header */}
         <div className="group relative overflow-hidden rounded-3xl md:rounded-[2rem] p-[2px] bg-gradient-to-r from-blue-500 via-purple-500 to-pink-500 shadow-xl">
-          {/* Simplified gradient border */}
+          {/* Simplified gradient border background */}
           <div className="absolute inset-0 bg-gradient-to-r from-blue-500 via-purple-500 to-pink-500 opacity-75 group-hover:opacity-100 transition-opacity duration-300" />
 
-          {/* Optimized card */}
-          <div className="relative bg-white/90 dark:bg-gray-900/90 backdrop-blur-sm rounded-3xl md:rounded-[2rem] p-6 md:p-10">
-            <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
-              <div className="space-y-4 flex-1">
+          {/* Optimized card container */}
+          <div className="relative bg-white/90 dark:bg-gray-900/90 backdrop-blur-sm rounded-3xl md:rounded-[2rem] p-4 md:p-5">
+            <div className="flex flex-col md:flex-row items-center justify-between gap-5">
+              <div className="space-y-3 w-full">
                 {/* Title Section */}
                 <div className="flex items-center gap-4">
-                  <div className="relative p-3 md:p-4 rounded-2xl bg-gradient-to-br from-blue-500 via-purple-500 to-pink-500 shadow-lg">
-                    <Navigation className="h-6 md:h-7 w-6 md:w-7 text-white" />
+                  <div className="relative p-2.5 md:p-3 rounded-2xl bg-gradient-to-br from-blue-500 via-purple-500 to-pink-500 shadow-lg">
+                    <Navigation className="h-5 md:h-6 w-5 md:w-6 text-white" />
                   </div>
                   <div>
-                    <h1 className="text-2xl md:text-3xl lg:text-4xl font-extrabold bg-gradient-to-r from-blue-600 via-purple-600 to-pink-600 dark:from-blue-400 dark:via-purple-400 dark:to-pink-400 bg-clip-text text-transparent">
+                    <h1 className="text-xl md:text-2xl lg:text-3xl font-extrabold bg-gradient-to-r from-blue-600 via-purple-600 to-pink-600 dark:from-blue-400 dark:via-purple-400 dark:to-pink-400 bg-clip-text text-transparent leading-none">
                       Live Bus Tracker
                     </h1>
-                    <p className="text-xs md:text-sm text-gray-600 dark:text-gray-400 mt-1 font-medium">
+                    <p className="text-[9px] md:text-[10px] text-gray-600 dark:text-gray-400 mt-1 font-bold uppercase tracking-wider opacity-80">
                       Real-time location • Instant updates • Smart ETA
                     </p>
                   </div>
                 </div>
 
-                {/* Optimized Status Indicators */}
-                <div className="flex flex-wrap items-center gap-3">
-                  <div className={`group/badge relative overflow-hidden px-5 py-2.5 rounded-full font-semibold text-sm shadow-lg transition-shadow duration-200 ${tripActive
-                    ? 'bg-gradient-to-r from-green-500 to-emerald-500 text-white shadow-green-500/30'
-                    : 'bg-gradient-to-r from-amber-500 to-orange-500 text-white shadow-amber-500/30'
-                    }`}>
-                    <span className={`inline-block w-2 h-2 rounded-full mr-2 ${tripActive ? 'bg-white animate-pulse' : 'bg-white/80'
-                      }`} />
-                    <span className="relative z-10">{tripActive ? '🚌 Trip Active' : '⏸️ Trip Inactive'}</span>
+                {/* Optimized Status Indicators & Bus Info Grid - Explicit 2-Column Side-by-Side */}
+                <div className="grid grid-cols-2 gap-x-4 md:gap-x-12 gap-y-3 items-stretch">
+                  {/* Column 1: Status Badges (Trip Status & ETA) */}
+                  <div className="flex flex-col gap-3">
+                    <div className={`group/badge flex-1 flex items-center relative overflow-hidden px-4 md:px-6 py-3 md:py-3.5 rounded-xl md:rounded-2xl font-black text-[9px] md:text-[13px] shadow-lg transition-all duration-300 hover:scale-[1.02] ${tripActive
+                      ? 'bg-gradient-to-r from-green-500 to-emerald-500 text-white shadow-green-500/30'
+                      : 'bg-gradient-to-r from-amber-500 to-orange-500 text-white shadow-amber-500/30'
+                      }`}>
+                      <div className="flex items-center gap-2 md:gap-3 w-full">
+                        <span className={`w-1.5 md:w-2.5 h-1.5 md:h-2.5 rounded-full ${tripActive ? 'bg-white animate-pulse' : 'bg-white/60'}`} />
+                        <span className="relative z-10 tracking-tight md:tracking-wide uppercase truncate">{tripActive ? 'Trip Active' : 'Trip Inactive'}</span>
+                      </div>
+                    </div>
+
+                    <div className="flex-1 flex items-center relative overflow-hidden px-4 md:px-6 py-3 md:py-3.5 rounded-xl md:rounded-2xl bg-gradient-to-r from-blue-500 to-cyan-500 text-white font-black text-[9px] md:text-[13px] shadow-lg shadow-blue-500/30 transition-all duration-300 hover:scale-[1.02]">
+                      <div className="flex items-center gap-2 md:gap-3 w-full">
+                        <Clock className="h-3.5 w-3.5 md:h-4 md:w-4" />
+                        <span className="relative z-10 tracking-tight md:tracking-wide uppercase truncate">ETA: {eta || '--'}</span>
+                      </div>
+                    </div>
                   </div>
 
-                  {eta && (
-                    <div className="group/eta relative overflow-hidden px-5 py-2.5 rounded-full bg-gradient-to-r from-blue-500 to-cyan-500 text-white font-semibold text-sm shadow-lg shadow-blue-500/30 transition-shadow duration-200">
-                      <Clock className="inline-block h-4 w-4 mr-2" />
-                      <span className="relative z-10">ETA: {eta}</span>
+                  {/* Column 2: Bus & Route Information */}
+                  <div className="flex flex-col gap-3">
+                    <div className="flex-1 bg-slate-50 dark:bg-white/5 rounded-xl md:rounded-2xl px-4 md:px-6 py-2 md:py-2.5 border border-slate-100 dark:border-white/10 flex flex-col justify-center transition-all duration-300 hover:border-blue-500/30">
+                      <div className="flex items-center gap-1.5 mb-0.5">
+                        <div className="w-1 md:w-1.5 h-1 md:h-1.5 rounded-full bg-blue-500 shadow-[0_0_8px_rgba(59,130,246,0.5)]" />
+                        <span className="text-[7.5px] md:text-[9px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest">Bus</span>
+                      </div>
+                      <h3 className="text-[10px] md:text-lg font-black text-slate-800 dark:text-white uppercase leading-tight truncate">
+                        {busData.busNumber}
+                      </h3>
                     </div>
-                  )}
 
-                  {distanceToBus && (
-                    <div className="group/distance relative overflow-hidden px-5 py-2.5 rounded-full bg-gradient-to-r from-purple-500 to-pink-500 text-white font-semibold text-sm shadow-lg shadow-purple-500/30 transition-shadow duration-200">
-                      <MapPin className="inline-block h-4 w-4 mr-2" />
-                      <span className="relative z-10">{distanceToBus.toFixed(1)} km away</span>
+                    <div className="flex-1 bg-slate-50 dark:bg-white/5 rounded-xl md:rounded-2xl px-4 md:px-6 py-2 md:py-2.5 border border-slate-100 dark:border-white/10 flex flex-col justify-center transition-all duration-300 hover:border-purple-500/30">
+                      <div className="flex items-center gap-1.5 mb-0.5">
+                        <div className="w-1 md:w-1.5 h-1 md:h-1.5 rounded-full bg-purple-500 shadow-[0_0_8px_rgba(168,85,247,0.5)]" />
+                        <span className="text-[7.5px] md:text-[9px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest">Route</span>
+                      </div>
+                      <h3 className="text-[10px] md:text-lg font-black text-slate-700 dark:text-slate-300 leading-tight truncate">
+                        {routeData.routeName}
+                      </h3>
                     </div>
-                  )}
+                  </div>
                 </div>
               </div>
             </div>
           </div>
         </div>
+
 
         {/* Optimized Map Layout */}
         <div className="flex flex-col lg:flex-row gap-6">
@@ -1292,7 +1299,7 @@ export default function StudentTrackBusPage() {
           <div className={`transition-all duration-300 ${isFullScreenMap ? "fixed inset-0 z-[10000] p-0" : "flex-1"}`}>
             <div className={`relative overflow-hidden shadow-xl ring-1 ring-black/5 dark:ring-white/10 transition-all duration-300 ${isFullScreenMap
               ? "h-[100dvh] w-screen rounded-none"
-              : "h-[450px] md:h-[600px] lg:h-full rounded-3xl md:rounded-[2rem]"
+              : "h-[420px] md:h-[550px] lg:h-full rounded-3xl md:rounded-[2rem]"
               }`}>
               <LiveTrackingBusMap
                 busId={busData?.busId || studentData?.busId || ''}
@@ -1315,12 +1322,16 @@ export default function StudentTrackBusPage() {
                   submittingFlag
                     ? "Processing..."
                     : isWaiting
-                      ? "⏳ Waiting flag already raised"
+                      ? "Waiting flag already raised"
+
                       : pendingRaise
                         ? `Cancel (${countdown}s)`
                         : !tripActive
-                          ? "Trip Not Active"
-                          : "🚩 Raise Waiting Flag"
+                          ? "Trip not active"
+
+                          : "Raise waiting flag"
+
+
                 }
                 primaryActionColor={isWaiting ? 'yellow' : !tripActive ? 'blue' : 'orange'}
                 primaryActionDisabled={isWaiting || submittingFlag}
@@ -1331,8 +1342,8 @@ export default function StudentTrackBusPage() {
 
           {/* Optimized Info Sidebar */}
           <div className="w-full lg:w-96 space-y-5">
-            {/* Bus Info Card */}
-            <div className="group relative overflow-hidden rounded-2xl p-[1px] bg-gradient-to-br from-blue-400 via-cyan-400 to-teal-400 shadow-lg hover:scale-[1.02] transition-transform duration-300">
+            {/* Bus Info Card - Hidden on Mobile */}
+            <div className="hidden lg:block group relative overflow-hidden rounded-2xl p-[1px] bg-gradient-to-br from-blue-400 via-cyan-400 to-teal-400 shadow-lg hover:scale-[1.02] transition-transform duration-300">
 
               <Card className="relative bg-white/95 dark:bg-gray-900/95 backdrop-blur-sm border-0">
                 <CardHeader className="pb-4">
@@ -1346,43 +1357,19 @@ export default function StudentTrackBusPage() {
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-3">
-                  <div className="relative overflow-hidden bg-gradient-to-br from-blue-50 to-cyan-50/50 dark:from-blue-950/30 dark:to-cyan-950/20 rounded-xl p-4 transition-shadow duration-200">
-                    <div className="flex items-center justify-between">
-                      <span className="text-sm font-medium text-gray-600 dark:text-gray-400">Bus Number</span>
-                      <span className="font-bold text-lg bg-gradient-to-r from-blue-600 to-cyan-600 dark:from-blue-400 dark:to-cyan-400 bg-clip-text text-transparent">{busData.busNumber}</span>
+                  <div className="flex bg-slate-50 dark:bg-slate-800/50 rounded-xl p-4 border border-slate-100 dark:border-slate-700/50">
+                    <div className="flex-1">
+                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Bus Number</p>
+                      <p className="font-bold text-lg text-slate-800 dark:text-white">{busData.busNumber}</p>
+                    </div>
+                    <div className="w-[1px] bg-slate-200 dark:bg-slate-700 mx-4" />
+                    <div className="flex-1">
+                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Route</p>
+                      <p className="font-bold text-lg text-slate-800 dark:text-white">{routeData.routeName}</p>
                     </div>
                   </div>
-
-                  <div className="relative overflow-hidden bg-gradient-to-br from-purple-50 to-pink-50/50 dark:from-purple-950/30 dark:to-pink-950/20 rounded-xl p-4 transition-shadow duration-200">
-                    <div className="flex items-center justify-between">
-                      <span className="text-sm font-medium text-gray-600 dark:text-gray-400">Route</span>
-                      <span className="font-bold text-lg bg-gradient-to-r from-purple-600 to-pink-600 dark:from-purple-400 dark:to-pink-400 bg-clip-text text-transparent">{routeData.routeName}</span>
-                    </div>
-                  </div>
-
-                  <div className="relative overflow-hidden bg-gradient-to-br from-green-50 to-emerald-50/50 dark:from-green-950/30 dark:to-emerald-950/20 rounded-xl p-4 transition-shadow duration-200">
-                    <div className="flex items-center justify-between">
-                      <span className="text-sm font-medium text-gray-600 dark:text-gray-400">Status</span>
-                      <Badge
-                        variant={tripActive ? "default" : "secondary"}
-                        className={`font-semibold px-4 py-1 ${tripActive ? 'bg-gradient-to-r from-green-500 to-emerald-500 text-white' : ''}`}
-                      >
-                        {tripActive ? "✅ Active" : "⏸️ Inactive"}
-                      </Badge>
-                    </div>
-                  </div>
-
-                  {busLocation && (
-                    <div className="relative overflow-hidden bg-gradient-to-br from-amber-50 to-orange-50/50 dark:from-amber-950/30 dark:to-orange-950/20 rounded-xl p-4 transition-shadow duration-200">
-                      <div className="flex items-center justify-between">
-                        <span className="text-sm font-medium text-gray-600 dark:text-gray-400">Last Updated</span>
-                        <span className="text-sm font-semibold bg-gradient-to-r from-amber-600 to-orange-600 dark:from-amber-400 dark:to-orange-400 bg-clip-text text-transparent">
-                          {new Date(busLocation.timestamp).toLocaleTimeString()}
-                        </span>
-                      </div>
-                    </div>
-                  )}
                 </CardContent>
+
               </Card>
             </div>
 
@@ -1401,50 +1388,41 @@ export default function StudentTrackBusPage() {
                   </CardTitle>
                 </CardHeader>
 
-                <CardContent className="space-y-4">
-                  <div className="flex justify-between items-center bg-gradient-to-br from-gray-50 to-slate-50 dark:from-gray-800/50 dark:to-slate-800/30 rounded-xl p-4">
-                    <span className="font-medium text-gray-700 dark:text-gray-300">Current Status:</span>
-                    <Badge
-                      variant={isWaiting ? "default" : "secondary"}
-                      className={`font-semibold px-4 py-1 ${isWaiting ? 'bg-gradient-to-r from-orange-500 to-pink-500 text-white animate-pulse' : ''}`}
-                    >
-                      {isWaiting ? "🚩 Waiting" : "✋ Not Waiting"}
-                    </Badge>
+                <CardContent className="space-y-4 pt-2">
+                  {/* Real-time Quick Stats Row */}
+                  <div className="grid grid-cols-3 gap-2 bg-slate-50 dark:bg-slate-800/50 rounded-xl p-3 border border-slate-100 dark:border-slate-700/50">
+                    <div className="text-center">
+                      <p className="text-[8px] font-bold text-slate-400 uppercase mb-1">Trip</p>
+                      <div className={`text-[10px] font-black ${tripActive ? 'text-emerald-500' : 'text-slate-400'}`}>
+                        {tripActive ? "ACTIVE" : "OFFLINE"}
+                      </div>
+                    </div>
+                    <div className="text-center border-x border-slate-200 dark:border-slate-700">
+                      <p className="text-[8px] font-bold text-slate-400 uppercase mb-1">ETA</p>
+                      <div className="text-[10px] font-black text-blue-500">
+                        {eta || "--"}
+                      </div>
+                    </div>
+                    <div className="text-center">
+                      <p className="text-[8px] font-bold text-slate-400 uppercase mb-1">Distance</p>
+                      <div className="text-[10px] font-black text-slate-700 dark:text-slate-200">
+                        {distanceToBus !== null ? `${distanceToBus.toFixed(1)}km` : "--"}
+                      </div>
+                    </div>
                   </div>
 
-                  {isWaiting && currentFlagId && (
-                    <div className="relative overflow-hidden bg-gradient-to-br from-blue-50 via-cyan-50 to-blue-50 dark:from-blue-950/40 dark:via-cyan-950/30 dark:to-blue-950/40 border-2 border-blue-200 dark:border-blue-800 rounded-xl p-4 shadow-inner">
-                      <div className="relative space-y-2">
-                        <div className="flex items-center gap-2">
-                          <div className="p-1.5 rounded-lg bg-blue-500 animate-pulse">
-                            <Flag className="h-4 w-4 text-white" />
-                          </div>
-                          <span className="font-bold text-blue-800 dark:text-blue-300">Waiting Flag Active</span>
-                        </div>
-                        <p className="text-sm text-blue-700 dark:text-blue-400 font-medium">
-                          ✅ Driver has been notified. Your flag will expire in 20 minutes.
-                        </p>
-                      </div>
+
+                  {isWaiting && (
+                    <div className="bg-blue-500/10 border border-blue-500/20 rounded-xl p-3">
+                      <p className="text-xs text-blue-600 dark:text-blue-400 font-bold flex items-center gap-2">
+                        <Flag className="h-3 w-3" />
+                        Driver Notified (Flag Active)
+                      </p>
                     </div>
                   )}
 
-                  {eta && distanceToBus !== null && (
-                    <div className="relative overflow-hidden bg-gradient-to-br from-green-50 via-emerald-50 to-green-50 dark:from-green-950/40 dark:via-emerald-950/30 dark:to-green-950/40 border-2 border-green-200 dark:border-green-800 rounded-xl p-4 shadow-inner">
-                      <div className="relative space-y-2">
-                        <div className="flex items-center justify-between">
-                          <span className="text-green-800 dark:text-green-300 font-bold flex items-center gap-2">
-                            <Clock className="h-4 w-4" />
-                            ETA:
-                          </span>
-                          <span className="text-green-800 dark:text-green-300 font-bold text-xl">{eta}</span>
-                        </div>
-                        <div className="flex items-center justify-between text-sm">
-                          <span className="text-green-700 dark:text-green-400 font-medium">Distance:</span>
-                          <span className="text-green-700 dark:text-green-400 font-semibold">{distanceToBus.toFixed(2)} km</span>
-                        </div>
-                      </div>
-                    </div>
-                  )}
+
+
 
                   {/* How it works section */}
                   <div className="relative overflow-hidden bg-gradient-to-br from-indigo-50 via-blue-50 to-cyan-50 dark:from-indigo-950/30 dark:via-blue-950/20 dark:to-cyan-950/30 rounded-xl p-5 border border-indigo-100 dark:border-indigo-900">
@@ -1517,7 +1495,7 @@ export default function StudentTrackBusPage() {
                         ) : (
                           <>
                             <Flag className="h-5 w-5 animate-pulse" />
-                            <span>🚩 Raise Waiting Flag</span>
+                            <span>Raise Waiting Flag</span>
                           </>
                         )}
                       </span>
@@ -1530,150 +1508,154 @@ export default function StudentTrackBusPage() {
             {/* Missed Bus Request Card REMOVED as per request */}
           </div>
         </div>
+
+        {/* Missed Bus Modal */}
+        {
+          missedBusModalOpen && missedBusModalMessage && (
+            <>
+              <div
+                className="fixed inset-0 z-[10001] bg-black/60 backdrop-blur-sm"
+                onClick={() => {
+                  setMissedBusModalOpen(false);
+                  setMissedBusModalMessage(null);
+                }}
+              />
+              <div className="fixed inset-0 z-[10002] flex items-center justify-center p-4 pointer-events-none">
+                <div className="pointer-events-auto w-full max-w-md bg-white dark:bg-gray-900 rounded-2xl overflow-hidden shadow-2xl border border-gray-200 dark:border-gray-700 animate-in zoom-in-95 fade-in duration-200">
+                  <div className="relative px-6 py-5 bg-gradient-to-r from-amber-500 to-orange-500">
+                    <div className="flex items-center gap-3">
+                      <div className="p-2 rounded-xl bg-white/20">
+                        <AlertTriangle className="h-6 w-6 text-white" />
+                      </div>
+                      <div>
+                        <h3 className="text-lg font-bold text-white">Missed Bus Request</h3>
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => {
+                        setMissedBusModalOpen(false);
+                        setMissedBusModalMessage(null);
+                      }}
+                      className="absolute top-4 right-4 w-8 h-8 bg-white/20 hover:bg-white/30 rounded-full flex items-center justify-center text-white transition-all"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+                  <div className="p-6">
+                    <p className="text-gray-700 dark:text-gray-300 text-center font-medium">
+                      {missedBusModalMessage}
+                    </p>
+                    <Button
+                      onClick={() => {
+                        setMissedBusModalOpen(false);
+                        setMissedBusModalMessage(null);
+                      }}
+                      className="w-full mt-6 bg-gradient-to-r from-amber-500 to-orange-500 text-white font-semibold py-3"
+                    >
+                      Got it
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            </>
+          )
+        }
+
+        {/* Fullscreen QR Code Overlay - Shows on map when QR button is clicked */}
+        {
+          showQrCode && isFullScreenMap && studentData && (
+            <>
+              {/* Blur overlay - clickable to close */}
+              <div
+                className="fixed inset-0 z-[10001] bg-black/70 backdrop-blur-md"
+                onClick={() => setShowQrCode(false)}
+              />
+
+              {/* Premium QR Code Card - Centered on screen */}
+              <div className="fixed inset-0 z-[10002] flex items-center justify-center p-4 pointer-events-none">
+                <div className="pointer-events-auto w-full max-w-[340px] bg-[#0a0b14] rounded-[28px] overflow-hidden shadow-2xl border border-white/10 animate-in zoom-in-95 fade-in duration-200">
+                  {/* Header with university branding */}
+                  <div className="relative px-5 py-4 bg-gradient-to-r from-[#1a1b2e] to-[#0f1019] border-b border-white/5">
+                    <div className="flex items-center gap-3">
+                      <Image src="/adtu-new-logo.svg" alt="AdtU" width={112} height={28} className="h-7 w-auto" />
+                      <div>
+                        <span className="text-xs font-bold text-white/80 block">Assam down town University</span>
+                        <span className="text-[10px] font-medium text-white/40">Digital Bus Pass</span>
+                      </div>
+                    </div>
+                    {/* Close button */}
+                    <button
+                      onClick={() => setShowQrCode(false)}
+                      className="absolute top-3 right-3 w-8 h-8 bg-white/10 hover:bg-white/20 rounded-full flex items-center justify-center text-white/60 hover:text-white transition-all"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+
+                  {/* Student Info */}
+                  <div className="px-5 pt-4 pb-2">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <span className="text-[9px] font-bold text-white/40 uppercase tracking-widest block mb-0.5">Student</span>
+                        <h3 className="text-lg font-black text-white tracking-tight">{studentData.fullName || 'Student'}</h3>
+                      </div>
+                      <div className={`px-3 py-1 rounded-full text-[10px] font-bold ${studentData.status === 'active'
+                        ? 'bg-green-500/20 text-green-400 border border-green-500/30'
+                        : 'bg-red-500/20 text-red-400 border border-red-500/30'
+                        }`}>
+                        {studentData.status === 'active' ? 'ACTIVE' : 'INACTIVE'}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* QR Code */}
+                  <div className="flex justify-center py-5">
+                    <div className="relative p-4 bg-white rounded-2xl shadow-xl">
+                      <QRCodeCanvas
+                        value={currentUser?.uid || ''}
+                        size={160}
+                        level="H"
+                        includeMargin={false}
+                      />
+                      {/* Corner accents */}
+                      <div className="absolute -top-1 -left-1 w-4 h-4 border-t-2 border-l-2 border-blue-500 rounded-tl-lg" />
+                      <div className="absolute -top-1 -right-1 w-4 h-4 border-t-2 border-r-2 border-blue-500 rounded-tr-lg" />
+                      <div className="absolute -bottom-1 -left-1 w-4 h-4 border-b-2 border-l-2 border-blue-500 rounded-bl-lg" />
+                      <div className="absolute -bottom-1 -right-1 w-4 h-4 border-b-2 border-r-2 border-blue-500 rounded-br-lg" />
+                    </div>
+                  </div>
+
+                  {/* Enrollment ID */}
+                  <div className="mx-5 mb-5 bg-white/5 rounded-xl p-3 border border-white/10">
+                    <div className="flex flex-col items-center">
+                      <span className="text-[8px] font-bold text-white/30 uppercase tracking-[0.2em] mb-1">Enrollment ID</span>
+                      <span className="text-base font-bold text-blue-400 tracking-widest font-mono">
+                        {studentData.enrollmentId || 'N/A'}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Bus Info Bar */}
+                  <div className="mx-5 mb-5 flex items-center justify-between bg-[#1a1b2e] rounded-xl px-4 py-2.5 border border-white/5">
+                    <div className="flex items-center gap-2">
+                      <Bus className="w-4 h-4 text-blue-400" />
+                      <span className="text-sm font-bold text-white">Bus-{busData?.busNumber?.replace('bus_', '') || 'N/A'}</span>
+                    </div>
+                    <div className="text-xs text-white/50">
+                      Route: {routeData?.routeName || busData?.busNumber?.replace('bus_', '') || 'N/A'}
+                    </div>
+                  </div>
+
+                  {/* Footer instruction */}
+                  <div className="px-5 pb-5 text-center">
+                    <p className="text-[10px] text-white/30">Show this QR code to the driver for verification</p>
+                  </div>
+                </div>
+              </div>
+            </>
+          )
+        }
       </div>
-
-      {/* Missed Bus Modal */}
-      {missedBusModalOpen && missedBusModalMessage && (
-        <>
-          <div
-            className="fixed inset-0 z-[10001] bg-black/60 backdrop-blur-sm"
-            onClick={() => {
-              setMissedBusModalOpen(false);
-              setMissedBusModalMessage(null);
-            }}
-          />
-          <div className="fixed inset-0 z-[10002] flex items-center justify-center p-4 pointer-events-none">
-            <div className="pointer-events-auto w-full max-w-md bg-white dark:bg-gray-900 rounded-2xl overflow-hidden shadow-2xl border border-gray-200 dark:border-gray-700 animate-in zoom-in-95 fade-in duration-200">
-              <div className="relative px-6 py-5 bg-gradient-to-r from-amber-500 to-orange-500">
-                <div className="flex items-center gap-3">
-                  <div className="p-2 rounded-xl bg-white/20">
-                    <AlertTriangle className="h-6 w-6 text-white" />
-                  </div>
-                  <div>
-                    <h3 className="text-lg font-bold text-white">Missed Bus Request</h3>
-                  </div>
-                </div>
-                <button
-                  onClick={() => {
-                    setMissedBusModalOpen(false);
-                    setMissedBusModalMessage(null);
-                  }}
-                  className="absolute top-4 right-4 w-8 h-8 bg-white/20 hover:bg-white/30 rounded-full flex items-center justify-center text-white transition-all"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
-              <div className="p-6">
-                <p className="text-gray-700 dark:text-gray-300 text-center font-medium">
-                  {missedBusModalMessage}
-                </p>
-                <Button
-                  onClick={() => {
-                    setMissedBusModalOpen(false);
-                    setMissedBusModalMessage(null);
-                  }}
-                  className="w-full mt-6 bg-gradient-to-r from-amber-500 to-orange-500 text-white font-semibold py-3"
-                >
-                  Got it
-                </Button>
-              </div>
-            </div>
-          </div>
-        </>
-      )}
-
-      {/* Fullscreen QR Code Overlay - Shows on map when QR button is clicked */}
-      {showQrCode && isFullScreenMap && studentData && (
-        <>
-          {/* Blur overlay - clickable to close */}
-          <div
-            className="fixed inset-0 z-[10001] bg-black/70 backdrop-blur-md"
-            onClick={() => setShowQrCode(false)}
-          />
-
-          {/* Premium QR Code Card - Centered on screen */}
-          <div className="fixed inset-0 z-[10002] flex items-center justify-center p-4 pointer-events-none">
-            <div className="pointer-events-auto w-full max-w-[340px] bg-[#0a0b14] rounded-[28px] overflow-hidden shadow-2xl border border-white/10 animate-in zoom-in-95 fade-in duration-200">
-              {/* Header with university branding */}
-              <div className="relative px-5 py-4 bg-gradient-to-r from-[#1a1b2e] to-[#0f1019] border-b border-white/5">
-                <div className="flex items-center gap-3">
-                  <img src="/adtu-new-logo.svg" alt="AdtU" className="h-7 w-auto" />
-                  <div>
-                    <span className="text-xs font-bold text-white/80 block">Assam down town University</span>
-                    <span className="text-[10px] font-medium text-white/40">Digital Bus Pass</span>
-                  </div>
-                </div>
-                {/* Close button */}
-                <button
-                  onClick={() => setShowQrCode(false)}
-                  className="absolute top-3 right-3 w-8 h-8 bg-white/10 hover:bg-white/20 rounded-full flex items-center justify-center text-white/60 hover:text-white transition-all"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
-
-              {/* Student Info */}
-              <div className="px-5 pt-4 pb-2">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <span className="text-[9px] font-bold text-white/40 uppercase tracking-widest block mb-0.5">Student</span>
-                    <h3 className="text-lg font-black text-white tracking-tight">{studentData.fullName || 'Student'}</h3>
-                  </div>
-                  <div className={`px-3 py-1 rounded-full text-[10px] font-bold ${studentData.status === 'active'
-                    ? 'bg-green-500/20 text-green-400 border border-green-500/30'
-                    : 'bg-red-500/20 text-red-400 border border-red-500/30'
-                    }`}>
-                    {studentData.status === 'active' ? 'ACTIVE' : 'INACTIVE'}
-                  </div>
-                </div>
-              </div>
-
-              {/* QR Code */}
-              <div className="flex justify-center py-5">
-                <div className="relative p-4 bg-white rounded-2xl shadow-xl">
-                  <QRCodeCanvas
-                    value={currentUser?.uid || ''}
-                    size={160}
-                    level="H"
-                    includeMargin={false}
-                  />
-                  {/* Corner accents */}
-                  <div className="absolute -top-1 -left-1 w-4 h-4 border-t-2 border-l-2 border-blue-500 rounded-tl-lg" />
-                  <div className="absolute -top-1 -right-1 w-4 h-4 border-t-2 border-r-2 border-blue-500 rounded-tr-lg" />
-                  <div className="absolute -bottom-1 -left-1 w-4 h-4 border-b-2 border-l-2 border-blue-500 rounded-bl-lg" />
-                  <div className="absolute -bottom-1 -right-1 w-4 h-4 border-b-2 border-r-2 border-blue-500 rounded-br-lg" />
-                </div>
-              </div>
-
-              {/* Enrollment ID */}
-              <div className="mx-5 mb-5 bg-white/5 rounded-xl p-3 border border-white/10">
-                <div className="flex flex-col items-center">
-                  <span className="text-[8px] font-bold text-white/30 uppercase tracking-[0.2em] mb-1">Enrollment ID</span>
-                  <span className="text-base font-bold text-blue-400 tracking-widest font-mono">
-                    {studentData.enrollmentId || 'N/A'}
-                  </span>
-                </div>
-              </div>
-
-              {/* Bus Info Bar */}
-              <div className="mx-5 mb-5 flex items-center justify-between bg-[#1a1b2e] rounded-xl px-4 py-2.5 border border-white/5">
-                <div className="flex items-center gap-2">
-                  <Bus className="w-4 h-4 text-blue-400" />
-                  <span className="text-sm font-bold text-white">Bus-{busData?.busNumber?.replace('bus_', '') || 'N/A'}</span>
-                </div>
-                <div className="text-xs text-white/50">
-                  Route: {routeData?.routeName || busData?.busNumber?.replace('bus_', '') || 'N/A'}
-                </div>
-              </div>
-
-              {/* Footer instruction */}
-              <div className="px-5 pb-5 text-center">
-                <p className="text-[10px] text-white/30">Show this QR code to the driver for verification</p>
-              </div>
-            </div>
-          </div>
-        </>
-      )}
     </div>
   );
 }

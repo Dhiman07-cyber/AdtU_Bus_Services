@@ -3,7 +3,7 @@
 import { useAuth } from "@/contexts/auth-context";
 import { useRouter, usePathname } from "next/navigation";
 import Link from "next/link";
-import { useState, useCallback, useEffect } from "react";
+import React, { useState, useCallback, useEffect } from "react";
 import {
   User, Bus, Bell, Menu, X, LayoutDashboard,
   GraduationCap, UserCog, ShieldCheck, MapPin,
@@ -39,7 +39,7 @@ interface MobileRoute {
   color: string;
 }
 
-export default function Navbar({ onMenuToggle, isSidebarOpen = false }: NavbarProps) {
+const Navbar = React.memo(function Navbar({ onMenuToggle, isSidebarOpen = false }: NavbarProps) {
   const { currentUser, userData, needsApplication } = useAuth();
   const router = useRouter();
   const pathname = usePathname();
@@ -419,7 +419,8 @@ export default function Navbar({ onMenuToggle, isSidebarOpen = false }: NavbarPr
       />
     </nav>
   );
-}
+});
 
+export default Navbar;
 
 

@@ -32,12 +32,18 @@ export async function GET(request: NextRequest) {
     const paymentMethod = searchParams.get('paymentMethod') as 'Online' | 'Offline' | null;
 
     // Helper to map Firestore documents to frontend-expected format
+    const userCache = new Map<string, string>(); // Optimized: Request-scope cache for user lookups
+
     const mapToFrontend = async (p: any) => {
       if (!p) return null;
 
       // Helper to resolve name from user ID or email
       const resolveName = async (userId: string | undefined, emailOrName: string) => {
         if (!emailOrName || !emailOrName.includes('@')) return emailOrName;
+
+        // Check cache first
+        const cacheKey = userId || emailOrName;
+        if (userCache.has(cacheKey)) return userCache.get(cacheKey)!;
 
         try {
           let userDoc;
@@ -53,7 +59,9 @@ export async function GET(request: NextRequest) {
 
           if (userDoc?.exists) {
             const data = userDoc.data();
-            return data?.fullName || data?.name || emailOrName;
+            const resolvedName = data?.fullName || data?.name || emailOrName;
+            userCache.set(cacheKey, resolvedName);
+            return resolvedName;
           }
         } catch (e) {
           console.error('Error resolving name:', e);

@@ -121,6 +121,26 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // ✅ CLEANUP: Remove pending payment record from Supabase
+    if ((appData as any).paymentId) {
+      try {
+        const { paymentsSupabaseService } = await import('@/lib/services/payments-supabase');
+        
+        // Delete the pending payment record completely
+        console.log('🗑️ Deleting pending payment record:', (appData as any).paymentId);
+        
+        const deleteSuccess = await paymentsSupabaseService.deletePayment((appData as any).paymentId);
+        
+        if (deleteSuccess) {
+          console.log('✅ Pending payment record deleted from Supabase:', (appData as any).paymentId);
+        } else {
+          console.warn('⚠️ Failed to delete pending payment record');
+        }
+      } catch (paymentCleanupError) {
+        console.error('⚠️ Failed to clean up pending payment record:', paymentCleanupError);
+      }
+    }
+
     // ✅ CLEANUP: Delete from applications collection after rejection
     try {
       await adminDb.collection('applications').doc(applicationId).delete();

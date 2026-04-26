@@ -12,36 +12,30 @@ const supabase = getSupabaseServer();
  * POST /api/student/check-active-trip
  * 
  * Checks if there's an active trip for the student's assigned bus.
- * USES SUPABASE AS AUTHORITATIVE SOURCE for live trips.
+ * Parallelizes Supabase (live trip) and Firestore (bus metadata) checks.
  */
 export const POST = withSecurity(
   async (request, { body, requestId }) => {
     const { busId } = body as any;
 
     try {
-      console.log(`🔍 [${requestId}] Querying for active trip for bus: ${busId}`);
+      console.log(`🔍 [${requestId}] Querying for active trip and bus status for bus: ${busId}`);
 
-      // Query Supabase for active trips
-      const { data: activeTrip, error } = await supabase
-        .from('active_trips')
-        .select('*')
-        .eq('bus_id', busId)
-        .eq('status', 'active')
-        .maybeSingle();
+      // 1. Parallelize Supabase active trip check and Firestore bus metadata fetch
+      const [tripRes, busDoc] = await Promise.all([
+        supabase.from('active_trips').select('*').eq('bus_id', busId).eq('status', 'active').maybeSingle(),
+        adminDb.collection('buses').doc(busId).get()
+      ]);
 
-      if (error) {
-        console.error(`[${requestId}] Supabase query error:`, error);
+      if (tripRes.error) {
+        console.error(`[${requestId}] Supabase query error:`, tripRes.error);
         return NextResponse.json({ success: false, error: 'Failed to verify trip status', requestId }, { status: 500 });
       }
 
-      if (activeTrip) {
-        // Also check bus status from Firestore (primary bus metadata source)
-        const busDoc = await adminDb.collection('buses').doc(busId).get();
-        let busStatus = null;
-        if (busDoc.exists) {
-          busStatus = busDoc.data()?.status;
-        }
+      const activeTrip = tripRes.data;
+      const busStatus = busDoc.exists ? busDoc.data()?.status : null;
 
+      if (activeTrip) {
         return NextResponse.json({
           success: true,
           hasActiveTrip: true,
@@ -73,4 +67,3 @@ export const POST = withSecurity(
     allowBodyToken: true
   }
 );
-

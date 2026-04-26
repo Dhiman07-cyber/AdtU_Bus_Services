@@ -429,19 +429,22 @@ export default function ReassignmentPanel({
         shift: "Morning" | "Evening";
         stopId: string;
         stopName?: string;
+        studentShift?: string; // Add this
       }> = [];
 
       for (const item of plan) {
         for (const student of item.students) {
+          const shift = student.overrideShift || normalizeShift(student.shift);
           apiAssignments.push({
             studentId: student.id,
             studentName: student.fullName,
             fromBusId: currentBus.id,
             toBusId: item.bus.id,
             toBusNumber: item.bus.busNumber,
-            shift: student.overrideShift || normalizeShift(student.shift),
+            shift: shift,
             stopId: student.overrideStopId || student.stopId,
             stopName: student.overrideStopName || student.stopName || student.stopId,
+            studentShift: shift, // Pass the shift here
           });
         }
       }

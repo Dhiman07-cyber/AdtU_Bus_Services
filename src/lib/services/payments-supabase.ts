@@ -30,7 +30,7 @@ export interface PaymentRecord {
     amount?: number;
     currency?: string;
     method?: 'Online' | 'Offline';
-    status?: 'Pending' | 'Completed';
+    status?: 'Pending' | 'Completed' | 'Rejected';
     session_start_year?: number;
     session_end_year?: number;
     duration_years?: number;
@@ -46,6 +46,14 @@ export interface PaymentRecord {
         role?: string;
     };
     approved_at?: string;
+    rejected_by?: {
+        type?: string;
+        userId?: string;
+        empId?: string;
+        name?: string;
+        role?: string;
+    };
+    rejected_at?: string;
     created_at?: string;
     updated_at?: string;
     // RSA-2048 digital signature for tamper-proof receipts
@@ -203,12 +211,12 @@ class PaymentsSupabaseService {
     }
 
     /**
-     * Update payment status (approve payment)
-     * Only allows: Pending → Completed
+     * Update payment status (approve or reject payment)
+     * Allows: Pending → Completed, Pending → Rejected
      */
     async updatePaymentStatus(
         paymentId: string,
-        status: 'Completed',
+        status: 'Completed' | 'Rejected',
         approverInfo?: {
             userId: string;
             name: string;
@@ -231,6 +239,15 @@ class PaymentsSupabaseService {
                     role: approverInfo.role,
                 };
                 updateData.approved_at = now;
+            } else if (status === 'Rejected' && approverInfo) {
+                updateData.rejected_by = {
+                    type: approverInfo.role === 'Admin' ? 'admin' : 'moderator',
+                    userId: approverInfo.userId,
+                    empId: approverInfo.empId,
+                    name: approverInfo.name,
+                    role: approverInfo.role,
+                };
+                updateData.rejected_at = now;
             }
 
             const { error } = await this.supabase
@@ -246,6 +263,31 @@ class PaymentsSupabaseService {
             return true;
         } catch (err) {
             console.error('[PaymentsSupabaseService] Update exception:', err);
+            return false;
+        }
+    }
+
+    /**
+     * Delete a payment record from Supabase
+     * Used for cleaning up rejected applications
+     */
+    async deletePayment(paymentId: string): Promise<boolean> {
+        if (!this.isReady()) return false;
+
+        try {
+            const { error } = await this.supabase
+                .from('payments')
+                .delete()
+                .eq('payment_id', paymentId);
+
+            if (error) {
+                console.error('[PaymentsSupabaseService] Delete error:', error);
+                return false;
+            }
+
+            return true;
+        } catch (err) {
+            console.error('[PaymentsSupabaseService] Delete exception:', err);
             return false;
         }
     }

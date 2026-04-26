@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, useEffect, useState, ReactNode, useRef } from 'react';
+import { createContext, useContext, useEffect, useState, ReactNode, useRef, useMemo, useCallback } from 'react';
 import { onAuthStateChanged, User as FirebaseUser } from 'firebase/auth';
 import { doc, onSnapshot, getDoc, Unsubscribe } from 'firebase/firestore';
 import { auth, db } from '@/lib/firebase';
@@ -368,7 +368,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
-  const signInWithGoogleContext = async () => {
+  const signInWithGoogleContext = useCallback(async () => {
     try {
       const response = await signInWithGoogle();
 
@@ -393,9 +393,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } catch (error) {
       return { success: false, error: (error as Error).message };
     }
-  };
+  }, []);
 
-  const signOut = async () => {
+  const signOut = useCallback(async () => {
     try {
       // Set flag to suppress permission errors during sign-out
       setSigningOut(true);
@@ -437,9 +437,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setTimeout(() => setSigningOut(false), 2000);
       return { success: false, error: (error as Error).message };
     }
-  };
+  }, []);
 
-  const value = {
+  const value = useMemo(() => ({
     currentUser,
     userData,
     loading,
@@ -447,7 +447,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     isExpired,
     signInWithGoogle: signInWithGoogleContext,
     signOut
-  };
+  }), [currentUser, userData, loading, needsApplication, isExpired, signInWithGoogleContext, signOut]);
 
   return (
     <AuthContext.Provider value={value}>

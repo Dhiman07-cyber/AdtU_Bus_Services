@@ -1,6 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
+import Image from "next/image";
 import {
   MapPin, Bell, Bus, Users, Clock, Shield,
   Smartphone, Navigation, CheckCircle2, ArrowRight,
@@ -331,7 +332,7 @@ export default function HowItWorksPage() {
         <div className="max-w-7xl mx-auto">
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-12 mb-12">
             <div className="lg:col-span-2 space-y-6">
-              <img src="/adtu-new-logo.svg" alt="AdtU Logo" className="w-48 h-16" />
+              <Image src="/adtu-new-logo.svg" alt="AdtU Logo" width={192} height={64} className="w-48 h-16" />
               <div className="space-y-4">
                 <h3 className="text-xl font-bold text-white tracking-tight text-shadow-glow">AdtU Bus Services</h3>
                 <p className="text-slate-400 font-medium max-w-sm leading-relaxed">Official Real-Time Campus Transportation Management Platform of Assam down town University.</p>

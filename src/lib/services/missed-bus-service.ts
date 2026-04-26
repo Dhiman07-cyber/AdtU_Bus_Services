@@ -24,8 +24,6 @@ const CONFIG = {
   REQUEST_EXPIRES_MINUTES: 15,        // Request TTL
   ASSIGNED_WAIT_MAX_SECONDS: 180,     // Max driver wait time
   DRIVER_HEARTBEAT_TIMEOUT_SEC: 60,   // Driver must have recent heartbeat
-  ORS_MANDATORY: false,               // If true, ORS failure blocks request
-  ORS_TIMEOUT_MS: 3000,               // ORS request timeout
   RATE_LIMIT_REQUESTS_PER_DAY: 3,     // Max requests per student per day
   WORKER_LIMIT: 50,                   // Rows processed per worker run
   MAX_ETA_MINUTES: 30                 // Maximum ETA to consider a bus as candidate

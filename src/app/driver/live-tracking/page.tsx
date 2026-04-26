@@ -13,6 +13,7 @@ import { getDriverById, getBusById, getRouteById } from "@/lib/dataService";
 import { useToast } from "@/contexts/toast-context";
 import { PremiumPageLoader } from "@/components/LoadingSpinner";
 import { useSystemConfig } from "@/contexts/SystemConfigContext";
+import { formatIdForDisplay } from "@/lib/utils";
 import {
   checkDeviceSession,
   registerDeviceSession,
@@ -106,6 +107,13 @@ export default function DriverLiveTrackingPage() {
 
   // Map Full Screen State
   const [isFullScreenMap, setIsFullScreenMap] = useState(false);
+
+  // Exit full screen mode automatically when trip ends
+  useEffect(() => {
+    if (!tripActive && isFullScreenMap) {
+      setIsFullScreenMap(false);
+    }
+  }, [tripActive, isFullScreenMap]);
 
   // Scanner Modal State
   const [isScannerOpen, setIsScannerOpen] = useState(false);
@@ -1153,8 +1161,8 @@ export default function DriverLiveTrackingPage() {
     // Broadcast immediately
     broadcastLocation();
 
-    // Throttled interval — minimum 3s; broadcastLocation also skips if barely moved
-    locationIntervalRef.current = setInterval(broadcastLocation, 3000);
+    // Throttled interval — minimum 1s
+    locationIntervalRef.current = setInterval(broadcastLocation, 1000);
 
     return () => {
       if (locationIntervalRef.current) {
@@ -1170,38 +1178,14 @@ export default function DriverLiveTrackingPage() {
 
     try {
       const now = Date.now();
-      const lb = lastBroadcastSampleRef.current;
-      if (lb) {
-        const R = 6371;
-        const dLat = (currentLocation.lat - lb.lat) * Math.PI / 180;
-        const dLon = (currentLocation.lng - lb.lng) * Math.PI / 180;
-        const a =
-          Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-          Math.cos(lb.lat * Math.PI / 180) *
-            Math.cos(currentLocation.lat * Math.PI / 180) *
-            Math.sin(dLon / 2) *
-            Math.sin(dLon / 2);
-        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-        const distKm = R * c;
-        if (distKm < 0.012 && now - lb.t < 4500) {
-          return;
-        }
-      }
-      lastBroadcastSampleRef.current = {
-        lat: currentLocation.lat,
-        lng: currentLocation.lng,
-        t: now,
-      };
-
       const idToken = await currentUser?.getIdToken();
 
       // Increment broadcast counter
       broadcastCountRef.current += 1;
 
-      // OPTIMIZATION: Save to database only every 15th time (30 seconds)
-      // But broadcast real-time EVERY time (2 seconds)
-      // This reduces DB writes by 15x while keeping real-time updates!
-      const shouldSaveToDatabase = broadcastCountRef.current % 15 === 0;
+      // OPTIMIZATION: Save to database only every 15th time (15 seconds when interval=1s)
+      // Save immediately on first start to ensure the DB has an initial point for the student app
+      const shouldSaveToDatabase = broadcastCountRef.current === 1 || broadcastCountRef.current % 15 === 0;
 
       // Always broadcast to students via Supabase Realtime (real-time updates)
       try {
@@ -1453,7 +1437,7 @@ export default function DriverLiveTrackingPage() {
 
       setTripActive(true);
       setTripId(result.tripId);
-      addToast("Trip started successfully! 🚀", "success");
+      addToast(`Trip started for ${formatIdForDisplay(routeData.routeId)}! 🚀`, "success");
 
       // Re-check active trip to ensure state is synchronized
       setTimeout(async () => {
@@ -1584,11 +1568,12 @@ export default function DriverLiveTrackingPage() {
         setCurrentLocation(null);
         setWaitingFlags([]);
         setMapCenter([26.1445, 91.7362]);
+        broadcastCountRef.current = 0;
 
         // Auto-exit fullscreen when trip ends
         setIsFullScreenMap(false);
 
-        addToast("Trip ended successfully! 🏁", "success");
+        addToast(`Trip for ${formatIdForDisplay(busData.busId)} ended successfully! 🏁`, "success");
 
         // Clear the bus marker
         console.log("🗺️ Clearing map markers and resetting view");

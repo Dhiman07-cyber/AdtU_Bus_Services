@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import dynamic from 'next/dynamic';
 import { useBusLocation } from '@/hooks/useBusLocation';
 import { useWaitingFlags } from '@/hooks/useWaitingFlags';
@@ -86,7 +86,7 @@ interface BusLocation {
 
 // Map controller removed
 
-export default function EnhancedBusMap({ 
+function EnhancedBusMap({ 
   routeId,
   role,
   journeyActive = false
@@ -272,3 +272,5 @@ export default function EnhancedBusMap({
     </div>
   );
 }
+
+export default React.memo(EnhancedBusMap);

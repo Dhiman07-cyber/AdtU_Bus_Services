@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { adminDb } from '@/lib/firebase-admin';
-import { saveToken, isValidTokenFormat } from '@/lib/services/fcm-token-service';
+import { saveToken, isValidTokenFormat, subscribeToTopic } from '@/lib/services/fcm-token-service';
 import { withSecurity } from '@/lib/security/api-security';
 import { SaveFCMTokenSchema } from '@/lib/security/validation-schemas';
 import { RateLimits } from '@/lib/security/rate-limiter';
@@ -86,7 +86,18 @@ export const POST = withSecurity(
       );
     }
 
-    // 8. Legacy field sync (backward compatibility with older notification queries)
+    // 8. Topic Subscription: Subscribe to route-specific topic for high-performance notifications
+    const routeId = userData.routeId || userData.route_id || userData.assignedRouteId;
+    if (routeId) {
+      try {
+        const topic = `route_${routeId}`;
+        await subscribeToTopic(token, topic);
+      } catch (topicErr) {
+        console.warn(`[${requestId}] Topic subscription failed (non-critical):`, topicErr);
+      }
+    }
+
+    // 9. Legacy field sync (backward compatibility with older notification queries)
     try {
       await adminDb.collection(targetCollection).doc(uid).set({
         fcmToken: token,

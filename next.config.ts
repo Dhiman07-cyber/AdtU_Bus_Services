@@ -147,6 +147,11 @@ const nextConfig: NextConfig = {
         hostname: 'api.dicebear.com',
         pathname: '/**',
       },
+      {
+        protocol: 'https',
+        hostname: 'firebasestorage.googleapis.com',
+        pathname: '/**',
+      },
     ],
     // Image optimization settings - prioritize quality
     formats: ['image/webp', 'image/avif'],
@@ -186,12 +191,15 @@ const nextConfig: NextConfig = {
         value: [
           "default-src 'self'",
           "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://checkout.razorpay.com https://*.razorpay.com https://apis.google.com https://www.gstatic.com https://www.googletagmanager.com https://www.google-analytics.com https://vercel.live https://*.vercel.live https://va.vercel-scripts.com",
+          // MapLibre uses a Blob worker in the browser.
+          // If worker-src isn't explicitly set, browsers fall back to script-src and will block it.
+          "worker-src 'self' blob:",
           "style-src 'self' 'unsafe-inline' https://checkout.razorpay.com https://fonts.googleapis.com https://vercel.live https://*.vercel.live",
           "img-src 'self' data: blob: https: https://res.cloudinary.com https://lh3.googleusercontent.com https://api.dicebear.com https://checkout.razorpay.com https://www.google.com https://vercel.live https://*.vercel.live",
-          "font-src 'self' data: https://checkout.razorpay.com https://fonts.gstatic.com https://vercel.live https://*.vercel.live",
+          "font-src 'self' data: https://checkout.razorpay.com https://fonts.gstatic.com https://fonts.openmaptiles.org https://demotiles.maplibre.org https://vercel.live https://*.vercel.live",
           isProduction
-            ? "connect-src 'self' https://*.razorpay.com https://api.razorpay.com wss://*.supabase.co https://*.supabase.co https://*.supabase.in https://firestore.googleapis.com https://securetoken.googleapis.com https://identitytoolkit.googleapis.com https://*.googleapis.com https://apis.google.com https://accounts.google.com https://www.google.com https://www.googletagmanager.com https://analytics.google.com https://www.google-analytics.com https://api.cloudinary.com https://*.cloudinary.com https://vercel.live https://*.vercel.live https://vitals.vercel-insights.com"
-            : "connect-src 'self' http://localhost:* http://127.0.0.1:* https://*.razorpay.com https://api.razorpay.com wss://*.supabase.co https://*.supabase.co https://*.supabase.in https://firestore.googleapis.com https://securetoken.googleapis.com https://identitytoolkit.googleapis.com https://*.googleapis.com https://apis.google.com https://accounts.google.com https://www.google.com https://www.googletagmanager.com https://analytics.google.com https://www.google-analytics.com https://api.cloudinary.com https://*.cloudinary.com https://vercel.live https://*.vercel.live https://vitals.vercel-insights.com",
+            ? "connect-src 'self' https://fonts.openmaptiles.org https://demotiles.maplibre.org https://*.razorpay.com https://api.razorpay.com wss://*.supabase.co https://*.supabase.co https://*.supabase.in https://firestore.googleapis.com https://securetoken.googleapis.com https://identitytoolkit.googleapis.com https://*.googleapis.com https://apis.google.com https://accounts.google.com https://www.google.com https://www.googletagmanager.com https://analytics.google.com https://www.google-analytics.com https://api.cloudinary.com https://*.cloudinary.com https://vercel.live https://*.vercel.live https://vitals.vercel-insights.com"
+            : "connect-src 'self' http://localhost:* http://127.0.0.1:* https://fonts.openmaptiles.org https://demotiles.maplibre.org https://*.razorpay.com https://api.razorpay.com wss://*.supabase.co https://*.supabase.co https://*.supabase.in https://firestore.googleapis.com https://securetoken.googleapis.com https://identitytoolkit.googleapis.com https://*.googleapis.com https://apis.google.com https://accounts.google.com https://www.google.com https://www.googletagmanager.com https://analytics.google.com https://www.google-analytics.com https://api.cloudinary.com https://*.cloudinary.com https://vercel.live https://*.vercel.live https://vitals.vercel-insights.com",
           "frame-src 'self' https://api.razorpay.com https://checkout.razorpay.com https://accounts.google.com https://*.firebaseapp.com https://vercel.live https://*.vercel.live",
           "media-src 'self' blob: data: https://*.supabase.co https://*.supabase.in",
           "base-uri 'self'",
@@ -209,26 +217,12 @@ const nextConfig: NextConfig = {
       { key: 'X-Permitted-Cross-Domain-Policies', value: 'none' },
       {
         key: 'Permissions-Policy',
-        value: 'camera=(self), microphone=(), geolocation=(self), payment=(self), usb=(), bluetooth=(), serial=(), hid=(), magnetometer=(), gyroscope=(), accelerometer=(self), ambient-light-sensor=(), autoplay=(), document-domain=()',
+        value: 'camera=(self), microphone=(), geolocation=(self), payment=(self), usb=(), bluetooth=(), serial=(), hid=(), magnetometer=(), gyroscope=(), accelerometer=(self), autoplay=()',
       },
       { key: 'Cross-Origin-Resource-Policy', value: 'same-origin' },
     ];
 
     return [
-      // ── Static assets: Long-lived immutable cache (JS, CSS, images, fonts) ──
-      {
-        source: '/_next/static/:path*',
-        headers: [
-          { key: 'Cache-Control', value: 'public, max-age=31536000, immutable' },
-        ],
-      },
-      // ── Optimized images: Long TTL with revalidation ──
-      {
-        source: '/_next/image/:path*',
-        headers: [
-          { key: 'Cache-Control', value: 'public, max-age=86400, stale-while-revalidate=604800' },
-        ],
-      },
       // ── Public static files: cache with revalidation ──
       {
         source: '/manifest.json',
@@ -243,6 +237,7 @@ const nextConfig: NextConfig = {
           ...securityHeaders,
           { key: 'Cache-Control', value: 'no-store, no-cache, must-revalidate' },
           { key: 'Pragma', value: 'no-cache' },
+          { key: 'X-Robots-Tag', value: 'noindex, nofollow' },
         ],
       },
       // ── Health endpoint: Short cache for monitoring tools ──

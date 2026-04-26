@@ -6,7 +6,7 @@
  * No route lines, no stops - just clean real-time tracking
  */
 
-import { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import dynamic from 'next/dynamic';
 import 'leaflet/dist/leaflet.css';
 import { Loader2, Navigation, MapPin, Maximize2, Minimize2, QrCode } from 'lucide-react';
@@ -60,7 +60,7 @@ interface UberLikeBusMapProps {
   loading?: boolean;     // The loading state from the parent
 }
 
-export default function UberLikeBusMap({
+function UberLikeBusMap({
   busId,
   busNumber,
   journeyActive = false,
@@ -690,3 +690,5 @@ export default function UberLikeBusMap({
     </div>
   );
 }
+
+export default React.memo(UberLikeBusMap);

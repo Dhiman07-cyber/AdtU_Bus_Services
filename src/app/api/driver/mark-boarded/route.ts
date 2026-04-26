@@ -10,20 +10,18 @@ import { RateLimits } from '@/lib/security/rate-limiter';
  * 
  * Body: { flagId }
  * 
- * Actions:
- * - Update waiting_flags.status = "picked_up"
- * - Broadcast update to student channel
- * - Broadcast update to bus channel
+ * Optimized:
+ * - Parallel broadcasts to all channels
+ * - Non-blocking Firestore sync
+ * - Atomic Supabase update
  */
 export const POST = withSecurity(
     async (request, { auth, body }) => {
         const { flagId } = body as any;
         const driverUid = auth.uid;
-
-        // Initialize Supabase client
         const supabase = getSupabaseServer();
 
-        // Get waiting flag
+        // 1. Fetch waiting flag data
         const { data: flagData, error: flagError } = await supabase
             .from('waiting_flags')
             .select('*')
@@ -31,13 +29,10 @@ export const POST = withSecurity(
             .single();
 
         if (flagError || !flagData) {
-            return NextResponse.json(
-                { error: 'Waiting flag not found' },
-                { status: 404 }
-            );
+            return NextResponse.json({ error: 'Waiting flag not found' }, { status: 404 });
         }
 
-        // Update waiting flag status
+        // 2. Atomic update in Supabase
         const { error: updateError } = await supabase
             .from('waiting_flags')
             .update({
@@ -48,97 +43,54 @@ export const POST = withSecurity(
             .eq('id', flagId);
 
         if (updateError) {
-            console.error('Error marking flag as picked_up:', updateError);
-            return NextResponse.json(
-                { error: 'Failed to mark flag as picked_up' },
-                { status: 500 }
-            );
+            return NextResponse.json({ error: 'Failed to update flag status' }, { status: 500 });
         }
 
-        // Broadcast to multiple channels for instant UI updates
-        try {
-            // 1. Broadcast to waiting_flags channel (for driver UI update)
-            const flagsChannel = supabase.channel(`waiting_flags_${flagData.bus_id}`);
-            await flagsChannel.send({
+        // 3. Parallel Broadcasts for instant UI feedback
+        // Note: Using channel().send() without removing channel immediately for speed
+        const broadcastTask = Promise.allSettled([
+            supabase.channel(`waiting_flags_${flagData.bus_id}`).send({
                 type: 'broadcast',
                 event: 'waiting_flag_updated',
-                payload: {
-                    flagId,
-                    studentUid: flagData.student_uid,
-                    status: 'picked_up',
-                    timestamp: new Date().toISOString()
-                }
-            });
-            await supabase.removeChannel(flagsChannel);
-
-            // 2. Broadcast to student-specific channel (for student UI update)
-            const studentChannel = supabase.channel(`student_${flagData.student_uid}`);
-            await studentChannel.send({
+                payload: { flagId, studentUid: flagData.student_uid, status: 'picked_up', timestamp: new Date().toISOString() }
+            }),
+            supabase.channel(`student_${flagData.student_uid}`).send({
                 type: 'broadcast',
-                event: 'flag_acknowledged', // The frontend listens to flag_acknowledged for both ack and pickup
-                payload: {
-                    flagId,
-                    busId: flagData.bus_id,
-                    status: 'picked_up',
-                    ackByDriverUid: driverUid,
-                    timestamp: new Date().toISOString(),
-                    message: 'Driver has arrived!'
-                }
-            });
-            await supabase.removeChannel(studentChannel);
-
-            // 3. Broadcast to route channel (for admin/monitoring)
-            const routeChannel = supabase.channel(`route_${flagData.route_id}`);
-            await routeChannel.send({
+                event: 'flag_acknowledged',
+                payload: { flagId, busId: flagData.bus_id, status: 'picked_up', ackByDriverUid: driverUid, timestamp: new Date().toISOString(), message: 'Driver has arrived!' }
+            }),
+            supabase.channel(`route_${flagData.route_id}`).send({
                 type: 'broadcast',
                 event: 'waiting_flag_updated',
-                payload: {
-                    flagId,
-                    studentUid: flagData.student_uid,
-                    busId: flagData.bus_id,
-                    routeId: flagData.route_id,
-                    status: 'picked_up',
-                    timestamp: new Date().toISOString()
+                payload: { flagId, studentUid: flagData.student_uid, busId: flagData.bus_id, routeId: flagData.route_id, status: 'picked_up', timestamp: new Date().toISOString() }
+            })
+        ]);
+
+        // 4. Non-blocking Firestore sync
+        const firestoreTask = (async () => {
+            try {
+                const snapshot = await adminDb.collection('waiting_flags').where('supabaseId', '==', flagId).limit(1).get();
+                if (!snapshot.empty) {
+                    await snapshot.docs[0].ref.update({ status: 'picked_up', boarded_at: new Date().toISOString() });
                 }
-            });
-            await supabase.removeChannel(routeChannel);
-        } catch (broadcastError) {
-            console.error('Broadcast error (non-critical):', broadcastError);
-        }
-
-        // Update in Firestore backup if exists
-        try {
-            const firestoreDoc = await adminDb
-                .collection('waiting_flags')
-                .where('supabaseId', '==', flagId)
-                .limit(1)
-                .get();
-
-            if (!firestoreDoc.empty) {
-                await firestoreDoc.docs[0].ref.update({
-                    status: 'picked_up',
-                    boarded_at: new Date().toISOString()
-                });
+            } catch (err) { 
+                console.error('Firestore sync failed:', err); 
             }
-        } catch (fsError) {
-            console.error('Firestore sync error:', fsError);
-        }
+        })();
 
-        console.log(`✅ Flag marked as picked up for student ${flagData.student_uid}`);
+        // Await broadcasts briefly to ensure they are initiated
+        await broadcastTask;
 
         return NextResponse.json({
             success: true,
             message: 'Student boarded successfully',
-            data: {
-                flagId,
-                studentUid: flagData.student_uid,
-            }
+            data: { flagId, studentUid: flagData.student_uid }
         });
     },
     {
         requiredRoles: ['driver'],
         schema: MarkBoardedSchema,
-        rateLimit: RateLimits.CREATE, // Prevent spam
+        rateLimit: RateLimits.CREATE,
         allowBodyToken: true
     }
 );

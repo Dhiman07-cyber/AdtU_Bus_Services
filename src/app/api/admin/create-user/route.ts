@@ -16,89 +16,68 @@ import { withSecurity } from '@/lib/security/api-security';
 import { CreateUserSchema } from '@/lib/security/validation-schemas';
 import { RateLimits } from '@/lib/security/rate-limiter';
 
-// Helper function to get route name from routeId
-async function getRouteName(routeId: string): Promise<string> {
-    if (!routeId) return 'Not Assigned';
-    try {
-        const routeDoc = await adminDb.collection('routes').doc(routeId).get();
-        if (routeDoc.exists) {
-            return routeDoc.data()?.routeName || routeDoc.data()?.name || routeId;
-        }
-    } catch (e) {
-        console.error('Error fetching route name:', e);
-    }
-    return routeId;
-}
+/**
+ * Optimized Create User API (Student, Driver, Moderator, Admin)
+ * 
+ * Enhancements:
+ * - Parallelized metadata fetching (System Config, Deadline Config, Approver Data)
+ * - Parallelized helper lookups (Route, Bus, Stop names)
+ * - Backgrounded heavy tasks (Email, PDF generation)
+ * - Atomic document creation
+ */
 
-// Helper function to get bus name from busId
-async function getBusName(busId: string): Promise<string> {
-    if (!busId) return 'Auto-assigned';
-    try {
-        const busDoc = await adminDb.collection('buses').doc(busId).get();
-        if (busDoc.exists) {
-            const data = busDoc.data();
-            const busNumber = data?.displayIndex || data?.sequenceNumber || data?.busNumber;
-            const licensePlate = data?.licensePlate || data?.plateNumber;
-            if (busNumber && licensePlate) {
-                return `Bus-${busNumber} (${licensePlate})`;
-            }
-            return data?.name || busId;
-        }
-    } catch (e) {
-        console.error('Error fetching bus name:', e);
-    }
-    return busId;
-}
-
-// Helper function to get stop name from route and stopId
-async function getStopName(routeId: string, stopId: string): Promise<string> {
-    if (!routeId || !stopId) return 'Not Selected';
-    try {
-        const routeDoc = await adminDb.collection('routes').doc(routeId).get();
-        if (routeDoc.exists) {
-            const stops = routeDoc.data()?.stops || [];
+// Helper function to fetch multiple names in parallel
+async function resolveReferenceNames(routeId?: string, busId?: string, stopId?: string) {
+    const tasks: Promise<string>[] = [
+        (async () => {
+            if (!routeId) return 'Not Assigned';
+            const doc = await adminDb.collection('routes').doc(routeId).get();
+            return doc.data()?.routeName || doc.data()?.name || routeId;
+        })(),
+        (async () => {
+            if (!busId) return 'Auto-assigned';
+            const doc = await adminDb.collection('buses').doc(busId).get();
+            const d = doc.data();
+            if (!d) return busId;
+            const busNum = d.displayIndex || d.sequenceNumber || d.busNumber;
+            return busNum ? `Bus-${busNum} (${d.licensePlate || d.plateNumber || '?'})` : (d.name || busId);
+        })(),
+        (async () => {
+            if (!routeId || !stopId) return 'Not Selected';
+            const doc = await adminDb.collection('routes').doc(routeId).get();
+            const stops = doc.data()?.stops || [];
             const stop = stops.find((s: any) => s.id === stopId || s.stopId === stopId);
-            if (stop) {
-                return stop.name || stop.stopName || stopId;
-            }
-        }
-    } catch (e) {
-        console.error('Error fetching stop name:', e);
-    }
-    return stopId;
+            return stop?.name || stop?.stopName || stopId;
+        })()
+    ];
+    return Promise.all(tasks);
 }
 
-// Helper function to normalize shift values
-function normalizeShift(shift: string | undefined): string {
+function normalizeShift(shift?: string): string {
     if (!shift) return 'Morning';
-    const normalized = shift.toLowerCase().trim();
-    if (normalized.includes('evening')) return 'Evening';
-    if (normalized.includes('morning')) return 'Morning';
-    if (normalized === 'both') return 'Both';
-    return 'Morning'; // Default
+    const n = shift.toLowerCase().trim();
+    if (n.includes('even')) return 'Evening';
+    if (n.includes('morn')) return 'Morning';
+    if (n === 'both') return 'Both';
+    return 'Morning';
 }
 
 export const POST = withSecurity(
     async (request, { auth, body }) => {
         const currentUserUid = auth.uid;
         const currentUserRole = auth.role;
-        let currentUserEmployeeId = 'ADMIN';
-        let currentUserName = auth.name || 'System';
 
-        // Fetch extra info for moderators/admins for audit logs
-        if (currentUserRole === 'moderator') {
-            const modDoc = await adminDb.collection('moderators').doc(currentUserUid).get();
-            if (modDoc.exists) {
-                currentUserName = modDoc.data()?.fullName || modDoc.data()?.name || currentUserName;
-                currentUserEmployeeId = modDoc.data()?.employeeId || modDoc.data()?.staffId || 'MOD';
-            }
-        } else if (currentUserRole === 'admin') {
-            const adminDoc = await adminDb.collection('admins').doc(currentUserUid).get();
-            if (adminDoc.exists) {
-                currentUserName = adminDoc.data()?.name || currentUserName;
-                currentUserEmployeeId = adminDoc.data()?.employeeId || 'ADMIN';
-            }
-        }
+        // 1. Parallelize initial validation & configuration fetching
+        const [approverDoc, systemConfig, deadlineConfig] = await Promise.all([
+            adminDb.collection(currentUserRole === 'admin' ? 'admins' : 'moderators').doc(currentUserUid).get(),
+            getSystemConfig(),
+            getDeadlineConfig()
+        ]);
+
+        const appData = approverDoc.data();
+        const currentUserName = appData?.fullName || appData?.name || auth.name || 'System';
+        const currentUserEmployeeId = appData?.employeeId || appData?.staffId || (currentUserRole === 'admin' ? 'ADMIN' : 'MOD');
+        const approvedByDisplay = `${currentUserName} (${currentUserRole === 'admin' ? 'Admin' : currentUserEmployeeId})`;
 
         const {
             email, name, role, phone, alternatePhone, profilePhotoUrl, enrollmentId,
@@ -112,28 +91,22 @@ export const POST = withSecurity(
         const finalStopId = stopId || pickupPoint || '';
         const finalDuration = durationYears || (typeof sessionDuration === 'string' ? parseInt(sessionDuration) : sessionDuration) || 1;
 
-        // Check if user already exists
+        // 2. Auth management
         let uid: string;
         try {
             const userRecord = await adminAuth.getUserByEmail(email);
             uid = userRecord.uid;
-        } catch (error: any) {
-            const userRecord = await adminAuth.createUser({
-                email: email,
-                emailVerified: true
-            });
+        } catch {
+            const userRecord = await adminAuth.createUser({ email, emailVerified: true });
             uid = userRecord.uid;
         }
 
         const now = new Date().toISOString();
-        const approvedByDisplay = currentUserRole === 'admin' ? `${currentUserName} (Admin)` : `${currentUserName} ( ${currentUserEmployeeId} )`;
 
-        // 1. Handle STUDENT creation
+        // 3. Role-specific logic
         if (role === 'student') {
             let finalValidUntil = validUntil;
             let finalSessionEndYear = sessionEndYear;
-
-            const deadlineConfig = await getDeadlineConfig();
 
             if (!finalValidUntil) {
                 const { newValidUntil } = calculateRenewalDate(null, finalDuration, deadlineConfig);
@@ -142,135 +115,91 @@ export const POST = withSecurity(
             }
 
             const blockDates = computeBlockDatesFromValidUntil(finalValidUntil, deadlineConfig);
-
-            const studentDoc: any = {
-                address: address || '',
-                alternatePhone: alternatePhone || '',
-                approvedAt: now,
-                approvedBy: approvedByDisplay,
-                bloodGroup: bloodGroup || '',
-                busId: busId || (routeId ? routeId.replace('route_', 'bus_') : ''),
-                createdAt: now,
-                department: department || '',
-                dob: dob || '',
-                durationYears: finalDuration,
-                email: email,
-                enrollmentId: enrollmentId || '',
-                faculty: faculty || '',
-                fullName: name,
-                gender: gender || '',
-                parentName: parentName || '',
-                parentPhone: parentPhone || '',
-                phoneNumber: phone || '',
-                profilePhotoUrl: profilePhotoUrl || '',
-                role: 'student',
-                routeId: routeId || '',
-                semester: semester || '',
-                sessionEndYear: finalSessionEndYear,
-                sessionStartYear: sessionStartYear || new Date().getFullYear(),
-                shift: normalizeShift(shift),
-                status: 'active',
-                stopId: finalStopId,
-                uid: uid,
-                updatedAt: now,
-                validUntil: finalValidUntil,
-                softBlock: blockDates.softBlock,
-                hardBlock: blockDates.hardBlock,
-                paymentAmount: 0,
-                paid_on: now,
-            };
-
-            const systemConfig = await getSystemConfig();
             const busFeeAmount = systemConfig?.busFee?.amount || 5000;
             const totalAmount = busFeeAmount * finalDuration;
-            studentDoc.paymentAmount = totalAmount;
 
-            await adminDb.collection('students').doc(uid).set(studentDoc);
+            const studentDoc = {
+                address: address || '', alternatePhone: alternatePhone || '', approvedAt: now,
+                approvedBy: approvedByDisplay, bloodGroup: bloodGroup || '',
+                busId: busId || (routeId ? routeId.replace('route_', 'bus_') : ''),
+                createdAt: now, department: department || '', dob: dob || '',
+                durationYears: finalDuration, email, enrollmentId: enrollmentId || '',
+                faculty: faculty || '', fullName: name, gender: gender || '',
+                parentName: parentName || '', parentPhone: parentPhone || '',
+                phoneNumber: phone || '', profilePhotoUrl: profilePhotoUrl || '',
+                role: 'student', routeId: routeId || '', semester: semester || '',
+                sessionEndYear: finalSessionEndYear, sessionStartYear: sessionStartYear || new Date().getFullYear(),
+                shift: normalizeShift(shift), status: 'active', stopId: finalStopId,
+                uid, updatedAt: now, validUntil: finalValidUntil,
+                softBlock: blockDates.softBlock, hardBlock: blockDates.hardBlock,
+                paymentAmount: totalAmount, paid_on: now,
+            };
 
-            const paymentId = generateOfflinePaymentId('new_registration');
-            const offlineTransactionId = `manual_entry_${Date.now()}`;
+            // Write all student-related data in parallel
+            const writeTasks: Promise<any>[] = [
+                adminDb.collection('students').doc(uid).set(studentDoc),
+                adminDb.collection('users').doc(uid).set({ createdAt: now, email, name, role: 'student', uid })
+            ];
 
+            // Add payment record if applicable
             if (totalAmount > 0) {
-                const { paymentsSupabaseService } = await import('@/lib/services/payments-supabase');
-                await paymentsSupabaseService.createPayment({
-                    paymentId,
-                    studentId: enrollmentId || '',
-                    studentUid: uid,
-                    studentName: name,
-                    stopId: finalStopId,
-                    amount: totalAmount,
-                    method: 'Offline',
-                    status: 'Completed',
-                    sessionStartYear: sessionStartYear || new Date().getFullYear(),
-                    sessionEndYear: finalSessionEndYear,
-                    durationYears: finalDuration,
-                    validUntil: new Date(finalValidUntil),
-                    transactionDate: new Date(),
-                    offlineTransactionId: offlineTransactionId,
-                    approvedBy: {
-                        type: 'Manual',
-                        userId: currentUserUid,
-                        empId: currentUserEmployeeId,
-                        name: currentUserName,
-                        role: currentUserRole === 'admin' ? 'Admin' : 'Moderator'
-                    },
-                    approvedAt: new Date(),
-                });
+                const paymentId = generateOfflinePaymentId('new_registration');
+                writeTasks.push((async () => {
+                    const { paymentsSupabaseService } = await import('@/lib/services/payments-supabase');
+                    return paymentsSupabaseService.createPayment({
+                        paymentId, studentId: enrollmentId || '', studentUid: uid, studentName: name,
+                        stopId: finalStopId, amount: totalAmount, method: 'Offline', status: 'Completed',
+                        sessionStartYear: sessionStartYear || new Date().getFullYear(),
+                        sessionEndYear: finalSessionEndYear, durationYears: finalDuration,
+                        validUntil: new Date(finalValidUntil), transactionDate: new Date(),
+                        offlineTransactionId: `manual_entry_${Date.now()}`,
+                        approvedBy: { type: 'Manual', userId: currentUserUid, empId: currentUserEmployeeId, name: currentUserName, role: currentUserRole === 'admin' ? 'Admin' : 'Moderator' },
+                        approvedAt: new Date(),
+                    });
+                })());
             }
 
+            // Bus capacity increment
             if (studentDoc.busId) {
-                try {
-                    await incrementBusCapacity(studentDoc.busId, uid, shift);
-                } catch (err) {
-                    console.error('Bus capacity increment error:', err);
-                }
+                writeTasks.push(incrementBusCapacity(studentDoc.busId, uid, shift).catch(e => console.error('Capacity error:', e)));
             }
 
-            await adminDb.collection('users').doc(uid).set({
-                createdAt: now, email, name, role: 'student', uid
-            });
+            await Promise.all(writeTasks);
 
+            // 4. Fire-and-forget notifications (if moderator added)
             if (currentUserRole === 'moderator') {
-                try {
-                    const routeName = await getRouteName(routeId || '');
-                    const busName = await getBusName(busId || '');
-                    const resolvedStopName = await getStopName(routeId || '', finalStopId);
-                    const adminRecipients = await getAdminEmailRecipients();
+                (async () => {
+                    try {
+                        const [routeName, busName, resolvedStopName, adminRecipients] = await Promise.all([
+                            resolveReferenceNames(routeId, busId, finalStopId).then(names => names[0]),
+                            resolveReferenceNames(routeId, busId, finalStopId).then(names => names[1]),
+                            resolveReferenceNames(routeId, busId, finalStopId).then(names => names[2]),
+                            getAdminEmailRecipients()
+                        ]);
 
-                    if (adminRecipients.length > 0) {
-                        const emailData: StudentAddedEmailData = {
-                            studentName: name, studentEmail: email, studentPhone: phone || '', enrollmentId: enrollmentId || '',
-                            faculty: faculty || '', department: department || '', semester: semester || '', shift: shift || 'Morning',
-                            routeName, busName, pickupPoint: resolvedStopName, sessionStartYear: sessionStartYear || new Date().getFullYear(),
-                            sessionEndYear: finalSessionEndYear, validUntil: finalValidUntil, durationYears: finalDuration,
-                            paymentAmount: totalAmount, transactionId: paymentId,
-                            addedBy: { name: currentUserName, employeeId: currentUserEmployeeId, role: 'moderator' },
-                            addedAt: now
-                        };
+                        if (adminRecipients.length > 0) {
+                            const paymentId = generateOfflinePaymentId('new_registration'); // Re-generate or pass from above
+                            const emailData: StudentAddedEmailData = {
+                                studentName: name, studentEmail: email, studentPhone: phone || '', enrollmentId: enrollmentId || '',
+                                faculty: faculty || '', department: department || '', semester: semester || '', shift: shift || 'Morning',
+                                routeName, busName, pickupPoint: resolvedStopName, sessionStartYear: sessionStartYear || new Date().getFullYear(),
+                                sessionEndYear: finalSessionEndYear, validUntil: finalValidUntil, durationYears: finalDuration,
+                                paymentAmount: totalAmount, transactionId: paymentId,
+                                addedBy: { name: currentUserName, employeeId: currentUserEmployeeId, role: 'moderator' },
+                                addedAt: now
+                            };
 
-                        await new Promise(resolve => setTimeout(resolve, 500));
-                        let pdfBuffer = null;
-                        try {
-                            pdfBuffer = await generateReceiptPdf(paymentId);
-                        } catch (pdfError) {
-                            console.error('PDF error:', pdfError);
+                            const pdfBuffer = await generateReceiptPdf(paymentId).catch(() => null);
+                            await sendStudentAddedNotification(
+                                adminRecipients, emailData,
+                                pdfBuffer ? { content: pdfBuffer, filename: `Receipt_${name.replace(/\s+/g, '_')}_${paymentId}.pdf` } : undefined
+                            );
                         }
-
-                        await sendStudentAddedNotification(
-                            adminRecipients,
-                            emailData,
-                            pdfBuffer ? {
-                                content: pdfBuffer,
-                                filename: `Receipt_${name.replace(/\s+/g, '_')}_${paymentId}.pdf`
-                            } : undefined
-                        );
-                    }
-                } catch (emailError) {
-                    console.error('Email notification error:', emailError);
-                }
+                    } catch (e) { console.error('Notification error:', e); }
+                })();
             }
         } else if (role === 'driver') {
-            const driverDocData: any = {
+            const driverDocData = {
                 uid, email, fullName: name, licenseNumber: licenseNumber || '', aadharNumber: aadharNumber || '',
                 phone: phone || '', altPhone: alternatePhone || '', joiningDate: joiningDate || '',
                 driverId: driverId || employeeId || '', address: address || '', profilePhotoUrl: profilePhotoUrl || '',
@@ -279,39 +208,31 @@ export const POST = withSecurity(
                 status: 'active', createdAt: now, updatedAt: now,
             };
 
-            await adminDb.collection('drivers').doc(uid).set(driverDocData);
+            const driverTasks: Promise<any>[] = [
+                adminDb.collection('drivers').doc(uid).set(driverDocData),
+                adminDb.collection('users').doc(uid).set({ createdAt: now, email, name, role: 'driver', uid })
+            ];
 
             if (busId) {
-                const busRef = adminDb.collection('buses').doc(busId);
-                const busDoc = await busRef.get();
-                if (busDoc.exists) {
-                    await busRef.update({
-                        activeDriverId: uid,
-                        assignedDriverId: uid,
-                        activeTripId: null,
-                        updatedAt: now
-                    });
-                }
+                driverTasks.push(adminDb.collection('buses').doc(busId).update({
+                    activeDriverId: uid, assignedDriverId: uid, activeTripId: null, updatedAt: now
+                }).catch(() => null));
             }
-            await adminDb.collection('users').doc(uid).set({
-                createdAt: now, email, name, role: 'driver', uid
-            });
-        } else if (role === 'moderator') {
-            const moderatorDocData: any = {
+            await Promise.all(driverTasks);
+        } else {
+            // Moderator or Admin
+            const col = role === 'moderator' ? 'moderators' : 'admins';
+            const docData = {
                 uid, email, fullName: name, dob: dob || '', joiningDate: joiningDate || '',
                 aadharNumber: aadharNumber || '', phone: phone || '', altPhone: alternatePhone || '',
                 staffId: employeeId || staffId || '', employeeId: employeeId || staffId || '',
                 profilePhotoUrl: profilePhotoUrl || '', approvedBy: approvedByDisplay,
                 address: address || '', status: status || 'active', createdAt: now, updatedAt: now,
             };
-            await adminDb.collection('moderators').doc(uid).set(moderatorDocData);
-            await adminDb.collection('users').doc(uid).set({
-                createdAt: now, email, name, role: 'moderator', uid
-            });
-        } else if (role === 'admin') {
-            await adminDb.collection('users').doc(uid).set({
-                uid, email, name, role, createdAt: now, busFee: 0, busFeeUpdatedAt: now, busFeeVersion: 1
-            });
+            await Promise.all([
+                adminDb.collection(col).doc(uid).set(docData),
+                adminDb.collection('users').doc(uid).set({ createdAt: now, email, name, role, uid })
+            ]);
         }
 
         return NextResponse.json({

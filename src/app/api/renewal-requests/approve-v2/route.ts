@@ -1,355 +1,213 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { verifyToken } from '@/lib/firebase-admin';
-import { adminDb, FieldValue } from '@/lib/firebase-admin';
+import { adminDb, FieldValue, verifyToken } from '@/lib/firebase-admin';
 import { PaymentTransactionService } from '@/lib/payment/payment-transaction.service';
 import { calculateValidUntilDate } from '@/lib/utils/date-utils';
-import { v4 as uuidv4 } from 'uuid';
 import { generateOfflinePaymentId } from '@/lib/types/payment';
 import { computeBlockDatesFromValidUntil } from '@/lib/utils/deadline-computation';
-import { v2 as cloudinary } from 'cloudinary';
+import { deleteAsset, extractPublicId } from '@/lib/cloudinary-server';
 import { getDeadlineConfig } from '@/lib/deadline-config-service';
 
-// Configure Cloudinary
-if (process.env.CLOUDINARY_API_KEY && process.env.CLOUDINARY_API_SECRET && process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME) {
-  cloudinary.config({
-    cloud_name: process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME,
-    api_key: process.env.CLOUDINARY_API_KEY,
-    api_secret: process.env.CLOUDINARY_API_SECRET,
-  });
-}
-
+/**
+ * POST /api/renewal-requests/approve-v2
+ * 
+ * Production-hardened renewal approval with parallel processing and security checks.
+ */
 export async function POST(request: NextRequest) {
   try {
     const token = request.headers.get('Authorization')?.replace('Bearer ', '');
-    if (!token) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
+    if (!token) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-    const decodedToken = await verifyToken(token);
+    const body = await request.json();
+    const { requestId } = body;
+    if (!requestId) return NextResponse.json({ error: 'Request ID required' }, { status: 400 });
+
+    // 1. Parallel Initial Data Fetching (Metadata & Auth)
+    const [decodedToken, deadlineConfig] = await Promise.all([
+      verifyToken(token),
+      getDeadlineConfig()
+    ]);
+
     const approverUserId = decodedToken.uid;
+    const [approverSnap, requestSnap] = await adminDb.getAll(
+      adminDb.collection('users').doc(approverUserId),
+      adminDb.collection('renewal_requests').doc(requestId)
+    );
 
-    // Verify approver is admin or moderator
-    const approverDoc = await adminDb.collection('users').doc(approverUserId).get();
-    const approverData = approverDoc.data();
-
+    const approverData = approverSnap.data();
     if (!approverData || !['admin', 'moderator'].includes(approverData.role)) {
       return NextResponse.json({ error: 'Insufficient permissions' }, { status: 403 });
     }
 
-    const body = await request.json();
-    const { requestId } = body;
+    if (!requestSnap.exists) return NextResponse.json({ error: 'Renewal request not found' }, { status: 404 });
+    const requestData = requestSnap.data()!;
+    if (requestData.status !== 'pending') return NextResponse.json({ error: 'Request already processed' }, { status: 400 });
 
-    if (!requestId) {
-      return NextResponse.json({ error: 'Request ID is required' }, { status: 400 });
-    }
-
-    // Get renewal request
-    const requestDoc = await adminDb.collection('renewal_requests').doc(requestId).get();
-    if (!requestDoc.exists) {
-      return NextResponse.json({ error: 'Renewal request not found' }, { status: 404 });
-    }
-
-    const requestData = requestDoc.data()!;
-
-    if (requestData.status !== 'pending') {
-      return NextResponse.json({
-        error: 'Request has already been processed'
-      }, { status: 400 });
-    }
-
-    const {
-      studentId,
-      enrollmentId,
-      studentName,
-      durationYears,
-      totalFee,
-      transactionId,
-      receiptImageUrl
+    const { 
+      studentId, enrollmentId, studentName, durationYears, totalFee, 
+      transactionId, receiptImageUrl, studentEmail, studentPhone 
     } = requestData;
 
-    // Generate or fetch payment ID for this offline transaction
-    const approvalTimestamp = Date.now();
-    // Use the paymentId created at submission to update the same record in Supabase
-    // Fall back to a new generated one for legacy requests
-    const paymentId = requestData.paymentId || generateOfflinePaymentId('renewal');
-
-    // Check idempotency (unlikely with this paymentId but good for safety if transactionId was used)
-    const isProcessed = await PaymentTransactionService.isPaymentProcessed(paymentId);
-    if (isProcessed) {
-      return NextResponse.json({
-        error: 'This payment has already been processed'
-      }, { status: 400 });
+    // 2. Identify/Generate Payment ID (Supabase Lookup)
+    let paymentId = requestData.paymentId;
+    if (!paymentId) {
+      try {
+        const { paymentsSupabaseService } = await import('@/lib/services/payments-supabase');
+        const pendingPayments = await paymentsSupabaseService.getPendingPayments();
+        const matching = pendingPayments.find(p => p.student_id === enrollmentId && p.amount === totalFee);
+        paymentId = matching ? matching.payment_id : generateOfflinePaymentId('renewal');
+      } catch (err) {
+        console.warn('Supabase lookup failed:', err);
+        paymentId = generateOfflinePaymentId('renewal');
+      }
     }
 
-    console.log('🔄 Processing offline renewal approval (V2)');
-    console.log('📊 Renewal details:', {
-      studentId,
-      enrollmentId,
-      durationYears,
-      totalFee,
-      paymentId
+    // Check for double processing
+    if (await PaymentTransactionService.isPaymentProcessed(paymentId)) {
+      return NextResponse.json({ error: 'Payment already processed' }, { status: 400 });
+    }
+
+    // 3. Main Atomic Transaction (Validity & Status)
+    const studentRef = adminDb.collection('students').doc(studentId);
+    let newValidUntil: Date = new Date();
+    let savedStudentData: any;
+
+    await adminDb.runTransaction(async (transaction: any) => {
+      const studentDoc = await transaction.get(studentRef);
+      if (!studentDoc.exists) throw new Error('Student document not found');
+      savedStudentData = studentDoc.data();
+
+      const existingValidUntil = savedStudentData.validUntil;
+      const now = new Date();
+      let baseYear = now.getFullYear();
+
+      if (existingValidUntil) {
+        const existingDate = existingValidUntil.toDate ? existingValidUntil.toDate() : new Date(existingValidUntil);
+        if (existingDate > now) {
+          baseYear = savedStudentData.sessionEndYear || baseYear;
+        }
+      }
+
+      newValidUntil = calculateValidUntilDate(baseYear, durationYears, deadlineConfig);
+      const newSessionEndYear = baseYear + durationYears;
+      const totalDuration = (savedStudentData.durationYears || 0) + durationYears;
+      const blockDates = computeBlockDatesFromValidUntil(newValidUntil, deadlineConfig);
+
+      // Update student document
+      transaction.update(studentRef, {
+        validUntil: newValidUntil,
+        status: 'active',
+        sessionEndYear: newSessionEndYear,
+        durationYears: totalDuration,
+        paymentAmount: totalFee,
+        softBlock: blockDates.softBlock,
+        hardBlock: blockDates.hardBlock,
+        lastRenewalDate: FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp()
+      });
+
+      // Update request status
+      transaction.update(requestSnap.ref, {
+        status: 'approved',
+        approvedBy: approverUserId,
+        approverName: approverData.fullName,
+        approvedAt: FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp()
+      });
     });
 
-    // Fetch dynamic deadline config
-    const deadlineConfig = await getDeadlineConfig();
+    // 4. Parallel Post-Approval Tasks (Audit & Notifications)
+    const approvalTimestamp = Date.now();
+    const transactionRecord = {
+      studentId: enrollmentId,
+      studentName,
+      studentEmail: studentEmail || savedStudentData?.email || 'N/A',
+      studentPhone: studentPhone || savedStudentData?.phone || 'N/A',
+      amount: totalFee,
+      paymentMethod: 'offline' as const,
+      paymentId,
+      offlineTransactionId: transactionId || '',
+      durationYears,
+      validUntil: newValidUntil.toISOString(),
+      newValidUntil: newValidUntil.toISOString(),
+      sessionStartYear: savedStudentData?.sessionStartYear,
+      sessionEndYear: newValidUntil.getFullYear(),
+      userId: studentId,
+      status: 'completed' as const,
+      approvedBy: {
+        type: 'Manual',
+        userId: approverUserId,
+        empId: approverData.empId || approverData.employeeId || 'N/A',
+        name: approverData.fullName || 'Admin',
+        role: approverData.role as 'admin' | 'moderator',
+        email: approverData.email || 'N/A'
+      },
+      approvedByDisplay: `${approverData.fullName} (${approverData.role})`,
+      renewalRequestId: requestId,
+      timestamp: new Date().toISOString(),
+      timestampMs: approvalTimestamp,
+      approvedAtISO: new Date(approvalTimestamp).toISOString(),
+      metadata: { source: 'admin_approval', processedAt: new Date().toISOString() }
+    };
 
-    // Start atomic transaction
-    const studentRef = adminDb.collection('students').doc(studentId);
-    const requestRef = adminDb.collection('renewal_requests').doc(requestId);
-
-    let newValidUntil: Date = new Date(); // Will be properly set in transaction
-    let finalDurationYears: number = durationYears; // Will be updated to cumulative in transaction
-    let previousValidUntilISO: string | null = null;
-    let existingSessionEndYear: number = new Date().getFullYear();
-    let existingDurationYears: number = 0;
-    let savedStudentData: any = null;
-
-    try {
-      await adminDb.runTransaction(async (transaction: any) => {
-        const studentDoc = await transaction.get(studentRef);
-
-        if (!studentDoc.exists) {
-          throw new Error('Student document not found');
-        }
-
-        const studentData = studentDoc.data();
-        savedStudentData = studentData;
-
-        // Get existing values
-        const existingSessionStartYear = studentData?.sessionStartYear || new Date().getFullYear();
-        existingDurationYears = studentData?.durationYears || 0;
-        const existingValidUntil = studentData?.validUntil;
-        existingSessionEndYear = studentData?.sessionEndYear || new Date().getFullYear();
-        previousValidUntilISO = existingValidUntil ? (existingValidUntil.toDate ? existingValidUntil.toDate().toISOString() : new Date(existingValidUntil).toISOString()) : null;
-
-        // Calculate new validity from existing or current date
-        let baseYear = new Date().getFullYear();
-        const now = new Date();
-
-        if (existingValidUntil) {
-          // If there's existing validity, check if it's still valid
-          const existingDate = existingValidUntil.toDate ? existingValidUntil.toDate() : new Date(existingValidUntil);
-          if (existingDate > now) {
-            // Still valid, extend from existing session end year
-            baseYear = existingSessionEndYear;
-          }
-        }
-
-        // Calculate new validity date using dynamic config
-        newValidUntil = calculateValidUntilDate(baseYear, durationYears, deadlineConfig);
-        const newSessionEndYear = baseYear + durationYears;
-
-        // Calculate cumulative duration (existing + new)
-        const totalDurationYears = existingDurationYears + durationYears;
-        finalDurationYears = totalDurationYears; // Store for use outside transaction
-
-        console.log('📝 Updating student document with:', {
-          validUntil: newValidUntil.toISOString(),
-          sessionEndYear: newSessionEndYear,
-          totalDurationYears,
-          paymentAmount: totalFee
-        });
-
-        // Compute block dates from the new validUntil date
-        const blockDates = computeBlockDatesFromValidUntil(newValidUntil, deadlineConfig);
-
-        // Update student document atomically with ALL required fields
-        transaction.update(studentRef, {
-          validUntil: newValidUntil,
-          status: 'active', // Always set to active (even if was expired)
-          sessionStartYear: existingSessionStartYear, // Keep original start year
-          sessionEndYear: newSessionEndYear, // Based on new validity
-          durationYears: totalDurationYears, // Cumulative duration
-          paymentAmount: totalFee,
-          // CRITICAL: Update block dates to align with new validUntil
-          softBlock: blockDates.softBlock,
-          hardBlock: blockDates.hardBlock,
-          lastRenewalDate: FieldValue.serverTimestamp(),
-          updatedAt: FieldValue.serverTimestamp()
-        });
-
-        // Update renewal request status
-        transaction.update(requestRef, {
-          status: 'approved',
-          approvedBy: approverUserId,
-          approverName: approverData.fullName,
-          approverRole: approverData.role,
-          approvedAt: FieldValue.serverTimestamp(),
-          updatedAt: FieldValue.serverTimestamp()
-        });
-      });
-
-      // Save transaction record to JSON file (outside Firestore transaction)
-      const transactionRecord = {
-        studentId: enrollmentId, // Using enrollmentId as studentId for consistency
-        studentName,
-        studentEmail: requestData.studentEmail || 'N/A',
-        studentPhone: requestData.studentPhone || 'N/A',
-        amount: totalFee,
-        paymentMethod: 'offline' as const,
-        paymentId,
-        offlineTransactionId: transactionId || '',
-        durationYears,
-
-        // Validity Information
-        validUntil: newValidUntil.toISOString(), // Required field
-        previousValidUntil: previousValidUntilISO,
-        newValidUntil: newValidUntil.toISOString(),
-        previousSessionEndYear: existingSessionEndYear,
-        newSessionEndYear: newValidUntil.getFullYear(),
-        previousDurationYears: existingDurationYears,
-        newDurationYears: finalDurationYears,
-
-        userId: studentId, // Store Firestore doc ID for View Details link
-
-        // Approval Information (Identified for Supabase JSONB)
-        approvedBy: {
-          type: 'Manual', // New format: Manual vs SYSTEM
-          userId: approverUserId,
-          empId: approverData.empId || approverData.employeeId || 'N/A',
-          name: approverData.fullName || 'Admin',
-          role: approverData.role as 'admin' | 'moderator',
-          email: approverData.email || 'N/A'
-        },
-        approvedByDisplay: `${approverData.fullName} (${approverData.role})`,
-
-        // request tracking
-        renewalRequestId: requestId,
-
-        timestamp: new Date().toISOString(),
-        timestampMs: approvalTimestamp,
-        approvedAtISO: new Date(approvalTimestamp).toISOString(),
-
-        status: 'completed' as const,
-        metadata: {
-          source: 'admin_approval' as const,
-          calculationMethod: 'recalculated_at_approval_v2',
-          wasServiceActive: previousValidUntilISO ? new Date(previousValidUntilISO) > new Date() : false,
-          processedAt: new Date().toISOString()
-        }
-      };
-
-      await PaymentTransactionService.saveTransaction(transactionRecord);
-
-      // Create notification for student (with 1-day expiry)
-      const notifExpiryDate = new Date();
-      notifExpiryDate.setDate(notifExpiryDate.getDate() + 1);
-      notifExpiryDate.setHours(23, 59, 59, 999);
-
-      await adminDb.collection('notifications').add({
+    // Parallelize secondary ops
+    const postTasks = [
+      // 1. Transaction Log (Supabase)
+      PaymentTransactionService.saveTransaction(transactionRecord),
+      
+      // 2. Student Notification (Firestore)
+      adminDb.collection('notifications').add({
         title: '✅ Renewal Request Approved',
-        content: `Your offline renewal request for ${durationYears} year(s) has been approved. Your service is now active until ${newValidUntil.toLocaleDateString()}.`,
-        sender: {
-          userId: approverUserId,
-          userName: approverData.fullName,
-          userRole: approverData.role
-        },
-        target: {
-          type: 'specific_users',
-          specificUserIds: [studentId]
-        },
+        content: `Your renewal for ${durationYears} year(s) has been approved. Active until ${newValidUntil.toLocaleDateString()}.`,
+        sender: { userId: approverUserId, userName: approverData.fullName, userRole: approverData.role },
         recipientIds: [studentId],
         createdAt: FieldValue.serverTimestamp(),
-        expiresAt: notifExpiryDate.toISOString(),
-        isRead: false,
-        isDeletedGlobally: false
-      });
+        expiresAt: new Date(Date.now() + 86400000).toISOString(), // 1 day
+        isRead: false
+      }),
 
-      // Send Approval Email via Service
-      const finalStudentEmail = requestData.studentEmail || savedStudentData?.email;
-      if (finalStudentEmail) {
-        try {
-          const { sendApplicationApprovedNotification } = await import('@/lib/services/admin-email.service');
-
-          console.log(`📧 Notification: Queuing renewal approval email for ${studentName} (${finalStudentEmail})`);
-
-          await sendApplicationApprovedNotification({
-            studentName: studentName || 'Student',
-            studentEmail: finalStudentEmail,
-            // Format existing bus info or fallback
-            busNumber: savedStudentData?.busId ? savedStudentData.busId.replace('bus_', 'Bus-') : 'Assigned Bus',
-            routeName: 'Service Renewal', // Context specific
-            shift: savedStudentData?.shift || 'Assigned Shift',
-            validUntil: newValidUntil.toLocaleDateString('en-IN', {
-              day: '2-digit',
-              month: 'short',
-              year: 'numeric'
-            })
-          });
-
-          console.log(`📧 Approval email sent to ${finalStudentEmail}`);
-        } catch (emailError) {
-          console.error('❌ Failed to send approval email:', emailError);
-          // Non-critical error
-        }
-      }
-
-      // Log activity
-      await adminDb.collection('activity_logs').add({
-        action: 'renewal_request_approved',
-        performedBy: approverUserId,
-        performedByName: approverData.fullName,
-        role: approverData.role,
-        targetId: studentId,
-        targetName: studentName,
-        details: {
-          requestId,
-          durationYears,
-          totalFee,
-          newValidUntil: newValidUntil.toISOString()
-        },
+      // 3. Activity Log (Firestore)
+      adminDb.collection('activity_logs').add({
+        action: 'renewal_request_approved', performedBy: approverUserId,
+        targetId: studentId, targetName: studentName,
+        details: { requestId, durationYears, totalFee, newValidUntil: newValidUntil.toISOString() },
         timestamp: FieldValue.serverTimestamp()
-      });
+      }),
 
-      // Delete receipt image from Cloudinary after successful approval (cleanup)
-      if (receiptImageUrl && cloudinary.config().api_key) {
-        try {
-          console.log('\n🗑️ CLEANING UP PAYMENT PROOF FROM CLOUDINARY (post-approval)');
-          const url = new URL(receiptImageUrl);
-          const pathParts = url.pathname.split('/');
-
-          // Find the part after 'upload' to get the full path
-          const uploadIndex = pathParts.findIndex(part => part === 'upload');
-          if (uploadIndex !== -1) {
-            const afterUpload = pathParts.slice(uploadIndex + 1);
-            const fileName = afterUpload[afterUpload.length - 1];
-
-            if (fileName) {
-              const publicIdParts = afterUpload.filter(part => !part.startsWith('v') || isNaN(Number(part.substring(1))));
-              const lastPart = publicIdParts[publicIdParts.length - 1];
-              const nameWithoutExtension = lastPart.split('.').slice(0, -1).join('.');
-              publicIdParts[publicIdParts.length - 1] = nameWithoutExtension;
-              const publicId = publicIdParts.join('/');
-
-              await cloudinary.uploader.destroy(publicId);
-              console.log(`✅ Deleted payment proof from Cloudinary: ${publicId}`);
-            }
-          }
-        } catch (cloudinaryError) {
-          console.error('⚠️ Error deleting payment proof from Cloudinary (non-fatal):', cloudinaryError);
-          // Don't fail approval if cleanup fails
+      // 4. Cloudinary Cleanup
+      (async () => {
+        if (receiptImageUrl) {
+          const publicId = extractPublicId(receiptImageUrl);
+          if (publicId) await deleteAsset(publicId);
         }
-      }
+      })(),
 
-      return NextResponse.json({
-        success: true,
-        message: 'Renewal request approved successfully',
-        validUntil: newValidUntil.toISOString()
-      });
+      // 5. Email (Background)
+      (async () => {
+        const email = studentEmail || savedStudentData?.email;
+        if (email) {
+          try {
+            const { sendApplicationApprovedNotification } = await import('@/lib/services/admin-email.service');
+            await sendApplicationApprovedNotification({
+              studentName, studentEmail: email,
+              busNumber: savedStudentData?.busId?.replace('bus_', 'Bus-') || 'Assigned Bus',
+              routeName: 'Service Renewal', shift: savedStudentData?.shift || 'Assigned Shift',
+              validUntil: newValidUntil.toLocaleDateString('en-IN')
+            });
+          } catch (err) { console.error('Email notify failed:', err); }
+        }
+      })()
+    ];
 
-    } catch (error) {
-      console.error('Transaction failed:', error);
+    await Promise.allSettled(postTasks);
 
-      // Mark transaction as pending for manual reconciliation
-      await PaymentTransactionService.markTransactionPending(paymentId);
+    return NextResponse.json({
+      success: true,
+      message: 'Renewal approved successfully',
+      validUntil: newValidUntil.toISOString()
+    });
 
-      return NextResponse.json({
-        error: 'Failed to process renewal approval'
-      }, { status: 500 });
-    }
-
-  } catch (error) {
-    console.error('Renewal approval error:', error);
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+  } catch (error: any) {
+    console.error('Renewal approval failed:', error);
+    return NextResponse.json({ error: error.message || 'Failed to process renewal approval' }, { status: 500 });
   }
 }

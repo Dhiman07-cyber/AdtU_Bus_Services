@@ -153,9 +153,20 @@ function calculateYearsOfService(joiningDate: Date | null): string {
 }
 
 /**
- * Resolve Bus document by ID
+ * Resolve Bus document by ID with in-memory caching
  */
+const busCache = new Map<string, { data: any, timestamp: number }>();
+const CACHE_TTL = 60 * 1000; // 1 minute
+
 async function resolveBus(busId: string): Promise<any | null> {
+  if (!busId) return null;
+  
+  const now = Date.now();
+  const cached = busCache.get(busId);
+  if (cached && (now - cached.timestamp < CACHE_TTL)) {
+    return cached.data;
+  }
+
   try {
     // Clean up busId - handle different formats
     let cleanBusId = busId;
@@ -174,18 +185,24 @@ async function resolveBus(busId: string): Promise<any | null> {
     // Try to fetch the bus document
     const busDoc = await getDoc(doc(db, 'buses', cleanBusId));
     if (busDoc.exists()) {
-      return { id: busDoc.id, ...busDoc.data() };
+      const result = { id: busDoc.id, ...busDoc.data() };
+      busCache.set(busId, { data: result, timestamp: now });
+      return result;
     }
     
     // If not found, try with the original busId
     if (cleanBusId !== busId) {
       const originalDoc = await getDoc(doc(db, 'buses', busId));
       if (originalDoc.exists()) {
-        return { id: originalDoc.id, ...originalDoc.data() };
+        const result = { id: originalDoc.id, ...originalDoc.data() };
+        busCache.set(busId, { data: result, timestamp: now });
+        return result;
       }
     }
     
-    return null;
+    const result = null;
+    busCache.set(busId, { data: result, timestamp: now });
+    return result;
   } catch (error) {
     console.error('Error resolving bus:', error);
     return null;
@@ -193,9 +210,19 @@ async function resolveBus(busId: string): Promise<any | null> {
 }
 
 /**
- * Resolve Route document by ID
+ * Resolve Route document by ID with in-memory caching
  */
+const routeCache = new Map<string, { data: any, timestamp: number }>();
+
 async function resolveRoute(routeId: string): Promise<any | null> {
+  if (!routeId) return null;
+
+  const now = Date.now();
+  const cached = routeCache.get(routeId);
+  if (cached && (now - cached.timestamp < CACHE_TTL)) {
+    return cached.data;
+  }
+
   try {
     // Clean up routeId - handle different formats
     let cleanRouteId = routeId;
@@ -209,18 +236,24 @@ async function resolveRoute(routeId: string): Promise<any | null> {
     // Try to fetch the route document
     const routeDoc = await getDoc(doc(db, 'routes', cleanRouteId));
     if (routeDoc.exists()) {
-      return { id: routeDoc.id, ...routeDoc.data() };
+      const result = { id: routeDoc.id, ...routeDoc.data() };
+      routeCache.set(routeId, { data: result, timestamp: now });
+      return result;
     }
     
     // If not found, try with the original routeId
     if (cleanRouteId !== routeId) {
       const originalDoc = await getDoc(doc(db, 'routes', routeId));
       if (originalDoc.exists()) {
-        return { id: originalDoc.id, ...originalDoc.data() };
+        const result = { id: originalDoc.id, ...originalDoc.data() };
+        routeCache.set(routeId, { data: result, timestamp: now });
+        return result;
       }
     }
     
-    return null;
+    const result = null;
+    routeCache.set(routeId, { data: result, timestamp: now });
+    return result;
   } catch (error) {
     console.error('Error resolving route:', error);
     return null;

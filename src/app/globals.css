@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@import "maplibre-gl/dist/maplibre-gl.css";
 
 html {
   color-scheme: dark;
@@ -10,25 +11,38 @@ html {
 }
 
 :root {
-  --background: 0 0% 98%;
-  --foreground: 222.2 84% 4.9%;
+  /* Creamy-silvery background for reduced eye strain - #E8EBED */
+  --background: 210 15% 91%;
+  --foreground: 220 20% 15%;
+  /* #1C1E21 */
   --card: 0 0% 100%;
-  --card-foreground: 222.2 84% 4.9%;
+  /* #FFFFFF */
+  --card-foreground: 220 20% 15%;
+  /* #1C1E21 */
   --popover: 0 0% 100%;
-  --popover-foreground: 222.2 84% 4.9%;
-  --primary: 221.2 83.2% 53.3%;
-  --primary-foreground: 210 40% 98%;
-  --secondary: 210 40% 94%;
-  --secondary-foreground: 222.2 47.4% 11.2%;
-  --muted: 210 40% 94%;
-  --muted-foreground: 215.4 16.3% 40%;
-  --accent: 210 40% 94%;
-  --accent-foreground: 222.2 47.4% 11.2%;
-  --destructive: 0 84.2% 60.2%;
-  --destructive-foreground: 210 40% 98%;
-  --border: 214.3 31.8% 86%;
-  --input: 214.3 31.8% 90%;
-  --ring: 221.2 83.2% 53.3%;
+  --popover-foreground: 220 20% 15%;
+  /* Primary button red - #E05252 */
+  --primary: 355 70% 60%;
+  --primary-foreground: 0 0% 100%;
+  /* Secondary - light gray chips - #E4E6EB */
+  --secondary: 215 20% 91%;
+  --secondary-foreground: 220 20% 15%;
+  /* Muted background - #F0F2F5 */
+  --muted: 215 20% 94%;
+  /* Secondary text - #65676B */
+  --muted-foreground: 215 10% 40%;
+  /* Accent pink - #FF5C8A */
+  --accent: 340 100% 67%;
+  --accent-foreground: 220 20% 15%;
+  /* Destructive - same as primary red */
+  --destructive: 355 70% 60%;
+  --destructive-foreground: 0 0% 100%;
+  /* Border - #DADDE1 */
+  --border: 215 15% 85%;
+  /* Input background - #F0F2F5 */
+  --input: 215 20% 94%;
+  /* Ring - accent pink */
+  --ring: 340 100% 67%;
   --radius: 0.5rem;
 }
 
@@ -60,6 +74,40 @@ html {
   --border: 217 30% 15%;
   --input: 217 30% 15%;
   --ring: 224.3 76.3% 48%;
+}
+
+/* Admin Light Theme */
+.light {
+  /* Creamy-silvery background - #E8EBED */
+  --admin-background: 210 15% 91%;
+  /* #FFFFFF */
+  --admin-sidebar: 0 0% 100%;
+  /* #FFFFFF */
+  --admin-card: 0 0% 100%;
+  /* #FFFFFF */
+  --admin-panel: 0 0% 100%;
+  /* Border - #DADDE1 */
+  --admin-border: 215 15% 85%;
+  /* Primary red - #E05252 */
+  --admin-primary: 355 70% 60%;
+  --admin-primary-foreground: 0 0% 100%;
+  /* Secondary yellow */
+  --admin-secondary: 43 96% 56%;
+  /* Hover state - #E4E6EB */
+  --admin-hover: 215 20% 91%;
+  /* Active state - #F0F2F5 */
+  --admin-active: 215 20% 94%;
+  /* Search background - #F0F2F5 */
+  --admin-search: 215 20% 94%;
+  /* Main text - #1C1E21 */
+  --admin-text: 220 20% 15%;
+  /* Secondary text - #65676B */
+  --admin-text-secondary: 215 10% 40%;
+  /* Placeholder - #8A8D91 */
+  --admin-text-placeholder: 215 10% 55%;
+  /* Badge - #F59E0B */
+  --admin-badge: 35 92% 53%;
+  --admin-shadow: 0 0% 0% / 0.06;
 }
 
 * {

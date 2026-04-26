@@ -134,6 +134,7 @@ export interface ReassignmentPlan {
   toBusNumber: string;
   stopId: string;
   reason?: string;
+  studentShift?: string; // Optimized: pass shift to avoid extra reads
 }
 
 export default function SmartAllocationPage() {
@@ -197,10 +198,9 @@ export default function SmartAllocationPage() {
 
     setLoading(true);
     try {
-      const [busesSnapshot, driversSnapshot, studentsSnapshot] = await Promise.all([
+      const [busesSnapshot, driversSnapshot] = await Promise.all([
         getDocs(collection(db, "buses")),
         getDocs(collection(db, "drivers")),
-        getDocs(collection(db, "students")),
       ]);
       const busData: BusData[] = [];
       const driverMap = new Map<string, any>();
@@ -209,18 +209,10 @@ export default function SmartAllocationPage() {
       driversSnapshot.forEach((driverDoc) => {
         driverMap.set(driverDoc.id, driverDoc.data());
       });
-      studentsSnapshot.forEach((studentDoc) => {
-        const student = studentDoc.data() as any;
-        const busId = student.assignedBusId || student.busId;
-        if (!busId) return;
-        if (!stopCountsByBus.has(busId)) {
-          stopCountsByBus.set(busId, new Map<string, number>());
-        }
-        const stopCounts = stopCountsByBus.get(busId)!;
-        const stopId = student.stopId || '';
-        if (!stopId) return;
-        stopCounts.set(stopId, (stopCounts.get(stopId) || 0) + 1);
+      driversSnapshot.forEach((driverDoc) => {
+        driverMap.set(driverDoc.id, driverDoc.data());
       });
+      // studentSnapshot logic REMOVED - using pre-calculated counts on bus docs
 
       for (const busDoc of busesSnapshot.docs) {
         const data = busDoc.data();
@@ -317,8 +309,13 @@ export default function SmartAllocationPage() {
           }
         }
 
-        // Count students per stop
-        const stopCounts = stopCountsByBus.get(busDoc.id) || new Map<string, number>();
+        // Count students per stop - Use pre-calculated stopCounts from Firestore
+        const stopCountsMap = new Map<string, number>();
+        if (data.stopCounts) {
+          Object.entries(data.stopCounts).forEach(([stopId, count]) => {
+            stopCountsMap.set(stopId, count as number);
+          });
+        }
 
         // Format route name properly
         let formattedRouteName =
@@ -343,7 +340,7 @@ export default function SmartAllocationPage() {
           capacity: data.capacity || 50,
           shift: data.shift || "morning",
           stops: routeStops,
-          stopCounts,
+          stopCounts: stopCountsMap,
           load: data.load || { morningCount: 0, eveningCount: 0 },
           // Include full route object for ReassignmentPanel
           route: {

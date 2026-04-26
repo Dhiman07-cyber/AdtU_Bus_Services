@@ -12,46 +12,18 @@ interface ThemeContextType {
 const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
-  const [theme, setTheme] = useState<Theme>("dark");
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
+    // Always use dark theme
+    document.documentElement.classList.add("dark");
     setMounted(true);
-    // Check for saved theme in localStorage or system preference
-    const savedTheme = localStorage.getItem("ui-theme") as Theme | null;
-    const systemPrefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
-
-    if (savedTheme) {
-      setTheme(savedTheme);
-    } else {
-      // Default to dark theme for consistency across browsers
-      setTheme("dark");
-    }
   }, []);
 
-  useEffect(() => {
-    // Apply theme to document
-    if (theme === "dark") {
-      document.documentElement.classList.add("dark");
-    } else {
-      document.documentElement.classList.remove("dark");
-    }
-
-    // Save theme preference
-    localStorage.setItem("ui-theme", theme);
-  }, [theme]);
-
-  const toggleTheme = () => {
-    setTheme(prev => prev === "light" ? "dark" : "light");
-  };
-
-  // Prevent hydration mismatch by not rendering until mounted
-  if (!mounted) {
-    return <div style={{ visibility: 'hidden' }}>{children}</div>;
-  }
+  const contextValue = { theme: "dark" as Theme, toggleTheme: () => {} };
 
   return (
-    <ThemeContext.Provider value={{ theme, toggleTheme }}>
+    <ThemeContext.Provider value={contextValue}>
       {children}
     </ThemeContext.Provider>
   );
@@ -60,7 +32,8 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
 export function useTheme() {
   const context = useContext(ThemeContext);
   if (context === undefined) {
-    throw new Error("useTheme must be used within a ThemeProvider");
+    // Fallback to prevent crashes during SSR/hydration
+    return { theme: "dark" as Theme, toggleTheme: () => {} };
   }
   return context;
 }

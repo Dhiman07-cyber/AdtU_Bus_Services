@@ -9,7 +9,7 @@
  * token validation, and stale token cleanup.
  */
 
-import { db as adminDb, FieldValue } from '@/lib/firebase-admin';
+import { db as adminDb, FieldValue, messaging } from '@/lib/firebase-admin';
 import * as crypto from 'crypto';
 
 // Minimum token length for basic validation
@@ -127,14 +127,59 @@ export async function invalidateToken(
 }
 
 /**
- * Delete a token doc by its full path.
+ * Delete a token doc by its full path or clear legacy field.
  */
 export async function deleteTokenByPath(docPath: string): Promise<void> {
   if (!adminDb) return;
   try {
+    // SECURITY: If the path is a student document (legacy token), do NOT delete it.
+    // Instead, clear the fcmToken field.
+    if (docPath.startsWith('students/') && !docPath.includes('/tokens/')) {
+      console.log(`🧹 Clearing legacy FCM token on student doc instead of deleting: ${docPath}`);
+      await adminDb.doc(docPath).update({
+        fcmToken: FieldValue.delete(),
+        fcmPlatform: FieldValue.delete(),
+        updatedAt: FieldValue.serverTimestamp()
+      });
+      return;
+    }
+
+    // Standard subcollection token: safe to delete the specific token doc
     await adminDb.doc(docPath).delete();
   } catch (error: any) {
     console.error(`Error deleting token doc at ${docPath}:`, error.message);
+  }
+}
+
+/**
+ * Subscribe a token to an FCM topic (e.g. route_123)
+ */
+export async function subscribeToTopic(token: string, topic: string): Promise<boolean> {
+  if (!messaging) return false;
+  try {
+    const response = await messaging.subscribeToTopic(token, topic);
+    if (response.failureCount > 0) {
+      console.warn(`⚠️ Failed to subscribe token to topic ${topic}:`, response.errors[0]?.error);
+      return false;
+    }
+    return true;
+  } catch (err) {
+    console.error(`❌ Error subscribing to topic ${topic}:`, err);
+    return false;
+  }
+}
+
+/**
+ * Unsubscribe a token from an FCM topic
+ */
+export async function unsubscribeFromTopic(token: string, topic: string): Promise<boolean> {
+  if (!messaging) return false;
+  try {
+    const response = await messaging.unsubscribeFromTopic(token, topic);
+    return response.failureCount === 0;
+  } catch (err) {
+    console.error(`❌ Error unsubscribing from topic ${topic}:`, err);
+    return false;
   }
 }
 

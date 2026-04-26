@@ -29,10 +29,10 @@ export const POST = withSecurity(
 
         console.log(`👥 Found ${students.length} active students`);
 
-        const busCounts = new Map<string, { morningCount: number; eveningCount: number; total: number }>();
+        const busCounts = new Map<string, { morningCount: number; eveningCount: number; total: number; stopCounts: Record<string, number> }>();
 
         buses.forEach((bus: any) => {
-            busCounts.set(bus.id, { morningCount: 0, eveningCount: 0, total: 0 });
+            busCounts.set(bus.id, { morningCount: 0, eveningCount: 0, total: 0, stopCounts: {} });
         });
 
         students.forEach((student: any) => {
@@ -58,36 +58,46 @@ export const POST = withSecurity(
             counts.total++;
             if (shift === 'morning' || shift === 'both') counts.morningCount++;
             if (shift === 'evening' || shift === 'both') counts.eveningCount++;
+
+            // Count per stop
+            const stopId = student.stopId || '';
+            if (stopId) {
+                counts.stopCounts[stopId] = (counts.stopCounts[stopId] || 0) + 1;
+            }
         });
 
         const updates: any[] = [];
         const batch = adminDb.batch();
 
         for (const bus of buses) {
-            const counts = busCounts.get(bus.id) || { morningCount: 0, eveningCount: 0, total: 0 };
+            const counts = busCounts.get(bus.id) || { morningCount: 0, eveningCount: 0, total: 0, stopCounts: {} };
             const busRef = adminDb.collection('buses').doc(bus.id);
 
             const oldCounts = {
                 currentMembers: bus.currentMembers || 0,
                 morningCount: bus.load?.morningCount || 0,
                 eveningCount: bus.load?.eveningCount || 0,
+                stopCounts: bus.stopCounts || {}
             };
 
             const newCounts = {
                 currentMembers: counts.total,
                 morningCount: counts.morningCount,
                 eveningCount: counts.eveningCount,
+                stopCounts: counts.stopCounts
             };
 
             if (
                 oldCounts.currentMembers !== newCounts.currentMembers ||
                 oldCounts.morningCount !== newCounts.morningCount ||
-                oldCounts.eveningCount !== newCounts.eveningCount
+                oldCounts.eveningCount !== newCounts.eveningCount ||
+                JSON.stringify(oldCounts.stopCounts) !== JSON.stringify(newCounts.stopCounts)
             ) {
                 batch.update(busRef, {
                     currentMembers: newCounts.currentMembers,
                     'load.morningCount': newCounts.morningCount,
                     'load.eveningCount': newCounts.eveningCount,
+                    stopCounts: newCounts.stopCounts,
                     updatedAt: new Date().toISOString(),
                 });
 

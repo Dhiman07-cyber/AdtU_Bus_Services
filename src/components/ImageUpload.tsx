@@ -4,6 +4,7 @@ import { useState, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { uploadImage, uploadImageWithPreset } from "@/lib/upload";
 import { Camera, Upload, X } from "lucide-react";
+import Image from "next/image";
 
 interface ImageUploadProps {
   onUploadComplete: (url: string) => void;
@@ -94,10 +95,13 @@ export function ImageUpload({
       
       {previewUrl ? (
         <div className="relative">
-          <img 
+          <Image 
             src={previewUrl} 
             alt="Preview" 
+            width={400}
+            height={192}
             className="w-full h-48 object-cover rounded-md border"
+            unoptimized={previewUrl.startsWith('blob:')}
           />
           <Button
             type="button"

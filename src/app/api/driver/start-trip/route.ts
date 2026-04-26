@@ -19,10 +19,11 @@
 import { NextResponse } from 'next/server';
 import { db as adminDb } from '@/lib/firebase-admin';
 import { tripLockService } from '@/lib/services/trip-lock-service';
-import { notifyRoute, verifyDriverRouteBinding } from '@/lib/services/fcm-notification-service';
+import { notifyRouteTopic, verifyDriverRouteBinding } from '@/lib/services/fcm-notification-service';
 import { getSupabaseServer } from '@/lib/supabase-server';
 import { withSecurity } from '@/lib/security/api-security';
 import { RateLimits } from '@/lib/security/rate-limiter';
+import { formatIdForDisplay } from '@/lib/utils';
 import { StartTripSchema } from '@/lib/security/validation-schemas';
 import crypto from 'crypto';
 
@@ -76,78 +77,75 @@ export const POST = withSecurity(
             );
         }
 
-        // Initialize Supabase for driver_status update
-        if (supabaseUrl && supabaseKey) {
-            const supabase = getSupabaseServer();
-            const now = new Date();
+        // ── Parallel Execution of Secondary Operations ──────────────────
+        // We run status updates, broadcasts, and notifications in parallel
+        // to minimize response time.
+        
+        const secondaryOperations = (async () => {
+            if (supabaseUrl && supabaseKey) {
+                const supabase = getSupabaseServer();
+                const now = new Date();
 
-            // Update driver_status for realtime tracking
-            await supabase
-                .from('driver_status')
-                .upsert({
-                    driver_uid: driverId,
-                    bus_id: busId,
-                    route_id: routeId,
-                    status: 'on_trip',
-                    started_at: now.toISOString(),
-                    last_updated_at: now.toISOString(),
-                    trip_id: tripId
-                }, {
-                    onConflict: 'driver_uid',
-                    ignoreDuplicates: false
-                });
+                // 1. Update driver_status for realtime tracking
+                const statusUpdate = supabase
+                    .from('driver_status')
+                    .upsert({
+                        driver_uid: driverId,
+                        bus_id: busId,
+                        route_id: routeId,
+                        status: 'on_trip',
+                        started_at: now.toISOString(),
+                        last_updated_at: now.toISOString(),
+                        trip_id: tripId
+                    }, { onConflict: 'driver_uid' });
 
-            // Broadcast trip start (subscribe → send → cleanup)
-            const channel = supabase.channel(`trip-status-${busId}`);
-            try {
-                await new Promise<void>((resolve, reject) => {
-                    const timeout = setTimeout(() => {
-                        supabase.removeChannel(channel);
-                        reject(new Error('Broadcast subscribe timeout'));
-                    }, 3000);
+                // 2. Broadcast trip start (Fire-and-forget broadcast)
+                const broadcast = supabase.channel(`trip-status-${busId}`).send({
+                    type: 'broadcast',
+                    event: 'trip_started',
+                    payload: {
+                        busId, routeId, driverId, tripId,
+                        timestamp: now.toISOString(),
+                    },
+                }).catch(e => console.warn('Broadcast failed:', e.message));
 
-                    channel.subscribe(async (status) => {
-                        if (status === 'SUBSCRIBED') {
-                            clearTimeout(timeout);
-                            try {
-                                await channel.send({
-                                    type: 'broadcast',
-                                    event: 'trip_started',
-                                    payload: {
-                                        busId, routeId, driverId, tripId,
-                                        timestamp: now.toISOString(),
-                                    },
-                                });
-                            } finally {
-                                await supabase.removeChannel(channel);
+                // 3. Fetch Route Name & Send Notifications
+                const notificationTask = (async () => {
+                    let routeName = 'your route';
+                    try {
+                        const routeDoc = await adminDb.collection('routes').doc(routeId).get();
+                        if (routeDoc.exists) {
+                            const routeData = routeDoc.data();
+                            routeName = routeData?.name || routeData?.routeName || routeId;
+                            if (routeName.includes('_') || routeName.startsWith('route')) {
+                                routeName = formatIdForDisplay(routeName);
                             }
-                            resolve();
                         }
-                    });
-                });
-            } catch (err: any) {
-                console.warn('⚠️ Broadcast send failed (non-critical):', err.message);
-            }
-        }
+                    } catch (e) {
+                        console.warn('Route name fetch failed:', e);
+                    }
 
-        // ── Send FCM Push Notifications ──────────────────────────────────
-        let routeName = 'your route';
-        try {
-            const routeDoc = await adminDb.collection('routes').doc(routeId).get();
-            if (routeDoc.exists) {
-                const routeData = routeDoc.data();
-                routeName = routeData?.name || routeData?.routeName || 'your route';
-            }
-        } catch (e) {
-            console.warn('Could not fetch route name:', e);
-        }
+                    try {
+                        // High-performance Topic Notification (doesn't require fetching 100s of tokens)
+                        await notifyRouteTopic({ 
+                            routeId, 
+                            tripId, 
+                            routeName, 
+                            busId, 
+                            eventType: 'TRIP_STARTED' 
+                        });
+                    } catch (err) {
+                        console.error('❌ FCM notification error:', err);
+                    }
+                })();
 
-        // Await notification send to ensure it executes before Next.js kills the request context
-        try {
-            await notifyRoute({ routeId, tripId, routeName, busId, eventType: 'TRIP_STARTED' });
-        } catch (err) {
-            console.error('❌ FCM notification error:', err);
-        }
+                await Promise.allSettled([statusUpdate, broadcast, notificationTask]);
+            }
+        })();
+
+        // On Vercel, we could use waitUntil(secondaryOperations)
+        // For now, we await to ensure completion in various environments
+        await secondaryOperations;
 
         return NextResponse.json({
             success: true,

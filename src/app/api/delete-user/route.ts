@@ -80,10 +80,10 @@ export async function DELETE(request: Request) {
         }
 
         const adminUserData = adminUserDoc.data();
-        if (adminUserData.role !== 'admin' && adminUserData.role !== 'moderator') {
+        if (adminUserData.role !== 'admin') {
           return new Response(JSON.stringify({
             success: false,
-            error: 'Unauthorized: Only admins and moderators can delete users'
+            error: 'Unauthorized: Only admins can delete users'
           }), {
             status: 403,
             headers: { 'Content-Type': 'application/json' },
@@ -106,11 +106,11 @@ export async function DELETE(request: Request) {
 
         const userData = userDoc.data();
 
-        // ✅ PERMISSION CHECK: Moderators cannot delete moderators
-        if (adminUserData.role === 'moderator' && userData.role === 'moderator') {
+        // ✅ PERMISSION CHECK: Only admins can delete, and cannot delete other admins
+        if (userData.role === 'admin') {
           return new Response(JSON.stringify({
             success: false,
-            error: 'Unauthorized: Moderators cannot delete other moderators'
+            error: 'Unauthorized: Cannot delete admin users'
           }), {
             status: 403,
             headers: { 'Content-Type': 'application/json' },

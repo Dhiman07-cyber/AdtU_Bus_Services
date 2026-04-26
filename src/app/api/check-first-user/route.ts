@@ -1,6 +1,8 @@
 import { db } from '@/lib/firebase';
 import { collection, getDocs, query, limit } from 'firebase/firestore';
 
+export const dynamic = 'force-dynamic';
+
 let adminApp: any;
 let auth: any;
 let dbAdmin: any;

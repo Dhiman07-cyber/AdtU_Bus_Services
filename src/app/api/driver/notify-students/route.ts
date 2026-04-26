@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
-import { db as adminDb } from '@/lib/firebase-admin';
-import { notifyRoute, verifyDriverRouteBinding } from '@/lib/services/fcm-notification-service';
+import { adminDb } from '@/lib/firebase-admin';
+import { notifyRouteTopic, verifyDriverRouteBinding } from '@/lib/services/fcm-notification-service';
 import { withSecurity } from '@/lib/security/api-security';
 import { NotifyStudentsSchema } from '@/lib/security/validation-schemas';
 import { RateLimits } from '@/lib/security/rate-limiter';
@@ -9,52 +9,45 @@ import { RateLimits } from '@/lib/security/rate-limiter';
  * POST /api/driver/notify-students
  * 
  * Sends FCM push notifications to all students assigned to a bus/route
- * when the driver starts a trip.
+ * using high-performance FCM Topics.
  */
 export const POST = withSecurity(
   async (request, { auth, body }) => {
     const { busId, routeId, tripId } = body as any;
     const driverUid = auth.uid;
 
-    // Verify driver→bus→route binding
-    const authCheck = await verifyDriverRouteBinding(driverUid, routeId, busId);
+    // 1. Parallelize Binding Check and Route Name Fetching
+    const [authCheck, routeSnap] = await Promise.all([
+      verifyDriverRouteBinding(driverUid, routeId, busId),
+      adminDb.collection('routes').doc(routeId).get()
+    ]);
+
     if (!authCheck.authorized) {
-      return NextResponse.json(
-        { error: authCheck.reason || 'Driver not authorized' },
-        { status: 403 }
-      );
+      return NextResponse.json({ error: authCheck.reason || 'Driver not authorized' }, { status: 403 });
     }
 
-    // Get route name for notification message
-    let routeName = 'your route';
-    try {
-      const routeDoc = await adminDb.collection('routes').doc(routeId).get();
-      if (routeDoc.exists) {
-        const routeData = routeDoc.data();
-        routeName = routeData?.name || routeData?.routeName || 'your route';
-      }
-    } catch (e) {
-      console.warn('Could not fetch route name:', e);
-    }
+    const routeData = routeSnap.data();
+    const routeName = routeData?.name || routeData?.routeName || 'your route';
 
-    // Send notifications via centralized service
-    const result = await notifyRoute({
+    // 2. Optimized Topic-Based Notification
+    // This is much faster than the legacy per-student multicast for large routes
+    const result = await notifyRouteTopic({
       routeId,
       tripId,
       routeName,
       busId,
+      eventType: 'TRIP_STARTED'
     });
+
+    if (!result.success) {
+      return NextResponse.json({ error: 'Failed to send topic notification', details: result.error }, { status: 500 });
+    }
 
     return NextResponse.json({
       success: true,
-      message: result.error === 'already_sent'
-        ? 'Notification already sent for this trip'
-        : 'Students notified successfully',
-      notifiedCount: result.successCount,
-      failedCount: result.failureCount,
-      totalTokens: result.totalTokens,
-      batchCount: result.batchCount,
-      invalidTokensRemoved: result.invalidTokensRemoved,
+      message: 'Students notified via topic successfully',
+      topic: `route_${routeId}`,
+      messageId: result.messageId
     });
   },
   {

@@ -61,6 +61,8 @@ import { deleteRoute } from "@/lib/dataService";
 // SPARK PLAN SAFETY: Migrated to usePaginatedCollection
 import { usePaginatedCollection, invalidateCollectionCache } from '@/hooks/usePaginatedCollection';
 import { useEventDrivenRefresh } from '@/hooks/useEventDrivenRefresh';
+import { useTheme } from '@/components/theme-provider';
+import { cn } from '@/lib/utils';
 
 // Use local interfaces to avoid type conflicts
 interface RouteItem {
@@ -79,6 +81,7 @@ interface RouteItem {
 export default function RoutesPage() {
   const router = useRouter();
   const { addToast } = useToast();
+  const { theme } = useTheme();
 
   // Real-time data listeners
   // Fetch routes from the canonical 'routes' collection
@@ -248,7 +251,10 @@ export default function RoutesPage() {
         </div>
         <div className="flex gap-2">
           <Button
-            className="w-full md:w-auto cursor-pointer bg-blue-600 hover:bg-blue-700 text-white border border-blue-700 transition-all duration-200 hover:scale-105 hover:shadow-lg rounded-md px-2.5 py-1.5 text-xs h-8"
+            className={cn(
+              "w-full md:w-auto cursor-pointer border transition-all duration-200 hover:scale-105 hover:shadow-lg rounded-md px-2.5 py-1.5 text-xs h-8",
+              theme === 'dark' ? "bg-blue-600 hover:bg-blue-700 text-white border-blue-700" : "bg-[#1E3A8A] hover:bg-[#1E40AF] text-white border-[#1E3A8A]"
+            )}
             onClick={() => router.push('/admin/routes/add')}
           >
             <Plus className="mr-1.5 h-3.5 w-3.5" />
@@ -257,19 +263,22 @@ export default function RoutesPage() {
           <ExportButton
             onClick={() => handleExportRoutes()}
             label="Export Routes"
-            className="bg-white hover:bg-gray-100 !text-black border border-gray-300 transition-all duration-200 hover:scale-105 hover:shadow-lg rounded-md px-2.5 py-1.5 text-xs h-8"
+            className={cn(
+              "border transition-all duration-200 hover:scale-105 hover:shadow-lg rounded-md px-2.5 py-1.5 text-xs h-8",
+              theme === 'dark' ? "bg-white hover:bg-gray-100 text-black border-gray-300" : "bg-white hover:bg-gray-50 text-[#111827] border-[#E5E7EB]"
+            )}
           />
         </div>
       </div>
 
-      <Card className="bg-gray-50 dark:bg-gray-900 border-border">
+      <Card className={cn("border-border", theme === 'dark' ? "bg-gray-900" : "bg-admin-bg")}>
         <CardContent className="pt-3">
           <div className="mb-3">
             {/* Search Bar and Filters */}
             <div className="flex flex-col md:flex-row gap-3">
               {/* Search Bar - Top (Full Width on Mobile) */}
               <div className="relative w-full md:flex-1">
-                <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-gray-400" />
+                <Search className={cn("absolute left-2.5 top-2.5 h-3.5 w-3.5", theme === 'dark' ? "text-gray-400" : "text-[#9CA3AF]")} />
                 <Input
                   placeholder="Search routes..."
                   className="pl-9 h-9 text-xs w-full"
@@ -280,10 +289,13 @@ export default function RoutesPage() {
 
               {/* Filters - Below Search on Mobile */}
               <div className="flex gap-2 items-center w-full md:w-auto overflow-x-auto pb-1 md:pb-0 no-scrollbar">
-                <Filter className="h-3.5 w-3.5 text-gray-500 flex-shrink-0" />
+                <Filter className={cn("h-3.5 w-3.5 flex-shrink-0", theme === 'dark' ? "text-gray-500" : "text-[#6B7280]")} />
 
                 <Select value={shiftFilter} onValueChange={setShiftFilter}>
-                  <SelectTrigger className="h-8 text-xs min-w-[120px] flex-1 md:w-[180px] bg-white dark:bg-gray-800 md:bg-transparent border-gray-200 dark:border-gray-700">
+                  <SelectTrigger className={cn(
+                    "h-8 text-xs min-w-[120px] flex-1 md:w-[180px] md:bg-transparent border",
+                    theme === 'dark' ? "bg-gray-800 border-gray-700" : "bg-white border-[#E5E7EB]"
+                  )}>
                     <SelectValue placeholder="Status" />
                   </SelectTrigger>
                   <SelectContent>
@@ -299,7 +311,10 @@ export default function RoutesPage() {
                     variant="ghost"
                     size="sm"
                     onClick={() => setShiftFilter("all")}
-                    className="h-8 px-3 text-xs bg-red-500 hover:bg-red-600 text-white flex-shrink-0"
+                    className={cn(
+                      "h-8 px-3 text-xs flex-shrink-0",
+                      theme === 'dark' ? "bg-red-500 hover:bg-red-600 text-white" : "bg-[#EF4444] hover:bg-[#DC2626] text-white"
+                    )}
                   >
                     Clear
                   </Button>
@@ -368,31 +383,46 @@ export default function RoutesPage() {
                         <TableCell className="text-right">
                           <DropdownMenu>
                             <DropdownMenuTrigger asChild>
-                              <Button variant="ghost" className="h-8 w-8 p-0 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700">
+                              <Button variant="ghost" className={cn(
+                                "h-8 w-8 p-0 cursor-pointer",
+                                theme === 'dark' ? "hover:bg-gray-700" : "hover:bg-gray-100"
+                              )}>
                                 <span className="sr-only">Open menu</span>
                                 <MoreHorizontal className="h-4 w-4" />
                               </Button>
                             </DropdownMenuTrigger>
-                            <DropdownMenuContent align="end" className="bg-gray-800 dark:bg-gray-900 border-gray-700 dark:border-gray-600 shadow-xl rounded-lg w-44">
-                              <DropdownMenuLabel className="text-white font-semibold px-2 py-1.5 text-sm">Actions</DropdownMenuLabel>
-                              <DropdownMenuSeparator className="bg-gray-600" />
+                            <DropdownMenuContent align="end" className={cn(
+                              "shadow-xl rounded-lg w-44",
+                              theme === 'dark' ? "bg-gray-900 border-gray-600" : "bg-white border-[#E5E7EB]"
+                            )}>
+                              <DropdownMenuLabel className={cn("font-semibold px-2 py-1.5 text-sm", theme === 'dark' ? "text-white" : "text-[#111827]")}>Actions</DropdownMenuLabel>
+                              <DropdownMenuSeparator className={cn(theme === 'dark' ? "bg-gray-600" : "bg-[#E5E7EB]")} />
                               <DropdownMenuItem
-                                className="text-white hover:bg-gray-700 dark:hover:bg-gray-800 focus:bg-gray-700 dark:focus:bg-gray-800 px-2 py-1.5 text-sm !text-white cursor-pointer"
+                                className={cn(
+                                  "px-2 py-1.5 text-sm cursor-pointer",
+                                  theme === 'dark' ? "text-white hover:bg-gray-800 focus:bg-gray-800" : "text-[#111827] hover:bg-gray-100 focus:bg-gray-100"
+                                )}
                                 onClick={() => router.push(`/admin/routes/view/${route.id}`)}
                               >
                                 <Eye className="mr-2 h-3.5 w-3.5 text-blue-400" />
                                 View Details
                               </DropdownMenuItem>
                               <DropdownMenuItem
-                                className="text-white hover:bg-gray-700 dark:hover:bg-gray-800 focus:bg-gray-700 dark:focus:bg-gray-800 px-2 py-1.5 text-sm !text-white cursor-pointer"
+                                className={cn(
+                                  "px-2 py-1.5 text-sm cursor-pointer",
+                                  theme === 'dark' ? "text-white hover:bg-gray-800 focus:bg-gray-800" : "text-[#111827] hover:bg-gray-100 focus:bg-gray-100"
+                                )}
                                 onClick={() => router.push(`/admin/routes/edit/${route.id}`)}
                               >
                                 <Edit className="mr-2 h-3.5 w-3.5 text-yellow-400" />
                                 Edit Route
                               </DropdownMenuItem>
-                              <DropdownMenuSeparator className="bg-gray-600" />
+                              <DropdownMenuSeparator className={cn(theme === 'dark' ? "bg-gray-600" : "bg-[#E5E7EB]")} />
                               <DropdownMenuItem
-                                className="text-white hover:!bg-red-600 focus:!bg-red-600 px-2 py-1.5 text-sm !text-white cursor-pointer transition-colors"
+                                className={cn(
+                                  "px-2 py-1.5 text-sm cursor-pointer transition-colors",
+                                  theme === 'dark' ? "text-white hover:!bg-red-600 focus:!bg-red-600" : "text-[#111827] hover:!bg-red-600 focus:!bg-red-600"
+                                )}
                                 onClick={() => handleDelete(route.id, route.routeName)}
                               >
                                 <Trash2 className="mr-2 h-3.5 w-3.5" />
@@ -429,12 +459,18 @@ export default function RoutesPage() {
             <Button
               variant="outline"
               onClick={() => setIsDialogOpen(false)}
-              className="bg-white dark:bg-gray-800 border-gray-300 dark:border-gray-600 text-foreground hover:bg-gray-50 dark:hover:bg-gray-700"
+              className={cn(
+                "border",
+                theme === 'dark' ? "bg-gray-800 border-gray-600 text-foreground hover:bg-gray-700" : "bg-white border-[#E5E7EB] text-[#111827] hover:bg-gray-50"
+              )}
             >
               Cancel
             </Button>
             <Button
-              className="bg-red-600 hover:bg-red-700 text-white border-red-600 hover:border-red-700 font-medium"
+              className={cn(
+                "border font-medium",
+                theme === 'dark' ? "bg-red-600 hover:bg-red-700 text-white border-red-600 hover:border-red-700" : "bg-[#EF4444] hover:bg-[#DC2626] text-white border-[#EF4444] hover:border-[#DC2626]"
+              )}
               onClick={confirmDelete}
             >
               Delete

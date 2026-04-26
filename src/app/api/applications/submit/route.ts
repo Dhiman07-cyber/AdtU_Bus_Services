@@ -70,6 +70,45 @@ export async function POST(request: NextRequest) {
       auditLogs: [...(appData.auditLogs || []), auditEntry]
     });
 
+    // Create pending payment record in Supabase for offline payments
+    if (formData.paymentInfo?.paymentMode === 'offline' && formData.paymentInfo?.paymentReference) {
+      try {
+        const { paymentsSupabaseService } = await import('@/lib/services/payments-supabase');
+        const { generateOfflinePaymentId } = await import('@/lib/types/payment');
+        
+        const paymentId = formData.paymentInfo.paymentReference || generateOfflinePaymentId('new_registration');
+        
+        const paymentCreated = await paymentsSupabaseService.createPayment({
+          paymentId,
+          studentId: formData.enrollmentId,
+          studentUid: uid,
+          studentName: formData.fullName,
+          amount: formData.paymentInfo.amountPaid || 0,
+          method: 'Offline',
+          status: 'Pending', // Keep pending until approved
+          stopId: formData.stopId,
+          sessionStartYear: formData.sessionInfo.sessionStartYear,
+          sessionEndYear: formData.sessionInfo.sessionEndYear,
+          durationYears: formData.sessionInfo.durationYears,
+          validUntil: formData.sessionInfo.validUntil ? new Date(formData.sessionInfo.validUntil) : undefined,
+          transactionDate: new Date(),
+          offlineTransactionId: formData.paymentInfo.paymentReference,
+        });
+        
+        if (paymentCreated) {
+          console.log('✅ Pending payment record created in Supabase:', paymentId);
+          
+          // Store paymentId in application for later reference during approval
+          await appRef.update({ paymentId });
+        } else {
+          console.warn('⚠️ Failed to create pending payment record in Supabase');
+        }
+      } catch (paymentError) {
+        console.error('⚠️ Failed to create pending payment record:', paymentError);
+        // Don't fail the submission if payment record creation fails
+      }
+    }
+
     // Notify all admins and moderators
     const adminsQuery = await adminDb.collection('admins').get();
     const moderatorsQuery = await adminDb.collection('moderators').get();

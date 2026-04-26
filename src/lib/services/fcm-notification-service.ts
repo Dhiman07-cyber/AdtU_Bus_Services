@@ -421,6 +421,12 @@ async function collectTokens(busId: string, routeId: string): Promise<TokenWithM
  * 4. Cleanup invalid tokens
  * 5. Update student docs with message field
  */
+/**
+ * Send push notifications to all students on a route/bus for a trip event.
+ * 
+ * OPTIMIZED: Uses Topic-based delivery primarily. Topic-based sending is 
+ * near-instant and doesn't require fetching thousands of tokens from Firestore.
+ */
 export async function notifyRoute(params: {
   routeId: string;
   tripId: string;
@@ -431,95 +437,65 @@ export async function notifyRoute(params: {
 }): Promise<NotifyRouteResult> {
   const { routeId, tripId, routeName, busId, skipIdempotencyCheck } = params;
   const eventType: TripEventType = params.eventType || 'TRIP_STARTED';
-  const overallStart = new Date();
 
-  console.log(`📢 notifyRoute [${eventType}]: routeId=${routeId}, tripId=${tripId}, busId=${busId}`);
+  console.log(`📢 notifyRoute [TOPIC]: routeId=${routeId}, tripId=${tripId}, busId=${busId}`);
 
-  // 1. Idempotency guard (using bus doc to avoid extra 'trips' collection)
+  // 1. Idempotency guard
   if (!skipIdempotencyCheck) {
     try {
       await acquireNotificationLock(busId, tripId, eventType);
     } catch (error: any) {
       if (error.message === 'NOTIFICATION_ALREADY_SENT') {
-        console.log(`⚠️ ${eventType} notification already sent for trip ${tripId}, skipping`);
         return {
           success: true, successCount: 0, failureCount: 0,
           totalTokens: 0, batchCount: 0, invalidTokensRemoved: 0,
           error: 'already_sent',
         };
       }
-      if (error.message === 'BUS_NOT_FOUND') {
-        console.warn(`⚠️ Bus ${busId} not found for notification lock`);
-      } else {
-        throw error;
-      }
     }
   }
 
-  // 2. Collect tokens
-  const tokens = await collectTokens(busId, routeId);
-  console.log(`📊 ${tokens.length} tokens found for ${eventType}`);
-
-  if (tokens.length === 0) {
-    return {
-      success: true, successCount: 0, failureCount: 0,
-      totalTokens: 0, batchCount: 0, invalidTokensRemoved: 0,
-    };
-  }
-
-  // 3. Batch send
-  let totalSuccess = 0;
-  let totalFailure = 0;
-  let totalInvalidRemoved = 0;
-  let batchCount = 0;
-  const allInvalidPaths: string[] = [];
-  const messageParams = { eventType, routeId, tripId, routeName, busId };
-
-  for (let i = 0; i < tokens.length; i += BATCH_SIZE) {
-    const batchTokens = tokens.slice(i, i + BATCH_SIZE);
-    const batchIndex = Math.floor(i / BATCH_SIZE);
-    batchCount++;
-
-    try {
-      const result = await sendBatchWithRetry(batchTokens, messageParams);
-      totalSuccess += result.successCount;
-      totalFailure += result.failureCount;
-      totalInvalidRemoved += result.invalidTokenPaths.length;
-      allInvalidPaths.push(...result.invalidTokenPaths);
-
-      console.log(`✅ Batch ${batchIndex}: ${result.successCount}/${batchTokens.length} delivered`);
-    } catch (error: any) {
-      console.error(`❌ Batch ${batchIndex} failed:`, error.message);
-      totalFailure += batchTokens.length;
-    }
-  }
-
-  // 4. Delete invalid tokens
-  await Promise.all(allInvalidPaths.map(path => deleteTokenByPath(path)));
-
-  // 5. Update student docs with status field (replacing separate logging collection)
-  const studentIds = new Set(tokens.filter(t => !allInvalidPaths.includes(t.tokenDocPath)).map(t => t.studentId));
-  const isStart = eventType === 'TRIP_STARTED';
-  const statusBody = isStart
-    ? `Bus for ${routeName} has started.`
-    : `Bus trip for ${routeName} has ended.`;
-
-  await updateStudentNotifications(studentIds, {
-    body: statusBody,
-    type: eventType,
-    timestamp: new Date().toISOString()
+  // 2. PRIMARY: Send via Topic (Near-instant, handles any number of students)
+  const topicResult = await notifyRouteTopic({
+    routeId, tripId, routeName, busId, eventType
   });
 
-  const summary: NotifyRouteResult = {
-    success: true,
-    successCount: totalSuccess,
-    failureCount: totalFailure,
-    totalTokens: tokens.length,
-    batchCount,
-    invalidTokensRemoved: totalInvalidRemoved,
-  };
+  // 3. BACKGROUND: Update student document notification field for dashboard history
+  // We do this in the background to not block the response
+  (async () => {
+    try {
+      const studentsSnap = await adminDb.collection('students')
+        .where('routeId', '==', routeId)
+        .where('status', '==', 'active')
+        .limit(100) // Limit to active students for dashboard history
+        .get();
 
-  return summary;
+      if (!studentsSnap.empty) {
+        const studentIds = new Set<string>(studentsSnap.docs.map(d => d.id));
+        const isStart = eventType === 'TRIP_STARTED';
+        const statusBody = isStart
+          ? `Bus for ${routeName} has started.`
+          : `Bus trip for ${routeName} has ended.`;
+
+        await updateStudentNotifications(studentIds, {
+          body: statusBody,
+          type: eventType,
+          timestamp: new Date().toISOString()
+        });
+      }
+    } catch (e) {
+      console.warn('Background student status update failed:', e);
+    }
+  })();
+
+  return {
+    success: topicResult.success,
+    successCount: topicResult.success ? 1 : 0,
+    failureCount: topicResult.success ? 0 : 1,
+    totalTokens: 0, // Using topics
+    batchCount: 1,
+    invalidTokensRemoved: 0
+  };
 }
 
 // ─── Legacy Token Fallback ───────────────────────────────────────────────────
@@ -606,6 +582,37 @@ export async function notifyRouteTopic(params: {
     return { success: true, messageId };
   } catch (error: any) {
     console.error(`❌ Topic notification failed for route_${routeId}:`, error.message);
+    return { success: false, error: error.message };
+  }
+}
+
+/**
+ * Global Topic Notification (for all registered users)
+ */
+export async function notifyAllUsers(params: {
+  title: string;
+  body: string;
+  data?: Record<string, string>;
+}): Promise<{ success: boolean; messageId?: string; error?: string }> {
+  if (!messaging) return { success: false, error: 'Firebase Admin Messaging not initialized' };
+
+  try {
+    const messageId = await messaging.send({
+      topic: 'all_users',
+      notification: { title: params.title, body: params.body },
+      data: params.data || {},
+      android: { priority: 'high', notification: { channelId: 'announcements', sound: 'default' } },
+      webpush: {
+        headers: { Urgency: 'high' },
+        notification: { title: params.title, body: params.body },
+        fcmOptions: { link: '/dashboard' },
+      },
+    });
+
+    console.log(`✅ Global notification sent to all_users topic: ${messageId}`);
+    return { success: true, messageId };
+  } catch (error: any) {
+    console.error('❌ Global notification failed:', error.message);
     return { success: false, error: error.message };
   }
 }

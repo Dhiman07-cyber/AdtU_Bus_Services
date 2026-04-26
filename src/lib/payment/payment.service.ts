@@ -209,13 +209,23 @@ export async function approveOfflinePayment(
         // Update student document validity in Firestore
         if (payment.student_uid) {
             const studentRef = adminDb.collection(STUDENTS_COLLECTION).doc(payment.student_uid);
+            
+            // Fetch student data to ensure we don't overwrite if they just renewed with a even longer date
+            const studentDoc = await studentRef.get();
+            const currentData = studentDoc.data();
+            
+            const newValidUntil = payment.valid_until ? new Date(payment.valid_until) : null;
+            
             await studentRef.update({
-                validUntil: payment.valid_until ? new Date(payment.valid_until) : null,
+                validUntil: newValidUntil,
                 sessionStartYear: payment.session_start_year,
                 sessionEndYear: payment.session_end_year,
                 status: 'active',
+                lastRenewalDate: FieldValue.serverTimestamp(),
                 updatedAt: FieldValue.serverTimestamp(),
             });
+
+            console.log(`✅ Success: Student ${payment.student_uid} validity updated until ${newValidUntil?.toISOString()}`);
         }
 
 

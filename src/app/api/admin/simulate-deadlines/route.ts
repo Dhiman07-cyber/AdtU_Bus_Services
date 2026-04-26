@@ -133,6 +133,7 @@ export const POST = withSecurity(
                         await adminAuth.deleteUser(student.uid);
                     } catch (e) {}
 
+                    console.log(`🚨 [AUDIT] SIMULATION Hard delete for ${student.uid}. CALLER STACK:`, new Error().stack);
                     await adminDb.collection('students').doc(student.uid).delete();
                     await adminDb.collection('users').doc(student.uid).delete().catch(() => {});
                     executionResults.hardDeleted++;

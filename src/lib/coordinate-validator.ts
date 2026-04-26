@@ -179,9 +179,16 @@ export function calculateDistance(
   return R * c;
 }
 
-
-
-
+/**
+ * Calculate distance between two coordinates in kilometers.
+ * Convenience wrapper around calculateDistance (meters).
+ */
+export function calculateDistanceKm(
+  coord1: { lat: number; lng: number },
+  coord2: { lat: number; lng: number }
+): number {
+  return calculateDistance(coord1, coord2) / 1000;
+}
 
 
 

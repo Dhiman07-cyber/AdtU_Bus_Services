@@ -1,6 +1,6 @@
 "use client";
 
-import React, { createContext, useContext, useEffect, useState } from 'react';
+import React, { createContext, useContext, useEffect, useState, useMemo, useCallback } from 'react';
 
 interface SystemConfig {
     appName: string;
@@ -12,7 +12,8 @@ interface SystemConfig {
     softBlock?: string;
     hardBlock?: string;
     version?: string;
-    mapProvider?: 'osm' | 'carto' | 'google';
+    // Legacy values ("osm", "carto") are kept for backward compatibility.
+    mapProvider?: 'osm' | 'carto' | 'google' | 'guwahati';
 }
 
 interface SystemConfigContextType {
@@ -144,12 +145,19 @@ export const SystemConfigProvider = ({ children }: { children: React.ReactNode }
     }, []);
 
     // Refresh always bypasses cache
-    const refreshConfig = async () => {
+    const refreshConfig = useCallback(async () => {
         await fetchConfig(true);
-    };
+    }, []);
+
+    const value = useMemo(() => ({
+        appName,
+        config,
+        loading,
+        refreshConfig
+    }), [appName, config, loading, refreshConfig]);
 
     return (
-        <SystemConfigContext.Provider value={{ appName, config, loading, refreshConfig }}>
+        <SystemConfigContext.Provider value={value}>
             {children}
         </SystemConfigContext.Provider>
     );

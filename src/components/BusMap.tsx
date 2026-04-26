@@ -1,14 +1,12 @@
-// @ts-nocheck
 "use client";
 
-import { useState, useEffect } from "react";
+import React, { useState, useEffect } from "react";
 import { MapContainer, TileLayer, Marker, Popup, Polyline } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 import * as L from 'leaflet';
 import { useBusLocation } from '@/hooks/useBusLocation';
 import { useWaitingFlags } from '@/hooks/useWaitingFlags';
 import { getRouteById } from '@/lib/dataService';
-import { fetchRouteGeometryViaProxy } from '@/lib/ors-service';
 import { useSystemConfig } from '@/contexts/SystemConfigContext';
 
 // Fix for default marker icons in Leaflet
@@ -19,19 +17,11 @@ L.Icon.Default.mergeOptions({
   shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png',
 });
 
-// Default center (you can change this to your default location)
-const center: [number, number] = [
-  parseFloat(process.env.NEXT_PUBLIC_DEFAULT_MAP_CENTER_LAT || "0"),
-  parseFloat(process.env.NEXT_PUBLIC_DEFAULT_MAP_CENTER_LNG || "0")
+// Default center — ADTU campus (Guwahati) as fallback
+const DEFAULT_CENTER: [number, number] = [
+  parseFloat(process.env.NEXT_PUBLIC_DEFAULT_MAP_CENTER_LAT || "26.1440"),
+  parseFloat(process.env.NEXT_PUBLIC_DEFAULT_MAP_CENTER_LNG || "91.7360")
 ];
-
-interface BusLocation {
-  busId: string;
-  driverUid: string;
-  speed: number;
-  heading: number;
-  timestamp: string;
-}
 
 interface WaitingFlag {
   id: string;
@@ -52,13 +42,11 @@ interface WaitingFlag {
 interface RouteStop {
   name: string;
   time?: string;
-  lat?: number;
-  lng?: number;
-  latitude?: number;
-  longitude?: number;
+  lat: number;
+  lng: number;
 }
 
-export default function BusMap({
+function BusMap({
   routeId,
   role,
   journeyActive = false
@@ -67,7 +55,7 @@ export default function BusMap({
   role: string;
   journeyActive?: boolean;
 }) {
-  const { currentLocation: busLocation, history, loading: busLoading, error: busError, getInterpolatedPosition } = useBusLocation(routeId);
+  const { currentLocation: busLocation, loading: busLoading, error: busError } = useBusLocation(routeId);
   const { flags: waitingFlags, loading: flagsLoading, error: flagsError } = useWaitingFlags(routeId);
   const { config } = useSystemConfig();
   const provider = config?.mapProvider || 'carto';
@@ -84,7 +72,7 @@ export default function BusMap({
   const [error, setError] = useState<string | null>(null);
   const [routeStops, setRouteStops] = useState<RouteStop[]>([]);
   const [routePolyline, setRoutePolyline] = useState<[number, number][]>([]);
-  const [mapCenter, setMapCenter] = useState<[number, number]>(center);
+  const [mapCenter, setMapCenter] = useState<[number, number]>(DEFAULT_CENTER);
 
   // Fetch route data and geometry
   useEffect(() => {
@@ -98,34 +86,15 @@ export default function BusMap({
           setRouteStops(route.stops);
 
           // Set map center to first stop if available
-          if (route.stops.length > 0) {
-            setMapCenter([0, 0]); // Default center
+          const firstStop = route.stops[0];
+          if (firstStop?.lat && firstStop?.lng) {
+            setMapCenter([firstStop.lat, firstStop.lng]);
           }
 
-          // Fetch route geometry if we have enough stops
+          // Use straight-line connections for route polyline
           if (route.stops.length >= 2) {
-            // Use actual coordinates for route geometry
-            const coordinates = route.stops.map((stop: any) => ({
-              lat: stop.lat || stop.latitude,
-              lng: stop.lng || stop.longitude
-            }));
-
-            try {
-              const geometry = await fetchRouteGeometryViaProxy(coordinates);
-              if (geometry) {
-                // Convert [lng, lat] to [lat, lng] format for Leaflet
-                const leafletCoords = geometry.coordinates.map(coord => [coord[1], coord[0]] as [number, number]);
-                setRoutePolyline(leafletCoords);
-              } else {
-                // If ORS fails/returns null, hide the polyline
-                console.warn('ORS unavailable, hiding route line');
-                setRoutePolyline([]);
-              }
-            } catch (orsError) {
-              console.warn('ORS error or credits exhausted, hiding route line:', orsError);
-              // Fallback: hide the polyline completely to avoid ugly jagged lines
-              setRoutePolyline([]);
-            }
+            const leafletCoords = route.stops.map((stop: RouteStop) => [stop.lat, stop.lng] as [number, number]);
+            setRoutePolyline(leafletCoords);
           }
         }
       } catch (err) {
@@ -149,17 +118,6 @@ export default function BusMap({
       setError(busError || flagsError);
     }
   }, [busError, flagsError]);
-
-  // Map options to enable all interactions
-  const mapOptions = {
-    zoomControl: true,
-    doubleClickZoom: true,
-    dragging: true,
-    scrollWheelZoom: true,
-    touchZoom: true,
-    keyboard: true,
-    attributionControl: true,
-  };
 
   return (
     <div className="relative">
@@ -195,7 +153,7 @@ export default function BusMap({
         {routeStops.map((stop, index) => (
           <Marker
             key={`stop-${index}`}
-            position={[stop.lat || stop.latitude || 0, stop.lng || stop.longitude || 0]}
+            position={[stop.lat || 0, stop.lng || 0]}
           >
             <Popup>
               <div className="font-bold">{stop.name}</div>
@@ -205,9 +163,9 @@ export default function BusMap({
         ))}
 
         {/* Bus marker - Only show when journey is active */}
-        {journeyActive && busLocation && (
+        {journeyActive && busLocation && busLocation.lat && busLocation.lng && (
           <Marker
-            position={[0, 0]}
+            position={[busLocation.lat, busLocation.lng]}
           >
             <Popup>
               <div className="font-bold">Bus: {busLocation.busId}</div>
@@ -221,7 +179,7 @@ export default function BusMap({
         {journeyActive && waitingFlags.map((flag: WaitingFlag) => (
           <Marker
             key={flag.id}
-            position={[0, 0]}
+            position={[flag.stopLat || 0, flag.stopLng || 0]}
           >
             <Popup>
               <div className="font-bold">{flag.studentName}</div>
@@ -270,3 +228,5 @@ export default function BusMap({
     </div>
   );
 }
+
+export default React.memo(BusMap);

@@ -28,6 +28,7 @@ import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useSidebar } from './AppShell';
 import { useSystemConfig } from '@/contexts/SystemConfigContext';
+import { useTheme } from '@/components/theme-provider';
 
 interface SidebarItem {
   href: string;
@@ -87,6 +88,7 @@ export default function ModeratorSidebar() {
   const pathname = usePathname();
   const { collapsed, setCollapsed, mobileOpen } = useSidebar();
   const { config } = useSystemConfig();
+  const { theme } = useTheme();
 
   // Auto-collapse on mobile (to keep desktop view compact if resized)
   useEffect(() => {
@@ -112,8 +114,8 @@ export default function ModeratorSidebar() {
       }}
       className={cn(
         "fixed top-12 left-0 bottom-0 z-40",
-        "border-r border-white/10",
-        "bg-[#0B1224]",
+        "border-r",
+        theme === 'dark' ? "border-white/10 bg-[#0B1224]" : "border-admin-border bg-admin-sidebar",
         "flex flex-col overflow-hidden",
         "hidden md:flex",
         "transition-[width] duration-100 ease-linear"
@@ -137,7 +139,7 @@ export default function ModeratorSidebar() {
               <span className="text-[12px] font-bold text-zinc-100 leading-none tracking-tight">
                 Operations
               </span>
-              <span className="text-[10px] text-zinc-400 font-medium">Moderator Hub</span>
+              <span className={cn("text-[10px] font-medium", theme === 'dark' ? "text-zinc-400" : "text-admin-text-secondary")}>Moderator Hub</span>
             </div>
           </div>
         )}
@@ -145,7 +147,7 @@ export default function ModeratorSidebar() {
           variant="ghost"
           size="icon"
           onClick={() => setCollapsed(!collapsed)}
-          className="h-6 w-6 rounded-md hover:bg-white/5 transition-all text-zinc-500 hover:text-zinc-200"
+          className={cn("h-6 w-6 rounded-md transition-all", theme === 'dark' ? "hover:bg-white/5 text-zinc-500 hover:text-zinc-200" : "hover:bg-admin-hover text-admin-text-secondary hover:text-admin-text")}
           title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
         >
           {collapsed ? (
@@ -171,7 +173,7 @@ export default function ModeratorSidebar() {
             collapsed ? "mt-2 space-y-0" : "mt-2 space-y-0.5"
           )}>
             {!collapsed && (
-              <h3 className="px-2 text-[9px] uppercase tracking-widest font-semibold text-zinc-400 font-mono">
+              <h3 className={cn("px-2 text-[9px] uppercase tracking-widest font-semibold font-mono", theme === 'dark' ? "text-zinc-400" : "text-admin-text-secondary")}>
                 {group.name}
               </h3>
             )}
@@ -197,8 +199,8 @@ export default function ModeratorSidebar() {
                           collapsed ? "py-2" : "py-1.5",
                           "text-[12.5px] font-medium outline-none",
                           isActive
-                            ? "text-blue-400 bg-blue-400/5"
-                            : "text-zinc-400 hover:text-zinc-100 hover:bg-white/5"
+                            ? theme === 'dark' ? "text-blue-400 bg-blue-400/5" : "text-admin-primary bg-admin-active"
+                            : theme === 'dark' ? "text-zinc-400 hover:text-zinc-100 hover:bg-white/5" : "text-admin-text-secondary hover:text-admin-text hover:bg-admin-hover"
                         )}
                       >
                         {isActive && (
@@ -230,7 +232,7 @@ export default function ModeratorSidebar() {
                       <TooltipContent
                         side="right"
                         sideOffset={10}
-                        className="bg-slate-900/90 backdrop-blur-md border border-slate-700/50 text-slate-100 text-xs font-medium px-3 py-2 rounded-lg shadow-xl"
+                        className={cn("backdrop-blur-md border text-xs font-medium px-3 py-2 rounded-lg shadow-xl", theme === 'dark' ? "bg-slate-900/90 border-slate-700/50 text-slate-100" : "bg-admin-card border-admin-border text-admin-text")}
                       >
                         <div className="flex items-center gap-2">
                           <Icon className={cn("h-3.5 w-3.5", item.color)} />
@@ -253,13 +255,13 @@ export default function ModeratorSidebar() {
           <div className="mt-1 px-2 flex items-center justify-between">
             <div className="flex items-center gap-1.5 opacity-60 hover:opacity-100 transition-opacity">
               <div className="h-1.5 w-1.5 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)] animate-pulse" />
-              <span className="text-[9px] text-zinc-400 uppercase tracking-wider font-semibold">Active</span>
+              <span className={cn("text-[9px] uppercase tracking-wider font-semibold", theme === 'dark' ? "text-zinc-400" : "text-admin-text-secondary")}>Active</span>
             </div>
-            <span className="text-[9px] text-zinc-400 font-mono tracking-tighter">Moderator</span>
+            <span className={cn("text-[9px] font-mono tracking-tighter", theme === 'dark' ? "text-zinc-400" : "text-admin-text-secondary")}>Moderator</span>
           </div>
         ) : (
           <div className="flex justify-center mt-1 opacity-60">
-            <span className="text-[8px] text-zinc-400 font-mono tracking-tighter">
+            <span className={cn("text-[8px] font-mono tracking-tighter", theme === 'dark' ? "text-zinc-400" : "text-admin-text-secondary")}>
               {config?.version || 'v2.4.0'}
             </span>
           </div>

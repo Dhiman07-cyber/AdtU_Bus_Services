@@ -9,9 +9,12 @@ import ModeratorSidebar from '@/components/ModeratorSidebar';
 import PWAInstallPrompt from '@/components/PWAInstallPrompt';
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useEffect, useState, createContext, useContext, useCallback } from 'react';
+import { useTheme } from '@/components/theme-provider';
+import { cn } from '@/lib/utils';
 
 import { SystemConfigProvider } from '@/contexts/SystemConfigContext';
 import { FCMTokenManager } from '@/components/FCMTokenManager';
+import MapRuntimeBootstrap from '@/components/maps/MapRuntimeBootstrap';
 
 interface SidebarContextType {
   collapsed: boolean;
@@ -34,6 +37,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   const { currentUser, userData, loading: authLoading } = useAuth();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
+  const { theme } = useTheme();
 
   // Determine if we're on landing page
   const isLandingPage = pathname === '/';
@@ -102,6 +106,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
 
   return (
     <SystemConfigProvider>
+      <MapRuntimeBootstrap />
       <TooltipProvider delayDuration={0}>
         <SidebarContext.Provider value={{
           collapsed: sidebarCollapsed,
@@ -123,7 +128,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
               // Grid layout for admin/moderator with sidebar
               <>
                 <div
-                  className="admin-layout bg-theme-bg"
+                  className={cn("admin-layout", theme === 'dark' ? "bg-theme-bg" : "bg-admin-bg")}
                   style={{
                     display: 'grid',
                     gridTemplateColumns: sidebarCollapsed

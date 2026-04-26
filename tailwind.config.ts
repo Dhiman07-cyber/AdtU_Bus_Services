@@ -79,6 +79,26 @@ const config: Config = {
           muted: "#9AA7B2",     // Matches theme-text-secondary
           success: "#10B981",   // Matches theme-success
         },
+
+        // Admin Light Theme Colors
+        admin: {
+          bg: "#E8EBED",
+          sidebar: "#FFFFFF",
+          card: "#FFFFFF",
+          panel: "#FFFFFF",
+          border: "#DADDE1",
+          primary: "#E05252",
+          "primary-foreground": "#FFFFFF",
+          secondary: "#FBBF24",
+          hover: "#E4E6EB",
+          active: "#F0F2F5",
+          search: "#F0F2F5",
+          text: "#1C1E21",
+          "text-secondary": "#65676B",
+          "text-placeholder": "#8A8D91",
+          badge: "#F59E0B",
+          shadow: "rgba(0,0,0,0.06)",
+        },
       },
       borderRadius: {
         lg: "var(--radius)",

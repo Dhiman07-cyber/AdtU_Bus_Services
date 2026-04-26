@@ -352,26 +352,26 @@ export default function SystemRenewalConfigPage() {
         busFee: number;
         paymentExport: { startYear: number; interval: number };
         version?: string;
-        mapProvider?: 'osm' | 'carto' | 'google';
+        mapProvider?: 'osm' | 'carto' | 'google' | 'guwahati';
     }>({
         appName: 'AdtU Bus Services',
         busFee: 5000,
         paymentExport: { startYear: 2027, interval: 1 },
         version: 'v2.4.0',
-        mapProvider: 'carto'
+        mapProvider: 'guwahati'
     });
     const [originalSystemConfig, setOriginalSystemConfig] = useState<{
         appName: string;
         busFee: number;
         paymentExport: { startYear: number; interval: number };
         version?: string;
-        mapProvider?: 'osm' | 'carto' | 'google';
+        mapProvider?: 'osm' | 'carto' | 'google' | 'guwahati';
     }>({
         appName: 'AdtU Bus Services',
         busFee: 5000,
         paymentExport: { startYear: 2027, interval: 1 },
         version: 'v2.4.0',
-        mapProvider: 'carto'
+        mapProvider: 'guwahati'
     });
 
     // Deadline Config State
@@ -556,7 +556,11 @@ export default function SystemRenewalConfigPage() {
                         interval: config.paymentExport?.interval || 1
                     },
                     version: config.version || 'v2.4.0',
-                    mapProvider: config.mapProvider || 'carto'
+                    // Treat legacy providers as Guwahati Map in the admin UI (we keep legacy values compatible,
+                    // but we don't show them as selectable options anymore).
+                    mapProvider: (config.mapProvider === 'osm' || config.mapProvider === 'carto')
+                        ? 'guwahati'
+                        : (config.mapProvider || 'guwahati')
                 };
                 setSystemConfig(newSystemConfig);
                 setOriginalSystemConfig(newSystemConfig);
@@ -1001,17 +1005,10 @@ export default function SystemRenewalConfigPage() {
                                                     <div className="flex flex-col sm:flex-row gap-2 p-1 bg-white/5 rounded-xl border border-white/10">
                                                         <button
                                                             type="button"
-                                                            onClick={(_e) => setSystemConfig(prev => ({ ...prev, mapProvider: 'osm' }))}
-                                                            className={`flex-1 py-2 text-sm font-medium rounded-lg transition-all ${systemConfig.mapProvider === 'osm' ? 'bg-indigo-600 text-white shadow-lg' : 'text-gray-400 hover:text-white hover:bg-white/5'}`}
+                                                            onClick={(_e) => setSystemConfig(prev => ({ ...prev, mapProvider: 'guwahati' }))}
+                                                            className={`flex-1 py-2 text-sm font-medium rounded-lg transition-all ${systemConfig.mapProvider === 'guwahati' ? 'bg-indigo-600 text-white shadow-lg' : 'text-gray-400 hover:text-white hover:bg-white/5'}`}
                                                         >
-                                                            OSM (existing)
-                                                        </button>
-                                                        <button
-                                                            type="button"
-                                                            onClick={(_e) => setSystemConfig(prev => ({ ...prev, mapProvider: 'carto' }))}
-                                                            className={`flex-1 py-2 text-sm font-medium rounded-lg transition-all ${systemConfig.mapProvider === 'carto' ? 'bg-indigo-600 text-white shadow-lg' : 'text-gray-400 hover:text-white hover:bg-white/5'}`}
-                                                        >
-                                                            CARTO (existing)
+                                                            Guwahati Map (default)
                                                         </button>
                                                         <button
                                                             type="button"
@@ -1022,7 +1019,7 @@ export default function SystemRenewalConfigPage() {
                                                         </button>
                                                     </div>
                                                     <p className="text-xs text-gray-500 mt-2 hover:text-gray-300 transition-colors">
-                                                        Existing providers use OpenStreetMap tiles (no Google billing). Google Maps uses server env <code className="text-gray-400">GOOGLE_MAPS_API_KEY</code> (HTTP referrer–restricted). Set <code className="text-gray-400">DISABLE_GOOGLE_MAPS=1</code> to force fallback without changing admin UI.
+                                                        Guwahati Map uses a university-hosted PMTiles basemap from Supabase Storage (public bucket). Google Maps uses server env <code className="text-gray-400">GOOGLE_MAPS_API_KEY</code> (HTTP referrer–restricted). Set <code className="text-gray-400">DISABLE_GOOGLE_MAPS=1</code> to force fallback without changing admin UI.
                                                     </p>
                                                 </div>
                                             </div>

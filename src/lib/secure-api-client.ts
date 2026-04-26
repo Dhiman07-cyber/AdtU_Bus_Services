@@ -28,12 +28,20 @@ export async function authApiFetch(
     const method = (rest.method || 'GET').toUpperCase();
     const resolvedCache = cache ?? 'no-store';
 
+    // Automatically set Content-Type for JSON mutation requests
+    const isMutation = ['POST', 'PUT', 'PATCH'].includes(method);
+    const autoHeaders: Record<string, string> = {
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        Accept: 'application/json',
+        ...(isMutation && rest.body ? { 'Content-Type': 'application/json' } : {}),
+    };
+
     try {
         return await fetch(url.toString(), {
             ...rest,
             cache: resolvedCache,
             headers: {
-                ...(token ? { Authorization: `Bearer ${token}` } : {}),
+                ...autoHeaders,
                 ...headers,
             },
             signal: controller.signal,
@@ -42,3 +50,4 @@ export async function authApiFetch(
         clearTimeout(timeout);
     }
 }
+

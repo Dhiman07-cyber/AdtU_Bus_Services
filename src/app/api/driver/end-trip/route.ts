@@ -22,6 +22,7 @@ import { getSupabaseServer } from '@/lib/supabase-server';
 import { withSecurity } from '@/lib/security/api-security';
 import { EndTripSchema } from '@/lib/security/validation-schemas';
 import { RateLimits } from '@/lib/security/rate-limiter';
+import { formatIdForDisplay } from '@/lib/utils';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -52,7 +53,10 @@ export const POST = withSecurity(
                 const routeDoc = await adminDb.collection('routes').doc(routeId).get();
                 if (routeDoc.exists) {
                     const routeData = routeDoc.data();
-                    routeName = routeData?.name || routeData?.routeName || 'your route';
+                    routeName = routeData?.name || routeData?.routeName || routeId;
+                    if (routeName.includes('_') || routeName.startsWith('route')) {
+                        routeName = formatIdForDisplay(routeName);
+                    }
                 }
             } catch (e) {
                 console.warn('Could not fetch route name:', e);

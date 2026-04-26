@@ -12,43 +12,53 @@ export const POST = withSecurity(
         const currentUserRole = auth.role;
         const { assignments, sourceBusId, actorId, actorName } = body as any;
 
-        // Fetch detailed actor info for logs (preserving logic from original)
-        let actorLabel = actorName || 'System';
-        if (currentUserRole === 'admin') {
-            const adminDoc = await adminDb.collection('admins').doc(currentUserUid).get();
-            if (adminDoc.exists) {
-                const data = adminDoc.data();
-                actorLabel = `${data?.fullName || data?.name || actorName} (Admin)`;
-            }
-        } else if (currentUserRole === 'moderator') {
-            const modDoc = await adminDb.collection('moderators').doc(currentUserUid).get();
-            if (modDoc.exists) {
-                const modData = modDoc.data();
-                actorLabel = `${modData?.fullName || modData?.name || actorName} (${modData?.employeeId || 'Moderator'})`;
-            }
-        }
-
         if (!assignments || assignments.length === 0) {
             return NextResponse.json({ success: false, error: 'No assignments provided' }, { status: 400 });
         }
+
+        // 1. Parallel Initial Data Fetching
+        const busIdsToLoad = new Set<string>();
+        for (const assignment of assignments) {
+            busIdsToLoad.add(assignment.toBusId);
+            busIdsToLoad.add(assignment.fromBusId);
+        }
+        if (sourceBusId) busIdsToLoad.add(sourceBusId);
+
+        const busRefs = Array.from(busIdsToLoad).map(id => adminDb.collection('buses').doc(id));
+        
+        // Fetch actor info and all buses in parallel
+        const actorInfoPromise = (async () => {
+            let label = actorName || 'System';
+            if (currentUserRole === 'admin') {
+                const adminDoc = await adminDb.collection('admins').doc(currentUserUid).get();
+                if (adminDoc.exists) {
+                    const data = adminDoc.data();
+                    label = `${data?.fullName || data?.name || actorName} (Admin)`;
+                }
+            } else if (currentUserRole === 'moderator') {
+                const modDoc = await adminDb.collection('moderators').doc(currentUserUid).get();
+                if (modDoc.exists) {
+                    const modData = modDoc.data();
+                    label = `${modData?.fullName || modData?.name || actorName} (${modData?.employeeId || 'Moderator'})`;
+                }
+            }
+            return label;
+        })();
+
+        const busesPromise = adminDb.getAll(...busRefs);
+
+        const [actorLabel, busSnapsList] = await Promise.all([actorInfoPromise, busesPromise]) as [string, any[]];
+        
+        const busSnapshots = new Map<string, any>();
+        busSnapsList.forEach(snap => {
+            if (snap.exists) busSnapshots.set(snap.id, snap);
+        });
 
         console.log(`🔄 Starting reassignment: ${assignments.length} students by ${actorLabel}`);
 
         // Use a batch for atomic writes
         const batch = adminDb.batch();
         const busLoadChanges = new Map<string, { morningDelta: number; eveningDelta: number }>();
-        const busIdsToLoad = new Set<string>();
-        for (const assignment of assignments) {
-            busIdsToLoad.add(assignment.toBusId);
-            busIdsToLoad.add(assignment.fromBusId);
-        }
-        const busSnapshots = new Map<string, any>();
-        await Promise.all(
-            Array.from(busIdsToLoad).map(async (busId) => {
-                const snap = await adminDb.collection('buses').doc(busId).get();
-                busSnapshots.set(busId, snap);
-            })
-        );
 
         // Process each assignment
         for (const assignment of assignments) {
@@ -150,17 +160,26 @@ export const POST = withSecurity(
             }
 
             const supabase = getSupabaseServer();
-            await supabase.from('reassignment_logs').delete().eq('type', 'student_reassignment');
-            await supabase.from('reassignment_logs').insert([{
-                operation_id: operationId,
-                type: 'student_reassignment',
-                actor_id: actorId,
-                actor_label: actorLabel,
-                status: 'committed',
-                summary: `Reassigned ${assignments.length} student(s) from ${sourceLabel} to ${destLabels}`,
-                changes: changes,
-                meta: { studentCount: assignments.length, sourceBusId, targetBuses, busLoadChanges: Object.fromEntries(busLoadChanges) },
-            }]);
+            
+            // Delete and Insert can be sequential or we can just upsert if we have a natural key
+            // But since we want to clear old ones, we use a promise chain
+            const logTask = (async () => {
+                await supabase.from('reassignment_logs').delete().eq('type', 'student_reassignment');
+                return supabase.from('reassignment_logs').insert([{
+                    operation_id: operationId,
+                    type: 'student_reassignment',
+                    actor_id: actorId,
+                    actor_label: actorLabel,
+                    status: 'committed',
+                    summary: `Reassigned ${assignments.length} student(s) from ${sourceLabel} to ${destLabels}`,
+                    changes: changes,
+                    meta: { studentCount: assignments.length, sourceBusId, targetBuses, busLoadChanges: Object.fromEntries(busLoadChanges) },
+                }]);
+            })();
+
+            // Don't necessarily need to await the log task to return response
+            // but we do it to ensure consistency if the user checks logs immediately
+            await logTask;
         } catch (auditError) {
             console.warn('Failed to create Supabase audit log:', auditError);
         }

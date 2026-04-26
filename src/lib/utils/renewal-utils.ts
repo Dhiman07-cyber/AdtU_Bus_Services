@@ -266,7 +266,7 @@ export function shouldHardDelete(
     sessionEndYear = validDate.getFullYear();
   }
 
-  const hardDeleteYear = sessionEndYear + 1; // Hard delete is in the NEXT year
+  const hardDeleteYear = sessionEndYear + 2; // Hard delete is 2 YEARS after session ends (per config: 792 days)
   const currentYear = currentDate.getFullYear();
 
   // Hard delete only happens in years AFTER session end year
@@ -409,7 +409,10 @@ export function shouldHardDeleteFromStoredDates(
   if (!config) throw new Error("Config required for shouldHardDeleteFromStoredDates");
 
   if (!studentData.validUntil) {
-    return true; // No validity = should be deleted
+    // SAFETY: Students without validUntil are incomplete profiles - they should NOT be auto-deleted
+    // These students need manual review or completion of their profile
+    console.warn(`⚠️ Student ${studentData.sessionEndYear || 'unknown'} has no validUntil date - incomplete profile, skipping auto-deletion`);
+    return false; // No validity = DON'T delete (incomplete profile safety)
   }
 
   // REFERENCE DATE

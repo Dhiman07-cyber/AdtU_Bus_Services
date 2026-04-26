@@ -73,10 +73,11 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en" className={`dark ${inter.variable} h-full`} suppressHydrationWarning>
+    <html lang="en" className={`${inter.variable} h-full`} suppressHydrationWarning>
 
       <head>
-        {/* Google Analytics */}
+        {/* Google Analytics disabled to prevent console errors */}
+        {/* 
         <Script
           src="https://www.googletagmanager.com/gtag/js?id=G-61NME56S7Y"
           strategy="afterInteractive"
@@ -90,9 +91,12 @@ export default function RootLayout({
             gtag('config', 'G-61NME56S7Y');
           `}
         </Script>
-        
+        */}
+
         {/* Unregister old service worker to fix cache issues */}
-        <script
+        <Script
+          id="unregister-sw"
+          strategy="beforeInteractive"
           dangerouslySetInnerHTML={{
             __html: `
               if ('serviceWorker' in navigator) {

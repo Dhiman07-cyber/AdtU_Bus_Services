@@ -521,7 +521,7 @@ export default function StudentBusPage() {
               busId={studentData.busId || studentData.assignedBusId}
               routeId={studentData.routeId}
               journeyActive={tripActive}
-              studentLocation={position ? { accuracy: position.accuracy } : undefined}
+              studentLocation={position ? { lat: position.lat, lng: position.lng, accuracy: position.accuracy } : undefined}
               onWaitingFlagCreate={(flagId) => {
                 setWaitingFlagId(flagId);
                 setWaiting(true);

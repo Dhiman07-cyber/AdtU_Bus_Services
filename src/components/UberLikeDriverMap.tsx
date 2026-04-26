@@ -9,7 +9,7 @@
  * - Slide-out Waiting Panel
  */
 
-import { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import dynamic from 'next/dynamic';
 import 'leaflet/dist/leaflet.css';
 import { Loader2, Navigation, Users, MapPin, CheckCircle, UserCheck, Maximize2, Minimize2, AlertCircle, Bell, X, ChevronUp, ChevronRight, Bus, ScanLine } from 'lucide-react';
@@ -78,7 +78,7 @@ interface UberLikeDriverMapProps {
   onQrScan?: () => void;
 }
 
-export default function UberLikeDriverMap({
+function UberLikeDriverMap({
   driverLocation,
   waitingStudents = [],
   tripActive,
@@ -805,3 +805,5 @@ export default function UberLikeDriverMap({
     </div>
   );
 }
+
+export default React.memo(UberLikeDriverMap);

@@ -64,7 +64,7 @@ export async function POST(request: NextRequest) {
 
     const appData = applicationDoc.data()!;
     const formData = appData.formData;
-    const now = Timestamp.now();
+    const applicantUid = appData.applicantUid || studentUid;
     const nowIso = new Date().toISOString();
 
     // Create USERS collection doc with ONLY 5 fields as specified
@@ -73,16 +73,14 @@ export async function POST(request: NextRequest) {
       email: (appData as any).email || formData.email,
       name: formData.fullName,
       role: 'student',
-      uid: studentUid
+      uid: applicantUid
     };
 
-    await adminDb.collection('users').doc(studentUid).set(userDoc);
-    console.log('✅ User document created successfully');
+    await adminDb.collection('users').doc(applicantUid).set(userDoc);
+    console.log('✅ User document created successfully for UID:', applicantUid);
 
     // ✅ Fetch Deadline Configuration Dynamically
     const deadlineConfig = await getDeadlineConfig();
-    const anchorMonth = deadlineConfig.academicYear.anchorMonth;
-    const anchorDay = deadlineConfig.academicYear.anchorDay;
 
     // Calculate validUntil using proper renewal date logic with dynamic anchor
     const { newValidUntil } = calculateRenewalDate(
@@ -99,16 +97,26 @@ export async function POST(request: NextRequest) {
     // Compute block dates from validUntil date using dynamic config
     const blockDates = computeBlockDatesFromValidUntil(validUntil, deadlineConfig);
 
+    // Normalize shift using helper logic (standardized to 'Morning', 'Evening', or 'Both')
+    const normalizeShiftValue = (shift: string | undefined): string => {
+      if (!shift) return 'Morning';
+      const s = shift.toLowerCase().trim();
+      if (s.includes('evening')) return 'Evening';
+      if (s.includes('morning')) return 'Morning';
+      if (s === 'both') return 'Both';
+      return 'Morning';
+    };
+
     // Create STUDENTS collection document with EXACT field structure as specified
     const studentDoc = {
       // Required fields only - as per specification
       address: formData.address,
       alternatePhone: formData.alternatePhone || '',
-      approvedAt: now,
+      approvedAt: nowIso,
       approvedBy: approvedByDisplay,
       bloodGroup: formData.bloodGroup,
       busId: formData.routeId ? formData.routeId.replace('route_', 'bus_') : '',
-      createdAt: now,
+      createdAt: nowIso,
       department: formData.department,
       dob: formData.dob,
       durationYears: formData.sessionInfo.durationYears,
@@ -126,22 +134,22 @@ export async function POST(request: NextRequest) {
       semester: formData.semester,
       sessionEndYear: sessionEndYear,
       sessionStartYear: formData.sessionInfo.sessionStartYear,
-      shift: formData.shift || 'both',
+      shift: normalizeShiftValue(formData.shift),
       status: 'active',
       stopId: formData.stopId || '',
-      uid: studentUid,
-      updatedAt: now,
+      uid: applicantUid,
+      updatedAt: nowIso,
       validUntil: validUntil,
       // Block dates computed from validUntil
       softBlock: blockDates.softBlock,
       hardBlock: blockDates.hardBlock,
       // Payment information from application form
       paymentAmount: formData.paymentInfo?.amountPaid || 0,
-      paid_on: now // Set paid_on to approval date
+      paid_on: nowIso // Set paid_on to approval date
     };
 
-    await adminDb.collection('students').doc(studentUid).set(studentDoc);
-    console.log('✅ Student document created successfully');
+    await adminDb.collection('students').doc(applicantUid).set(studentDoc);
+    console.log('✅ Student document created successfully for UID:', applicantUid);
 
     // ✅ EMAIL NOTIFICATION: Send approval email to student
     if (studentDoc.email) {
@@ -177,7 +185,7 @@ export async function POST(request: NextRequest) {
           // Update the existing online payment record in SUPABASE with correct validity
           try {
             const { paymentsSupabaseService } = await import('@/lib/services/payments-supabase');
-            const studentPayments = await paymentsSupabaseService.getPaymentsByStudentUid(studentUid);
+            const studentPayments = await paymentsSupabaseService.getPaymentsByStudentUid(applicantUid);
             const onlinePayment = studentPayments.find(p => p.method === 'Online' && p.status === 'Completed');
 
             if (onlinePayment) {
@@ -212,7 +220,7 @@ export async function POST(request: NextRequest) {
           const paymentCreated = await paymentsSupabaseService.createPayment({
             paymentId,
             studentId: formData.enrollmentId,
-            studentUid: studentUid,
+            studentUid: applicantUid,
             studentName: formData.fullName,
             amount: paymentAmount,
             method: 'Offline',
@@ -222,7 +230,7 @@ export async function POST(request: NextRequest) {
             durationYears: formData.sessionInfo.durationYears,
             validUntil: new Date(validUntil),
             transactionDate: new Date(),
-            offlineTransactionId: formData.paymentInfo?.paymentReference || `unauth_app_fee_${studentUid}`,
+            offlineTransactionId: formData.paymentInfo?.paymentReference || `unauth_app_fee_${applicantUid}`,
             approvedBy: {
               type: 'Manual',
               userId: moderatorUid,
@@ -250,7 +258,7 @@ export async function POST(request: NextRequest) {
     const busId = formData.routeId ? formData.routeId.replace('route_', 'bus_') : '';
     if (busId) {
       try {
-        await incrementBusCapacity(busId, studentUid, formData.shift);
+        await incrementBusCapacity(busId, applicantUid, studentDoc.shift);
         console.log(`✅ Bus capacity incremented for ${busId}`);
       } catch (capacityError) {
         console.error(`⚠️ Failed to increment bus capacity for ${busId}:`, capacityError);
@@ -298,12 +306,12 @@ export async function POST(request: NextRequest) {
 
     // Delete from unauthUsers collection
     try {
-      const unauthUserDoc = await adminDb.collection('unauthUsers').doc(studentUid).get();
+      const unauthUserDoc = await adminDb.collection('unauthUsers').doc(applicantUid).get();
       if (unauthUserDoc.exists) {
-        await adminDb.collection('unauthUsers').doc(studentUid).delete();
-        console.log('✅ Deleted unauthUsers document for:', studentUid);
+        await adminDb.collection('unauthUsers').doc(applicantUid).delete();
+        console.log('✅ Deleted unauthUsers document for:', applicantUid);
       } else {
-        console.log('ℹ️ No unauthUsers document found for:', studentUid);
+        console.log('ℹ️ No unauthUsers document found for:', applicantUid);
       }
     } catch (deleteError) {
       console.warn('⚠️ Could not delete unauthUser doc:', deleteError);
@@ -313,7 +321,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       success: true,
       message: 'Application approved successfully',
-      studentUid: studentUid
+      studentUid: applicantUid
     });
   } catch (error: any) {
     console.error('Error approving application:', error);

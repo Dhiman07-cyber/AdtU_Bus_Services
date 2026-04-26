@@ -42,6 +42,32 @@ const getCurrentTimestamp = () => {
   return Timestamp.now();
 };
 
+// ============================================================================
+// IN-MEMORY CACHE - Prevents redundant reads within the same session
+// ============================================================================
+const CACHE_TTL = 60 * 1000; // 1 minute default TTL
+const dataCache = new Map<string, { data: any, timestamp: number }>();
+
+const getCachedData = (key: string) => {
+  const entry = dataCache.get(key);
+  if (entry && (Date.now() - entry.timestamp < CACHE_TTL)) {
+    return entry.data;
+  }
+  return null;
+};
+
+const setCachedData = (key: string, data: any) => {
+  dataCache.set(key, { data, timestamp: Date.now() });
+};
+
+export const invalidateCache = (key?: string) => {
+  if (key) {
+    dataCache.delete(key);
+  } else {
+    dataCache.clear();
+  }
+};
+
 // Determine which database to use based on environment
 const getDatabase = async () => {
   // Always use Firebase client SDK for these functions because they depend on 
@@ -100,10 +126,16 @@ export const getAllRouteNames = async (): Promise<string[]> => {
 
 // Users collection functions
 export const getUserByUid = async (uid: string): Promise<User | null> => {
+  const cacheKey = `user_${uid}`;
+  const cached = getCachedData(cacheKey);
+  if (cached) return cached;
+
   try {
     const db = await getDatabase();
     const userDoc = await getDoc(doc(db as Firestore, 'users', uid));
-    return userDoc.exists() ? { uid: userDoc.id, ...userDoc.data() } as User : null;
+    const data = userDoc.exists() ? { uid: userDoc.id, ...userDoc.data() } as User : null;
+    if (data) setCachedData(cacheKey, data);
+    return data;
   } catch (error) {
     console.error('Error fetching user:', error);
     return null;
@@ -111,315 +143,111 @@ export const getUserByUid = async (uid: string): Promise<User | null> => {
 };
 
 // Enhanced function to get student data from students collection with all details
+// Helper: Format Firestore timestamps consistently
+const formatTimestamp = (timestamp: any) => {
+  if (!timestamp) return null;
+  if (timestamp.toDate) return timestamp.toDate().toISOString();
+  if (timestamp instanceof Date) return timestamp.toISOString();
+  return timestamp;
+};
+
+// Helper: Resolve approver name from moderator/admin collections
+const resolveApproverName = async (data: any): Promise<string> => {
+  let approverName = data.approvedBy || '';
+  if (data.approvedById) {
+    const moderator = await getModeratorById(data.approvedById);
+    if (moderator) {
+      approverName = moderator.fullName || moderator.name || approverName;
+    } else {
+      const admin = await getAdminById(data.approvedById);
+      if (admin) {
+        approverName = admin.fullName || admin.name || approverName;
+      }
+    }
+  }
+  return approverName;
+};
+
+// Helper: Normalize raw Firestore student document into a consistent shape
+const formatStudentData = async (docId: string, data: any) => {
+  const approverName = await resolveApproverName(data);
+  return {
+    uid: docId,
+    ...data,
+    createdAt: formatTimestamp(data.createdAt),
+    updatedAt: formatTimestamp(data.updatedAt),
+    approvedAt: formatTimestamp(data.approvedAt),
+    validUntil: formatTimestamp(data.validUntil),
+    paymentInfo: data.paymentInfo || {},
+    sessionHistory: data.sessionHistory || [],
+    phoneNumber: data.phoneNumber || data.phone || '',
+    fullName: data.fullName || data.name || '',
+    email: data.email || data.emailAddress || '',
+    address: data.address || data.location || '',
+    stopId: data.stopId || data.stopName || '',
+    busId: data.busId || data.assignedBusId || '',
+    routeId: data.routeId || data.assignedRouteId || '',
+    shift: data.shift || 'Not Set',
+    status: data.status || 'pending',
+    enrollmentId: data.enrollmentId || '',
+    faculty: data.faculty || '',
+    department: data.department || '',
+    semester: data.semester || '',
+    gender: data.gender || '',
+    bloodGroup: data.bloodGroup || '',
+    dob: data.dob || '',
+    age: data.age || '',
+    parentName: data.parentName || '',
+    parentPhone: data.parentPhone || '',
+    sessionStartYear: data.sessionStartYear || '',
+    sessionEndYear: data.sessionEndYear || '',
+    paymentAmount: data.paymentAmount || data.paymentInfo?.amountPaid || data.amountPaid || 0,
+    paymentVerified: data.paymentInfo?.paymentVerified || data.paymentVerified || false,
+    paid_on: data.paid_on,
+    approvedBy: approverName,
+  };
+};
+
+// Enhanced function to get student data from students collection with all details
 export const getStudentByUid = async (uid: string): Promise<any | null> => {
+  const cacheKey = `student_uid_${uid}`;
+  const cached = getCachedData(cacheKey);
+  if (cached) return cached;
+
   try {
-    console.log('🔍 getStudentByUid called with UID:', uid);
     const db = await getDatabase();
 
-    // Strategy 1: Try direct document fetch by UID as document ID
-    console.log('📊 Strategy 1: Direct document fetch by UID');
+    // Strategy 1: Direct document fetch by UID as document ID (most common, fastest)
     const studentDoc = await getDoc(doc(db as Firestore, 'students', uid));
-
     if (studentDoc.exists()) {
-      const data = studentDoc.data();
-      console.log('📊 Raw student data from students collection:', data);
-
-      // Handle Firestore Timestamps
-      const formatTimestamp = (timestamp: any) => {
-        if (!timestamp) return null;
-        if (timestamp.toDate) {
-          return timestamp.toDate().toISOString();
-        }
-        if (timestamp instanceof Date) {
-          return timestamp.toISOString();
-        }
-        return timestamp;
-      };
-
-      // Fetch approver name if approvedById exists
-      let approverName = data.approvedBy || '';
-      if (data.approvedById) {
-        // Try to get moderator first
-        const moderator = await getModeratorById(data.approvedById);
-        if (moderator) {
-          approverName = moderator.fullName || moderator.name || approverName;
-        } else {
-          // If not a moderator, try to get admin
-          const admin = await getAdminById(data.approvedById);
-          if (admin) {
-            approverName = admin.fullName || admin.name || approverName;
-          }
-        }
-      }
-
-      // Return all student data with proper formatting
-      const formattedData = {
-        uid: studentDoc.id,
-        ...data,
-        // Format timestamps
-        createdAt: formatTimestamp(data.createdAt),
-        updatedAt: formatTimestamp(data.updatedAt),
-        approvedAt: formatTimestamp(data.approvedAt),
-        validUntil: formatTimestamp(data.validUntil),
-        // Ensure payment info is properly structured
-        paymentInfo: data.paymentInfo || {},
-        // Ensure session history is an array
-        sessionHistory: data.sessionHistory || [],
-        // Map phone number fields properly
-        phoneNumber: data.phoneNumber || data.phone || '',
-        // Map name fields properly
-        fullName: data.fullName || data.name || '',
-        // Map email fields properly
-        email: data.email || data.emailAddress || '',
-        // Map address fields properly
-        address: data.address || data.location || '',
-        // Map stop fields properly
-        stopId: data.stopId || data.stopName || '',
-        // Map bus fields properly
-        busId: data.busId || data.assignedBusId || '',
-        // Map route fields properly
-        routeId: data.routeId || data.assignedRouteId || '',
-        // Map shift properly
-        shift: data.shift || 'Not Set',
-        // Map status properly
-        status: data.status || 'pending',
-        // Map enrollment ID properly
-        enrollmentId: data.enrollmentId || '',
-        // Map academic fields properly
-        faculty: data.faculty || '',
-        department: data.department || '',
-        semester: data.semester || '',
-        // Map personal fields properly
-        gender: data.gender || '',
-        bloodGroup: data.bloodGroup || '',
-        dob: data.dob || '',
-        age: data.age || '',
-        // Map parent fields properly
-        parentName: data.parentName || '',
-        parentPhone: data.parentPhone || '',
-        // Map session fields properly
-        sessionStartYear: data.sessionStartYear || '',
-        sessionEndYear: data.sessionEndYear || '',
-        // Map payment fields properly
-        paymentAmount: data.paymentAmount || data.paymentInfo?.amountPaid || data.amountPaid || 0,
-        paymentVerified: data.paymentInfo?.paymentVerified || data.paymentVerified || false,
-        paid_on: data.paid_on,
-        // Use approver name instead of email if available
-        approvedBy: approverName
-      };
-
-      console.log('✅ Formatted student data:', formattedData);
-      return formattedData;
+      const data = await formatStudentData(studentDoc.id, studentDoc.data());
+      setCachedData(cacheKey, data);
+      return data;
     }
 
     // Strategy 2: Query by UID field in document
-    console.log('📊 Strategy 2: Query by UID field');
     const studentsQuery = query(collection(db as Firestore, 'students'), where('uid', '==', uid));
     const studentsSnapshot = await getDocs(studentsQuery);
-
-    console.log('📊 UID query result count:', studentsSnapshot.size);
-
     if (!studentsSnapshot.empty) {
-      const studentDoc = studentsSnapshot.docs[0];
-      const data = studentDoc.data();
-      console.log('📊 Found student by UID query:', data);
-
-      // Handle Firestore Timestamps
-      const formatTimestamp = (timestamp: any) => {
-        if (!timestamp) return null;
-        if (timestamp.toDate) {
-          return timestamp.toDate().toISOString();
-        }
-        if (timestamp instanceof Date) {
-          return timestamp.toISOString();
-        }
-        return timestamp;
-      };
-
-      // Fetch approver name if approvedById exists
-      let approverName = data.approvedBy || '';
-      if (data.approvedById) {
-        // Try to get moderator first
-        const moderator = await getModeratorById(data.approvedById);
-        if (moderator) {
-          approverName = moderator.fullName || moderator.name || approverName;
-        } else {
-          // If not a moderator, try to get admin
-          const admin = await getAdminById(data.approvedById);
-          if (admin) {
-            approverName = admin.fullName || admin.name || approverName;
-          }
-        }
-      }
-
-      // Return all student data with proper formatting
-      const formattedData = {
-        uid: studentDoc.id,
-        ...data,
-        // Format timestamps
-        createdAt: formatTimestamp(data.createdAt),
-        updatedAt: formatTimestamp(data.updatedAt),
-        approvedAt: formatTimestamp(data.approvedAt),
-        validUntil: formatTimestamp(data.validUntil),
-        // Ensure payment info is properly structured
-        paymentInfo: data.paymentInfo || {},
-        // Ensure session history is an array
-        sessionHistory: data.sessionHistory || [],
-        // Map phone number fields properly
-        phoneNumber: data.phoneNumber || data.phone || '',
-        // Map name fields properly
-        fullName: data.fullName || data.name || '',
-        // Map email fields properly
-        email: data.email || data.emailAddress || '',
-        // Map address fields properly
-        address: data.address || data.location || '',
-        // Map stop fields properly
-        stopId: data.stopId || data.stopName || '',
-        // Map bus fields properly
-        busId: data.busId || data.assignedBusId || '',
-        // Map route fields properly
-        routeId: data.routeId || data.assignedRouteId || '',
-        // Map shift properly
-        shift: data.shift || 'Not Set',
-        // Map status properly
-        status: data.status || 'pending',
-        // Map enrollment ID properly
-        enrollmentId: data.enrollmentId || '',
-        // Map academic fields properly
-        faculty: data.faculty || '',
-        department: data.department || '',
-        semester: data.semester || '',
-        // Map personal fields properly
-        gender: data.gender || '',
-        bloodGroup: data.bloodGroup || '',
-        dob: data.dob || '',
-        age: data.age || '',
-        // Map parent fields properly
-        parentName: data.parentName || '',
-        parentPhone: data.parentPhone || '',
-        // Map session fields properly
-        sessionStartYear: data.sessionStartYear || '',
-        sessionEndYear: data.sessionEndYear || '',
-        // Map payment fields properly
-        paymentAmount: data.paymentAmount || data.paymentInfo?.amountPaid || data.amountPaid || 0,
-        paymentVerified: data.paymentInfo?.paymentVerified || data.paymentVerified || false,
-        paid_on: data.paid_on,
-        // Use approver name instead of email if available
-        approvedBy: approverName
-      };
-
-      console.log('✅ Formatted student data from query:', formattedData);
-      return formattedData;
+      const matched = studentsSnapshot.docs[0];
+      const data = await formatStudentData(matched.id, matched.data());
+      setCachedData(cacheKey, data);
+      return data;
     }
 
     // Strategy 3: Query by email (for cases where UID doesn't match)
-    console.log('📊 Strategy 3: Query by email');
     const userDoc = await getDoc(doc(db as Firestore, 'users', uid));
-
     if (userDoc.exists()) {
       const userData = userDoc.data();
-      console.log('📊 User data found, trying to find student by email:', userData.email);
-
       const emailQuery = query(collection(db as Firestore, 'students'), where('email', '==', userData.email));
       const emailSnapshot = await getDocs(emailQuery);
-
-      console.log('📊 Email query result count:', emailSnapshot.size);
-
       if (!emailSnapshot.empty) {
-        const studentDoc = emailSnapshot.docs[0];
-        const data = studentDoc.data();
-        console.log('📊 Found student by email query:', data);
-
-        // Handle Firestore Timestamps
-        const formatTimestamp = (timestamp: any) => {
-          if (!timestamp) return null;
-          if (timestamp.toDate) {
-            return timestamp.toDate().toISOString();
-          }
-          if (timestamp instanceof Date) {
-            return timestamp.toISOString();
-          }
-          return timestamp;
-        };
-
-        // Fetch approver name if approvedById exists
-        let approverName = data.approvedBy || '';
-        if (data.approvedById) {
-          // Try to get moderator first
-          const moderator = await getModeratorById(data.approvedById);
-          if (moderator) {
-            approverName = moderator.fullName || moderator.name || approverName;
-          } else {
-            // If not a moderator, try to get admin
-            const admin = await getAdminById(data.approvedById);
-            if (admin) {
-              approverName = admin.fullName || admin.name || approverName;
-            }
-          }
-        }
-
-        // Return all student data with proper formatting
-        const formattedData = {
-          uid: studentDoc.id,
-          ...data,
-          // Format timestamps
-          createdAt: formatTimestamp(data.createdAt),
-          updatedAt: formatTimestamp(data.updatedAt),
-          approvedAt: formatTimestamp(data.approvedAt),
-          validUntil: formatTimestamp(data.validUntil),
-          // Ensure payment info is properly structured
-          paymentInfo: data.paymentInfo || {},
-          // Ensure session history is an array
-          sessionHistory: data.sessionHistory || [],
-          // Map phone number fields properly
-          phoneNumber: data.phoneNumber || data.phone || '',
-          // Map name fields properly
-          fullName: data.fullName || data.name || '',
-          // Map email fields properly
-          email: data.email || data.emailAddress || '',
-          // Map address fields properly
-          address: data.address || data.location || '',
-          // Map stop fields properly
-          stopId: data.stopId || data.stopName || '',
-          // Map bus fields properly
-          busId: data.busId || data.assignedBusId || '',
-          // Map route fields properly
-          routeId: data.routeId || data.assignedRouteId || '',
-          // Map shift properly
-          shift: data.shift || 'Not Set',
-          // Map status properly
-          status: data.status || 'pending',
-          // Map enrollment ID properly
-          enrollmentId: data.enrollmentId || '',
-          // Map academic fields properly
-          faculty: data.faculty || '',
-          department: data.department || '',
-          semester: data.semester || '',
-          // Map personal fields properly
-          gender: data.gender || '',
-          bloodGroup: data.bloodGroup || '',
-          dob: data.dob || '',
-          age: data.age || '',
-          // Map parent fields properly
-          parentName: data.parentName || '',
-          parentPhone: data.parentPhone || '',
-          // Map session fields properly
-          sessionStartYear: data.sessionStartYear || '',
-          sessionEndYear: data.sessionEndYear || '',
-          // Map payment fields properly
-          paymentAmount: data.paymentAmount || data.paymentInfo?.amountPaid || data.amountPaid || 0,
-          paymentVerified: data.paymentInfo?.paymentVerified || data.paymentVerified || false,
-          paid_on: data.paid_on,
-          // Use approver name instead of email if available
-          approvedBy: approverName
-        };
-
-        console.log('✅ Formatted student data from email query:', formattedData);
-        return formattedData;
+        const matched = emailSnapshot.docs[0];
+        const data = await formatStudentData(matched.id, matched.data());
+        setCachedData(cacheKey, data);
+        return data;
       }
     }
-
-    console.log('❌ Student not found in both students and users collections');
 
     return null;
   } catch (error) {
@@ -428,13 +256,20 @@ export const getStudentByUid = async (uid: string): Promise<any | null> => {
   }
 };
 
+
 // Students collection functions
 export const getAllStudents = async (): Promise<Student[]> => {
+  const cacheKey = 'all_students';
+  const cached = getCachedData(cacheKey);
+  if (cached) return cached;
+
   try {
     const db = await getDatabase();
     const studentsCol = collection(db as Firestore, 'students');
     const studentSnapshot = await getDocs(studentsCol);
-    return studentSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Student));
+    const data = studentSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Student));
+    setCachedData(cacheKey, data);
+    return data;
   } catch (error) {
     console.error('Error fetching students:', error);
     return [];
@@ -442,6 +277,10 @@ export const getAllStudents = async (): Promise<Student[]> => {
 };
 
 export const getStudentById = async (id: string): Promise<any | null> => {
+  const cacheKey = `student_id_${id}`;
+  const cached = getCachedData(cacheKey);
+  if (cached) return cached;
+
   try {
     const db = await getDatabase();
     const studentDoc = await getDoc(doc(db as Firestore, 'students', id));
@@ -457,7 +296,7 @@ export const getStudentById = async (id: string): Promise<any | null> => {
         return timestamp;
       };
 
-      return {
+      const result = {
         id: studentDoc.id,
         uid: studentDoc.id,
         ...data,
@@ -478,6 +317,8 @@ export const getStudentById = async (id: string): Promise<any | null> => {
         createdAt: formatTimestamp(data.createdAt),
         updatedAt: formatTimestamp(data.updatedAt)
       };
+      setCachedData(cacheKey, result);
+      return result;
     }
     return null;
   } catch (error) {
@@ -521,6 +362,11 @@ export const deleteStudent = async (id: string): Promise<boolean> => {
 
     const result = await response.json();
     console.log('Student deleted successfully:', result);
+    if (result.success) {
+      invalidateCache(`student_id_${id}`);
+      invalidateCache(`student_uid_${id}`);
+      invalidateCache('all_students');
+    }
     return result.success;
   } catch (error) {
     console.error('Error deleting student:', error);
@@ -560,6 +406,9 @@ export const updateStudent = async (id: string, data: Partial<Student>): Promise
       return false;
     }
 
+    invalidateCache(`student_id_${id}`);
+    invalidateCache(`student_uid_${id}`);
+    invalidateCache('all_students');
     return true;
   } catch (error) {
     console.error('Error updating student:', error);
@@ -569,11 +418,17 @@ export const updateStudent = async (id: string, data: Partial<Student>): Promise
 
 // Drivers collection functions
 export const getAllDrivers = async (): Promise<Driver[]> => {
+  const cacheKey = 'all_drivers';
+  const cached = getCachedData(cacheKey);
+  if (cached) return cached;
+
   try {
     const db = await getDatabase();
     const driversCol = collection(db as Firestore, 'drivers');
     const driverSnapshot = await getDocs(driversCol);
-    return driverSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Driver));
+    const data = driverSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Driver));
+    setCachedData(cacheKey, data);
+    return data;
   } catch (error) {
     console.error('Error fetching drivers:', error);
     return [];
@@ -581,13 +436,17 @@ export const getAllDrivers = async (): Promise<Driver[]> => {
 };
 
 export const getDriverById = async (id: string): Promise<any | null> => {
+  const cacheKey = `driver_${id}`;
+  const cached = getCachedData(cacheKey);
+  if (cached) return cached;
+
   try {
     const db = await getDatabase();
     const driverDoc = await getDoc(doc(db as Firestore, 'drivers', id));
 
     if (driverDoc.exists()) {
       const data = driverDoc.data();
-      return {
+      const result = {
         id: driverDoc.id,
         uid: driverDoc.id,
         ...data,
@@ -609,6 +468,8 @@ export const getDriverById = async (id: string): Promise<any | null> => {
         })(),
         employeeId: data.employeeId || data.driverId || ''
       };
+      setCachedData(cacheKey, result);
+      return result;
     }
     return null;
   } catch (error) {
@@ -652,6 +513,10 @@ export const deleteDriver = async (id: string): Promise<boolean> => {
 
     const result = await response.json();
     console.log('Driver deleted successfully:', result);
+    if (result.success) {
+      invalidateCache(`driver_${id}`);
+      invalidateCache('all_drivers');
+    }
     return result.success;
   } catch (error) {
     console.error('Error deleting driver:', error);
@@ -668,6 +533,8 @@ export const updateDriver = async (id: string, data: Partial<Driver>): Promise<b
       updatedAt: new Date().toISOString(),
       updatedBy: arrayUnion(updatedByEntry)
     } as any);
+    invalidateCache(`driver_${id}`);
+    invalidateCache('all_drivers');
     return true;
   } catch (error) {
     console.error('Error updating driver:', error);
@@ -677,11 +544,17 @@ export const updateDriver = async (id: string, data: Partial<Driver>): Promise<b
 
 // Moderators collection functions
 export const getAllModerators = async (): Promise<Moderator[]> => {
+  const cacheKey = 'all_moderators';
+  const cached = getCachedData(cacheKey);
+  if (cached) return cached;
+
   try {
     const db = await getDatabase();
     const moderatorsCol = collection(db as Firestore, 'moderators');
     const moderatorSnapshot = await getDocs(moderatorsCol);
-    return moderatorSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Moderator));
+    const data = moderatorSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Moderator));
+    setCachedData(cacheKey, data);
+    return data;
   } catch (error) {
     console.error('Error fetching moderators:', error);
     return [];
@@ -689,10 +562,16 @@ export const getAllModerators = async (): Promise<Moderator[]> => {
 };
 
 export const getModeratorById = async (id: string): Promise<Moderator | null> => {
+  const cacheKey = `moderator_${id}`;
+  const cached = getCachedData(cacheKey);
+  if (cached) return cached;
+
   try {
     const db = await getDatabase();
     const moderatorDoc = await getDoc(doc(db as Firestore, 'moderators', id));
-    return moderatorDoc.exists() ? { id: moderatorDoc.id, ...moderatorDoc.data() } as Moderator : null;
+    const data = moderatorDoc.exists() ? { id: moderatorDoc.id, ...moderatorDoc.data() } as Moderator : null;
+    if (data) setCachedData(cacheKey, data);
+    return data;
   } catch (error: any) {
     // Suppress permission-denied errors (expected for students who can't read moderator profiles)
     if (error?.code !== 'permission-denied') {
@@ -703,10 +582,16 @@ export const getModeratorById = async (id: string): Promise<Moderator | null> =>
 };
 
 export const getAdminById = async (id: string): Promise<any | null> => {
+  const cacheKey = `admin_${id}`;
+  const cached = getCachedData(cacheKey);
+  if (cached) return cached;
+
   try {
     const db = await getDatabase();
     const adminDoc = await getDoc(doc(db as Firestore, 'admins', id));
-    return adminDoc.exists() ? { id: adminDoc.id, ...adminDoc.data() } : null;
+    const data = adminDoc.exists() ? { id: adminDoc.id, ...adminDoc.data() } : null;
+    if (data) setCachedData(cacheKey, data);
+    return data;
   } catch (error: any) {
     // Suppress permission-denied errors
     if (error?.code !== 'permission-denied') {
@@ -776,13 +661,19 @@ export const updateModerator = async (id: string, data: Partial<Moderator>): Pro
 
 // Buses collection functions
 export const getAllBuses = async (): Promise<Bus[]> => {
+  const cacheKey = 'all_buses';
+  const cached = getCachedData(cacheKey);
+  if (cached) return cached;
+
   try {
     if (!checkClientAuth()) return [];
 
     const db = await getDatabase();
     const busesCol = collection(db as Firestore, 'buses');
     const busSnapshot = await getDocs(busesCol);
-    return busSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Bus));
+    const data = busSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Bus));
+    setCachedData(cacheKey, data);
+    return data;
   } catch (error) {
     console.error('Error fetching buses:', error);
     return [];
@@ -790,10 +681,16 @@ export const getAllBuses = async (): Promise<Bus[]> => {
 };
 
 export const getBusById = async (id: string): Promise<Bus | null> => {
+  const cacheKey = `bus_${id}`;
+  const cached = getCachedData(cacheKey);
+  if (cached) return cached;
+
   try {
     const db = await getDatabase();
     const busDoc = await getDoc(doc(db as Firestore, 'buses', id));
-    return busDoc.exists() ? { id: busDoc.id, ...busDoc.data() } as Bus : null;
+    const data = busDoc.exists() ? { id: busDoc.id, ...busDoc.data() } as Bus : null;
+    if (data) setCachedData(cacheKey, data);
+    return data;
   } catch (error) {
     console.error('Error fetching bus:', error);
     return null;
@@ -802,12 +699,18 @@ export const getBusById = async (id: string): Promise<Bus | null> => {
 
 // Get buses by route ID
 export const getBusesByRouteId = async (routeId: string): Promise<Bus[]> => {
+  const cacheKey = `buses_route_${routeId}`;
+  const cached = getCachedData(cacheKey);
+  if (cached) return cached;
+
   try {
     const db = await getDatabase();
     const busesCol = collection(db as Firestore, 'buses');
     const q = query(busesCol, where('routeId', '==', routeId));
     const busSnapshot = await getDocs(q);
-    return busSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Bus));
+    const data = busSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Bus));
+    setCachedData(cacheKey, data);
+    return data;
   } catch (error) {
     console.error('Error fetching buses by route ID:', error);
     return [];
@@ -818,6 +721,8 @@ export const deleteBus = async (id: string): Promise<boolean> => {
   try {
     const db = await getDatabase();
     await deleteDoc(doc(db as Firestore, 'buses', id));
+    invalidateCache(`bus_${id}`);
+    invalidateCache('all_buses');
     return true;
   } catch (error) {
     console.error('Error deleting bus:', error);
@@ -834,6 +739,8 @@ export const updateBus = async (id: string, data: Partial<Bus>): Promise<boolean
       updatedAt: new Date().toISOString(),
       updatedBy: arrayUnion(updatedByEntry)
     } as any);
+    invalidateCache(`bus_${id}`);
+    invalidateCache('all_buses');
     return true;
   } catch (error) {
     console.error('Error updating bus:', error);
@@ -843,6 +750,10 @@ export const updateBus = async (id: string, data: Partial<Bus>): Promise<boolean
 
 // Routes collection functions
 export const getAllRoutes = async (): Promise<Route[]> => {
+  const cacheKey = 'all_routes';
+  const cached = getCachedData(cacheKey);
+  if (cached) return cached;
+
   try {
     if (!checkClientAuth()) return [];
 
@@ -853,7 +764,9 @@ export const getAllRoutes = async (): Promise<Route[]> => {
     // Optional: Sort by routeId or createdAt
     const routeSnapshot = await getDocs(routesCol);
 
-    return routeSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Route));
+    const data = routeSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Route));
+    setCachedData(cacheKey, data);
+    return data;
   } catch (error) {
     console.error('Error fetching routes:', error);
     return [];
@@ -861,18 +774,22 @@ export const getAllRoutes = async (): Promise<Route[]> => {
 };
 
 export const getRouteById = async (id: string): Promise<Route | null> => {
+  const cacheKey = `route_${id}`;
+  const cached = getCachedData(cacheKey);
+  if (cached) return cached;
+
   try {
     const db = await getDatabase();
 
     // First, try fetching from routes collection
     const routeDoc = await getDoc(doc(db as Firestore, 'routes', id));
     if (routeDoc.exists()) {
-      return { id: routeDoc.id, ...routeDoc.data() } as Route;
+      const data = { id: routeDoc.id, ...routeDoc.data() } as Route;
+      setCachedData(cacheKey, data);
+      return data;
     }
 
     // If not found, return null (Routes should be in routes collection)
-    return null;
-
     return null;
   } catch (error) {
     console.error('Error fetching route:', error);
@@ -884,6 +801,8 @@ export const deleteRoute = async (id: string): Promise<boolean> => {
   try {
     const db = await getDatabase();
     await deleteDoc(doc(db as Firestore, 'routes', id));
+    invalidateCache(`route_${id}`);
+    invalidateCache('all_routes');
     return true;
   } catch (error) {
     console.error('Error deleting route:', error);
@@ -900,6 +819,8 @@ export const updateRoute = async (id: string, data: Partial<Route>): Promise<boo
       updatedAt: new Date().toISOString(),
       updatedBy: arrayUnion(updatedByEntry)
     } as any);
+    invalidateCache(`route_${id}`);
+    invalidateCache('all_routes');
     return true;
   } catch (error) {
     console.error('Error updating route:', error);
@@ -1110,12 +1031,18 @@ export const createApplication = async (applicationData: Omit<Application, 'appl
 };
 
 export const getApplicationsByApplicantUID = async (applicantUID: string): Promise<Application[]> => {
+  const cacheKey = `apps_uid_${applicantUID}`;
+  const cached = getCachedData(cacheKey);
+  if (cached) return cached;
+
   try {
     const db = await getDatabase();
     const applicationsCol = collection(db as Firestore, 'applications');
     const q = query(applicationsCol, where('applicantUID', '==', applicantUID));
     const applicationSnapshot = await getDocs(q);
-    return applicationSnapshot.docs.map(doc => ({ applicationId: doc.id, ...doc.data() } as Application));
+    const data = applicationSnapshot.docs.map(doc => ({ applicationId: doc.id, ...doc.data() } as Application));
+    setCachedData(cacheKey, data);
+    return data;
   } catch (error) {
     console.error('Error fetching applications by applicant UID:', error);
     return [];
@@ -1155,6 +1082,10 @@ export const createNotification = async (notificationData: Omit<Notification, 'i
 };
 
 export const getStudentsByBusId = async (busId: string): Promise<Student[]> => {
+  const cacheKey = `students_bus_${busId}`;
+  const cached = getCachedData(cacheKey);
+  if (cached) return cached;
+
   try {
     console.log('🔍 getStudentsByBusId called with busId:', busId);
     const db = await getDatabase();
@@ -1175,14 +1106,6 @@ export const getStudentsByBusId = async (busId: string): Promise<Student[]> => {
         const studentSnapshot = await getDocs(q);
         const students = studentSnapshot.docs.map(doc => {
           const data = doc.data();
-          console.log('📊 Student data from Firestore:', {
-            id: doc.id,
-            name: data.fullName || data.name,
-            busId: data.busId || data.assignedBusId || data.assignedBus,
-            profilePicture: data.profilePicture,
-            profilePhotoUrl: data.profilePhotoUrl
-          });
-
           return {
             id: doc.id,
             uid: doc.id,
@@ -1209,12 +1132,7 @@ export const getStudentsByBusId = async (busId: string): Promise<Student[]> => {
       index === self.findIndex(s => s.id === student.id)
     );
 
-    console.log('✅ Found students for bus:', uniqueStudents.map(s => ({
-      name: s.fullName || s.name,
-      profilePicture: s.profilePicture,
-      profilePhotoUrl: s.profilePhotoUrl
-    })));
-
+    setCachedData(cacheKey, uniqueStudents);
     return uniqueStudents;
   } catch (error) {
     console.error('Error fetching students by bus ID:', error);
@@ -1245,6 +1163,10 @@ export const markNotificationAsRead = async (notificationId: string, userId: str
  * @returns Array of payment documents
  */
 export const getPaymentsByStudentUid = async (uid: string, enrollmentId?: string): Promise<any[]> => {
+  const cacheKey = `payments_${uid}_${enrollmentId || ''}`;
+  const cached = getCachedData(cacheKey);
+  if (cached) return cached;
+
   try {
     // Get current user for authentication
     const { getAuth } = await import('firebase/auth');
@@ -1259,8 +1181,6 @@ export const getPaymentsByStudentUid = async (uid: string, enrollmentId?: string
     const idToken = await currentUser.getIdToken();
 
     // Fetch from the API which queries Supabase
-    // We pass both studentUid and studentId (Enrollment ID) if available
-    // to ensure we catch all payments regardless of how they were indexed
     let url = `/api/payment/transactions?studentUid=${uid}`;
     if (enrollmentId) {
       url += `&studentId=${enrollmentId}`;
@@ -1278,7 +1198,9 @@ export const getPaymentsByStudentUid = async (uid: string, enrollmentId?: string
     }
 
     const data = await response.json();
-    return data.transactions || [];
+    const transactions = data.transactions || [];
+    setCachedData(cacheKey, transactions);
+    return transactions;
   } catch (error) {
     console.error('Error fetching student payments from Supabase API:', error);
     return [];

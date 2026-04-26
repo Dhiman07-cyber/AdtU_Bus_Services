@@ -187,9 +187,9 @@ export function computeDatesForStudent(params: ComputeDateParams): ComputedDates
     );
 
     // =====================
-    // CRITICAL: Hard Delete in NEXT academic cycle
+    // CRITICAL: Hard Delete 2 YEARS after session ends (per config: 792 days)
     // =====================
-    const hardDeleteYear = effectiveYear + 1;
+    const hardDeleteYear = effectiveYear + 2;
     const hardDeleteDate = normalizeLeapYearDate(
         hardDeleteYear,
         config.hardDelete.month,

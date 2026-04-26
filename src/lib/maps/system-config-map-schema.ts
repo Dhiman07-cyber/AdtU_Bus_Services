@@ -1,6 +1,8 @@
 import { z } from "zod";
 
-export const mapProviderSchema = z.enum(["osm", "carto", "google"]);
+// Stored in Firestore system config.
+// Legacy values ("osm", "carto") are kept for backward compatibility, but should be hidden from new UI.
+export const mapProviderSchema = z.enum(["osm", "carto", "google", "guwahati"]);
 
 export type ValidatedMapProvider = z.infer<typeof mapProviderSchema>;
 

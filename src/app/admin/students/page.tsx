@@ -55,11 +55,14 @@ import Avatar from '@/components/Avatar';
 // SPARK PLAN SAFETY: Replaced useRealtimeCollection with usePaginatedCollection
 import { usePaginatedCollection, invalidateCollectionCache } from '@/hooks/usePaginatedCollection';
 import { useEventDrivenRefresh, signalCollectionRefresh } from '@/hooks/useEventDrivenRefresh';
+import { useTheme } from '@/components/theme-provider';
+import { cn } from '@/lib/utils';
 
 export default function AdminStudents() {
   const { currentUser, userData, loading: authLoading } = useAuth();
   const { addToast } = useToast();
   const router = useRouter();
+  const { theme } = useTheme();
 
   // SPARK PLAN SAFETY: Event-driven refresh - only fetches when mutations occur
   // No polling/auto-refresh to conserve Firestore quota
@@ -349,7 +352,10 @@ export default function AdminStudents() {
         </div>
         <div className="flex gap-2">
           <Link href="/admin/students/add">
-            <Button className="bg-blue-600 hover:bg-blue-700 text-white border border-blue-700 transition-all duration-200 hover:scale-105 hover:shadow-lg rounded-md px-2.5 py-1.5 text-xs h-8">
+            <Button className={cn(
+              "border transition-all duration-200 hover:scale-105 hover:shadow-lg rounded-md px-2.5 py-1.5 text-xs h-8",
+              theme === 'dark' ? "bg-blue-600 hover:bg-blue-700 text-white border-blue-700" : "bg-[#1E3A8A] hover:bg-[#1E40AF] text-white border-[#1E3A8A]"
+            )}>
               <Plus className="mr-1.5 h-3.5 w-3.5" />
               Add New Student
             </Button>
@@ -362,7 +368,10 @@ export default function AdminStudents() {
             </Button>
           </Link>
           <Link href="/admin/verification">
-            <Button className="bg-cyan-600 hover:bg-cyan-700 text-white border border-cyan-700 transition-all duration-200 hover:scale-105 hover:shadow-lg rounded-md px-2.5 py-1.5 text-xs h-8">
+            <Button className={cn(
+              "border transition-all duration-200 hover:scale-105 hover:shadow-lg rounded-md px-2.5 py-1.5 text-xs h-8",
+              theme === 'dark' ? "bg-cyan-600 hover:bg-cyan-700 text-white border-cyan-700" : "bg-[#0891b2] hover:bg-[#0e7490] text-white border-[#0891b2]"
+            )}>
               <QrCode className="mr-1.5 h-3.5 w-3.5" />
               Verification
             </Button>
@@ -370,13 +379,19 @@ export default function AdminStudents() {
           <ExportButton
             onClick={handleExportStudents}
             label="Export"
-            className="h-8 px-4 bg-white hover:bg-gray-50 text-gray-600 hover:text-purple-600 border border-gray-200 hover:border-purple-200 shadow-sm hover:shadow-lg hover:shadow-purple-500/10 font-bold text-[10px] uppercase tracking-widest rounded-lg transition-all duration-300 active:scale-95"
+            className={cn(
+              "h-8 px-4 border shadow-sm hover:shadow-lg font-bold text-[10px] uppercase tracking-widest rounded-lg transition-all duration-300 active:scale-95",
+              theme === 'dark' ? "bg-white hover:bg-gray-50 text-gray-600 hover:text-purple-600 border-gray-200 hover:border-purple-200 hover:shadow-purple-500/10" : "bg-white hover:bg-gray-50 text-[#111827] hover:text-[#1E3A8A] border-[#E5E7EB] hover:border-[#1E3A8A] hover:shadow-[#1E3A8A]/10"
+            )}
           />
           <Button
             size="sm"
             onClick={handleRefresh}
             disabled={isRefreshing}
-            className="group h-8 px-4 bg-white hover:bg-gray-50 text-black hover:text-purple-600 border border-gray-200 hover:border-purple-200 shadow-sm hover:shadow-lg hover:shadow-purple-500/10 font-bold text-[10px] uppercase tracking-widest rounded-lg transition-all duration-300 active:scale-95"
+            className={cn(
+              "group h-8 px-4 border shadow-sm hover:shadow-lg font-bold text-[10px] uppercase tracking-widest rounded-lg transition-all duration-300 active:scale-95",
+              theme === 'dark' ? "bg-white hover:bg-gray-50 text-black hover:text-purple-600 border-gray-200 hover:border-purple-200 hover:shadow-purple-500/10" : "bg-white hover:bg-gray-50 text-[#111827] hover:text-[#1E3A8A] border-[#E5E7EB] hover:border-[#1E3A8A] hover:shadow-[#1E3A8A]/10"
+            )}
           >
             <RefreshCw className={`mr-2 h-3.5 w-3.5 transition-transform duration-500 ${isRefreshing ? 'animate-spin' : 'group-hover:rotate-180'}`} />
             Refresh
@@ -385,14 +400,14 @@ export default function AdminStudents() {
         </div>
       </div>
 
-      <Card className="bg-gray-50 dark:bg-gray-900 border-border">
+      <Card className={cn("border-border", theme === 'dark' ? "bg-gray-900" : "bg-admin-bg")}>
         <CardContent className="pt-3">
           <div className="mb-3">
             {/* Search Bar and Filters */}
             <div className="flex flex-col md:flex-row gap-3">
               {/* Search Bar - Top (Full Width on Mobile) */}
               <div className="relative w-full md:flex-1">
-                <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-gray-400" />
+                <Search className={cn("absolute left-2.5 top-2.5 h-3.5 w-3.5", theme === 'dark' ? "text-gray-400" : "text-[#9CA3AF]")} />
                 <Input
                   placeholder="Search by name, email, or phone..."
                   value={searchTerm}
@@ -403,10 +418,13 @@ export default function AdminStudents() {
 
               {/* Filters - Side by side on Mobile */}
               <div className="flex gap-2 items-center w-full md:w-auto overflow-x-auto pb-1 md:pb-0 no-scrollbar">
-                <Filter className="h-3.5 w-3.5 text-gray-500 flex-shrink-0" />
+                <Filter className={cn("h-3.5 w-3.5 flex-shrink-0", theme === 'dark' ? "text-gray-500" : "text-[#6B7280]")} />
 
                 <Select value={shiftFilter} onValueChange={setShiftFilter}>
-                  <SelectTrigger className="h-8 text-xs min-w-[100px] flex-1 md:w-[150px] bg-white dark:bg-gray-800 md:bg-transparent border-gray-200 dark:border-gray-700">
+                  <SelectTrigger className={cn(
+                    "h-8 text-xs min-w-[100px] flex-1 md:w-[150px] md:bg-transparent border",
+                    theme === 'dark' ? "bg-gray-800 border-gray-700" : "bg-white border-[#E5E7EB]"
+                  )}>
                     <SelectValue placeholder="Shift" />
                   </SelectTrigger>
                   <SelectContent>
@@ -417,7 +435,10 @@ export default function AdminStudents() {
                 </Select>
 
                 <Select value={busFilter} onValueChange={setBusFilter}>
-                  <SelectTrigger className="h-8 text-xs min-w-[120px] flex-1 md:w-[250px] bg-white dark:bg-gray-800 md:bg-transparent border-gray-200 dark:border-gray-700">
+                  <SelectTrigger className={cn(
+                    "h-8 text-xs min-w-[120px] flex-1 md:w-[250px] md:bg-transparent border",
+                    theme === 'dark' ? "bg-gray-800 border-gray-700" : "bg-white border-[#E5E7EB]"
+                  )}>
                     <SelectValue placeholder="Bus" />
                   </SelectTrigger>
                   <SelectContent>
@@ -438,7 +459,10 @@ export default function AdminStudents() {
                       setShiftFilter("all");
                       setBusFilter("all");
                     }}
-                    className="h-8 px-3 text-xs bg-red-500"
+                    className={cn(
+                      "h-8 px-3 text-xs",
+                      theme === 'dark' ? "bg-red-500 hover:bg-red-600" : "bg-[#EF4444] hover:bg-[#DC2626]"
+                    )}
                   >
 
                     Clear
@@ -466,7 +490,7 @@ export default function AdminStudents() {
                     {isLoading && (students.length > 0 || searchResults) && (
                       <TableRow>
                         <TableCell colSpan={7} className="h-1 p-0">
-                          <div className="w-full h-1 bg-blue-100 dark:bg-blue-900 overflow-hidden">
+                          <div className={cn("w-full h-1 overflow-hidden", theme === 'dark' ? "bg-blue-900" : "bg-blue-100")}>
                             <div className="animate-progress w-full h-full bg-blue-500 origin-left-right"></div>
                           </div>
                         </TableCell>
@@ -516,19 +540,25 @@ export default function AdminStudents() {
                             <div className="text-[10px] whitespace-nowrap">{getBusDisplay(student.busId)}</div>
                           </TableCell>
                           <TableCell className="py-1.5">
-                            <span className={`inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-medium ${student.shift?.toLowerCase() === 'morning' ? 'bg-blue-100 text-blue-800' : 'bg-orange-100 text-orange-800'
-                              }`}>
+                            <span className={cn(
+                              "inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-medium",
+                              student.shift?.toLowerCase() === 'morning'
+                                ? theme === 'dark' ? 'bg-blue-100 text-blue-800' : 'bg-blue-50 text-blue-700'
+                                : theme === 'dark' ? 'bg-orange-100 text-orange-800' : 'bg-orange-50 text-orange-700'
+                            )}>
                               {student.shift || 'N/A'}
                             </span>
                           </TableCell>
                           <TableCell className="py-1.5">
                             <div className="flex flex-col items-center gap-0.5">
-                              <span className={`inline-block px-1.5 py-0.5 rounded-full text-[9px] font-medium ${student.status === 'active' ? 'bg-green-500 text-white' :
+                              <span className={cn(
+                                "inline-block px-1.5 py-0.5 rounded-full text-[9px] font-medium",
+                                student.status === 'active' ? 'bg-green-500 text-white' :
                                 student.status === 'expired' ? 'bg-red-500 text-white' :
-                                  student.status === 'maintenance' ? 'bg-yellow-500 text-white' :
-                                    'bg-gray-100 text-gray-700'
-                                }`}>
-                                {student.status.charAt(0).toUpperCase() + student.status.slice(1)}
+                                student.status === 'maintenance' ? 'bg-yellow-500 text-white' :
+                                theme === 'dark' ? 'bg-gray-100 text-gray-700' : 'bg-gray-200 text-gray-700'
+                              )}>
+                                {student.status || 'Unknown'}
                               </span>
                               <div className="text-[10px] text-muted-foreground whitespace-nowrap">
                                 {student.sessionStartYear && student.sessionEndYear
@@ -541,28 +571,43 @@ export default function AdminStudents() {
                           <TableCell className="py-1.5 text-right">
                             <DropdownMenu>
                               <DropdownMenuTrigger asChild>
-                                <Button variant="ghost" className="h-7 w-7 p-0 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700">
+                                <Button variant="ghost" className={cn(
+                                  "h-7 w-7 p-0 cursor-pointer",
+                                  theme === 'dark' ? "hover:bg-gray-700" : "hover:bg-gray-100"
+                                )}>
                                   <MoreHorizontal className="h-3.5 w-3.5" />
                                 </Button>
                               </DropdownMenuTrigger>
-                              <DropdownMenuContent align="end" className="bg-gray-800 dark:bg-gray-900 border-gray-700 dark:border-gray-600 shadow-xl rounded-lg w-40">
-                                <DropdownMenuLabel className="text-white text-[11px] font-semibold px-2 py-1.5">Actions</DropdownMenuLabel>
-                                <DropdownMenuSeparator className="bg-gray-600" />
+                              <DropdownMenuContent align="end" className={cn(
+                                "shadow-xl rounded-lg w-40",
+                                theme === 'dark' ? "bg-gray-900 border-gray-600" : "bg-white border-[#E5E7EB]"
+                              )}>
+                                <DropdownMenuLabel className={cn("text-[11px] font-semibold px-2 py-1.5", theme === 'dark' ? "text-white" : "text-[#111827]")}>Actions</DropdownMenuLabel>
+                                <DropdownMenuSeparator className={cn(theme === 'dark' ? "bg-gray-600" : "bg-[#E5E7EB]")} />
                                 <DropdownMenuItem asChild>
-                                  <Link href={`/admin/students/view/${student.id}`} className="text-white hover:bg-gray-700 dark:hover:bg-gray-800 focus:bg-gray-700 dark:focus:bg-gray-800 px-2 py-1.5 !text-white text-[11px]">
+                                  <Link href={`/admin/students/view/${student.id}`} className={cn(
+                                    "px-2 py-1.5 text-[11px]",
+                                    theme === 'dark' ? "text-white hover:bg-gray-800 focus:bg-gray-800" : "text-[#111827] hover:bg-gray-100 focus:bg-gray-100"
+                                  )}>
                                     <Eye className="mr-1.5 h-3 w-3 text-blue-400" />
                                     View Details
                                   </Link>
                                 </DropdownMenuItem>
                                 <DropdownMenuItem asChild>
-                                  <Link href={`/admin/students/edit/${student.id}`} className="text-white hover:bg-gray-700 dark:hover:bg-gray-800 focus:bg-gray-700 dark:focus:bg-gray-800 px-2 py-1.5 !text-white text-[11px]">
+                                  <Link href={`/admin/students/edit/${student.id}`} className={cn(
+                                    "px-2 py-1.5 text-[11px]",
+                                    theme === 'dark' ? "text-white hover:bg-gray-800 focus:bg-gray-800" : "text-[#111827] hover:bg-gray-100 focus:bg-gray-100"
+                                  )}>
                                     <Edit className="mr-1.5 h-3 w-3 text-yellow-400" />
                                     Edit
                                   </Link>
                                 </DropdownMenuItem>
-                                <DropdownMenuSeparator className="bg-gray-600" />
+                                <DropdownMenuSeparator className={cn(theme === 'dark' ? "bg-gray-600" : "bg-[#E5E7EB]")} />
                                 <DropdownMenuItem
-                                  className="text-white hover:!bg-red-600 focus:!bg-red-600 px-2 py-1.5 !text-white text-[11px] cursor-pointer transition-colors"
+                                  className={cn(
+                                    "px-2 py-1.5 text-[11px] cursor-pointer transition-colors",
+                                    theme === 'dark' ? "text-white hover:!bg-red-600 focus:!bg-red-600" : "text-[#111827] hover:!bg-red-600 focus:!bg-red-600"
+                                  )}
                                   onClick={() => {
                                     setDeleteItem({ id: student.id, name: student.name });
                                     setIsDialogOpen(true);
@@ -590,7 +635,10 @@ export default function AdminStudents() {
                   size="sm"
                   onClick={() => fetchMoreStudents()}
                   disabled={loadingStudents}
-                  className="text-xs bg-white text-black hover:bg-gray-200 border-gray-200"
+                  className={cn(
+                    "text-xs border",
+                    theme === 'dark' ? "bg-white text-black hover:bg-gray-200 border-gray-200" : "bg-white text-[#111827] hover:bg-gray-100 border-[#E5E7EB]"
+                  )}
                 >
                   {loadingStudents ? (
                     <>
@@ -617,14 +665,20 @@ export default function AdminStudents() {
           </DialogHeader>
           <DialogFooter>
             <Button
-              className="bg-white hover:bg-gray-50 text-gray-900 border border-gray-300 dark:bg-gray-800 dark:hover:bg-gray-700 dark:text-gray-100 dark:border-gray-600"
+              className={cn(
+                "border font-medium",
+                theme === 'dark' ? "bg-gray-800 hover:bg-gray-700 text-gray-100 border-gray-600" : "bg-white hover:bg-gray-50 text-[#111827] border-[#E5E7EB]"
+              )}
               onClick={() => setIsDialogOpen(false)}
               disabled={isDeleting}
             >
               Cancel
             </Button>
             <Button
-              className="bg-red-600 hover:bg-red-700 text-white border-red-600 hover:border-red-700 font-medium min-w-[80px]"
+              className={cn(
+                "border font-medium min-w-[80px]",
+                theme === 'dark' ? "bg-red-600 hover:bg-red-700 text-white border-red-600 hover:border-red-700" : "bg-[#EF4444] hover:bg-[#DC2626] text-white border-[#EF4444] hover:border-[#DC2626]"
+              )}
               onClick={async () => {
                 if (!deleteItem) return;
                 setIsDeleting(true);

@@ -54,11 +54,14 @@ import Avatar from '@/components/Avatar';
 // SPARK PLAN SAFETY: Replaced useRealtimeCollection with usePaginatedCollection
 import { usePaginatedCollection, invalidateCollectionCache } from '@/hooks/usePaginatedCollection';
 import { useEventDrivenRefresh } from '@/hooks/useEventDrivenRefresh';
+import { useTheme } from '@/components/theme-provider';
+import { cn } from '@/lib/utils';
 
 export default function AdminDrivers() {
   const { currentUser, userData, loading: authLoading } = useAuth();
   const { addToast } = useToast();
   const router = useRouter();
+  const { theme } = useTheme();
 
   // SPARK PLAN SAFETY: Event-driven refresh - only fetches when mutations occur
   const { data: drivers, loading: loadingDrivers, refresh: refreshDrivers } = usePaginatedCollection('drivers', {
@@ -261,7 +264,10 @@ export default function AdminDrivers() {
         </div>
         <div className="flex gap-2">
           <Link href="/admin/drivers/add">
-            <Button className="bg-blue-600 hover:bg-blue-700 text-white border border-blue-700 transition-all duration-200 hover:scale-105 hover:shadow-lg rounded-md px-2.5 py-1.5 text-xs h-8">
+            <Button className={cn(
+              "border transition-all duration-200 hover:scale-105 hover:shadow-lg rounded-md px-2.5 py-1.5 text-xs h-8",
+              theme === 'dark' ? "bg-blue-600 hover:bg-blue-700 text-white border-blue-700" : "bg-[#1E3A8A] hover:bg-[#1E40AF] text-white border-[#1E3A8A]"
+            )}>
               <Plus className="mr-1.5 h-3.5 w-3.5" />
               Add New Driver
             </Button>
@@ -275,13 +281,19 @@ export default function AdminDrivers() {
           <ExportButton
             onClick={() => handleExportDrivers()}
             label="Export Drivers"
-            className="bg-white hover:bg-gray-100 !text-black border border-gray-300 transition-all duration-200 hover:scale-105 hover:shadow-lg rounded-md px-2.5 py-1.5 text-xs h-8"
+            className={cn(
+              "border transition-all duration-200 hover:scale-105 hover:shadow-lg rounded-md px-2.5 py-1.5 text-xs h-8",
+              theme === 'dark' ? "bg-white hover:bg-gray-100 text-black border-gray-300" : "bg-white hover:bg-gray-50 text-[#111827] border-[#E5E7EB]"
+            )}
           />
           <Button
             size="sm"
             onClick={handleRefresh}
             disabled={isRefreshing}
-            className="group h-8 px-4 bg-white hover:bg-gray-50 text-black hover:text-purple-600 border border-gray-200 hover:border-purple-200 shadow-sm hover:shadow-lg hover:shadow-purple-500/10 font-bold text-[10px] uppercase tracking-widest rounded-lg transition-all duration-300 active:scale-95"
+            className={cn(
+              "group h-8 px-4 border shadow-sm hover:shadow-lg font-bold text-[10px] uppercase tracking-widest rounded-lg transition-all duration-300 active:scale-95",
+              theme === 'dark' ? "bg-white hover:bg-gray-50 text-black hover:text-purple-600 border-gray-200 hover:border-purple-200 hover:shadow-purple-500/10" : "bg-white hover:bg-gray-50 text-[#111827] hover:text-[#1E3A8A] border-[#E5E7EB] hover:border-[#1E3A8A] hover:shadow-[#1E3A8A]/10"
+            )}
           >
             <RefreshCw className={`mr-2 h-3.5 w-3.5 transition-transform duration-500 ${isRefreshing ? 'animate-spin' : 'group-hover:rotate-180'}`} />
             Refresh
@@ -289,36 +301,38 @@ export default function AdminDrivers() {
         </div>
       </div>
 
-      <Card className="bg-gray-50 dark:bg-gray-900 border-gray-200 dark:border-gray-800">
+      <Card className={cn("border", theme === 'dark' ? "bg-gray-900 border-gray-800" : "bg-admin-bg border-admin-border")}>
         <CardContent className="pt-3">
           <div className="mb-3">
             {/* Search Bar and Filters */}
             <div className="flex flex-col md:flex-row gap-3">
               {/* Search Bar - Top (Full Width on Mobile) */}
               <div className="relative w-full md:flex-1">
-                <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-gray-400" />
+                <Search className={cn("absolute left-2.5 top-2.5 h-3.5 w-3.5", theme === 'dark' ? "text-gray-400" : "text-[#9CA3AF]")} />
                 <Input
-                  placeholder="Search by name, email, phone..."
+                  placeholder="Search by name, email, or phone..."
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
                   className="pl-9 h-9 text-xs w-full"
                 />
               </div>
 
-              {/* Filters - Below Search on Mobile */}
+              {/* Filters - Side by side on Mobile */}
               <div className="flex gap-2 items-center w-full md:w-auto overflow-x-auto pb-1 md:pb-0 no-scrollbar">
-                <Filter className="h-3.5 w-3.5 text-gray-500 flex-shrink-0" />
+                <Filter className={cn("h-3.5 w-3.5 flex-shrink-0", theme === 'dark' ? "text-gray-500" : "text-[#6B7280]")} />
 
                 <Select value={experienceFilter} onValueChange={setExperienceFilter}>
-                  <SelectTrigger className="h-8 text-xs min-w-[120px] flex-1 md:w-[140px] bg-white dark:bg-gray-800 md:bg-transparent border-gray-200 dark:border-gray-700">
+                  <SelectTrigger className={cn(
+                    "h-8 text-xs min-w-[100px] flex-1 md:w-[150px] md:bg-transparent border",
+                    theme === 'dark' ? "bg-gray-800 border-gray-700" : "bg-white border-[#E5E7EB]"
+                  )}>
                     <SelectValue placeholder="Experience" />
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all" className="text-xs">All Experience</SelectItem>
-                    <SelectItem value="0-2" className="text-xs">0-2 years</SelectItem>
-                    <SelectItem value="3-5" className="text-xs">3-5 years</SelectItem>
-                    <SelectItem value="6-10" className="text-xs">6-10 years</SelectItem>
-                    <SelectItem value="10+" className="text-xs">10+ years</SelectItem>
+                    <SelectItem value="0-2" className="text-xs">0-2 Years</SelectItem>
+                    <SelectItem value="2-5" className="text-xs">2-5 Years</SelectItem>
+                    <SelectItem value="5+" className="text-xs">5+ Years</SelectItem>
                   </SelectContent>
                 </Select>
 
@@ -326,10 +340,11 @@ export default function AdminDrivers() {
                   <Button
                     variant="ghost"
                     size="sm"
-                    onClick={() => {
-                      setExperienceFilter("all");
-                    }}
-                    className="h-8 px-3 text-xs bg-red-500 hover:bg-red-600 text-white flex-shrink-0"
+                    onClick={() => setExperienceFilter("all")}
+                    className={cn(
+                      "h-8 px-3 text-xs",
+                      theme === 'dark' ? "bg-red-500 hover:bg-red-600" : "bg-[#EF4444] hover:bg-[#DC2626]"
+                    )}
                   >
                     Clear
                   </Button>
@@ -408,7 +423,10 @@ export default function AdminDrivers() {
                                 {getBusDisplay(driver.assignedBusId || driver.busId)}
                               </span>
                             ) : (
-                              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-green-100 text-green-800">
+                              <span className={cn(
+                                "inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium",
+                                theme === 'dark' ? "bg-green-100 text-green-800" : "bg-green-50 text-green-700"
+                              )}>
                                 Reserved
                               </span>
                             )}
@@ -426,28 +444,43 @@ export default function AdminDrivers() {
                           <TableCell className="text-right py-2">
                             <DropdownMenu>
                               <DropdownMenuTrigger asChild>
-                                <Button variant="ghost" className="h-8 w-8 p-0 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700">
+                                <Button variant="ghost" className={cn(
+                                  "h-8 w-8 p-0 cursor-pointer",
+                                  theme === 'dark' ? "hover:bg-gray-700" : "hover:bg-gray-100"
+                                )}>
                                   <MoreHorizontal className="h-4 w-4" />
                                 </Button>
                               </DropdownMenuTrigger>
-                              <DropdownMenuContent align="end" className="bg-gray-800 dark:bg-gray-900 border-gray-700 dark:border-gray-600 shadow-xl rounded-lg w-44">
-                                <DropdownMenuLabel className="text-white font-semibold px-2 py-1.5 text-sm">Actions</DropdownMenuLabel>
-                                <DropdownMenuSeparator className="bg-gray-600" />
+                              <DropdownMenuContent align="end" className={cn(
+                                "shadow-xl rounded-lg w-44",
+                                theme === 'dark' ? "bg-gray-900 border-gray-600" : "bg-white border-[#E5E7EB]"
+                              )}>
+                                <DropdownMenuLabel className={cn("font-semibold px-2 py-1.5 text-sm", theme === 'dark' ? "text-white" : "text-[#111827]")}>Actions</DropdownMenuLabel>
+                                <DropdownMenuSeparator className={cn(theme === 'dark' ? "bg-gray-600" : "bg-[#E5E7EB]")} />
                                 <DropdownMenuItem asChild>
-                                  <Link href={`/admin/drivers/view/${driver.id}`} className="text-white hover:bg-gray-700 dark:hover:bg-gray-800 focus:bg-gray-700 dark:focus:bg-gray-800 px-2 py-1.5 text-sm !text-white">
+                                  <Link href={`/admin/drivers/view/${driver.id}`} className={cn(
+                                    "px-2 py-1.5 text-sm",
+                                    theme === 'dark' ? "text-white hover:bg-gray-800 focus:bg-gray-800" : "text-[#111827] hover:bg-gray-100 focus:bg-gray-100"
+                                  )}>
                                     <Eye className="mr-2 h-3.5 w-3.5 text-blue-400" />
                                     View Details
                                   </Link>
                                 </DropdownMenuItem>
                                 <DropdownMenuItem asChild>
-                                  <Link href={`/admin/drivers/edit/${driver.id}`} className="text-white hover:bg-gray-700 dark:hover:bg-gray-800 focus:bg-gray-700 dark:focus:bg-gray-800 px-2 py-1.5 text-sm !text-white">
+                                  <Link href={`/admin/drivers/edit/${driver.id}`} className={cn(
+                                    "px-2 py-1.5 text-sm",
+                                    theme === 'dark' ? "text-white hover:bg-gray-800 focus:bg-gray-800" : "text-[#111827] hover:bg-gray-100 focus:bg-gray-100"
+                                  )}>
                                     <Edit className="mr-2 h-3.5 w-3.5 text-yellow-400" />
                                     Edit
                                   </Link>
                                 </DropdownMenuItem>
-                                <DropdownMenuSeparator className="bg-gray-600" />
+                                <DropdownMenuSeparator className={cn(theme === 'dark' ? "bg-gray-600" : "bg-[#E5E7EB]")} />
                                 <DropdownMenuItem
-                                  className="text-white hover:!bg-red-600 focus:!bg-red-600 px-2 py-1.5 text-sm !text-white cursor-pointer transition-colors"
+                                  className={cn(
+                                    "px-2 py-1.5 text-sm cursor-pointer transition-colors",
+                                    theme === 'dark' ? "text-white hover:!bg-red-600 focus:!bg-red-600" : "text-[#111827] hover:!bg-red-600 focus:!bg-red-600"
+                                  )}
                                   onClick={() => {
                                     setDeleteItem({ id: driver.id, name: driver.name || driver.fullName });
                                     setIsDialogOpen(true);
@@ -480,14 +513,20 @@ export default function AdminDrivers() {
           </DialogHeader>
           <DialogFooter>
             <Button
-              className="bg-white hover:bg-gray-50 text-gray-900 border border-gray-300 dark:bg-gray-800 dark:hover:bg-gray-700 dark:text-gray-100 dark:border-gray-600"
+              className={cn(
+                "border font-medium",
+                theme === 'dark' ? "bg-gray-800 hover:bg-gray-700 text-gray-100 border-gray-600" : "bg-white hover:bg-gray-50 text-[#111827] border-[#E5E7EB]"
+              )}
               onClick={() => setIsDialogOpen(false)}
               disabled={isDeleting}
             >
               Cancel
             </Button>
             <Button
-              className="bg-red-600 hover:bg-red-700 text-white border-red-600 hover:border-red-700 font-medium min-w-[80px]"
+              className={cn(
+                "border font-medium min-w-[80px]",
+                theme === 'dark' ? "bg-red-600 hover:bg-red-700 text-white border-red-600 hover:border-red-700" : "bg-[#EF4444] hover:bg-[#DC2626] text-white border-[#EF4444] hover:border-[#DC2626]"
+              )}
               onClick={async () => {
                 if (!deleteItem) return;
                 setIsDeleting(true);

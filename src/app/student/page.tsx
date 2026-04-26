@@ -31,302 +31,78 @@ export default function StudentDashboard() {
   const { userData, currentUser } = useAuth();
   const router = useRouter();
   const [showQRModal, setShowQRModal] = useState(false);
-  const [studentDataFirestore, setStudentDataFirestore] = useState<any>(null);
-  const [studentDataLoading, setStudentDataLoading] = useState(true);
-  const [daysUntilExpiry, setDaysUntilExpiry] = useState<number | null>(null);
-
-  // Fetch student data directly from Firestore with proper field mapping
-  useEffect(() => {
-    const fetchStudentData = async () => {
-      if (!currentUser?.uid) return;
-
-      try {
-        // Use the dataService to get student data
-        const { getStudentByUid } = await import('@/lib/dataService');
-        const data = await getStudentByUid(currentUser.uid);
-
-        if (data) {
-          // Map the correct field names from Firestore
-          setStudentDataFirestore({
-            ...data,
-            // Ensure correct field mappings
-            fullName: data.fullName || data.name,
-            busId: data.busId || data.assignedBusId,
-            routeId: data.routeId || data.assignedRouteId,
-            status: data.status || 'pending',
-            shift: data.shift || 'Not Set',
-            stopId: data.stopId || data.stopName || 'Not Set',
-            paymentInfo: data.paymentInfo || {
-              amountPaid: data.amountPaid || 0,
-              paymentVerified: data.paymentVerified || false,
-              currency: 'INR'
-            }
-          });
-        }
-      } catch (error) {
-        console.error('Error fetching student data:', error);
-      } finally {
-        setStudentDataLoading(false);
-      }
-    };
-
-    fetchStudentData();
-  }, [currentUser?.uid]); // Use currentUser.uid instead of currentUser to ensure stable dependency
-
-  // Use Firestore data
-  const studentData = studentDataFirestore;
-
-  // OPTIMIZED: Fetch only specific bus and route data instead of entire collections
+  const [studentData, setStudentData] = useState<any>(null);
   const [busData, setBusData] = useState<any>(null);
   const [routeData, setRouteData] = useState<any>(null);
   const [driverData, setDriverData] = useState<any>(null);
-  const [busesLoading, setBusesLoading] = useState(false);
-  const [routesLoading, setRoutesLoading] = useState(false);
-  const [driverLoading, setDriverLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [tripActive, setTripActive] = useState(false);
+  const [daysUntilExpiry, setDaysUntilExpiry] = useState<number | null>(null);
 
+  // CONSOLIDATED DATA FETCH
   useEffect(() => {
-    const fetchAssignedData = async () => {
-      if (!studentData) return;
+    if (!currentUser?.uid) return;
 
-      const studentBusId = studentData.busId || studentData.assignedBusId;
-      const studentRouteId = studentData.routeId || studentData.assignedRouteId;
-
-      if (!studentBusId && !studentRouteId) return;
-
+    const fetchDashboardData = async () => {
       try {
-        const { collection, query, where, getDocs, limit, doc, getDoc } = await import('firebase/firestore');
-        const { db } = await import('@/lib/firebase');
+        const { authApiFetch } = await import('@/lib/secure-api-client');
+        const response = await authApiFetch(currentUser, '/api/student/dashboard-data');
+        
+        if (response.ok) {
+          const result = await response.json();
+          setStudentData(result.student);
+          setBusData(result.bus);
+          setRouteData(result.route);
+          setDriverData(result.driver);
+          setTripActive(result.tripActive);
 
-        // PERF: Fire bus, route, and driver fetches in PARALLEL instead of sequential
-        setBusesLoading(true);
-        setRoutesLoading(true);
-        setDriverLoading(true);
-
-        const fetchBus = async () => {
-          if (!studentBusId) return null;
-          // Try document ID first (most common)
-          const docSnap = await getDoc(doc(db, 'buses', studentBusId));
-          if (docSnap.exists()) return { id: docSnap.id, ...docSnap.data() };
-          // Fallback: query by busId field
-          const q = query(collection(db, 'buses'), where('busId', '==', studentBusId), limit(1));
-          const snap = await getDocs(q);
-          if (!snap.empty) return { id: snap.docs[0].id, ...snap.docs[0].data() };
-          // Fallback: query by busNumber
-          const q2 = query(collection(db, 'buses'), where('busNumber', '==', studentBusId), limit(1));
-          const snap2 = await getDocs(q2);
-          if (!snap2.empty) return { id: snap2.docs[0].id, ...snap2.docs[0].data() };
-          return null;
-        };
-
-        const fetchRoute = async () => {
-          if (!studentRouteId) return null;
-          const normalizedRouteId = studentRouteId.startsWith('route_') ? `Route-${studentRouteId.replace('route_', '')}` : studentRouteId;
-          const docSnap = await getDoc(doc(db, 'routes', normalizedRouteId));
-          if (docSnap.exists()) return { id: docSnap.id, ...docSnap.data() };
-          const q = query(collection(db, 'routes'), where('routeId', '==', studentRouteId), limit(1));
-          const snap = await getDocs(q);
-          if (!snap.empty) return { id: snap.docs[0].id, ...snap.docs[0].data() };
-          const q2 = query(collection(db, 'routes'), where('routeName', '==', studentRouteId), limit(1));
-          const snap2 = await getDocs(q2);
-          if (!snap2.empty) return { id: snap2.docs[0].id, ...snap2.docs[0].data() };
-          return null;
-        };
-
-        const fetchDriver = async () => {
-          if (!studentBusId) return null;
-          const studentShift = studentData.shift || 'Morning';
-          const driversQuery = query(
-            collection(db, 'drivers'),
-            where('assignedBusId', '==', studentBusId)
-          );
-          const driversSnap = await getDocs(driversQuery);
-          if (driversSnap.empty) return null;
-
-          const drivers = driversSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-          const normalizedStudentShift = studentShift.toString().replace(/\s*Shift\s*$/i, '').trim().toLowerCase();
-
-          // Priority 1: Exact shift match
-          let matchedDriver = drivers
-            .filter((d: any) => {
-              const driverShift = (d.shift || 'Morning & Evening').toString().replace(/\s*Shift\s*$/i, '').trim().toLowerCase();
-              return driverShift === normalizedStudentShift;
-            })
-            .sort((a: any, b: any) => (a.createdAt?.seconds || 0) - (b.createdAt?.seconds || 0))[0] || null;
-
-          // Priority 2: Driver with "Both" shift
-          if (!matchedDriver) {
-            matchedDriver = drivers
-              .filter((d: any) => {
-                const driverShift = (d.shift || 'Morning & Evening').toString().replace(/\s*Shift\s*$/i, '').trim().toLowerCase();
-                return driverShift === 'morning & evening' || driverShift === 'both';
-              })
-              .sort((a: any, b: any) => (a.createdAt?.seconds || 0) - (b.createdAt?.seconds || 0))[0] || null;
+          // Calculate expiry if present
+          if (result.student?.validUntil) {
+            const expiryDate = result.student.validUntil.seconds 
+              ? new Date(result.student.validUntil.seconds * 1000)
+              : new Date(result.student.validUntil);
+            const diffDays = Math.ceil((expiryDate.getTime() - Date.now()) / (1000 * 60 * 60 * 24));
+            setDaysUntilExpiry(diffDays);
           }
-
-          // Fallback: first driver
-          return matchedDriver || drivers[0] || null;
-        };
-
-        // Fire all 3 in parallel
-        const [busResult, routeResult, driverResult] = await Promise.allSettled([
-          fetchBus(),
-          fetchRoute(),
-          fetchDriver(),
-        ]);
-
-        if (busResult.status === 'fulfilled' && busResult.value) setBusData(busResult.value);
-        if (routeResult.status === 'fulfilled' && routeResult.value) setRouteData(routeResult.value);
-        if (driverResult.status === 'fulfilled' && driverResult.value) setDriverData(driverResult.value);
-
+        }
       } catch (error) {
-        console.error('Error fetching assigned data:', error);
+        console.error('Error fetching dashboard data:', error);
       } finally {
-        setBusesLoading(false);
-        setRoutesLoading(false);
-        setDriverLoading(false);
+        setLoading(false);
       }
     };
 
-    fetchAssignedData();
-  }, [studentData]);
+    fetchDashboardData();
+  }, [currentUser]);
 
-
-
-  // Direct trip status from Supabase (via API to bypass RLS)
-  const [tripActive, setTripActive] = useState(false);
-  const [tripStatusLoading, setTripStatusLoading] = useState(true);
-
-  // Fetch trip status via API (uses service role key to bypass RLS)
+  // REALTIME SUBSCRIPTIONS
   useEffect(() => {
     const busId = studentData?.busId || studentData?.assignedBusId;
-    if (!busId) {
-      setTripStatusLoading(false);
-      return;
-    }
+    if (!busId) return;
 
-    const checkActiveTrip = async () => {
-      try {
-        const response = await authApiFetch(currentUser, '/api/student/trip-status', {
-          query: { busId },
-          timeoutMs: 8000,
-        });
-
-        // Handle non-OK responses gracefully
-        if (!response.ok) {
-          console.warn('⚠️ Trip status API returned non-OK status:', response.status);
-          setTripActive(false);
-          return;
-        }
-
-        const result = await response.json();
-        setTripActive(!!result.tripActive);
-      } catch (err) {
-        console.error('Error checking trip status:', err);
-        // Keep current state on error
-      } finally {
-        setTripStatusLoading(false);
-      }
-    };
-
-    checkActiveTrip();
-
-    // Subscribe to real-time changes on driver_status table
-    // This still works because Supabase realtime doesn't require the same RLS as queries
     const channel = supabase
       .channel(`dashboard_driver_status_${busId}`)
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'driver_status',
-          filter: `bus_id=eq.${busId}`
-        },
-        (payload) => {
-          if (payload.eventType === 'DELETE') {
-            setTripActive(false);
-          } else if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'driver_status', filter: `bus_id=eq.${busId}` }, (payload) => {
+          if (payload.eventType === 'DELETE') setTripActive(false);
+          else if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
             const newStatus = (payload.new as any).status;
-            const isActive = newStatus === 'on_trip' || newStatus === 'enroute';
-            setTripActive(isActive);
+            setTripActive(newStatus === 'on_trip' || newStatus === 'enroute');
           }
-        }
-      )
-      .subscribe((status) => {
-      });
+      })
+      .subscribe();
 
-    // Also listen for trip broadcasts for instant updates
     const tripChannel = supabase
       .channel(`trip-status-${busId}`)
-      .on('broadcast', { event: 'trip_started' }, (payload) => {
-        console.log('🚀 Trip started broadcast received!', payload);
-        setTripActive(true);
-        if (typeof window !== 'undefined' && 'addToast' in window) {
-          // We don't have addToast explicitly mapped here, we can dispatch a custom event
-          // Or since useToast isn't imported, let's just let FCMTokenManager handle the native Push Notification or the layout's FCMTokenManager.
-        }
-      })
-      .on('broadcast', { event: 'trip_ended' }, (payload) => {
-        console.log('🏁 Trip ended broadcast received!', payload);
-        setTripActive(false);
-      })
+      .on('broadcast', { event: 'trip_started' }, () => setTripActive(true))
+      .on('broadcast', { event: 'trip_ended' }, () => setTripActive(false))
       .subscribe();
 
     return () => {
       supabase.removeChannel(channel);
       supabase.removeChannel(tripChannel);
     };
-  }, [studentData?.busId, studentData?.assignedBusId, currentUser]);
+  }, [studentData?.busId, studentData?.assignedBusId]);
 
-  // NOTE: The "Current Status" card now uses tripActive state directly from Supabase driver_status table
-  // This provides accurate real-time trip status instead of the Firestore bus.status field
-  // (which represents bus condition like Active/Maintenance, not trip status)
-
-
-
-
-  // Calculate days until expiry
-  useEffect(() => {
-    if (studentData?.validUntil) {
-      try {
-        // Handle Firestore Timestamp properly
-        let expiryDate: Date;
-
-        if (studentData.validUntil.toDate) {
-          // It's a Firestore Timestamp
-          expiryDate = studentData.validUntil.toDate();
-        } else if (studentData.validUntil.seconds) {
-          // It's a Firestore Timestamp object with seconds
-          expiryDate = new Date(studentData.validUntil.seconds * 1000);
-        } else if (typeof studentData.validUntil === 'string') {
-          // It's an ISO string
-          expiryDate = new Date(studentData.validUntil);
-        } else if (studentData.validUntil instanceof Date) {
-          // It's already a Date object
-          expiryDate = studentData.validUntil;
-        } else {
-          console.warn('Unknown validUntil format:', studentData.validUntil);
-          return;
-        }
-
-        const today = new Date();
-        today.setHours(0, 0, 0, 0); // Set to start of day for accurate day count
-
-        const expiryDateStart = new Date(expiryDate);
-        expiryDateStart.setHours(0, 0, 0, 0); // Set to start of day
-
-        const diffTime = expiryDateStart.getTime() - today.getTime();
-        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-
-        setDaysUntilExpiry(diffDays);
-      } catch (error) {
-        console.error('Error calculating days until expiry:', error);
-        setDaysUntilExpiry(null);
-      }
-    }
-  }, [studentData?.validUntil]);
-
-  const loading = studentDataLoading || busesLoading || routesLoading || driverLoading || tripStatusLoading;
 
   useEffect(() => {
     if (userData && userData.role !== "student") {

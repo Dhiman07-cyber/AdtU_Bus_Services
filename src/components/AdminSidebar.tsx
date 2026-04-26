@@ -29,6 +29,7 @@ import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useSidebar } from './AppShell';
 import { useSystemConfig } from '@/contexts/SystemConfigContext';
+import { useTheme } from '@/components/theme-provider';
 
 interface SidebarItem {
   href: string;
@@ -94,6 +95,7 @@ export default function AdminSidebar() {
   const pathname = usePathname();
   const { collapsed, setCollapsed, mobileOpen } = useSidebar();
   const { config } = useSystemConfig();
+  const { theme } = useTheme();
 
   // Auto-collapse on mobile (to keep desktop view compact if resized)
   useEffect(() => {
@@ -119,8 +121,8 @@ export default function AdminSidebar() {
       }}
       className={cn(
         "fixed top-12 left-0 bottom-0 z-40",
-        "border-r border-white/10",
-        "bg-[#0B1224]",
+        "border-r",
+        theme === 'dark' ? "border-white/10 bg-[#0B1224]" : "border-admin-border bg-admin-sidebar",
         "flex flex-col overflow-hidden",
         "hidden md:flex",
         "transition-[width] duration-100 ease-linear"
@@ -141,10 +143,10 @@ export default function AdminSidebar() {
               </div>
             </div>
             <div className="flex flex-col">
-              <span className="text-[12px] font-bold text-zinc-100 leading-none tracking-tight">
+              <span className={cn("text-[12px] font-bold leading-none tracking-tight", theme === 'dark' ? "text-zinc-100" : "text-admin-text")}>
                 Control Hub
               </span>
-              <span className="text-[10px] text-zinc-400 font-medium">Administrator</span>
+              <span className={cn("text-[10px] font-medium", theme === 'dark' ? "text-zinc-400" : "text-admin-text-secondary")}>Administrator</span>
             </div>
           </div>
         )}
@@ -152,7 +154,7 @@ export default function AdminSidebar() {
           variant="ghost"
           size="icon"
           onClick={() => setCollapsed(!collapsed)}
-          className="h-6 w-6 rounded-md hover:bg-white/5 transition-all text-zinc-500 hover:text-zinc-200"
+          className={cn("h-6 w-6 rounded-md transition-all", theme === 'dark' ? "hover:bg-white/5 text-zinc-500 hover:text-zinc-200" : "hover:bg-admin-hover text-admin-text-secondary hover:text-admin-text")}
           title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
         >
           {collapsed ? (
@@ -178,7 +180,7 @@ export default function AdminSidebar() {
             collapsed ? "mt-2 space-y-0" : "mt-2 space-y-0.5"
           )}>
             {!collapsed && (
-              <h3 className="px-2 text-[9px] uppercase tracking-widest font-semibold text-zinc-400 mb-1 font-mono">
+              <h3 className={cn("px-2 text-[9px] uppercase tracking-widest font-semibold mb-1 font-mono", theme === 'dark' ? "text-zinc-400" : "text-admin-text-secondary")}>
                 {group.name}
               </h3>
             )}
@@ -204,8 +206,8 @@ export default function AdminSidebar() {
                           collapsed ? "py-2" : "py-1.5",
                           "text-[12.5px] font-medium outline-none",
                           isActive
-                            ? "text-blue-400 bg-blue-400/5"
-                            : "text-zinc-400 hover:text-zinc-100 hover:bg-white/5"
+                            ? theme === 'dark' ? "text-blue-400 bg-blue-400/5" : "text-admin-primary bg-admin-active"
+                            : theme === 'dark' ? "text-zinc-400 hover:text-zinc-100 hover:bg-white/5" : "text-admin-text-secondary hover:text-admin-text hover:bg-admin-hover"
                         )}
                       >
                         {isActive && (
@@ -237,7 +239,7 @@ export default function AdminSidebar() {
                       <TooltipContent
                         side="right"
                         sideOffset={10}
-                        className="bg-slate-900/90 backdrop-blur-md border border-slate-700/50 text-slate-100 text-xs font-medium px-3 py-2 rounded-lg shadow-xl"
+                        className={cn("backdrop-blur-md border text-xs font-medium px-3 py-2 rounded-lg shadow-xl", theme === 'dark' ? "bg-slate-900/90 border-slate-700/50 text-slate-100" : "bg-admin-card border-admin-border text-admin-text")}
                       >
                         <div className="flex items-center gap-2">
                           <Icon className={cn("h-3.5 w-3.5", item.color)} />
@@ -265,15 +267,15 @@ export default function AdminSidebar() {
                 collapsed ? "py-2" : "py-2",
                 "text-[12.5px] font-medium outline-none",
                 pathname?.includes('sys-renewal-config')
-                  ? "text-white bg-white/5"
-                  : "text-zinc-400 hover:text-zinc-100 hover:bg-white/5"
+                  ? theme === 'dark' ? "text-white bg-white/5" : "text-admin-text bg-admin-active"
+                  : theme === 'dark' ? "text-zinc-400 hover:text-zinc-100 hover:bg-white/5" : "text-admin-text-secondary hover:text-admin-text hover:bg-admin-hover"
               )}
             >
               <div className={cn(
                 "relative flex items-center justify-center transition-transform duration-300 group-hover:rotate-90",
                 collapsed ? "mx-auto" : ""
               )}>
-                <Settings className="h-4 w-4 text-zinc-400 group-hover:text-white transition-colors" />
+                <Settings className={cn("h-4 w-4 transition-colors", theme === 'dark' ? "text-zinc-400 group-hover:text-white" : "text-admin-text-secondary group-hover:text-admin-text")} />
               </div>
 
               {!collapsed && (
@@ -282,8 +284,8 @@ export default function AdminSidebar() {
                   animate={{ opacity: 1, x: 0 }}
                   className="flex flex-col items-start leading-none"
                 >
-                  <span className="text-zinc-200">System Config</span>
-                  <span className="text-[9px] text-zinc-400 mt-0.5">Core Settings</span>
+                  <span className={cn(theme === 'dark' ? "text-zinc-200" : "text-admin-text")}>System Config</span>
+                  <span className={cn("text-[9px] mt-0.5", theme === 'dark' ? "text-zinc-400" : "text-admin-text-secondary")}>Core Settings</span>
                 </motion.div>
               )}
             </Link>
@@ -292,10 +294,10 @@ export default function AdminSidebar() {
             <TooltipContent
               side="right"
               sideOffset={10}
-              className="bg-slate-900/90 backdrop-blur-md border border-slate-700/50 text-slate-100 text-xs font-medium px-3 py-2 rounded-lg shadow-xl"
+              className={cn("backdrop-blur-md border text-xs font-medium px-3 py-2 rounded-lg shadow-xl", theme === 'dark' ? "bg-slate-900/90 border-slate-700/50 text-slate-100" : "bg-white border-[#E5E7EB] text-[#111827]")}
             >
               <div className="flex items-center gap-2">
-                <Settings className="h-3.5 w-3.5 text-zinc-400" />
+                <Settings className={cn("h-3.5 w-3.5", theme === 'dark' ? "text-zinc-400" : "text-[#6B7280]")} />
                 <span>System Config</span>
               </div>
             </TooltipContent>
@@ -307,13 +309,13 @@ export default function AdminSidebar() {
           <div className="mt-1 px-2 flex items-center justify-between">
             <div className="flex items-center gap-1.5 opacity-60 hover:opacity-100 transition-opacity">
               <div className="h-1.5 w-1.5 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)] animate-pulse" />
-              <span className="text-[9px] text-zinc-400 uppercase tracking-wider font-semibold">Active</span>
+              <span className={cn("text-[9px] uppercase tracking-wider font-semibold", theme === 'dark' ? "text-zinc-400" : "text-admin-text-secondary")}>Active</span>
             </div>
-            <span className="text-[9px] text-zinc-400 font-mono">{config?.version || 'v2.4.0'}</span>
+            <span className={cn("text-[9px] font-mono", theme === 'dark' ? "text-zinc-400" : "text-admin-text-secondary")}>{config?.version || 'v2.4.0'}</span>
           </div>
         ) : (
           <div className="flex justify-center mt-1 opacity-60">
-            <span className="text-[8px] text-zinc-400 font-mono tracking-tighter">
+            <span className={cn("text-[8px] font-mono tracking-tighter", theme === 'dark' ? "text-zinc-400" : "text-admin-text-secondary")}>
               {config?.version || 'v2.4.0'}
             </span>
           </div>

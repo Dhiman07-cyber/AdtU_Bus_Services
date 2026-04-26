@@ -36,8 +36,19 @@ try {
     auth.useDeviceLanguage();
   }
 
-  db = getFirestore(app);
-  storage = getStorage(app);
+  try {
+    db = getFirestore(app);
+    storage = getStorage(app);
+  } catch (initError: any) {
+    if (initError?.message?.includes('firestore') || initError?.message?.includes('storage')) {
+      console.warn('⚠️ Firebase services initialization failed (expected during build if env vars are restricted):', initError.message);
+      // During build, we can afford to have these as null/undefined if they are not used for static generation
+      db = null as any;
+      storage = null as any;
+    } else {
+      throw initError;
+    }
+  }
 
   // Connect to emulators in development if enabled
   if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development' && process.env.NEXT_PUBLIC_USE_FIREBASE_EMULATOR === 'true') {

@@ -19,30 +19,6 @@ interface BusLocation {
   timestamp: string;
 }
 
-const CACHE_PREFIX = 'adtu_v1_bus_loc_';
-
-function readCache(busId: string): BusLocation | null {
-  if (typeof window === 'undefined' || !busId) return null;
-  try {
-    const raw = localStorage.getItem(CACHE_PREFIX + busId);
-    if (!raw) return null;
-    const p = JSON.parse(raw) as BusLocation;
-    if (!isValidLatLng(p.lat, p.lng)) return null;
-    return p;
-  } catch {
-    return null;
-  }
-}
-
-function writeCache(busId: string, loc: BusLocation) {
-  if (typeof window === 'undefined' || !busId) return;
-  try {
-    localStorage.setItem(CACHE_PREFIX + busId, JSON.stringify(loc));
-  } catch {
-    /* quota / private mode */
-  }
-}
-
 export const useBusLocation = (busId: string) => {
   const [currentLocation, setCurrentLocation] = useState<BusLocation | null>(null);
   const [history, setHistory] = useState<BusLocation[]>([]);
@@ -66,63 +42,6 @@ export const useBusLocation = (busId: string) => {
   const applyIncomingLocation = useCallback((newLocation: BusLocation, forceDisplay: boolean) => {
     if (!isValidLatLng(newLocation.lat, newLocation.lng)) return;
 
-    if (
-      lastUiTsRef.current &&
-      !isNewerTimestamp(newLocation.timestamp, lastUiTsRef.current)
-    ) {
-      return;
-    }
-
-    const atMs = Date.parse(newLocation.timestamp) || Date.now();
-    const jumpFrom = lastAcceptedRef.current;
-    if (
-      jumpFrom &&
-      isImpossibleJump(
-        { lat: jumpFrom.lat, lng: jumpFrom.lng, atMs: jumpFrom.atMs },
-        { lat: newLocation.lat, lng: newLocation.lng, atMs },
-        80
-      )
-    ) {
-      return;
-    }
-
-    lastAcceptedRef.current = {
-      lat: newLocation.lat,
-      lng: newLocation.lng,
-      atMs,
-      ts: newLocation.timestamp,
-    };
-
-    writeCache(newLocation.busId, newLocation);
-
-    let emit = forceDisplay;
-    if (!forceDisplay) {
-      const t = shouldEmitDisplayUpdate(
-        { lat: newLocation.lat, lng: newLocation.lng },
-        Date.now(),
-        throttleRef.current,
-        {
-          minIntervalMs: 1600,
-          minMoveMeters: 12,
-          hiddenIntervalMs: 4500,
-        },
-        pageHiddenRef.current
-      );
-      throttleRef.current = t.nextState;
-      emit = t.emit;
-    } else {
-      throttleRef.current = {
-        lastEmitMs: Date.now(),
-        lastLat: newLocation.lat,
-        lastLng: newLocation.lng,
-      };
-    }
-
-    if (!emit) {
-      return;
-    }
-
-    lastUiTsRef.current = newLocation.timestamp;
     setCurrentLocation(newLocation);
     setHistory((prev) => {
       const next = [...prev, newLocation];
@@ -161,16 +80,10 @@ export const useBusLocation = (busId: string) => {
       return;
     }
 
-    const boot = readCache(busId);
-    if (boot) {
-      lastUiTsRef.current = boot.timestamp;
-      setCurrentLocation(boot);
-      setHistory([boot]);
-    } else {
-      lastUiTsRef.current = null;
-      setCurrentLocation(null);
-      setHistory([]);
-    }
+    // Always start fresh - no cache
+    lastUiTsRef.current = null;
+    setCurrentLocation(null);
+    setHistory([]);
 
     const fetchInitialLocation = async () => {
       if (!supabase || !busId) {
@@ -190,25 +103,30 @@ export const useBusLocation = (busId: string) => {
 
         if (!qErr && locations && locations.length > 0) {
           const location = locations[0];
-          const busLocation: BusLocation = {
-            busId: location.bus_id,
-            driverUid: location.driver_uid,
-            lat: location.lat,
-            lng: location.lng,
-            speed: location.speed || 0,
-            heading: location.heading || 0,
-            accuracy: location.accuracy,
-            timestamp: location.timestamp || new Date().toISOString(),
-          };
-          if (isValidLatLng(busLocation.lat, busLocation.lng)) {
-            applyIncomingLocation(busLocation, true);
-            setHistory([busLocation]);
-          }
-        } else {
-          const c = readCache(busId);
-          if (c && isValidLatLng(c.lat, c.lng)) {
-            applyIncomingLocation(c, true);
-            setHistory([c]);
+          
+          // CRITICAL: Check if the location is recent (within last 30 minutes)
+          // This prevents showing stale markers from ended trips
+          const locationTime = new Date(location.timestamp).getTime();
+          const now = Date.now();
+          const thirtyMinutesMs = 30 * 60 * 1000;
+
+          if (now - locationTime < thirtyMinutesMs) {
+            const busLocation: BusLocation = {
+              busId: location.bus_id,
+              driverUid: location.driver_uid,
+              lat: location.lat,
+              lng: location.lng,
+              speed: location.speed || 0,
+              heading: location.heading || 0,
+              accuracy: location.accuracy,
+              timestamp: location.timestamp || new Date().toISOString(),
+            };
+            if (isValidLatLng(busLocation.lat, busLocation.lng)) {
+              applyIncomingLocation(busLocation, true);
+              setHistory([busLocation]);
+            }
+          } else {
+            console.log('ℹ️ Location found but too stale (>30m), ignoring.');
           }
         }
       } catch (err) {
