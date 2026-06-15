@@ -39,6 +39,7 @@ secrets/
 .idea/
 *.swp
 *.swo
+.claude
 
 # Debug
 *.log
