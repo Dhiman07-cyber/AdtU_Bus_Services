@@ -100,13 +100,13 @@ export default function StudentQRDisplay({
 
             // University Name - exact case as requested
             ctx.fillStyle = '#ffffff';
-            ctx.font = 'bold 18px Inter, system-ui, sans-serif';
+            ctx.font = 'bold 18px system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
             ctx.textAlign = 'left';
             ctx.fillText('Assam down town University', logoStartX, 42);
 
             // Subtitle
             ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
-            ctx.font = '600 11px Inter, system-ui, sans-serif';
+            ctx.font = '600 11px system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
             ctx.fillText('Digital Bus Pass', logoStartX, 58);
 
             // === STUDENT INFO SECTION ===
@@ -114,14 +114,14 @@ export default function StudentQRDisplay({
 
             // Student Name Label
             ctx.fillStyle = 'rgba(255, 255, 255, 0.4)';
-            ctx.font = '700 10px Inter, system-ui, sans-serif';
+            ctx.font = '700 10px system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
             ctx.letterSpacing = '1.5px';
             ctx.fillText('STUDENT NAME', 30, infoY);
             ctx.letterSpacing = '0px';
 
             // Student Name Value
             ctx.fillStyle = '#ffffff';
-            ctx.font = 'bold 24px Inter, system-ui, sans-serif';
+            ctx.font = 'bold 24px system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
             ctx.fillText(studentName || 'Student', 30, infoY + 28);
 
             // Status Badge
@@ -136,7 +136,7 @@ export default function StudentQRDisplay({
             ctx.fill();
 
             ctx.fillStyle = '#ffffff';
-            ctx.font = 'bold 11px Inter, system-ui, sans-serif';
+            ctx.font = 'bold 11px system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
             ctx.textAlign = 'center';
             ctx.fillText('ACTIVE', badgeX + 40, badgeY + 18);
 
@@ -149,7 +149,7 @@ export default function StudentQRDisplay({
 
             // QR Code Label
             ctx.fillStyle = 'rgba(255, 255, 255, 0.4)';
-            ctx.font = '700 10px Inter, system-ui, sans-serif';
+            ctx.font = '700 10px system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
             ctx.textAlign = 'center';
             ctx.letterSpacing = '1.5px';
             ctx.fillText('SCAN TO VERIFY', cardWidth / 2, qrContainerY + 15);
@@ -218,7 +218,7 @@ export default function StudentQRDisplay({
 
             ctx.textAlign = 'center';
             ctx.fillStyle = 'rgba(255, 255, 255, 0.4)';
-            ctx.font = '700 9px Inter, system-ui, sans-serif';
+            ctx.font = '700 9px system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
             ctx.letterSpacing = '1.5px';
             ctx.fillText('ENROLLMENT ID', cardWidth / 2, enrollY + 20);
             ctx.letterSpacing = '0px';
@@ -241,7 +241,7 @@ export default function StudentQRDisplay({
             // Footer text - centered
             ctx.textAlign = 'center';
             ctx.fillStyle = 'rgba(255, 255, 255, 0.3)';
-            ctx.font = '600 9px Inter, system-ui, sans-serif';
+            ctx.font = '600 9px system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
             ctx.fillText('Official Digital Authorization • Keep this pass with you', cardWidth / 2, footerY + 8);
 
             // Save to file

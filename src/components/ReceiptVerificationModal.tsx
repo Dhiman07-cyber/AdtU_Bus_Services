@@ -19,6 +19,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
+import { safeImageSrc } from '@/lib/security/url-sanitizer';
 
 interface ReceiptData {
     studentName: string;
@@ -123,7 +124,7 @@ export default function ReceiptVerificationModal({
                                             {receiptData.studentProfilePic ? (
                                                 <div className="w-12 h-12 rounded-full border-2 border-blue-500/20 overflow-hidden shadow-lg">
                                                     <img
-                                                        src={receiptData.studentProfilePic}
+                                                        src={safeImageSrc(receiptData.studentProfilePic)}
                                                         alt={receiptData.studentName}
                                                         className="w-full h-full object-cover"
                                                     />

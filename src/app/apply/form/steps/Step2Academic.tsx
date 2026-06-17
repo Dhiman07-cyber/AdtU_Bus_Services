@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { OptimizedInput } from '@/components/forms/OptimizedInput';
 import FacultyDepartmentSelector from '@/components/faculty-department-selector';
 import { AcademicStepProps } from './types';
+import { ArrowLeft, ArrowRight } from 'lucide-react';
 
 export default function Step2Academic({
   formData,
@@ -12,16 +13,29 @@ export default function Step2Academic({
   onNext,
   onPrev,
   handleFacultySelect,
-  handleDepartmentSelect
+  handleDepartmentSelect,
+  onClear
 }: AcademicStepProps) {
   return (
-    <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
-      <div>
-        <h2 className="text-2xl font-bold tracking-tight text-white mb-1">Academic Information</h2>
-        <p className="text-sm text-slate-400">Please provide your current course and enrollment details.</p>
+    <div className="space-y-8 flex-1 flex flex-col">
+      <div className="flex items-start justify-between gap-4 border-b border-slate-800/40 pb-4">
+        <div>
+          <h2 className="text-2xl font-bold tracking-tight text-white mb-1">Academic Information</h2>
+          <p className="text-sm text-slate-400">Please provide your current course and enrollment details.</p>
+        </div>
+        {onClear && (
+          <Button
+            type="button"
+            variant="outline"
+            onClick={onClear}
+            className="border-red-950/30 bg-red-950/10 text-red-400 hover:text-white hover:bg-red-900/40 h-9 px-4 text-xs font-semibold rounded-xl transition-colors shrink-0"
+          >
+            Clear
+          </Button>
+        )}
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4 pt-2">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-6 pt-4">
         <div className="md:col-span-2">
           <FacultyDepartmentSelector
             onFacultySelect={handleFacultySelect}
@@ -62,12 +76,21 @@ export default function Step2Academic({
         />
       </div>
 
-      <div className="pt-6 border-t border-slate-800 flex justify-between">
-        <Button onClick={onPrev} variant="ghost" className="text-slate-400 hover:text-white hover:bg-slate-800 h-10 px-6 font-bold transition-all">
-          &lt;- Back to previous step
+      <div className="mt-auto pt-6 border-t border-slate-800 flex justify-between gap-4">
+        <Button 
+          onClick={onPrev} 
+          variant="outline" 
+          className="border-slate-800 bg-transparent hover:bg-slate-900 text-slate-400 hover:text-white h-11 px-5 font-semibold rounded-xl transition-colors flex items-center gap-2"
+        >
+          <ArrowLeft className="w-4 h-4" />
+          Back
         </Button>
-        <Button onClick={onNext} className="bg-white hover:bg-slate-200 text-black font-bold h-10 px-8 rounded-full shadow-lg transition-all hover:scale-105">
-          Continue -&gt;
+        <Button 
+          onClick={onNext} 
+          className="bg-indigo-600 hover:bg-indigo-500 text-white font-semibold h-11 px-6 rounded-xl shadow-lg shadow-indigo-600/20 transition-colors flex items-center gap-2"
+        >
+          Continue
+          <ArrowRight className="w-4 h-4" />
         </Button>
       </div>
     </div>

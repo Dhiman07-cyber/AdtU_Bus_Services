@@ -119,7 +119,7 @@ export function PremiumPageLoader({
         {/* Ambient Glows */}
         <div className="absolute -inset-10 bg-purple-500/15 blur-[40px] animate-pulse rounded-full" />
         <div className="absolute -inset-10 bg-blue-500/10 blur-[30px] animate-pulse delay-700 rounded-full" />
-        
+
         {/* Main Spinner Container */}
         <div className="relative z-10">
           <div className="pink-purple-spinner bg-dark-blue shadow-2xl shadow-purple-500/30"></div>

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { adminAuth, adminDb } from '@/lib/firebase-admin';
 import { FieldValue } from 'firebase-admin/firestore';
 import { v2 as cloudinary } from 'cloudinary';
-import nodemailer from 'nodemailer';
+import { requireModeratorPermission } from '@/lib/security/moderator-permissions';
 
 // Configure Cloudinary
 if (process.env.CLOUDINARY_API_KEY && process.env.CLOUDINARY_API_SECRET && process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME) {
@@ -39,6 +39,19 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Insufficient permissions' }, { status: 403 });
     }
 
+    const rejectorData = adminDoc.exists ? adminDoc.data() : modDoc.data();
+    const permissionDenied = await requireModeratorPermission(
+      {
+        uid,
+        email: decodedToken.email || '',
+        role: adminDoc.exists ? 'admin' : 'moderator',
+        name: rejectorData?.fullName || rejectorData?.name || '',
+      },
+      'payments',
+      'canRejectOfflinePayment'
+    );
+    if (permissionDenied) return permissionDenied;
+
     // Get renewal request
     const requestRef = adminDb.collection('renewal_requests').doc(requestId);
     const requestDoc = await requestRef.get();
@@ -61,6 +74,20 @@ export async function POST(request: NextRequest) {
 
     if (!studentId) {
       return NextResponse.json({ error: 'Student ID not found in request' }, { status: 400 });
+    }
+
+    if (requestData?.paymentId) {
+      try {
+        const { paymentsSupabaseService } = await import('@/lib/services/payments-supabase');
+        await paymentsSupabaseService.updatePaymentStatus(requestData.paymentId, 'Rejected', {
+          userId: uid,
+          name: rejectorData?.fullName || rejectorData?.name || rejectorName,
+          empId: rejectorData?.employeeId || rejectorData?.staffId || '',
+          role: adminDoc.exists ? 'Admin' : 'Moderator',
+        });
+      } catch (paymentError) {
+        console.error('Failed to reject pending renewal payment:', paymentError);
+      }
     }
 
     console.log('\n🚫 REJECTING RENEWAL REQUEST');

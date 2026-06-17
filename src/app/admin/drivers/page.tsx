@@ -51,6 +51,7 @@ import { PremiumPageLoader } from '@/components/LoadingSpinner';
 import { MoreHorizontal, Eye, Edit, Trash2, Search, Loader2, Plus, Filter, ArrowRightLeft, Users, RefreshCw } from "lucide-react";
 import { deleteDriver } from '@/lib/dataService';
 import Avatar from '@/components/Avatar';
+import { safeImageSrc } from "@/lib/security/url-sanitizer";
 // SPARK PLAN SAFETY: Replaced useRealtimeCollection with usePaginatedCollection
 import { usePaginatedCollection, invalidateCollectionCache } from '@/hooks/usePaginatedCollection';
 import { useEventDrivenRefresh } from '@/hooks/useEventDrivenRefresh';
@@ -389,7 +390,7 @@ export default function AdminDrivers() {
                           <TableCell className="py-2">
                             <div className="flex flex-row items-center gap-2">
                               <Avatar
-                                src={driver.profilePhotoUrl}
+                                src={safeImageSrc(driver.profilePhotoUrl)}
                                 name={driver.name || driver.fullName}
                                 size="sm"
                                 className="flex-shrink-0"

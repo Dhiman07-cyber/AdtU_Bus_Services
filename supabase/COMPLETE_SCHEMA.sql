@@ -331,7 +331,7 @@ CREATE TABLE IF NOT EXISTS public.payments (
   
   -- Constraints
   CONSTRAINT chk_payment_method CHECK (method IN ('Online', 'Offline') OR method IS NULL),
-  CONSTRAINT chk_payment_status CHECK (status IN ('Pending', 'Completed') OR status IS NULL),
+  CONSTRAINT chk_payment_status CHECK (status IN ('Pending', 'Completed', 'Rejected') OR status IS NULL),
   CONSTRAINT chk_payment_amount_positive CHECK (amount IS NULL OR amount > 0),
   CONSTRAINT chk_payment_session_year CHECK (session_start_year IS NULL OR (session_start_year >= 2020 AND session_start_year <= 2050))
 );
@@ -365,9 +365,19 @@ CREATE INDEX IF NOT EXISTS idx_payments_status ON public.payments (status);
 CREATE INDEX IF NOT EXISTS idx_payments_method ON public.payments (method);
 CREATE INDEX IF NOT EXISTS idx_payments_year ON public.payments (session_start_year, session_end_year);
 CREATE INDEX IF NOT EXISTS idx_payments_created_at ON public.payments (created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_payments_signature ON public.payments ((document_signature IS NOT NULL));
 CREATE INDEX IF NOT EXISTS idx_payments_razorpay_id ON public.payments(razorpay_payment_id) WHERE razorpay_payment_id IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_payments_razorpay_id_unique ON public.payments(razorpay_payment_id) WHERE razorpay_payment_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_payments_date_status ON public.payments(transaction_date DESC, status);
+CREATE INDEX IF NOT EXISTS idx_payments_student_uid_status ON public.payments (student_uid, status);
+CREATE INDEX IF NOT EXISTS idx_payments_status_method ON public.payments (status, method);
+CREATE INDEX IF NOT EXISTS idx_payments_pending_offline ON public.payments (status, method, created_at)
+  WHERE status = 'Pending' AND method = 'Offline';
+CREATE UNIQUE INDEX IF NOT EXISTS idx_payments_one_completed_per_student_session
+  ON public.payments (student_uid, session_start_year, session_end_year)
+  WHERE status = 'Completed'
+    AND student_uid IS NOT NULL
+    AND session_start_year IS NOT NULL
+    AND session_end_year IS NOT NULL;
 
 -- Payment exports table
 CREATE TABLE IF NOT EXISTS public.payment_exports (
@@ -455,7 +465,8 @@ CREATE TRIGGER update_swap_requests_updated_at
 CREATE OR REPLACE FUNCTION update_reassignment_logs_updated_at()
 RETURNS TRIGGER AS $$
 BEGIN
-  RETURN update_updated_at_column();
+  NEW.updated_at = NOW();
+  RETURN NEW;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
@@ -469,7 +480,8 @@ CREATE TRIGGER reassignment_logs_updated_at
 CREATE OR REPLACE FUNCTION update_payments_updated_at()
 RETURNS TRIGGER AS $$
 BEGIN
-  RETURN update_updated_at_column();
+  NEW.updated_at = NOW();
+  RETURN NEW;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
@@ -926,6 +938,9 @@ CREATE INDEX IF NOT EXISTS idx_active_trips_status ON public.active_trips(status
 CREATE INDEX IF NOT EXISTS idx_active_trips_status_bus ON public.active_trips(bus_id, status) WHERE status = 'active';
 CREATE INDEX IF NOT EXISTS idx_active_trips_heartbeat ON public.active_trips(last_heartbeat) WHERE status = 'active';
 CREATE INDEX IF NOT EXISTS idx_active_trips_start_time ON public.active_trips(start_time DESC);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_active_trips_bus_active ON public.active_trips(bus_id) WHERE status = 'active';
+CREATE UNIQUE INDEX IF NOT EXISTS idx_active_trips_driver_active ON public.active_trips(driver_id) WHERE status = 'active';
+CREATE INDEX IF NOT EXISTS idx_active_trips_route_active ON public.active_trips(route_id, status) WHERE status = 'active';
 
 -- Trigger for active_trips updated_at
 DROP TRIGGER IF EXISTS active_trips_updated_at ON public.active_trips;

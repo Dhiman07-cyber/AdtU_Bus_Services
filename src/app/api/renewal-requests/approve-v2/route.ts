@@ -6,6 +6,23 @@ import { generateOfflinePaymentId } from '@/lib/types/payment';
 import { computeBlockDatesFromValidUntil } from '@/lib/utils/deadline-computation';
 import { deleteAsset, extractPublicId } from '@/lib/cloudinary-server';
 import { getDeadlineConfig } from '@/lib/deadline-config-service';
+import { requireModeratorPermission } from '@/lib/security/moderator-permissions';
+
+function toDate(value: unknown): Date | null {
+  if (!value) return null;
+  if (
+    typeof value === 'object' &&
+    value !== null &&
+    'toDate' in value &&
+    typeof value.toDate === 'function'
+  ) {
+    const date = value.toDate();
+    return date instanceof Date && !Number.isNaN(date.getTime()) ? date : null;
+  }
+
+  const date = new Date(value as string | number | Date);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
 
 /**
  * POST /api/renewal-requests/approve-v2
@@ -19,7 +36,9 @@ export async function POST(request: NextRequest) {
 
     const body = await request.json();
     const { requestId } = body;
-    if (!requestId) return NextResponse.json({ error: 'Request ID required' }, { status: 400 });
+    if (typeof requestId !== 'string' || !requestId.trim() || requestId.length > 100) {
+      return NextResponse.json({ error: 'Request ID required' }, { status: 400 });
+    }
 
     // 1. Parallel Initial Data Fetching (Metadata & Auth)
     const [decodedToken, deadlineConfig] = await Promise.all([
@@ -37,6 +56,18 @@ export async function POST(request: NextRequest) {
     if (!approverData || !['admin', 'moderator'].includes(approverData.role)) {
       return NextResponse.json({ error: 'Insufficient permissions' }, { status: 403 });
     }
+
+    const permissionDenied = await requireModeratorPermission(
+      {
+        uid: approverUserId,
+        email: decodedToken.email || '',
+        role: approverData.role,
+        name: approverData.fullName || approverData.name || '',
+      },
+      'payments',
+      'canApproveOfflinePayment'
+    );
+    if (permissionDenied) return permissionDenied;
 
     if (!requestSnap.exists) return NextResponse.json({ error: 'Renewal request not found' }, { status: 404 });
     const requestData = requestSnap.data()!;
@@ -61,61 +92,23 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Check for double processing
-    if (await PaymentTransactionService.isPaymentProcessed(paymentId)) {
-      return NextResponse.json({ error: 'Payment already processed' }, { status: 400 });
+    // 3. Persist payment first, then update entitlement state.
+    const studentRef = adminDb.collection('students').doc(studentId) as FirebaseFirestore.DocumentReference<FirebaseFirestore.DocumentData>;
+    const requestRef = requestSnap.ref as FirebaseFirestore.DocumentReference<FirebaseFirestore.DocumentData>;
+    const studentSnap = await studentRef.get();
+    if (!studentSnap.exists) throw new Error('Student document not found');
+
+    const savedStudentData = studentSnap.data() || {};
+    const existingValidUntil = toDate(savedStudentData.validUntil);
+    const now = new Date();
+    let baseYear = now.getFullYear();
+
+    if (existingValidUntil && existingValidUntil > now) {
+      baseYear = savedStudentData.sessionEndYear || existingValidUntil.getFullYear();
     }
 
-    // 3. Main Atomic Transaction (Validity & Status)
-    const studentRef = adminDb.collection('students').doc(studentId);
-    let newValidUntil: Date = new Date();
-    let savedStudentData: any;
-
-    await adminDb.runTransaction(async (transaction: any) => {
-      const studentDoc = await transaction.get(studentRef);
-      if (!studentDoc.exists) throw new Error('Student document not found');
-      savedStudentData = studentDoc.data();
-
-      const existingValidUntil = savedStudentData.validUntil;
-      const now = new Date();
-      let baseYear = now.getFullYear();
-
-      if (existingValidUntil) {
-        const existingDate = existingValidUntil.toDate ? existingValidUntil.toDate() : new Date(existingValidUntil);
-        if (existingDate > now) {
-          baseYear = savedStudentData.sessionEndYear || baseYear;
-        }
-      }
-
-      newValidUntil = calculateValidUntilDate(baseYear, durationYears, deadlineConfig);
-      const newSessionEndYear = baseYear + durationYears;
-      const totalDuration = (savedStudentData.durationYears || 0) + durationYears;
-      const blockDates = computeBlockDatesFromValidUntil(newValidUntil, deadlineConfig);
-
-      // Update student document
-      transaction.update(studentRef, {
-        validUntil: newValidUntil,
-        status: 'active',
-        sessionEndYear: newSessionEndYear,
-        durationYears: totalDuration,
-        paymentAmount: totalFee,
-        softBlock: blockDates.softBlock,
-        hardBlock: blockDates.hardBlock,
-        lastRenewalDate: FieldValue.serverTimestamp(),
-        updatedAt: FieldValue.serverTimestamp()
-      });
-
-      // Update request status
-      transaction.update(requestSnap.ref, {
-        status: 'approved',
-        approvedBy: approverUserId,
-        approverName: approverData.fullName,
-        approvedAt: FieldValue.serverTimestamp(),
-        updatedAt: FieldValue.serverTimestamp()
-      });
-    });
-
-    // 4. Parallel Post-Approval Tasks (Audit & Notifications)
+    const newValidUntil = calculateValidUntilDate(baseYear, durationYears, deadlineConfig);
+    const newSessionEndYear = baseYear + durationYears;
     const approvalTimestamp = Date.now();
     const transactionRecord = {
       studentId: enrollmentId,
@@ -130,7 +123,7 @@ export async function POST(request: NextRequest) {
       validUntil: newValidUntil.toISOString(),
       newValidUntil: newValidUntil.toISOString(),
       sessionStartYear: savedStudentData?.sessionStartYear,
-      sessionEndYear: newValidUntil.getFullYear(),
+      sessionEndYear: newSessionEndYear,
       userId: studentId,
       status: 'completed' as const,
       approvedBy: {
@@ -149,11 +142,43 @@ export async function POST(request: NextRequest) {
       metadata: { source: 'admin_approval', processedAt: new Date().toISOString() }
     };
 
-    // Parallelize secondary ops
+    await PaymentTransactionService.saveTransaction(transactionRecord);
+
+    await adminDb.runTransaction(async (transaction: FirebaseFirestore.Transaction) => {
+      const freshStudentDoc = await transaction.get(studentRef);
+      const freshRequestDoc = await transaction.get(requestRef);
+      if (!freshStudentDoc.exists) throw new Error('Student document not found');
+      if (!freshRequestDoc.exists) throw new Error('Renewal request not found');
+      if (freshRequestDoc.data()?.status !== 'pending') throw new Error('Request already processed');
+
+      const freshStudentData = freshStudentDoc.data() || {};
+      const totalDuration = (freshStudentData.durationYears || 0) + durationYears;
+      const blockDates = computeBlockDatesFromValidUntil(newValidUntil, deadlineConfig);
+
+      transaction.update(studentRef, {
+        validUntil: newValidUntil,
+        status: 'active',
+        sessionEndYear: newSessionEndYear,
+        durationYears: totalDuration,
+        paymentAmount: totalFee,
+        softBlock: blockDates.softBlock,
+        hardBlock: blockDates.hardBlock,
+        lastRenewalDate: FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp()
+      });
+
+      transaction.update(requestRef, {
+        status: 'approved',
+        approvedBy: approverUserId,
+        approverName: approverData.fullName,
+        approvedAt: FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp()
+      });
+    });
+
+    // 4. Parallel Post-Approval Tasks (Audit & Notifications)
+    // Parallelize non-critical secondary ops
     const postTasks = [
-      // 1. Transaction Log (Supabase)
-      PaymentTransactionService.saveTransaction(transactionRecord),
-      
       // 2. Student Notification (Firestore)
       adminDb.collection('notifications').add({
         title: '✅ Renewal Request Approved',

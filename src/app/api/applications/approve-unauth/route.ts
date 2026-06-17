@@ -1,15 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { adminAuth, adminDb } from '@/lib/firebase-admin';
-import { Timestamp } from 'firebase-admin/firestore';
 import { v2 as cloudinary } from 'cloudinary';
 import { calculateRenewalDate } from '@/lib/utils/renewal-utils';
 import { incrementBusCapacity } from '@/lib/busCapacityService';
-import { generateOfflinePaymentId, OfflinePaymentDocument } from '@/lib/types/payment';
+import { generateOfflinePaymentId } from '@/lib/types/payment';
 import { computeBlockDatesFromValidUntil } from '@/lib/utils/deadline-computation';
 import { sendApplicationApprovedNotification } from '@/lib/services/admin-email.service';
 import { getDeadlineConfig } from '@/lib/deadline-config-service';
+import { requireModeratorPermission } from '@/lib/security/moderator-permissions';
+import { PaymentTransactionService } from '@/lib/payment/payment-transaction.service';
 
-// Configure Cloudinary
+type JsonRecord = Record<string, unknown>;
+
 if (process.env.CLOUDINARY_API_KEY && process.env.CLOUDINARY_API_SECRET && process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME) {
   cloudinary.config({
     cloud_name: process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME,
@@ -18,109 +20,117 @@ if (process.env.CLOUDINARY_API_KEY && process.env.CLOUDINARY_API_SECRET && proce
   });
 }
 
+function asRecord(value: unknown): JsonRecord {
+  return value && typeof value === 'object' ? value as JsonRecord : {};
+}
+
+function asString(value: unknown): string {
+  return typeof value === 'string' ? value : '';
+}
+
+function normalizeShiftValue(shift: unknown): string {
+  const value = asString(shift).toLowerCase().trim();
+  if (value.includes('evening')) return 'Evening';
+  if (value.includes('morning')) return 'Morning';
+  if (value === 'both') return 'Both';
+  return 'Morning';
+}
+
+function extractPublicIdFromUrl(url: string): string | null {
+  try {
+    const matches = url.match(/\/upload\/(?:v\d+\/)?(.+)\.\w+$/);
+    return matches ? matches[1] : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function POST(request: NextRequest) {
   try {
     const token = request.headers.get('Authorization')?.replace('Bearer ', '');
-
     if (!token) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
     const decodedToken = await adminAuth.verifyIdToken(token);
     const moderatorUid = decodedToken.uid;
-    const moderatorEmail = decodedToken.email;
-
-    const body = await request.json();
-    const { studentUid } = body;
+    const moderatorEmail = decodedToken.email || '';
+    const body = asRecord(await request.json());
+    const studentUid = asString(body.studentUid);
 
     if (!studentUid) {
       return NextResponse.json({ error: 'Missing student UID' }, { status: 400 });
     }
 
-    // Verify user is admin or moderator
-    const moderatorDoc = await adminDb.collection('moderators').doc(moderatorUid).get();
-    const adminDoc = await adminDb.collection('admins').doc(moderatorUid).get();
+    const [moderatorDoc, adminDoc, applicationDoc] = await Promise.all([
+      adminDb.collection('moderators').doc(moderatorUid).get(),
+      adminDb.collection('admins').doc(moderatorUid).get(),
+      adminDb.collection('applications').doc(studentUid).get(),
+    ]);
 
     if (!moderatorDoc.exists && !adminDoc.exists) {
       return NextResponse.json({ error: 'Insufficient permissions' }, { status: 403 });
     }
 
     const moderatorData = moderatorDoc.exists ? moderatorDoc.data() : adminDoc.data();
-
-    // Construct approvedByDisplay
-    const approverName = moderatorData?.name || moderatorData?.fullName || 'Approver';
-    const approverEmpId = moderatorData?.employeeId || moderatorData?.staffId || moderatorUid;
-    const approvedByDisplay = adminDoc.exists
-      ? `${approverName} (Admin)`
-      : `${approverName} ( ${approverEmpId} )`;
-
-    // Get application data
-    const applicationRef = adminDb.collection('applications').doc(studentUid);
-    const applicationDoc = await applicationRef.get();
+    const approverRole = adminDoc.exists ? 'admin' : 'moderator';
+    const permissionDenied = await requireModeratorPermission(
+      {
+        uid: moderatorUid,
+        email: moderatorEmail,
+        role: approverRole,
+        name: moderatorData?.fullName || moderatorData?.name || '',
+      },
+      'applications',
+      'canApprove'
+    );
+    if (permissionDenied) return permissionDenied;
 
     if (!applicationDoc.exists) {
       return NextResponse.json({ error: 'Application not found' }, { status: 404 });
     }
 
-    const appData = applicationDoc.data()!;
-    const formData = appData.formData;
-    const applicantUid = appData.applicantUid || studentUid;
+    const appData = applicationDoc.data() as JsonRecord;
+    const formData = asRecord(appData.formData);
+    const sessionInfo = asRecord(formData.sessionInfo);
+    const paymentInfo = asRecord(formData.paymentInfo);
+    const applicantUid = asString(appData.applicantUid) || studentUid;
     const nowIso = new Date().toISOString();
+    const approverName = moderatorData?.name || moderatorData?.fullName || 'Approver';
+    const approverEmpId = moderatorData?.employeeId || moderatorData?.staffId || moderatorUid;
+    const approvedByDisplay = adminDoc.exists
+      ? `${approverName} (Admin)`
+      : `${approverName} (${approverEmpId})`;
 
-    // Create USERS collection doc with ONLY 5 fields as specified
+    const deadlineConfig = await getDeadlineConfig();
+    const durationYears = Number(sessionInfo.durationYears || 1);
+    const { newValidUntil } = calculateRenewalDate(null, durationYears, deadlineConfig);
+    const validUntil = newValidUntil;
+    const sessionEndYear = new Date(validUntil).getFullYear();
+    const blockDates = computeBlockDatesFromValidUntil(validUntil, deadlineConfig);
+    const busId = asString(formData.routeId) ? asString(formData.routeId).replace('route_', 'bus_') : '';
+    const shift = normalizeShiftValue(formData.shift);
+
     const userDoc = {
       createdAt: nowIso,
-      email: (appData as any).email || formData.email,
-      name: formData.fullName,
+      email: asString(appData.email) || asString(formData.email),
+      name: asString(formData.fullName),
       role: 'student',
-      uid: applicantUid
+      uid: applicantUid,
     };
 
-    await adminDb.collection('users').doc(applicantUid).set(userDoc);
-    console.log('✅ User document created successfully for UID:', applicantUid);
-
-    // ✅ Fetch Deadline Configuration Dynamically
-    const deadlineConfig = await getDeadlineConfig();
-
-    // Calculate validUntil using proper renewal date logic with dynamic anchor
-    const { newValidUntil } = calculateRenewalDate(
-      null,
-      formData.sessionInfo.durationYears,
-      deadlineConfig
-    );
-    const validUntil = newValidUntil;
-
-    // Calculate sessionEndYear from the calculated validUntil
-    const validUntilDate = new Date(validUntil);
-    const sessionEndYear = validUntilDate.getFullYear();
-
-    // Compute block dates from validUntil date using dynamic config
-    const blockDates = computeBlockDatesFromValidUntil(validUntil, deadlineConfig);
-
-    // Normalize shift using helper logic (standardized to 'Morning', 'Evening', or 'Both')
-    const normalizeShiftValue = (shift: string | undefined): string => {
-      if (!shift) return 'Morning';
-      const s = shift.toLowerCase().trim();
-      if (s.includes('evening')) return 'Evening';
-      if (s.includes('morning')) return 'Morning';
-      if (s === 'both') return 'Both';
-      return 'Morning';
-    };
-
-    // Create STUDENTS collection document with EXACT field structure as specified
     const studentDoc = {
-      // Required fields only - as per specification
       address: formData.address,
       alternatePhone: formData.alternatePhone || '',
       approvedAt: nowIso,
       approvedBy: approvedByDisplay,
       bloodGroup: formData.bloodGroup,
-      busId: formData.routeId ? formData.routeId.replace('route_', 'bus_') : '',
+      busId,
       createdAt: nowIso,
       department: formData.department,
       dob: formData.dob,
-      durationYears: formData.sessionInfo.durationYears,
-      email: (appData as any).email || formData.email,
+      durationYears,
+      email: asString(appData.email) || asString(formData.email),
       enrollmentId: formData.enrollmentId,
       faculty: formData.faculty,
       fullName: formData.fullName,
@@ -132,212 +142,137 @@ export async function POST(request: NextRequest) {
       role: 'student',
       routeId: formData.routeId || '',
       semester: formData.semester,
-      sessionEndYear: sessionEndYear,
-      sessionStartYear: formData.sessionInfo.sessionStartYear,
-      shift: normalizeShiftValue(formData.shift),
+      sessionEndYear,
+      sessionStartYear: sessionInfo.sessionStartYear,
+      shift,
       status: 'active',
       stopId: formData.stopId || '',
       uid: applicantUid,
       updatedAt: nowIso,
-      validUntil: validUntil,
-      // Block dates computed from validUntil
+      validUntil,
       softBlock: blockDates.softBlock,
       hardBlock: blockDates.hardBlock,
-      // Payment information from application form
-      paymentAmount: formData.paymentInfo?.amountPaid || 0,
-      paid_on: nowIso // Set paid_on to approval date
+      paymentAmount: Number(paymentInfo.amountPaid || 0),
+      paid_on: nowIso,
     };
 
-    await adminDb.collection('students').doc(applicantUid).set(studentDoc);
-    console.log('✅ Student document created successfully for UID:', applicantUid);
+    const paymentAmount = Number(paymentInfo.amountPaid || 0);
+    if (paymentAmount > 0) {
+      const isOnlinePayment = paymentInfo.paymentMode === 'online';
 
-    // ✅ EMAIL NOTIFICATION: Send approval email to student
-    if (studentDoc.email) {
-      console.log(`📧 Notification: Queuing approval email for ${studentDoc.fullName} (${studentDoc.email})`);
-      const emailResult = await sendApplicationApprovedNotification({
-        studentName: studentDoc.fullName,
-        studentEmail: studentDoc.email,
-        busNumber: studentDoc.busId ? studentDoc.busId.replace('bus_', 'Bus-') : 'Assigned Soon',
-        routeName: formData.routeName || `Route ${studentDoc.routeId.replace('route_', '')}`,
-        shift: studentDoc.shift,
-        validUntil: new Date(studentDoc.validUntil).toLocaleDateString('en-IN', {
-          day: '2-digit',
-          month: 'short',
-          year: 'numeric'
-        })
-      });
-      console.log('📧 Notification result:', emailResult);
-    }
-
-    // ✅ CREATE PAYMENT RECORD
-    // Store the application payment in the payments collection
-    try {
-      const paymentId = generateOfflinePaymentId('new_registration');
-      const paymentAmount = Number(formData.paymentInfo?.amountPaid || 0);
-
-      if (paymentAmount > 0) {
-        // Check if this was an online payment
-        const isOnlinePayment = formData.paymentInfo?.paymentMode === 'online';
-
-        if (isOnlinePayment) {
-          console.log('💳 Online payment detected - skipping manual record creation and updating existing record');
-
-          // Update the existing online payment record in SUPABASE with correct validity
-          try {
-            const { paymentsSupabaseService } = await import('@/lib/services/payments-supabase');
-            const studentPayments = await paymentsSupabaseService.getPaymentsByStudentUid(applicantUid);
-            const onlinePayment = studentPayments.find(p => p.method === 'Online' && p.status === 'Completed');
-
-            if (onlinePayment) {
-              // Update in Supabase
-              await paymentsSupabaseService.upsertPayment({
-                paymentId: onlinePayment.payment_id,
-                studentId: onlinePayment.student_id,
-                studentUid: onlinePayment.student_uid,
-                studentName: onlinePayment.student_name,
-                amount: onlinePayment.amount,
-                method: 'Online',
-                status: 'Completed',
-                sessionStartYear: onlinePayment.session_start_year,
-                sessionEndYear: sessionEndYear,
-                durationYears: onlinePayment.duration_years,
-                validUntil: new Date(validUntil),
-                razorpayPaymentId: onlinePayment.razorpay_payment_id,
-                razorpayOrderId: onlinePayment.razorpay_order_id,
-              });
-              console.log(`✅ Updated existing online payment record in Supabase: ${onlinePayment.payment_id}`);
-            } else {
-              console.log('⚠️ No existing online payment record found in Supabase to update');
-            }
-          } catch (updateError) {
-            console.error('⚠️ Failed to update online payment record:', updateError);
-          }
-        } else {
-          // Creating offline payment record in SUPABASE
-          const { paymentsSupabaseService } = await import('@/lib/services/payments-supabase');
-          const paymentId = generateOfflinePaymentId('new_registration');
-
-          const paymentCreated = await paymentsSupabaseService.createPayment({
-            paymentId,
-            studentId: formData.enrollmentId,
-            studentUid: applicantUid,
-            studentName: formData.fullName,
-            amount: paymentAmount,
-            method: 'Offline',
-            status: 'Completed',
-            sessionStartYear: formData.sessionInfo.sessionStartYear,
-            sessionEndYear: sessionEndYear,
-            durationYears: formData.sessionInfo.durationYears,
-            validUntil: new Date(validUntil),
-            transactionDate: new Date(),
-            offlineTransactionId: formData.paymentInfo?.paymentReference || `unauth_app_fee_${applicantUid}`,
-            approvedBy: {
-              type: 'Manual',
-              userId: moderatorUid,
-              empId: moderatorData?.employeeId || moderatorUid,
-              name: moderatorData?.name || moderatorEmail || 'Approver',
-              role: adminDoc.exists ? 'Admin' : 'Moderator'
-            },
-            approvedAt: new Date(),
-          });
-
-          if (paymentCreated) {
-            console.log('✅ PAYMENT created in Supabase:', paymentId);
-          } else {
-            console.warn('⚠️ Failed to create payment in Supabase');
-          }
+      if (isOnlinePayment) {
+        const { paymentsSupabaseService } = await import('@/lib/services/payments-supabase');
+        const studentPayments = await paymentsSupabaseService.getPaymentsByStudentUid(applicantUid);
+        const onlinePayment = studentPayments.find(p => p.method === 'Online' && p.status === 'Completed');
+        if (!onlinePayment) {
+          throw new Error('Completed online payment record not found');
         }
-      }
-    } catch (paymentError) {
-      console.error('⚠️ Failed to create payment record:', paymentError);
-      // Don't fail approval if payment record creation fails
-    }
 
-    // ✅ INCREMENT BUS CAPACITY
-    // Get the busId for this student
-    const busId = formData.routeId ? formData.routeId.replace('route_', 'bus_') : '';
-    if (busId) {
-      try {
-        await incrementBusCapacity(busId, applicantUid, studentDoc.shift);
-        console.log(`✅ Bus capacity incremented for ${busId}`);
-      } catch (capacityError) {
-        console.error(`⚠️ Failed to increment bus capacity for ${busId}:`, capacityError);
-        // Don't fail the approval if capacity increment fails
-      }
-    }
+        const updatedPaymentId = await paymentsSupabaseService.upsertPayment({
+          paymentId: onlinePayment.payment_id,
+          studentId: onlinePayment.student_id,
+          studentUid: onlinePayment.student_uid,
+          studentName: onlinePayment.student_name,
+          amount: onlinePayment.amount,
+          method: 'Online',
+          status: 'Completed',
+          sessionStartYear: onlinePayment.session_start_year,
+          sessionEndYear,
+          durationYears: onlinePayment.duration_years,
+          validUntil: new Date(validUntil),
+          razorpayPaymentId: onlinePayment.razorpay_payment_id,
+          razorpayOrderId: onlinePayment.razorpay_order_id,
+        });
 
-    // ✅ CLEANUP: Delete payment proof from Cloudinary if exists
-    if (formData.paymentInfo?.paymentEvidenceUrl && cloudinary.config().api_key) {
-      try {
-        const url = new URL(formData.paymentInfo.paymentEvidenceUrl);
-        const pathParts = url.pathname.split('/');
-
-        // Find the part after 'upload' to get the full path
-        const uploadIndex = pathParts.findIndex(part => part === 'upload');
-        if (uploadIndex !== -1) {
-          // Get everything after 'upload' (version, folder, filename)
-          const afterUpload = pathParts.slice(uploadIndex + 1);
-          const fileName = afterUpload[afterUpload.length - 1];
-
-          if (fileName) {
-            // Remove version (v1234567890) and get the actual public ID path
-            const publicIdParts = afterUpload.filter(part => !part.startsWith('v') || isNaN(Number(part.substring(1))));
-            // Remove file extension from the last part
-            const lastPart = publicIdParts[publicIdParts.length - 1];
-            const nameWithoutExtension = lastPart.split('.').slice(0, -1).join('.');
-            publicIdParts[publicIdParts.length - 1] = nameWithoutExtension;
-            const publicId = publicIdParts.join('/');
-
-            await cloudinary.uploader.destroy(publicId);
-            console.log(`✅ Deleted payment proof from Cloudinary: ${publicId}`);
-          }
+        if (!updatedPaymentId) {
+          throw new Error('Failed to update online payment validity');
         }
-      } catch (cloudinaryError) {
-        console.error('⚠️ Error deleting payment proof from Cloudinary:', cloudinaryError);
-        // Don't fail approval if deletion fails
-      }
-    }
-
-
-    // ✅ CLEANUP: Delete from applications collection after approval
-    await applicationRef.delete();
-    console.log('✅ Application document deleted');
-
-
-    // Delete from unauthUsers collection
-    try {
-      const unauthUserDoc = await adminDb.collection('unauthUsers').doc(applicantUid).get();
-      if (unauthUserDoc.exists) {
-        await adminDb.collection('unauthUsers').doc(applicantUid).delete();
-        console.log('✅ Deleted unauthUsers document for:', applicantUid);
       } else {
-        console.log('ℹ️ No unauthUsers document found for:', applicantUid);
+        const paymentId =
+          asString(appData.paymentId) ||
+          asString(formData.paymentId) ||
+          asString(paymentInfo.paymentReference) ||
+          generateOfflinePaymentId('new_registration');
+
+        await PaymentTransactionService.saveTransaction({
+          paymentId,
+          studentId: asString(formData.enrollmentId),
+          studentName: asString(formData.fullName),
+          userId: applicantUid,
+          amount: paymentAmount,
+          paymentMethod: 'offline',
+          status: 'completed',
+          sessionStartYear: Number(sessionInfo.sessionStartYear || new Date().getFullYear()),
+          sessionEndYear,
+          durationYears,
+          validUntil,
+          timestamp: nowIso,
+          offlineTransactionId: asString(paymentInfo.paymentReference) || `unauth_app_fee_${applicantUid}`,
+          approvedBy: {
+            userId: moderatorUid,
+            empId: asString(moderatorData?.employeeId) || moderatorUid,
+            name: asString(moderatorData?.name) || moderatorEmail || 'Approver',
+            role: approverRole,
+            email: moderatorEmail,
+          },
+          approvedByDisplay,
+          approvedAtISO: nowIso,
+        });
       }
-    } catch (deleteError) {
-      console.warn('⚠️ Could not delete unauthUser doc:', deleteError);
-      // Don't fail the approval if deletion fails
+    }
+
+    await Promise.all([
+      adminDb.collection('users').doc(applicantUid).set(userDoc),
+      adminDb.collection('students').doc(applicantUid).set(studentDoc),
+      applicationDoc.ref.delete(),
+      adminDb.collection('unauthUsers').doc(applicantUid).delete().catch(() => null),
+    ]);
+
+    if (studentDoc.email) {
+      try {
+        await sendApplicationApprovedNotification({
+          studentName: asString(studentDoc.fullName),
+          studentEmail: asString(studentDoc.email),
+          busNumber: busId ? busId.replace('bus_', 'Bus-') : 'Assigned Soon',
+          routeName: asString(formData.routeName) || `Route ${asString(studentDoc.routeId).replace('route_', '')}`,
+          shift,
+          validUntil: new Date(validUntil).toLocaleDateString('en-IN', {
+            day: '2-digit',
+            month: 'short',
+            year: 'numeric',
+          }),
+        });
+      } catch (emailError) {
+        console.error('Failed to send application approval email:', emailError);
+      }
+    }
+
+    if (busId) {
+      await incrementBusCapacity(busId, applicantUid, shift).catch(error => {
+        console.error(`Failed to increment bus capacity for ${busId}:`, error);
+      });
+    }
+
+    const paymentEvidenceUrl = asString(paymentInfo.paymentEvidenceUrl);
+    if (paymentEvidenceUrl && cloudinary.config().api_key) {
+      const publicId = extractPublicIdFromUrl(paymentEvidenceUrl);
+      if (publicId) {
+        await cloudinary.uploader.destroy(publicId).catch(error => {
+          console.error('Failed to delete payment proof from Cloudinary:', error);
+        });
+      }
     }
 
     return NextResponse.json({
       success: true,
       message: 'Application approved successfully',
-      studentUid: applicantUid
+      studentUid: applicantUid,
     });
-  } catch (error: any) {
+  } catch (error) {
     console.error('Error approving application:', error);
     return NextResponse.json(
-      { error: 'Failed to approve application' },
+      { error: error instanceof Error ? error.message : 'Failed to approve application' },
       { status: 500 }
     );
-  }
-}
-
-function extractPublicIdFromUrl(url: string): string | null {
-  try {
-    // Cloudinary URL format: https://res.cloudinary.com/{cloud_name}/image/upload/{transformations}/{version}/{public_id}.{format}
-    const matches = url.match(/\/upload\/(?:v\d+\/)?(.+)\.\w+$/);
-    return matches ? matches[1] : null;
-  } catch (error) {
-    return null;
   }
 }

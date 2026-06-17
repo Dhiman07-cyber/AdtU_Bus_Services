@@ -1,6 +1,4 @@
 import { NextResponse } from 'next/server';
-import { auth } from '@/lib/firebase';
-import { GoogleAuthProvider, signInWithPopup } from 'firebase/auth';
 
 export async function POST() {
   try {

@@ -1,33 +1,33 @@
 /**
  * API Route: Verify Secure QR Token
  * POST /api/bus-pass/verify-secure-qr
- * 
- * Verifies an encrypted QR token and returns student data.
- * 
- * SECURITY FEATURES:
- * - Decrypts and validates AES-256-GCM encrypted tokens
- * - Verifies HMAC signature to detect tampering
- * - Checks token expiration
- * - Rate limiting for abuse prevention
- * - Driver authentication required
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { adminAuth, adminDb } from '@/lib/firebase-admin';
+import { adminDb } from '@/lib/firebase-admin';
 import { decryptQRCodeData, quickValidateQRToken } from '@/lib/security/encryption.service';
 import { checkRateLimit, RateLimits, createRateLimitId } from '@/lib/security/rate-limiter';
+import { verifyApiAuth } from '@/lib/security/api-auth';
+import {
+    scannerBusMatchesStudent,
+    validateStudentScannerContext,
+} from '@/lib/security/scanner-auth';
 
-// Helper to convert validUntil to Date
-function getValidUntilDate(validUntil: any): Date | null {
+function getValidUntilDate(validUntil: unknown): Date | null {
     if (!validUntil) return null;
     try {
-        if (validUntil.toDate && typeof validUntil.toDate === 'function') {
+        if (
+            typeof validUntil === 'object' &&
+            validUntil !== null &&
+            'toDate' in validUntil &&
+            typeof validUntil.toDate === 'function'
+        ) {
             return validUntil.toDate();
         }
-        if (validUntil instanceof Date) {
-            return validUntil;
-        }
-        return new Date(validUntil);
+        if (validUntil instanceof Date) return validUntil;
+
+        const date = new Date(String(validUntil));
+        return Number.isNaN(date.getTime()) ? null : date;
     } catch {
         return null;
     }
@@ -35,49 +35,10 @@ function getValidUntilDate(validUntil: any): Date | null {
 
 export async function POST(request: NextRequest) {
     try {
-        // Verify driver authentication
-        const authHeader = request.headers.get('Authorization');
-        const token = authHeader?.replace('Bearer ', '');
+        const auth = await verifyApiAuth(request, ['driver', 'admin', 'moderator']);
+        if (!auth.authenticated) return auth.response;
 
-        if (!token) {
-            return NextResponse.json(
-                { status: 'invalid', message: 'Authentication required' },
-                { status: 401 }
-            );
-        }
-
-        let decodedToken;
-        try {
-            decodedToken = await adminAuth.verifyIdToken(token);
-        } catch (authError) {
-            console.error('Auth verification failed:', authError);
-            return NextResponse.json(
-                { status: 'invalid', message: 'Invalid or expired authentication' },
-                { status: 401 }
-            );
-        }
-
-        const scannerUid = decodedToken.uid;
-
-        // Verify caller role (driver, admin, or moderator)
-        const userDoc = await adminDb.collection('users').doc(scannerUid).get();
-        const userData = userDoc.data();
-        const allowedRoles = ['driver', 'admin', 'moderator'];
-
-        if (!userData || !allowedRoles.includes(userData.role)) {
-            // Fallback check for drivers collection
-            const driverDoc = await adminDb.collection('drivers').doc(scannerUid).get();
-            if (!driverDoc.exists) {
-                console.warn(`Unauthorized user attempted to verify secure QR: ${scannerUid}`);
-                return NextResponse.json(
-                    { status: 'invalid', message: 'Insufficient permissions to verify QR codes' },
-                    { status: 403 }
-                );
-            }
-        }
-
-        // Rate limiting
-        const rateLimitId = createRateLimitId(scannerUid, 'verify-secure-qr');
+        const rateLimitId = createRateLimitId(auth.uid, 'verify-secure-qr');
         const rateCheck = checkRateLimit(
             rateLimitId,
             RateLimits.BUS_PASS_VERIFY.maxRequests,
@@ -89,85 +50,109 @@ export async function POST(request: NextRequest) {
                 {
                     status: 'rate_limited',
                     message: 'Too many scan requests. Please wait.',
-                    resetIn: rateCheck.resetIn
+                    resetIn: rateCheck.resetIn,
                 },
                 { status: 429 }
             );
         }
 
-        // Parse request
         const body = await request.json();
         const { secureToken, scannerBusId } = body;
 
-        if (!secureToken) {
+        if (typeof secureToken !== 'string' || !secureToken.trim() || secureToken.length > 2048) {
             return NextResponse.json(
                 { status: 'invalid', message: 'QR token is required' },
                 { status: 400 }
             );
         }
 
-        // Quick validation (HMAC check only - fast)
+        const scannerDenied = await validateStudentScannerContext(auth, scannerBusId);
+        if (scannerDenied) return scannerDenied;
+
+        // Verify HMAC signature to prevent logging unreadable camera frames / noise
         if (!quickValidateQRToken(secureToken)) {
-            console.warn(`Invalid QR token signature detected by scanner: ${scannerUid}`);
             return NextResponse.json({
                 status: 'invalid',
                 message: 'Invalid or tampered QR code',
-                suspicious: true
+                suspicious: true,
             });
         }
 
-        // Full decryption and validation
         const qrPayload = decryptQRCodeData(secureToken);
+
+        // 1. Fetch activeTripId from buses collection and verify consistency
+        let activeTripId: string | null = null;
+        let isTripStale = false;
+        try {
+            const busDoc = await adminDb.collection('buses').doc(scannerBusId).get();
+            if (busDoc.exists) {
+                const busData = busDoc.data();
+                const possibleTripId = busData?.activeTripId;
+                if (possibleTripId) {
+                    const tripDoc = await adminDb.collection('trip_sessions').doc(possibleTripId).get();
+                    if (tripDoc.exists) {
+                        const tripData = tripDoc.data();
+                        const isExpired = tripData?.status !== 'active' ||
+                            (tripData?.createdAt && (Date.now() - tripData.createdAt.toDate().getTime() > 12 * 60 * 60 * 1000));
+                        if (isExpired) {
+                            isTripStale = true;
+                        } else {
+                            activeTripId = possibleTripId;
+                        }
+                    } else {
+                        isTripStale = true;
+                    }
+                }
+            }
+        } catch (e) {
+            console.warn('Failed to verify active trip context:', e);
+        }
 
         if (!qrPayload) {
             return NextResponse.json({
                 status: 'expired',
                 message: 'QR code has expired. Please generate a new one.',
                 isAssigned: false,
-                sessionActive: false
+                sessionActive: false,
+                isTripStale
             });
         }
 
-        // Fetch student data using decrypted UID
         const studentDoc = await adminDb.collection('students').doc(qrPayload.uid).get();
-
         if (!studentDoc.exists) {
             return NextResponse.json({
                 status: 'invalid',
                 message: 'Student not found. This QR code is not registered.',
                 studentData: null,
                 isAssigned: false,
-                sessionActive: false
+                sessionActive: false,
+                isTripStale
             });
         }
 
         const studentData = studentDoc.data();
-
-        // Check session validity
         const validUntilDate = getValidUntilDate(studentData?.validUntil);
-        const now = new Date();
+        const sessionActive = !validUntilDate || validUntilDate >= new Date();
+        const isStudentActive = studentData?.status === 'active';
+        const assignedBusId = studentData?.assignedBus || studentData?.busId || studentData?.currentBusId;
+        const busMatchesScanner = scannerBusMatchesStudent(scannerBusId, assignedBusId);
+        const accountValid = sessionActive && isStudentActive;
 
-        let sessionActive = true;
-        if (validUntilDate && validUntilDate < now) {
-            sessionActive = false;
+        let status = accountValid ? 'success' : 'session_expired';
+        let message = accountValid ? 'Student verified (Secure)' : 'Student session expired or inactive';
+        if (accountValid && !busMatchesScanner) {
+            status = 'bus_mismatch';
+            message = 'Student is assigned to a different bus';
         }
 
-        // Check student status
-        const isStudentActive = studentData?.status === 'active';
-
-        // Get assigned bus
-        const assignedBusId = studentData?.assignedBus || studentData?.busId || studentData?.currentBusId;
-
-        // Build response
-        const responseData = {
-            status: sessionActive && isStudentActive ? 'success' : 'session_expired',
-            message: sessionActive && isStudentActive ? 'Student verified (Secure)' : 'Student session expired or inactive',
+        return NextResponse.json({
+            status,
+            message,
+            // PRIVACY-MINIMAL: Do not return phone, email, payment details, or admin notes.
             studentData: {
                 uid: qrPayload.uid,
                 fullName: studentData?.fullName || studentData?.name,
                 enrollmentId: studentData?.enrollmentId || qrPayload.enrollmentId,
-                phone: studentData?.phone || studentData?.mobileNumber,
-                phoneNumber: studentData?.phoneNumber || studentData?.phone,
                 gender: studentData?.gender,
                 profilePhotoUrl: studentData?.profilePhotoUrl || studentData?.photoURL,
                 assignedBus: assignedBusId,
@@ -175,35 +160,29 @@ export async function POST(request: NextRequest) {
                 assignedShift: studentData?.assignedShift || studentData?.shift,
                 shift: studentData?.assignedShift || studentData?.shift,
                 validUntil: validUntilDate?.toISOString(),
-                status: studentData?.status
+                status: studentData?.status,
             },
-            isAssigned: !!assignedBusId,
-            sessionActive: sessionActive && isStudentActive,
+            isAssigned: Boolean(assignedBusId),
+            matchesScannerBus: busMatchesScanner,
+            canBoard: accountValid && busMatchesScanner,
+            sessionActive: accountValid,
             tokenInfo: {
                 issuedAt: new Date(qrPayload.issuedAt).toISOString(),
                 expiresAt: new Date(qrPayload.expiresAt).toISOString(),
-                version: qrPayload.version
+                version: qrPayload.version,
             },
             verifiedAt: new Date().toISOString(),
-            verifiedBy: scannerUid,
-            secureVerification: true // Flag indicating this used encrypted QR
-        };
-
-        console.log('✅ Secure QR verified:', {
-            studentUid: qrPayload.uid,
-            scannerUid,
-            sessionActive,
-            tokenAge: Date.now() - qrPayload.issuedAt
+            verifiedBy: auth.uid,
+            secureVerification: true,
+            isTripStale
         });
-
-        return NextResponse.json(responseData);
 
     } catch (error: any) {
         console.error('Error in verify secure QR API:', error);
         return NextResponse.json(
             {
                 status: 'invalid',
-                message: 'Verification failed'
+                message: 'Verification failed',
             },
             { status: 500 }
         );

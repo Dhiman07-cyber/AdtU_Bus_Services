@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db as adminDb } from '@/lib/firebase-admin';
+import { verifyApiAuth } from '@/lib/security/api-auth';
 
 /**
  * FIX: Update buses collection to use actual driver UIDs instead of "driver_X" format
@@ -9,6 +10,9 @@ import { db as adminDb } from '@/lib/firebase-admin';
  */
 export async function POST(req: NextRequest) {
   try {
+    const auth = await verifyApiAuth(req, ['admin']);
+    if (!auth.authenticated) return auth.response;
+
     console.log('🔧 Starting bus driver ID fix...');
 
     // Get all buses

@@ -102,15 +102,6 @@ const CRON_API_ROUTES = [
     '/api/cron/',
 ];
 
-/** Role-based route access mapping */
-const ROLE_ROUTE_MAP: Record<string, string[]> = {
-    '/admin': ['admin'],
-    '/moderator': ['admin', 'moderator'],
-    '/driver': ['admin', 'driver'],
-    '/student': ['admin', 'moderator', 'student'],
-    '/profile': ['admin', 'moderator', 'driver', 'student'],
-};
-
 /** Valid HTTP methods for API routes */
 const VALID_API_METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS', 'HEAD'];
 
@@ -157,7 +148,7 @@ const STATIC_EXTENSIONS = [
     '.ico', '.png', '.jpg', '.jpeg', '.gif', '.svg', '.webp',
     '.css', '.js', '.woff', '.woff2', '.ttf', '.eot',
     '.mp4', '.webm', '.ogg', '.mp3', '.wav',
-    '.xml', '.map',
+    '.xml', '.map', '.pmtiles', '.json',
 ];
 
 // ============================================================================
@@ -199,15 +190,6 @@ function isPublicApiRoute(pathname: string): boolean {
 
 function isCronRoute(pathname: string): boolean {
     return CRON_API_ROUTES.some(route => pathname.startsWith(route));
-}
-
-function getRequiredRoles(pathname: string): string[] | null {
-    for (const [routePrefix, roles] of Object.entries(ROLE_ROUTE_MAP)) {
-        if (pathname.startsWith(routePrefix)) {
-            return roles;
-        }
-    }
-    return null;
 }
 
 /**

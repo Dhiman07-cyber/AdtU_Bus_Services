@@ -28,7 +28,10 @@ describe('location-display-guards', () => {
         const t0 = '2026-04-02T10:00:00.000Z';
         const t1 = '2026-04-02T10:00:00.200Z';
         expect(isNewerTimestamp(t1, t0)).toBe(true);
-        expect(isNewerTimestamp(t0, t1)).toBe(false);
+        expect(isNewerTimestamp(t0, t1)).toBe(true);
+
+        const tooOld = '2026-04-02T09:59:59.000Z';
+        expect(isNewerTimestamp(tooOld, t1)).toBe(false);
     });
 
     it('isImpossibleJump flags teleports', () => {
@@ -58,9 +61,9 @@ describe('location-display-guards', () => {
 describe('map-provider-types', () => {
     it('engineFromMapProvider', () => {
         expect(engineFromMapProvider('google')).toBe('google');
-        expect(engineFromMapProvider('carto')).toBe('leaflet');
-        expect(engineFromMapProvider('osm')).toBe('leaflet');
-        expect(engineFromMapProvider(undefined)).toBe('leaflet');
+        expect(engineFromMapProvider('carto')).toBe('guwahati');
+        expect(engineFromMapProvider('osm')).toBe('guwahati');
+        expect(engineFromMapProvider(undefined)).toBe('guwahati');
     });
 });
 

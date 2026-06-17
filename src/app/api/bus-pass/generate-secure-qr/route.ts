@@ -13,38 +13,19 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { adminAuth, adminDb } from '@/lib/firebase-admin';
+import { adminDb } from '@/lib/firebase-admin';
 import { encryptQRCodeData } from '@/lib/security/encryption.service';
 import { checkRateLimit, RateLimits, createRateLimitId } from '@/lib/security/rate-limiter';
+import { verifyApiAuth } from '@/lib/security/api-auth';
+import { requireModeratorPermission } from '@/lib/security/moderator-permissions';
 
 export async function POST(request: NextRequest) {
     try {
-        // Verify authentication
-        const authHeader = request.headers.get('Authorization');
-        const token = authHeader?.replace('Bearer ', '');
-
-        if (!token) {
-            return NextResponse.json(
-                { success: false, error: 'Authentication required' },
-                { status: 401 }
-            );
-        }
-
-        let decodedToken;
-        try {
-            decodedToken = await adminAuth.verifyIdToken(token);
-        } catch (authError) {
-            console.error('Auth verification failed:', authError);
-            return NextResponse.json(
-                { success: false, error: 'Invalid or expired authentication' },
-                { status: 401 }
-            );
-        }
-
-        const userUid = decodedToken.uid;
+        const auth = await verifyApiAuth(request, ['student', 'admin', 'moderator']);
+        if (!auth.authenticated) return auth.response;
 
         // Rate limiting
-        const rateLimitId = createRateLimitId(userUid, 'generate-qr');
+        const rateLimitId = createRateLimitId(auth.uid, 'generate-qr');
         const rateCheck = checkRateLimit(
             rateLimitId,
             RateLimits.BUS_PASS_GENERATE.maxRequests,
@@ -67,19 +48,25 @@ export async function POST(request: NextRequest) {
         const { studentUid } = body;
 
         // Security: Only allow generating QR for self or if admin/moderator
-        const targetUid = studentUid || userUid;
+        const targetUid = typeof studentUid === 'string' && studentUid.trim()
+            ? studentUid.trim()
+            : auth.uid;
 
-        if (targetUid !== userUid) {
-            // Check if user is admin/moderator
-            const userDoc = await adminDb.collection('users').doc(userUid).get();
-            const userData = userDoc.data();
+        if (targetUid.length > 128) {
+            return NextResponse.json(
+                { success: false, error: 'Invalid student UID' },
+                { status: 400 }
+            );
+        }
 
-            if (!userData || !['admin', 'moderator'].includes(userData.role)) {
-                return NextResponse.json(
-                    { success: false, error: 'Unauthorized to generate QR for other users' },
-                    { status: 403 }
-                );
-            }
+        if (targetUid !== auth.uid && auth.role === 'moderator') {
+            const permissionDenied = await requireModeratorPermission(auth, 'students', 'canView');
+            if (permissionDenied) return permissionDenied;
+        } else if (targetUid !== auth.uid && auth.role !== 'admin') {
+            return NextResponse.json(
+                { success: false, error: 'Unauthorized to generate QR for other users' },
+                { status: 403 }
+            );
         }
 
         // Fetch student data
@@ -127,8 +114,6 @@ export async function POST(request: NextRequest) {
             name: studentData?.fullName || studentData?.name,
             busId: studentData?.busId || studentData?.assignedBusId
         });
-
-        console.log(`✅ Secure QR token generated for student: ${targetUid}`);
 
         return NextResponse.json({
             success: true,

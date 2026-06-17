@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { deleteUserAndData } from '@/lib/cleanup-helpers';
 import fs from 'fs';
 import path from 'path';
+import { verifyApiAuth } from '@/lib/security/api-auth';
 
 // Get the data directory path
 const dataDirectory = path.join(process.cwd(), 'src', 'data');
@@ -21,6 +22,9 @@ const writeJsonFile = (filename: string, data: any) => {
 
 export async function DELETE(request: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
+    const auth = await verifyApiAuth(request, ['admin']);
+    if (!auth.authenticated) return auth.response;
+
     const { id } = await params;
     
     console.log(`Deleting moderator with ID: ${id}`);

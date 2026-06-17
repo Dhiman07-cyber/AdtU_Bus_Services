@@ -2,10 +2,10 @@ import React, { useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { ReviewStepProps } from './types';
-import { CheckCircle, Shield, Loader2, Send, Download, User, BookOpen, Truck, MapPin, Calendar, Phone, Mail, Award, Clock } from 'lucide-react';
+import { CheckCircle, Shield, Loader2, Send, Download, User, BookOpen, Truck, MapPin, Calendar, Phone, Mail, Award, Clock, ArrowLeft } from 'lucide-react';
 import Image from 'next/image';
-import jsPDF from 'jspdf';
 import { Badge } from '@/components/ui/badge';
+import { toast } from 'sonner';
 
 export default function Step5Review({
   formData,
@@ -27,6 +27,7 @@ export default function Step5Review({
     try {
       if (!formData) return;
 
+      const { default: jsPDF } = await import('jspdf');
       const pdf = new jsPDF('p', 'mm', 'a4');
       const pageWidth = pdf.internal.pageSize.getWidth();
 
@@ -254,7 +255,11 @@ export default function Step5Review({
       // Verifiable Footer
       pdf.setTextColor(148, 163, 184);
       pdf.setFontSize(7);
-      pdf.text(`GEN_TS: ${new Date().toISOString()} | APP_TOKEN: ${Math.random().toString(36).substring(7).toUpperCase()}`, 105, 285, { align: 'center' });
+      const cryptoObj = typeof window !== 'undefined' ? (window.crypto || (window as any).msCrypto) : null;
+      const appToken = cryptoObj && cryptoObj.randomUUID
+        ? cryptoObj.randomUUID().substring(24).toUpperCase()
+        : Math.random().toString(36).substring(7).toUpperCase();
+      pdf.text(`GEN_TS: ${new Date().toISOString()} | APP_TOKEN: ${appToken}`, 105, 285, { align: 'center' });
       pdf.text('© ASSAM DOWN TOWN UNIVERSITY - ITMS RECORD', 105, 290, { align: 'center' });
 
       pdf.save(`AdtU_Application_${formData.fullName.replace(/\s+/g, '_')}.pdf`);
@@ -286,7 +291,7 @@ export default function Step5Review({
   );
 
   return (
-    <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+    <div className="space-y-6 flex-1 flex flex-col">
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-2xl font-black tracking-tight text-white mb-1 bg-gradient-to-r from-white to-slate-400 bg-clip-text text-transparent">Review & Submit</h2>
@@ -298,7 +303,7 @@ export default function Step5Review({
       {/* Review Content Container (Captured by html2canvas) */}
       <div
         ref={reviewRef}
-        className="bg-[#0c0e1a] border border-slate-800 rounded-3xl p-6 md:p-10 space-y-10 shadow-2xl relative overflow-hidden"
+        className="bg-[#0c0e1a] border border-slate-800 rounded-3xl p-6 md:p-10 space-y-10 shadow-xl shadow-black/25 relative overflow-hidden [contain:layout_paint]"
       >
         {/* Decorative Grid */}
         <div className="absolute inset-0 bg-[linear-gradient(to_right,#80808005_1px,transparent_1px),linear-gradient(to_bottom,#80808005_1px,transparent_1px)] bg-[size:20px_20px] pointer-events-none"></div>
@@ -308,14 +313,14 @@ export default function Step5Review({
           <div className="relative group">
             {/* Circular Grid Ornament */}
             <div className="absolute -inset-4 bg-[radial-gradient(circle_at_center,rgba(79,70,229,0.15),transparent_70%)] opacity-0 group-hover:opacity-100 transition-opacity duration-700 pointer-events-none"></div>
-            <div className="absolute inset-0 bg-indigo-500/20 rounded-full blur-xl group-hover:bg-indigo-500/30 transition-all duration-500"></div>
-            <div className="relative w-32 h-32 md:w-40 md:h-40 rounded-full overflow-hidden border-4 border-slate-800 shadow-2xl bg-slate-900 flex items-center justify-center">
+            <div className="absolute inset-0 bg-indigo-500/15 rounded-full group-hover:bg-indigo-500/20 transition-colors duration-300"></div>
+            <div className="relative w-32 h-32 md:w-40 md:h-40 rounded-full overflow-hidden border-4 border-slate-800 shadow-xl bg-slate-900 flex items-center justify-center">
               {finalImageUrl ? (
                 <Image
                   src={finalImageUrl}
                   alt="Student Photo"
                   fill
-                  className="object-cover transition-transform duration-700 group-hover:scale-110"
+                  className="object-cover transition-transform duration-300 group-hover:scale-105"
                 />
               ) : (
                 <User className="w-16 h-16 text-slate-700" />
@@ -379,7 +384,7 @@ export default function Step5Review({
           <ReviewSection title="Transportation Selection" icon={MapPin}>
             <DetailItem label="Selected Route" value={formData.routeId ? formData.routeId.charAt(0).toUpperCase() + formData.routeId.slice(1).replace(/_/g, '-') : 'Not Selected'} />
             <DetailItem label="Pick-up Point" value={formData.stopId ? formData.stopId.charAt(0).toUpperCase() + formData.stopId.slice(1) : 'Not Selected'} />
-            <DetailItem label="Bus Assigned" value={formData.busId ? formData.busId.charAt(0).toUpperCase() + formData.busId.slice(1).replace(/_/g, '-') : 'Determined by Admin'} />
+            <DetailItem label="Bus Selected" value={formData.busAssigned || (formData.busId ? formData.busId.charAt(0).toUpperCase() + formData.busId.slice(1).replace(/_/g, '-') : 'Not Selected')} />
             <DetailItem label="Shift Time" value={formData.shift} />
           </ReviewSection>
 
@@ -392,7 +397,7 @@ export default function Step5Review({
         </div>
 
         {/* Watermark/Footer for PDF */}
-        <div className="pt-8 border-t border-slate-800/30 flex justify-between items-center text-[10px] text-slate-600 font-bold uppercase tracking-widest">
+        <div className="pt-8 border-t border-slate-800/30 hidden md:flex justify-between items-center text-[10px] text-slate-600 font-bold uppercase tracking-widest">
           <span>Assam Down Town University - Bus Services</span>
           <div className="flex items-center gap-2">
             <Shield className="w-3 h-3" />
@@ -402,7 +407,27 @@ export default function Step5Review({
       </div>
 
       <div className="pt-2">
-        <div className="flex items-start space-x-3 bg-indigo-500/5 p-4 sm:p-6 rounded-2xl border border-indigo-500/10 transition-all hover:bg-indigo-500/10">
+        <div 
+          onClick={(e) => {
+            const target = e.target as HTMLElement;
+            // If click is on the checkbox itself or the label, let standard event behavior handle it
+            if (target.closest('button[role="checkbox"]') || target.closest('label')) {
+              return;
+            }
+            
+            const currentChecked = formData.declarationAccepted;
+            const newChecked = !currentChecked;
+            if (newChecked) {
+              if (!validateForm()) return;
+              handleInputChange('declarationAccepted', true);
+              setDeclarationAgreed(true);
+            } else {
+              handleInputChange('declarationAccepted', false);
+              setDeclarationAgreed(false);
+            }
+          }}
+          className="flex items-start space-x-3 bg-indigo-500/5 p-4 sm:p-6 rounded-2xl border border-indigo-500/10 transition-all hover:bg-indigo-500/10 cursor-pointer select-none"
+        >
           <Checkbox
             id="declaration"
             checked={formData.declarationAccepted}
@@ -416,7 +441,7 @@ export default function Step5Review({
                 setDeclarationAgreed(false);
               }
             }}
-            className="mt-1.5 border-slate-700 data-[state=checked]:bg-indigo-600 data-[state=checked]:border-indigo-600 h-5 w-5 rounded-md"
+            className="mt-1.5 border-indigo-500 bg-slate-950/80 hover:border-indigo-400 data-[state=checked]:bg-indigo-600 data-[state=checked]:border-indigo-600 h-5 w-5 rounded-md transition-colors focus-visible:ring-indigo-500 focus-visible:ring-offset-0 focus-visible:ring-2 cursor-pointer"
           />
           <div className="grid gap-1.5 leading-tight">
             <label htmlFor="declaration" className="text-sm font-bold text-slate-200 cursor-pointer select-none">
@@ -429,35 +454,47 @@ export default function Step5Review({
         </div>
       </div>
 
-      <div className="pt-6 border-t border-slate-800/50 flex flex-col sm:flex-row justify-between gap-4">
+      <div className="mt-auto pt-6 border-t border-slate-800/50 flex flex-col sm:flex-row justify-between gap-4">
         <Button
           onClick={onPrev}
-          variant="ghost"
-          className="text-slate-500 hover:text-white hover:bg-slate-800 h-14 px-8 font-bold transition-all"
+          variant="outline"
+          className="border-slate-800 bg-transparent hover:bg-slate-900 text-slate-400 hover:text-white h-11 px-5 font-semibold rounded-xl transition-colors flex items-center gap-2"
         >
-          &lt;- Back to previous step
+          <ArrowLeft className="w-4 h-4" />
+          Back
         </Button>
 
         <div className="flex flex-col sm:flex-row gap-3">
           <Button
             variant="outline"
-            onClick={handleDownloadPdf}
-            disabled={!declarationAgreed}
-            className="border-slate-800 bg-slate-900/50 text-slate-300 hover:text-white hover:bg-slate-800 h-14 px-8 font-bold rounded-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+            onClick={() => {
+              if (!declarationAgreed) {
+                toast.error("Please read and accept the final declaration checkbox to enable PDF download.");
+                return;
+              }
+              handleDownloadPdf();
+            }}
+            className={`border-slate-800 bg-slate-900/50 text-slate-300 hover:text-white hover:bg-slate-800 h-11 px-6 font-semibold rounded-xl transition-colors flex items-center gap-2 ${!declarationAgreed ? 'opacity-50 cursor-not-allowed' : ''}`}
           >
-            <Download className="w-4 h-4 mr-2" />
+            <Download className="w-4 h-4" />
             Download PDF
           </Button>
 
           <Button
-            onClick={handleSubmitApplication}
-            disabled={submitting || !declarationAgreed}
-            className="bg-indigo-601 hover:bg-indigo-500 disabled:opacity-50 text-white font-black h-14 px-10 rounded-xl shadow-[0_8px_30px_rgb(79,70,229,0.3)] transition-all hover:scale-[1.02] active:scale-95 flex items-center gap-2 group"
+            onClick={() => {
+              if (!declarationAgreed) {
+                toast.error("Please read and accept the final declaration checkbox before submitting your application.");
+                return;
+              }
+              handleSubmitApplication();
+            }}
+            disabled={submitting}
+            className={`bg-indigo-600 hover:bg-indigo-500 text-white font-semibold h-11 px-8 rounded-xl shadow-lg shadow-indigo-600/20 transition-colors flex items-center gap-2 group ${!declarationAgreed ? 'opacity-50 cursor-not-allowed' : ''}`}
           >
             {submitting ? (
               <><Loader2 className="h-5 w-5 animate-spin" /> Finalizing...</>
             ) : (
-              <><Send className="h-5 w-5 group-hover:translate-x-1 group-hover:-translate-y-1 transition-transform" /> Submit Application</>
+              <><Send className="h-4 w-4 group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-transform" /> Submit Application</>
             )}
           </Button>
         </div>

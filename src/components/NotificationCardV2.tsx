@@ -584,13 +584,13 @@ export default function NotificationCardV2({
                           <div className="h-px flex-1 mx-4 bg-emerald-500/10" />
                         </div>
                         <div className="text-[14px] leading-relaxed text-slate-600 dark:text-slate-300 font-medium italic break-all">
-                          <span className="text-emerald-500/40 text-3xl font-serif mr-1 leading-none">"</span>
+                          <span className="text-emerald-500/40 text-3xl font-sans mr-1 leading-none">"</span>
                           {notification.metadata?.originalFeedback || (
                             notification.content.includes('Original Feedback from')
                               ? notification.content.split('---')[0].split('):\n\n')[1]?.replace(/^"|"$/g, '')
                               : notification.content
                           )}
-                          <span className="text-emerald-500/40 text-3xl font-serif ml-1 leading-none inline-block align-bottom">"</span>
+                          <span className="text-emerald-500/40 text-3xl font-sans ml-1 leading-none inline-block align-bottom">"</span>
                         </div>
                       </div>
 

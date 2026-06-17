@@ -16,8 +16,9 @@
  */
 
 import { adminDb } from '@/lib/firebase-admin';
-import { FieldValue, Timestamp } from 'firebase-admin/firestore';
-import { paymentsSupabaseService } from '@/lib/services/payments-supabase';
+import { FieldValue } from 'firebase-admin/firestore';
+import { paymentsSupabaseService, type PaymentRecord } from '@/lib/services/payments-supabase';
+import { ensureReceiptSignature } from '@/lib/services/receipt.service';
 import {
     PaymentDocument,
     OnlinePaymentDocument,
@@ -32,7 +33,6 @@ import {
     PaymentDetailModalData,
     generateOfflinePaymentId,
     generateOnlinePaymentId,
-    isPaymentImmutable,
     isOnlinePayment,
     isOfflinePayment,
 } from '@/lib/types/payment';
@@ -57,7 +57,7 @@ export async function createOnlinePayment(
     request: CreateOnlinePaymentRequest
 ): Promise<OnlinePaymentDocument> {
     const now = new Date();
-    const paymentId = generateOnlinePaymentId(request.purpose);
+    const paymentId = request.razorpayPaymentId || generateOnlinePaymentId(request.purpose);
 
     // Build the payment document for return
     const paymentDoc: OnlinePaymentDocument = {
@@ -105,6 +105,15 @@ export async function createOnlinePayment(
         console.error(`❌ Failed to create payment in Supabase: ${request.razorpayPaymentId}`);
     }
 
+    if (!result) {
+        throw new Error(`Failed to create secured online payment ledger record: ${request.razorpayPaymentId}`);
+    }
+
+    const storedPayment = await paymentsSupabaseService.getPaymentById(result);
+    if (storedPayment) {
+        await requireSecuredReceiptSignature(storedPayment);
+    }
+
     return paymentDoc;
 }
 
@@ -143,6 +152,7 @@ export async function createOfflinePayment(
         paymentId,
         studentId: request.studentId,
         studentUid: request.studentUid,
+        studentName: request.studentName,
         amount: request.amount,
         method: 'Offline',
         status: 'Pending',
@@ -158,7 +168,34 @@ export async function createOfflinePayment(
         console.error(`❌ Failed to create offline payment in Supabase: ${paymentId}`);
     }
 
+    if (!result) {
+        throw new Error(`Failed to create offline payment ledger record: ${paymentId}`);
+    }
+
     return paymentDoc;
+}
+
+async function applyPaymentValidityToStudent(payment: PaymentRecord): Promise<void> {
+    if (!payment.student_uid) return;
+
+    const studentRef = adminDb.collection(STUDENTS_COLLECTION).doc(payment.student_uid);
+    const newValidUntil = payment.valid_until ? new Date(payment.valid_until) : null;
+
+    await studentRef.update({
+        validUntil: newValidUntil,
+        sessionStartYear: payment.session_start_year,
+        sessionEndYear: payment.session_end_year,
+        status: 'active',
+        lastRenewalDate: FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
+    });
+}
+
+async function requireSecuredReceiptSignature(payment: PaymentRecord): Promise<void> {
+    const signatureResult = await ensureReceiptSignature(payment);
+    if (!signatureResult.ok) {
+        throw new Error(`Payment receipt signature could not be secured (${signatureResult.status})`);
+    }
 }
 
 // ============================================================================
@@ -166,10 +203,12 @@ export async function createOfflinePayment(
 // ============================================================================
 
 /**
- * Approve an offline payment
+ * Approve an offline payment (IDEMPOTENT + ATOMIC)
  * Updates payment status in Supabase and student validity in Firestore
  * 
  * ✅ PAYMENT STATUS IN SUPABASE, STUDENT UPDATE IN FIRESTORE
+ * ✅ IDEMPOTENT: If already Completed, returns success
+ * ✅ ATOMIC: Supabase WHERE status='Pending' prevents race conditions
  */
 export async function approveOfflinePayment(
     request: ApprovePaymentRequest
@@ -182,15 +221,26 @@ export async function approveOfflinePayment(
             throw new Error('Payment not found in Supabase');
         }
 
+        // IDEMPOTENT: If already completed, return success
         if (payment.status === 'Completed') {
-            throw new Error('Payment already completed');
+            await applyPaymentValidityToStudent(payment);
+            await requireSecuredReceiptSignature(payment);
+            return {
+                success: true,
+                payment: mapSupabaseToFirestoreFormat(payment),
+            };
+        }
+
+        // Cannot approve rejected payments — must be re-submitted
+        if (payment.status === 'Rejected') {
+            throw new Error('Cannot approve a rejected payment. Student must re-submit.');
         }
 
         if (payment.method !== 'Offline') {
             throw new Error('Cannot manually approve online payments');
         }
 
-        // Update payment status in Supabase
+        // ATOMIC: Update payment status in Supabase (WHERE status='Pending')
         const updateSuccess = await paymentsSupabaseService.updatePaymentStatus(
             request.paymentId,
             'Completed',
@@ -203,23 +253,25 @@ export async function approveOfflinePayment(
         );
 
         if (!updateSuccess) {
-            throw new Error('Failed to update payment status in Supabase');
+            // Another request likely approved/rejected it first (race condition handled)
+            throw new Error('Payment was already processed by another approver');
+        }
+
+        const completedPayment = await paymentsSupabaseService.getPaymentById(request.paymentId);
+        if (!completedPayment || completedPayment.status !== 'Completed') {
+            throw new Error('Payment approval could not be confirmed');
         }
 
         // Update student document validity in Firestore
-        if (payment.student_uid) {
-            const studentRef = adminDb.collection(STUDENTS_COLLECTION).doc(payment.student_uid);
+        if (completedPayment.student_uid) {
+            const studentRef = adminDb.collection(STUDENTS_COLLECTION).doc(completedPayment.student_uid);
             
-            // Fetch student data to ensure we don't overwrite if they just renewed with a even longer date
-            const studentDoc = await studentRef.get();
-            const currentData = studentDoc.data();
-            
-            const newValidUntil = payment.valid_until ? new Date(payment.valid_until) : null;
+            const newValidUntil = completedPayment.valid_until ? new Date(completedPayment.valid_until) : null;
             
             await studentRef.update({
                 validUntil: newValidUntil,
-                sessionStartYear: payment.session_start_year,
-                sessionEndYear: payment.session_end_year,
+                sessionStartYear: completedPayment.session_start_year,
+                sessionEndYear: completedPayment.session_end_year,
                 status: 'active',
                 lastRenewalDate: FieldValue.serverTimestamp(),
                 updatedAt: FieldValue.serverTimestamp(),
@@ -228,24 +280,24 @@ export async function approveOfflinePayment(
             console.log(`✅ Success: Student ${payment.student_uid} validity updated until ${newValidUntil?.toISOString()}`);
         }
 
-
+        await requireSecuredReceiptSignature(completedPayment);
 
         // Return compatible format
         return {
             success: true,
             payment: {
-                paymentId: payment.payment_id,
-                studentId: payment.student_id || '',
-                studentUid: payment.student_uid || '',
-                studentName: '', // Student name fetched from Firestore
-                amount: payment.amount || 0,
-                durationYears: payment.duration_years || 1,
-                method: payment.method as 'Online' | 'Offline',
+                paymentId: completedPayment.payment_id,
+                studentId: completedPayment.student_id || '',
+                studentUid: completedPayment.student_uid || '',
+                studentName: completedPayment.student_name || '',
+                amount: completedPayment.amount || 0,
+                durationYears: completedPayment.duration_years || 1,
+                method: completedPayment.method as 'Online' | 'Offline',
                 status: 'Completed',
-                sessionStartYear: payment.session_start_year || new Date().getFullYear(),
-                sessionEndYear: payment.session_end_year || new Date().getFullYear() + 1,
-                validUntil: payment.valid_until || '',
-                createdAt: new Date(payment.transaction_date || Date.now()),
+                sessionStartYear: completedPayment.session_start_year || new Date().getFullYear(),
+                sessionEndYear: completedPayment.session_end_year || new Date().getFullYear() + 1,
+                validUntil: completedPayment.valid_until || '',
+                createdAt: new Date(completedPayment.transaction_date || Date.now()),
                 updatedAt: new Date(),
             } as PaymentDocument
         };
@@ -259,11 +311,11 @@ export async function approveOfflinePayment(
 }
 
 /**
- * Reject an offline payment
+ * Reject an offline payment (ATOMIC)
  * 
- * ⚠️ IMPORTANT: Payments are IMMUTABLE and cannot be deleted.
- * Rejecting a payment leaves it in 'Pending' status with a log entry.
- * The payment record remains in the database as an audit trail.
+ * ✅ IMMUTABLE: Payment record is preserved — status transitions to 'Rejected'
+ * ✅ ATOMIC: Supabase WHERE status='Pending' prevents race conditions
+ * ✅ AUDIT: Rejector info stored on the record
  */
 export async function rejectOfflinePayment(
     request: RejectPaymentRequest
@@ -280,22 +332,37 @@ export async function rejectOfflinePayment(
             throw new Error('Cannot reject completed payment');
         }
 
+        // IDEMPOTENT: If already rejected, return success
+        if (payment.status === 'Rejected') {
+            console.log(`ℹ️ Payment ${request.paymentId} already rejected (idempotent success)`);
+            return { success: true };
+        }
+
         if (payment.method !== 'Offline') {
             throw new Error('Cannot reject online payments');
         }
 
-        // ⚠️ PAYMENTS ARE IMMUTABLE - Cannot delete
-        // Log the rejection but leave the payment record intact
-        console.warn(`⚠️ Payment rejection requested for: ${request.paymentId}`);
+        // ATOMIC: Update payment status to 'Rejected' (WHERE status='Pending')
+        // Payment record is preserved — NO deletions (immutable ledger)
+        const updateSuccess = await paymentsSupabaseService.updatePaymentStatus(
+            request.paymentId,
+            'Rejected',
+            {
+                userId: request.rejectorUserId,
+                name: request.rejectorName,
+                empId: request.rejectorEmpId,
+                role: request.rejectorRole,
+            }
+        );
 
-        // Note: In a production system, you might want to add a 'rejected' status
-        // or store rejection info in a separate audit table.
-        // For now, the payment stays as 'Pending' and is effectively ignored.
+        if (!updateSuccess) {
+            // Another request likely approved/rejected it first (race condition handled)
+            throw new Error('Payment was already processed by another reviewer');
+        }
 
-        return {
-            success: true,
-            // Inform caller that deletion was not performed
-        };
+        console.log(`🗑️ Payment ${request.paymentId} rejected by ${request.rejectorName}`);
+
+        return { success: true };
     } catch (error) {
         console.error(`❌ Error processing rejection for ${request.paymentId}:`, error);
         return {
@@ -314,7 +381,7 @@ export async function rejectOfflinePayment(
  * Merges results from UID and Enrollment ID lookups
  */
 export async function getPaymentsByStudent(studentUid: string, studentId?: string): Promise<PaymentDocument[]> {
-    let allPayments: PaymentDocument[] = [];
+    const allPayments: PaymentDocument[] = [];
     const fetchedPaymentIds = new Set<string>();
 
     // 1. Fetch by UID
@@ -363,7 +430,7 @@ export async function getAllPayments(
     // If we have studentUid OR studentId filters, we want to fetch from specific indices
     // and merge the results to ensure we catch all payments (created with either ID)
     if (filters?.studentUid || filters?.studentId) {
-        let allPayments: PaymentDocument[] = [];
+        const allPayments: PaymentDocument[] = [];
         const fetchedPaymentIds = new Set<string>();
 
         // 1. Fetch by UID if available
@@ -426,35 +493,18 @@ export async function getAllPayments(
             totalPages,
         };
     }
-
-    // Otherwise, use recent transactions (ad-hoc filtering for now)
-    const payments = await paymentsSupabaseService.getRecentTransactions(200);
+    // Otherwise, use server-side paginated payments
+    const result = await paymentsSupabaseService.getPaginatedPayments(filters || {}, page, pageSize);
 
     // Apply filters manually
-    let filtered = payments.map(mapSupabaseToFirestoreFormat);
-
-    if (filters?.method) {
-        filtered = filtered.filter(p => p.method === filters.method);
-    }
-    if (filters?.status) {
-        filtered = filtered.filter(p => p.status === filters.status);
-    }
-    if (filters?.year) {
-        filtered = filtered.filter(p => p.sessionStartYear === filters.year);
-    }
-
-    // Apply pagination
-    const total = filtered.length;
-    const totalPages = Math.ceil(total / pageSize);
-    const offset = (page - 1) * pageSize;
-    const paginatedPayments = filtered.slice(offset, offset + pageSize);
+    const mapped = result.payments.map(mapSupabaseToFirestoreFormat);
 
     return {
-        payments: paginatedPayments,
-        total,
+        payments: mapped,
+        total: result.total,
         page,
         pageSize,
-        totalPages,
+        totalPages: Math.ceil(result.total / pageSize),
     };
 }
 
@@ -615,7 +665,7 @@ export async function getPaymentStatistics(
 // HELPER: Map Supabase format to Firestore format for backwards compatibility
 // ============================================================================
 
-function mapSupabaseToFirestoreFormat(p: any): PaymentDocument {
+function mapSupabaseToFirestoreFormat(p: PaymentRecord): PaymentDocument {
     return {
         paymentId: p.payment_id,
         studentId: p.student_id || '',

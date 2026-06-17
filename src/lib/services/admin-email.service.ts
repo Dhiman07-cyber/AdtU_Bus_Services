@@ -1,7 +1,7 @@
 /**
  * Admin Email Service
  * 
- * Handles email notifications to admin users using NodeMailer with Gmail SMTP.
+ * Handles email notifications through the configured email provider.
  * 
  * This service is used for:
  * - Notifying admins when moderators add students
@@ -9,37 +9,33 @@
  * - Important system notifications
  */
 
-import nodemailer from 'nodemailer';
+import { Resend, type Attachment } from 'resend';
 import { adminDb } from '@/lib/firebase-admin';
 
 // Environment variables
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL;
-const GMAIL_PASS = process.env.GMAIL_PASS;
+const RESEND_API_KEY = process.env.RESEND_API_KEY;
+const EMAIL_FROM = process.env.EMAIL_FROM || process.env.RESEND_FROM_EMAIL;
+const EMAIL_REPLY_TO = process.env.EMAIL_REPLY_TO || 'noreply@adtu.ac.in';
+
+let resendClient: Resend | null = null;
 
 // Check if email is configured
 const isEmailConfigured = (): boolean => {
-  return !!(ADMIN_EMAIL && GMAIL_PASS);
+  return !!(RESEND_API_KEY && EMAIL_FROM);
 };
 
-// Create Gmail transporter
-const createTransporter = () => {
+const getResendClient = () => {
   if (!isEmailConfigured()) {
-    console.warn('⚠️ SMTP: Email configuration missing (ADMIN_EMAIL or GMAIL_PASS). Email service will use fallback.');
+    console.warn('Email provider configuration missing. Email service will use fallback.');
     return null;
   }
 
-  console.log(`🔌 SMTP: Initializing Gmail transporter for ${ADMIN_EMAIL}`);
-  return nodemailer.createTransport({
-    host: 'smtp.gmail.com',
-    port: 465,
-    secure: true,
-    auth: {
-      user: ADMIN_EMAIL,
-      pass: GMAIL_PASS,
-    },
-    connectionTimeout: 10000, // 10 seconds
-    greetingTimeout: 10000,    // 10 seconds
-  });
+  if (!resendClient) {
+    resendClient = new Resend(RESEND_API_KEY);
+  }
+
+  return resendClient;
 };
 
 // Fallback email sending method (logs to console in development)
@@ -48,12 +44,48 @@ const sendEmailFallback = async (options: {
   subject: string;
   html: string;
 }) => {
-  console.log('📧 [EMAIL SERVICE] Email configuration missing. Email would be sent:');
-  console.log('   To:', options.to.join(', '));
+  console.log('[EMAIL SERVICE] Email provider missing. Email would be sent.');
+  console.log('   Recipient count:', options.to.length);
   console.log('   Subject:', options.subject);
-  console.log('   ---');
-  console.log('   ⚠️ To enable emails, set ADMIN_EMAIL and GMAIL_PASS in .env');
+  console.log('   To enable emails, set RESEND_API_KEY and EMAIL_FROM in the server environment.');
   return { success: true, fallback: true };
+};
+
+const sendEmail = async (options: {
+  to: string | string[];
+  subject: string;
+  html: string;
+  attachments?: Attachment[];
+}): Promise<{ success: boolean; error?: string; messageId?: string }> => {
+  const recipients = Array.isArray(options.to) ? options.to : [options.to];
+  const client = getResendClient();
+
+  if (!client || !EMAIL_FROM) {
+    return sendEmailFallback({
+      to: recipients,
+      subject: options.subject,
+      html: options.html,
+    });
+  }
+
+  try {
+    const { data, error } = await client.emails.send({
+      from: EMAIL_FROM,
+      to: options.to,
+      replyTo: EMAIL_REPLY_TO,
+      subject: options.subject,
+      html: options.html,
+      attachments: options.attachments,
+    });
+
+    if (error) {
+      return { success: false, error: error.message || 'Email provider rejected the request' };
+    }
+
+    return { success: true, messageId: data?.id };
+  } catch (error: any) {
+    return { success: false, error: error.message || 'Failed to send email' };
+  }
 };
 
 export interface StudentAddedEmailData {
@@ -190,43 +222,27 @@ export async function sendStudentAddedNotification(
   const subject = `🎓 New Student Added: ${studentData.studentName} - By ${studentData.addedBy.name}`;
 
   try {
-    const transporter = createTransporter();
+    const attachments: Attachment[] = attachment
+      ? [{
+        filename: attachment.filename,
+        content: attachment.content,
+        contentType: 'application/pdf',
+      }]
+      : [];
 
-    if (transporter) {
-      // Verify SMTP connection
-      await transporter.verify();
-      console.log('✅ SMTP connection verified for admin notification');
+    const result = await sendEmail({
+      to: adminEmails,
+      subject,
+      html: emailHtml,
+      attachments,
+    });
 
-      // Prepare attachments
-      const attachments: any[] = [];
-      if (attachment) {
-        attachments.push({
-          filename: attachment.filename,
-          content: attachment.content,
-          contentType: 'application/pdf'
-        });
-      }
-
-      // Send email using NodeMailer
-      const info = await transporter.sendMail({
-        from: `"AdtU Bus Services" <${ADMIN_EMAIL}>`,
-        to: adminEmails,
-        replyTo: 'noreply@adtu.ac.in',
-        subject,
-        html: emailHtml,
-        attachments,
-      });
-
-      console.log('✅ Admin notification email sent:', info.messageId);
-      return { success: true };
-    } else {
-      // Fallback for development/testing
-      return sendEmailFallback({
-        to: adminEmails,
-        subject,
-        html: emailHtml,
-      });
+    if (!result.success) {
+      return { success: false, error: result.error };
     }
+
+    console.log('Admin notification email sent:', result.messageId || 'provider accepted');
+    return { success: true };
   } catch (error: any) {
     console.error('❌ Error sending email:', error);
     return { success: false, error: error.message || 'Failed to send email' };
@@ -271,7 +287,7 @@ function generateStudentAddedEmailHtml(data: StudentAddedEmailData): string {
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 </head>
-<body style="margin:0;padding:0;background:#0f172a;font-family:'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#f8fafc;">
+<body style="margin:0;padding:0;background:#0f172a;font-family:'Segoe UI','Helvetica Neue',Arial,sans-serif;color:#f8fafc;">
   <div style="background:#0f172a;padding:40px 20px;">
     <table width="100%" cellpadding="0" cellspacing="0" style="max-width:650px;margin:0 auto;background:#1e293b;border-radius:24px;border:1px solid #334155;overflow:hidden;box-shadow:0 25px 50px -12px rgba(0,0,0,0.5);">
       
@@ -487,38 +503,18 @@ export async function sendApplicationRejectedNotification(
   const subject = `⚠️ Application Status Update: Bus Service Request`;
 
   try {
-    const transporter = createTransporter();
+    const result = await sendEmail({
+      to: data.studentEmail,
+      subject,
+      html: emailHtml,
+    });
 
-    if (transporter) {
-      console.log(`📡 SMTP: Verifying connection for ${data.studentEmail}...`);
-      try {
-        await transporter.verify();
-        console.log('✅ SMTP: Connection verified.');
-      } catch (verifyError) {
-        console.error('❌ SMTP: Connection verification failed:', verifyError);
-        return { success: false, error: 'SMTP Connection failed' };
-      }
-
-      console.log(`📡 SMTP: Attempting to send rejection email from ${ADMIN_EMAIL} to: ${data.studentEmail}`);
-      // Send email using NodeMailer
-      const info = await transporter.sendMail({
-        from: `"AdtU Bus Services" <${ADMIN_EMAIL}>`,
-        to: data.studentEmail,
-        replyTo: 'noreply@adtu.ac.in',
-        subject,
-        html: emailHtml,
-      });
-
-      console.log('✅ Rejection email sent to student:', info.messageId);
-      return { success: true };
-    } else {
-      // Fallback for development/testing
-      return sendEmailFallback({
-        to: [data.studentEmail],
-        subject,
-        html: emailHtml,
-      });
+    if (!result.success) {
+      return { success: false, error: result.error };
     }
+
+    console.log('Application rejection email sent:', result.messageId || 'provider accepted');
+    return { success: true };
   } catch (error: any) {
     console.error('❌ Error sending rejection email:', error);
     return { success: false, error: error.message || 'Failed to send email' };
@@ -542,38 +538,18 @@ export async function sendApplicationApprovedNotification(
   const subject = `🎉 Application Approved: AdtU Bus Service`;
 
   try {
-    const transporter = createTransporter();
+    const result = await sendEmail({
+      to: data.studentEmail,
+      subject,
+      html: emailHtml,
+    });
 
-    if (transporter) {
-      console.log(`📡 SMTP: Verifying connection for ${data.studentEmail}...`);
-      try {
-        await transporter.verify();
-        console.log('✅ SMTP: Connection verified.');
-      } catch (verifyError) {
-        console.error('❌ SMTP: Connection verification failed:', verifyError);
-        return { success: false, error: 'SMTP Connection failed' };
-      }
-
-      console.log(`📡 SMTP: Attempting to send approval email from ${ADMIN_EMAIL} to: ${data.studentEmail}`);
-      // Send email using NodeMailer
-      const info = await transporter.sendMail({
-        from: `"AdtU Bus Services" <${ADMIN_EMAIL}>`,
-        to: data.studentEmail,
-        replyTo: 'noreply@adtu.ac.in',
-        subject,
-        html: emailHtml,
-      });
-
-      console.log('✅ Approval email sent to student:', info.messageId);
-      return { success: true };
-    } else {
-      // Fallback for development/testing
-      return sendEmailFallback({
-        to: [data.studentEmail],
-        subject,
-        html: emailHtml,
-      });
+    if (!result.success) {
+      return { success: false, error: result.error };
     }
+
+    console.log('Application approval email sent:', result.messageId || 'provider accepted');
+    return { success: true };
   } catch (error: any) {
     console.error('❌ Error sending approval email:', error);
     return { success: false, error: error.message || 'Failed to send email' };
@@ -592,7 +568,7 @@ function generateApplicationRejectedEmailHtml(data: ApplicationRejectedEmailData
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 </head>
-<body style="margin:0;padding:0;background:#f8fafc;font-family:'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#1e293b;">
+<body style="margin:0;padding:0;background:#f8fafc;font-family:'Segoe UI','Helvetica Neue',Arial,sans-serif;color:#1e293b;">
   <div style="background:#f1f5f9;padding:40px 20px;">
     <table width="100%" cellpadding="0" cellspacing="0" style="max-width:600px;margin:0 auto;background:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 4px 12px rgba(0,0,0,0.05);border:1px solid #e2e8f0;">
       
@@ -660,7 +636,7 @@ function generateApplicationApprovedEmailHtml(data: ApplicationApprovedEmailData
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 </head>
-<body style="margin:0;padding:0;background:#f8fafc;font-family:'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#1e293b;">
+<body style="margin:0;padding:0;background:#f8fafc;font-family:'Segoe UI','Helvetica Neue',Arial,sans-serif;color:#1e293b;">
   <div style="background:#f0fdf4;padding:40px 20px;">
     <table width="100%" cellpadding="0" cellspacing="0" style="max-width:600px;margin:0 auto;background:#ffffff;border-radius:24px;overflow:hidden;box-shadow:0 10px 15px -3px rgba(0,0,0,0.1);border:1px solid #dcfce7;">
       

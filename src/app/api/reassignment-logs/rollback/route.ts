@@ -7,27 +7,26 @@
  * SECURITY: Uses withSecurity wrapper. Admin-only access for rollback operations.
  */
 
-import { NextRequest, NextResponse } from 'next/server';
-import { getSupabaseServer } from '@/lib/supabase-server';
+import { NextResponse } from 'next/server';
 import { adminDb } from '@/lib/firebase-admin';
 import { withSecurity } from '@/lib/security/api-security';
 import { RateLimits } from '@/lib/security/rate-limiter';
 import { z } from 'zod';
-import { createClient } from '@supabase/supabase-js';
+import { createClient, type SupabaseClient } from '@supabase/supabase-js';
+import crypto from 'crypto';
 
 export const dynamic = 'force-dynamic';
 
 // ============================================================================
 // TYPES & SCHEMAS
-// ============================================================================
 
 interface ChangeRecord {
     docPath: string;
     collection: string;
     docId: string;
-    before: Record<string, any> | null;
-    after: Record<string, any> | null;
-    precondition?: Record<string, any>;
+    before: Record<string, unknown> | null;
+    after: Record<string, unknown> | null;
+    precondition?: Record<string, unknown>;
 }
 
 interface ReassignmentLog {
@@ -40,22 +39,69 @@ interface ReassignmentLog {
     status: string;
     summary: string | null;
     changes: ChangeRecord[];
-    meta: Record<string, any>;
+    meta: Record<string, unknown>;
     rollback_of: string | null;
     created_at: string;
 }
 
+type ReassignmentLogRow = {
+    id: string;
+    operation_id: string;
+    type: string;
+    actor_id: string;
+    actor_label: string;
+    logged_at: string;
+    status: string;
+    summary: string | null;
+    changes: unknown[];
+    meta: Record<string, unknown> | null;
+    rollback_of: string | null;
+    created_at: string;
+    updated_at: string | null;
+};
+
+type ReassignmentLogInsert = {
+    operation_id: string;
+    type: string;
+    actor_id: string;
+    actor_label: string;
+    status: string;
+    summary?: string | null;
+    changes?: unknown[];
+    meta?: Record<string, unknown>;
+    rollback_of?: string | null;
+};
+
+type ReassignmentLogUpdate = Partial<ReassignmentLogInsert>;
+
+type ReassignmentLogsDatabase = {
+    public: {
+        Tables: {
+            reassignment_logs: {
+                Row: ReassignmentLogRow;
+                Insert: ReassignmentLogInsert;
+                Update: ReassignmentLogUpdate;
+                Relationships: [];
+            };
+        };
+        Views: Record<string, never>;
+        Functions: Record<string, never>;
+        Enums: Record<string, never>;
+        CompositeTypes: Record<string, never>;
+    };
+};
+
 const RollbackSchema = z.object({
     operationId: z.string().min(1).max(200),
-    actorId: z.string().min(1).max(128),
-    actorLabel: z.string().min(1).max(200),
+    actorId: z.string().min(1).max(128).optional(),
+    actorLabel: z.string().min(1).max(200).optional(),
 });
 
 // ============================================================================
 // SUPABASE CLIENT (lazy singleton)
 // ============================================================================
 
-let _supabase: ReturnType<typeof createClient> | null = null;
+let _supabase: SupabaseClient<ReassignmentLogsDatabase> | null = null;
 
 function getSupabase() {
     if (_supabase) return _supabase;
@@ -64,7 +110,7 @@ function getSupabase() {
     const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
     if (!url || !key) return null;
 
-    _supabase = createClient(url, key, { auth: { persistSession: false } });
+    _supabase = createClient<ReassignmentLogsDatabase>(url, key, { auth: { persistSession: false } });
     return _supabase;
 }
 
@@ -73,7 +119,7 @@ function getSupabase() {
 // ============================================================================
 
 export const GET = withSecurity(
-    async (request, { auth }) => {
+    async (request) => {
         const supabase = getSupabase();
         if (!supabase) {
             return NextResponse.json({ error: 'Server configuration error' }, { status: 500 });
@@ -87,8 +133,8 @@ export const GET = withSecurity(
         }
 
         // Get the operation log
-        const { data: log, error } = await (supabase
-            .from('reassignment_logs') as any)
+        const { data: log, error } = await supabase
+            .from('reassignment_logs')
             .select('*')
             .eq('operation_id', operationId)
             .single();
@@ -137,8 +183,9 @@ export const GET = withSecurity(
                         );
                     }
                 }
-            } catch (err: any) {
-                conflicts.push(`Error checking ${change.docPath}: ${err.message}`);
+            } catch (err: unknown) {
+                const message = err instanceof Error ? err.message : 'unknown error';
+                conflicts.push(`Error checking ${change.docPath}: ${message}`);
             }
         }
 
@@ -146,11 +193,11 @@ export const GET = withSecurity(
             canRollback: conflicts.length === 0,
             conflicts,
             log: {
-                operation_id: log.operation_id,
-                type: log.type,
-                actor_label: log.actor_label,
-                timestamp: log.timestamp,
-                summary: log.summary,
+                operation_id: typedLog.operation_id,
+                type: typedLog.type,
+                actor_label: typedLog.actor_label,
+                timestamp: typedLog.logged_at,
+                summary: typedLog.summary,
                 changesCount: changes.length,
             },
         });
@@ -172,7 +219,8 @@ export const POST = withSecurity(
             return NextResponse.json({ error: 'Server configuration error' }, { status: 500 });
         }
 
-        const { operationId, actorId, actorLabel } = body as z.infer<typeof RollbackSchema>;
+        const { operationId } = body as z.infer<typeof RollbackSchema>;
+        const actorLabel = auth.name ? `${auth.name} (${auth.role})` : auth.role;
 
         // Get the original operation
         const { data: originalLog, error: fetchError } = await supabase
@@ -195,15 +243,15 @@ export const POST = withSecurity(
         }
 
         const changes = typedOriginalLog.changes;
-        const rollbackOpId = `rollback_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
+        const rollbackOpId = `rollback_${Date.now()}_${crypto.randomUUID()}`;
 
         // Create pending rollback log
-        await (supabase
-            .from('reassignment_logs') as any)
+        await supabase
+            .from('reassignment_logs')
             .insert([{
                 operation_id: rollbackOpId,
                 type: 'rollback',
-                actor_id: actorId,
+                actor_id: auth.uid,
                 actor_label: actorLabel,
                 status: 'pending',
                 summary: `Rollback of operation ${operationId}`,
@@ -230,16 +278,17 @@ export const POST = withSecurity(
                     before: change.after,
                     after: change.before,
                 });
-            } catch (err: any) {
-                errors.push(`Failed to revert ${change.docPath}: ${err.message}`);
+            } catch (err: unknown) {
+                const message = err instanceof Error ? err.message : 'unknown error';
+                errors.push(`Failed to revert ${change.docPath}: ${message}`);
             }
         }
 
         const rollbackSuccess = errors.length === 0;
 
         // Update rollback log
-        const { error: updateRollbackError } = await (supabase
-            .from('reassignment_logs') as any)
+        const { error: updateRollbackError } = await supabase
+            .from('reassignment_logs')
             .update({
                 status: rollbackSuccess ? 'committed' : 'failed',
                 changes: rollbackChanges,
@@ -259,8 +308,8 @@ export const POST = withSecurity(
 
         // Mark original as rolled_back (if successful)
         if (rollbackSuccess) {
-            const { error: updateOriginalError } = await (supabase
-                .from('reassignment_logs') as any)
+            const { error: updateOriginalError } = await supabase
+                .from('reassignment_logs')
                 .update({
                     status: 'rolled_back',
                     meta: {

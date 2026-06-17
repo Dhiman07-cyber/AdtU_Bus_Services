@@ -25,7 +25,6 @@ import type {
   Application,
   Invitation
 } from '@/lib/types';
-import { v4 as uuidv4 } from 'uuid';
 import CryptoJS from 'crypto-js';
 import {
   getOfflineBusRoutes,
@@ -33,6 +32,7 @@ import {
   getOfflineNotifications,
   getOfflineRouteById
 } from '@/lib/offline-service';
+import { createRandomId } from '@/lib/security/random-id';
 
 // Add proper typing for db
 import { Firestore } from 'firebase/firestore';
@@ -1017,7 +1017,7 @@ export const rejectStudentApplication = async (applicationId: string, rejectedBy
 export const createApplication = async (applicationData: Omit<Application, 'applicationId'>): Promise<string | null> => {
   try {
     const db = await getDatabase();
-    const applicationId = uuidv4();
+    const applicationId = createRandomId();
     await setDoc(doc(db as Firestore, 'applications', applicationId), {
       ...applicationData,
       applicationId,
@@ -1053,7 +1053,7 @@ export const getApplicationsByApplicantUID = async (applicantUID: string): Promi
 export const addRoute = async (routeData: Omit<Route, 'id'>): Promise<string | null> => {
   try {
     const db = await getDatabase();
-    const routeId = routeData.routeId || uuidv4();
+    const routeId = routeData.routeId || createRandomId();
     await setDoc(doc(db as Firestore, 'routes', routeId), {
       ...routeData,
       routeId,
@@ -1069,7 +1069,7 @@ export const addRoute = async (routeData: Omit<Route, 'id'>): Promise<string | n
 export const createNotification = async (notificationData: Omit<Notification, 'id'>): Promise<string | null> => {
   try {
     const db = await getDatabase();
-    const notificationId = uuidv4();
+    const notificationId = createRandomId();
     await setDoc(doc(db as Firestore, 'notifications', notificationId), {
       ...notificationData,
       createdAt: getCurrentTimestamp()

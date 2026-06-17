@@ -1,14 +1,10 @@
 import type { NextConfig } from "next";
+import path from "path";
 
 const nextConfig: NextConfig = {
   /* config options here */
-  typescript: {
-    // Disable TypeScript checks during builds (optional)
-    ignoreBuildErrors: true,
-  },
-
   // Performance optimizations
-  serverExternalPackages: ['cloudinary', 'razorpay', 'asynckit', 'axios'],
+  serverExternalPackages: ['cloudinary', 'razorpay'],
 
   experimental: {
     optimizePackageImports: [
@@ -38,7 +34,6 @@ const nextConfig: NextConfig = {
       'react-hot-toast',
       'zod',
       'crypto-js',
-      'uuid',
       'class-variance-authority',
       'clsx',
       'tailwind-merge',
@@ -90,7 +85,7 @@ const nextConfig: NextConfig = {
       config.cache = {
         type: 'filesystem',
         version: '1.0.0',
-        cacheDirectory: require('path').resolve('.next/cache/webpack'),
+        cacheDirectory: path.resolve('.next/cache/webpack'),
       };
     } else if (!isServer) {
       // Production optimizations — split large vendors into separate cacheable chunks
@@ -152,6 +147,16 @@ const nextConfig: NextConfig = {
         hostname: 'firebasestorage.googleapis.com',
         pathname: '/**',
       },
+      {
+        protocol: 'https',
+        hostname: '**.supabase.co',
+        pathname: '/**',
+      },
+      {
+        protocol: 'https',
+        hostname: '**.supabase.in',
+        pathname: '/**',
+      },
     ],
     // Image optimization settings - prioritize quality
     formats: ['image/webp', 'image/avif'],
@@ -194,9 +199,9 @@ const nextConfig: NextConfig = {
           // MapLibre uses a Blob worker in the browser.
           // If worker-src isn't explicitly set, browsers fall back to script-src and will block it.
           "worker-src 'self' blob:",
-          "style-src 'self' 'unsafe-inline' https://checkout.razorpay.com https://fonts.googleapis.com https://vercel.live https://*.vercel.live",
+          "style-src 'self' 'unsafe-inline' https://checkout.razorpay.com https://vercel.live https://*.vercel.live",
           "img-src 'self' data: blob: https: https://res.cloudinary.com https://lh3.googleusercontent.com https://api.dicebear.com https://checkout.razorpay.com https://www.google.com https://vercel.live https://*.vercel.live",
-          "font-src 'self' data: https://checkout.razorpay.com https://fonts.gstatic.com https://fonts.openmaptiles.org https://demotiles.maplibre.org https://vercel.live https://*.vercel.live",
+          "font-src 'self' data: https://checkout.razorpay.com https://fonts.openmaptiles.org https://demotiles.maplibre.org https://vercel.live https://*.vercel.live",
           isProduction
             ? "connect-src 'self' https://fonts.openmaptiles.org https://demotiles.maplibre.org https://*.razorpay.com https://api.razorpay.com wss://*.supabase.co https://*.supabase.co https://*.supabase.in https://firestore.googleapis.com https://securetoken.googleapis.com https://identitytoolkit.googleapis.com https://*.googleapis.com https://apis.google.com https://accounts.google.com https://www.google.com https://www.googletagmanager.com https://analytics.google.com https://www.google-analytics.com https://api.cloudinary.com https://*.cloudinary.com https://vercel.live https://*.vercel.live https://vitals.vercel-insights.com"
             : "connect-src 'self' http://localhost:* http://127.0.0.1:* https://fonts.openmaptiles.org https://demotiles.maplibre.org https://*.razorpay.com https://api.razorpay.com wss://*.supabase.co https://*.supabase.co https://*.supabase.in https://firestore.googleapis.com https://securetoken.googleapis.com https://identitytoolkit.googleapis.com https://*.googleapis.com https://apis.google.com https://accounts.google.com https://www.google.com https://www.googletagmanager.com https://analytics.google.com https://www.google-analytics.com https://api.cloudinary.com https://*.cloudinary.com https://vercel.live https://*.vercel.live https://vitals.vercel-insights.com",
@@ -261,4 +266,4 @@ const nextConfig: NextConfig = {
   },
 };
 
-export default nextConfig;
+export default nextConfig; // Trigger dev server reload

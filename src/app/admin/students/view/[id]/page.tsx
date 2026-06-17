@@ -46,6 +46,7 @@ import {
 } from "@/components/ui/dialog";
 import { getStudentById, deleteStudent, getPaymentsByStudentUid } from '@/lib/dataService';
 import { isDateExpired } from '@/lib/utils/date-utils';
+import { safeImageSrc } from "@/lib/security/url-sanitizer";
 import {
   Table,
   TableBody,
@@ -261,22 +262,22 @@ export default function ViewStudentPage({ params }: { params: Promise<{ id: stri
       ctx.fillRect(0, 0, cardWidth, 80);
 
       ctx.fillStyle = '#ffffff';
-      ctx.font = 'bold 18px Inter, system-ui, sans-serif';
+      ctx.font = 'bold 18px system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
       ctx.textAlign = 'left';
       ctx.fillText('Assam down town University', 30, 42);
 
       ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
-      ctx.font = '600 11px Inter, system-ui, sans-serif';
+      ctx.font = '600 11px system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
       ctx.fillText('Digital Bus Pass', 30, 58);
 
       // Student Name
       const infoY = 110;
       ctx.fillStyle = 'rgba(255, 255, 255, 0.4)';
-      ctx.font = '700 10px Inter, system-ui, sans-serif';
+      ctx.font = '700 10px system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
       ctx.fillText('STUDENT NAME', 30, infoY);
 
       ctx.fillStyle = '#ffffff';
-      ctx.font = 'bold 24px Inter, system-ui, sans-serif';
+      ctx.font = 'bold 24px system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
       ctx.fillText(student.fullName || student.name || 'Student', 30, infoY + 28);
 
       // Status Badge
@@ -288,7 +289,7 @@ export default function ViewStudentPage({ params }: { params: Promise<{ id: stri
       ctx.fill();
 
       ctx.fillStyle = '#ffffff';
-      ctx.font = 'bold 11px Inter, system-ui, sans-serif';
+      ctx.font = 'bold 11px system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
       ctx.textAlign = 'center';
       ctx.fillText('ACTIVE', badgeX + 40, badgeY + 18);
 
@@ -300,7 +301,7 @@ export default function ViewStudentPage({ params }: { params: Promise<{ id: stri
       const qrY = qrContainerY + 40;
 
       ctx.fillStyle = 'rgba(255, 255, 255, 0.4)';
-      ctx.font = '700 10px Inter, system-ui, sans-serif';
+      ctx.font = '700 10px system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
       ctx.textAlign = 'center';
       ctx.fillText('SCAN TO VERIFY', cardWidth / 2, qrContainerY + 15);
 
@@ -342,7 +343,7 @@ export default function ViewStudentPage({ params }: { params: Promise<{ id: stri
 
       ctx.textAlign = 'center';
       ctx.fillStyle = 'rgba(255, 255, 255, 0.4)';
-      ctx.font = '700 9px Inter, system-ui, sans-serif';
+      ctx.font = '700 9px system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
       ctx.fillText('ENROLLMENT ID', cardWidth / 2, enrollY + 20);
 
       ctx.fillStyle = '#60a5fa';
@@ -360,7 +361,7 @@ export default function ViewStudentPage({ params }: { params: Promise<{ id: stri
 
       ctx.textAlign = 'center';
       ctx.fillStyle = 'rgba(255, 255, 255, 0.3)';
-      ctx.font = '600 9px Inter, system-ui, sans-serif';
+      ctx.font = '600 9px system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
       ctx.fillText('Official Digital Authorization • Keep this pass with you', cardWidth / 2, footerY + 8);
 
       // Download
@@ -470,7 +471,7 @@ export default function ViewStudentPage({ params }: { params: Promise<{ id: stri
                 {student.profilePhotoUrl ? (
                   <div className="relative w-full aspect-square rounded-full overflow-hidden shadow-2xl border-2 border-border bg-gradient-to-br from-card to-card/80">
                     <img
-                      src={student.profilePhotoUrl}
+                      src={safeImageSrc(student.profilePhotoUrl)}
                       alt={student.name}
                       className="w-full h-full object-cover"
                     />

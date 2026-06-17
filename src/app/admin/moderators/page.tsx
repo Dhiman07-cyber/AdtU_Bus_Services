@@ -51,6 +51,7 @@ import { PremiumPageLoader } from '@/components/LoadingSpinner';
 import { MoreHorizontal, Eye, Edit, Trash2, Search, Plus, Filter, RefreshCw, Shield } from "lucide-react";
 import { deleteModerator } from '@/lib/dataService';
 import { usePaginatedCollection, invalidateCollectionCache } from '@/hooks/usePaginatedCollection';
+import { safeImageSrc } from "@/lib/security/url-sanitizer";
 import { useEventDrivenRefresh } from '@/hooks/useEventDrivenRefresh';
 import Avatar from '@/components/Avatar';
 
@@ -366,7 +367,7 @@ export default function AdminModerators() {
                         <TableCell className="py-1.5">
                           <div className="flex flex-row items-center gap-2">
                             <Avatar
-                              src={moderator.profilePhotoUrl}
+                              src={safeImageSrc(moderator.profilePhotoUrl)}
                               name={moderator.name || moderator.fullName}
                               size="xs"
                               className="flex-shrink-0"

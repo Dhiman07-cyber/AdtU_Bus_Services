@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { adminAuth, adminDb } from '@/lib/firebase-admin';
-import { ApplicationFormData, Application, ApplicationState, AuditLogEntry } from '@/lib/types/application';
+import { ApplicationFormData, Application } from '@/lib/types/application';
 
 export async function POST(request: NextRequest) {
   try {
@@ -45,19 +45,10 @@ export async function POST(request: NextRequest) {
         }, { status: 400 });
       }
 
-      const auditEntry: AuditLogEntry = {
-        actorId: uid,
-        actorRole: 'student',
-        action: 'draft_updated',
-        timestamp: now,
-        notes: 'Application draft updated'
-      };
-
       await appRef.update({
         formData,
         state: 'draft',
-        updatedAt: now,
-        auditLogs: [...(appData.auditLogs || []), auditEntry]
+        updatedAt: now
       });
 
       return NextResponse.json({
@@ -70,14 +61,6 @@ export async function POST(request: NextRequest) {
       const newAppRef = adminDb.collection('applications').doc();
       const newAppId = newAppRef.id;
 
-      const auditEntry: AuditLogEntry = {
-        actorId: uid,
-        actorRole: 'student',
-        action: 'draft_created',
-        timestamp: now,
-        notes: 'Application draft created'
-      };
-
       const newApplication: Application = {
         applicationId: newAppId,
         applicantUid: uid,
@@ -88,7 +71,7 @@ export async function POST(request: NextRequest) {
         createdAt: now,
         updatedAt: now,
         createdBy: uid,
-        auditLogs: [auditEntry]
+        auditLogs: []
       };
 
       await newAppRef.set(newApplication);

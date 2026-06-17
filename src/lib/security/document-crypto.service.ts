@@ -25,43 +25,62 @@ import * as crypto from 'crypto';
  * - Private key: Stored in secure vault (e.g., AWS KMS, Azure Key Vault, Google Cloud KMS)
  * - Public key: Can be distributed to verification endpoints
  * 
- * For now, we generate deterministic keys from the secret or use environment variables.
+ * Production requires a stable RSA key pair from environment variables.
  */
 
 // Environment-based key loading with fallback generation
-const PRIVATE_KEY_PEM = process.env.DOCUMENT_PRIVATE_KEY || '';
-const PUBLIC_KEY_PEM = process.env.DOCUMENT_PUBLIC_KEY || '';
-// SECURITY: Never use hardcoded secrets. Generate cryptographically secure fallback.
-// In production, DOCUMENT_SIGNING_SECRET or ENCRYPTION_SECRET_KEY MUST be set.
-const KEY_SECRET = process.env.DOCUMENT_SIGNING_SECRET || process.env.ENCRYPTION_SECRET_KEY || (() => {
-    const generated = crypto.randomBytes(32).toString('hex');
-    console.warn('⚠️ SECURITY WARNING: Using generated document signing secret. Set DOCUMENT_SIGNING_SECRET env var for production.');
-    return generated;
-})();
+const normalizePem = (value?: string): string => (value || '').replace(/\\n/g, '\n').trim();
+const PRIVATE_KEY_PEM = normalizePem(process.env.DOCUMENT_PRIVATE_KEY);
+const PUBLIC_KEY_PEM = normalizePem(process.env.DOCUMENT_PUBLIC_KEY);
 
 // Cached key pair
 let cachedKeyPair: { privateKey: string; publicKey: string } | null = null;
 
+function assertMatchingKeyPair(privateKeyPem: string, publicKeyPem: string): void {
+    const probe = 'adtu-itms-document-key-probe';
+    const signature = crypto.sign('RSA-SHA256', Buffer.from(probe), privateKeyPem);
+    const matches = crypto.verify('RSA-SHA256', Buffer.from(probe), publicKeyPem, signature);
+
+    if (!matches) {
+        throw new Error('Document signing private/public keys do not match');
+    }
+}
+
 /**
- * Generate or retrieve the RSA key pair for document signing
- * Uses deterministic generation based on secret for consistency across restarts
+ * Retrieve the RSA key pair for document signing.
+ * In production this fails closed unless both keys are configured.
  */
 function getKeyPair(): { privateKey: string; publicKey: string } {
     if (cachedKeyPair) return cachedKeyPair;
 
-    // If keys are provided via environment variables, use them
+    // If keys are provided via environment variables, validate and use them.
     if (PRIVATE_KEY_PEM && PUBLIC_KEY_PEM) {
+        const privateKey = crypto.createPrivateKey(PRIVATE_KEY_PEM);
+        const publicKey = crypto.createPublicKey(PUBLIC_KEY_PEM);
+        const privateDetails = privateKey.asymmetricKeyDetails;
+        const publicDetails = publicKey.asymmetricKeyDetails;
+
+        if (
+            privateKey.asymmetricKeyType !== 'rsa' ||
+            publicKey.asymmetricKeyType !== 'rsa' ||
+            (privateDetails?.modulusLength && privateDetails.modulusLength < 2048) ||
+            (publicDetails?.modulusLength && publicDetails.modulusLength < 2048)
+        ) {
+            throw new Error('Document signing keys must be RSA-2048 or stronger');
+        }
+
+        assertMatchingKeyPair(PRIVATE_KEY_PEM, PUBLIC_KEY_PEM);
+
         cachedKeyPair = { privateKey: PRIVATE_KEY_PEM, publicKey: PUBLIC_KEY_PEM };
         return cachedKeyPair;
     }
 
-    // Generate deterministic keys based on secret
-    // Note: In production, pre-generate and store keys securely
-    try {
-        // Create a deterministic seed from the secret
-        const seed = crypto.createHash('sha256').update(KEY_SECRET).digest();
+    if (process.env.NODE_ENV === 'production') {
+        throw new Error('DOCUMENT_PRIVATE_KEY and DOCUMENT_PUBLIC_KEY are required in production');
+    }
 
-        // Generate RSA-2048 key pair
+    // Development-only fallback. These signatures are not durable across restarts.
+    try {
         const { privateKey, publicKey } = crypto.generateKeyPairSync('rsa', {
             modulusLength: 2048,
             publicKeyEncoding: { type: 'spki', format: 'pem' },
@@ -69,7 +88,7 @@ function getKeyPair(): { privateKey: string; publicKey: string } {
         });
 
         cachedKeyPair = { privateKey, publicKey };
-        console.log('🔐 Document signing keys initialized');
+        console.warn('Document signing keys are generated in-memory for development. Configure DOCUMENT_PRIVATE_KEY and DOCUMENT_PUBLIC_KEY before production.');
         return cachedKeyPair;
     } catch (error) {
         console.error('Failed to generate key pair:', error);
@@ -102,6 +121,36 @@ export interface DocumentPayload {
     approvedBy?: string;
 }
 
+type ApprovedByValue =
+    | string
+    | {
+        name?: string;
+        uid?: string;
+        userId?: string;
+        empId?: string;
+        role?: string;
+    }
+    | null
+    | undefined;
+
+export interface PaymentDocumentSource {
+    payment_id: string;
+    student_uid?: string | null;
+    student_name?: string | null;
+    student_id?: string | null;
+    amount?: number | null;
+    method?: string | null;
+    session_start_year?: string | number | null;
+    session_end_year?: string | number | null;
+    valid_until?: string | null;
+    transaction_date?: string | null;
+    created_at?: string | null;
+    razorpay_order_id?: string | null;
+    razorpay_payment_id?: string | null;
+    offline_transaction_id?: string | null;
+    approved_by?: ApprovedByValue;
+}
+
 /**
  * Compact QR code payload - minimal data for scanning
  */
@@ -128,13 +177,11 @@ export interface SignatureVerificationResult {
  * Keys are sorted alphabetically to ensure consistent hashing
  */
 function canonicalizePayload(payload: DocumentPayload): string {
-    // Sort keys and create deterministic JSON
-    const sortedPayload: Record<string, any> = {};
-    const keys = Object.keys(payload).sort();
+    const sortedPayload: Partial<Record<keyof DocumentPayload, string | number>> = {};
+    const keys = (Object.keys(payload) as Array<keyof DocumentPayload>).sort();
 
     for (const key of keys) {
-        const value = (payload as any)[key];
-        // Skip undefined/null values for consistency
+        const value = payload[key];
         if (value !== undefined && value !== null && value !== '') {
             sortedPayload[key] = value;
         }
@@ -213,8 +260,8 @@ export function verifyDocumentSignature(payload: DocumentPayload, signature: str
  * - Signature: Proves document wasn't tampered (truncated for QR size)
  * - Version: Allows future schema upgrades
  */
-export function generateSecureQRData(payload: DocumentPayload): string {
-    const fullSignature = signDocumentPayload(payload);
+export function generateSecureQRData(payload: DocumentPayload, existingSignature?: string): string {
+    const fullSignature = existingSignature || signDocumentPayload(payload);
 
     // Truncate signature for QR code (first 64 chars is still cryptographically strong)
     const truncatedSignature = fullSignature.substring(0, 64);
@@ -248,16 +295,25 @@ export function parseSecureQRData(qrData: string): SecureQRPayload | null {
         }
 
         const base64Part = qrData.substring(8);
+        if (!/^[A-Za-z0-9_-]+$/.test(base64Part)) {
+            return null;
+        }
+
         const decoded = Buffer.from(base64Part, 'base64url').toString('utf8');
         const parsed = JSON.parse(decoded);
 
-        if (!parsed.rid || !parsed.sig) {
+        if (
+            parsed.ver !== 2 ||
+            typeof parsed.rid !== 'string' ||
+            typeof parsed.sig !== 'string' ||
+            !parsed.rid ||
+            !/^[A-Za-z0-9+/=]{64}$/.test(parsed.sig)
+        ) {
             return null;
         }
 
         return parsed as SecureQRPayload;
-    } catch (error) {
-        console.error('Failed to parse secure QR data:', error);
+    } catch {
         return null;
     }
 }
@@ -369,7 +425,7 @@ export function buildDocumentPayload(payment: {
     razorpay_order_id?: string;
     razorpay_payment_id?: string;
     offline_transaction_id?: string;
-    approved_by?: any;
+    approved_by?: ApprovedByValue;
 }): DocumentPayload {
     // Normalize approved_by to string
     let approvedByStr = '';
@@ -397,6 +453,31 @@ export function buildDocumentPayload(payment: {
         offlineTransactionId: payment.offline_transaction_id,
         approvedBy: approvedByStr
     };
+}
+
+/**
+ * Build the canonical receipt payload directly from the stored payment record.
+ * Display-only enrichment must not be passed here, or old receipts can fail
+ * verification if profile data changes after signing.
+ */
+export function buildDocumentPayloadFromPayment(payment: PaymentDocumentSource): DocumentPayload {
+    return buildDocumentPayload({
+        payment_id: payment.payment_id,
+        student_uid: payment.student_uid || '',
+        student_name: payment.student_name || 'Unknown',
+        student_id: payment.student_id || '',
+        amount: payment.amount || 0,
+        method: payment.method || 'Offline',
+        session_start_year: payment.session_start_year?.toString(),
+        session_end_year: payment.session_end_year?.toString(),
+        valid_until: payment.valid_until || undefined,
+        transaction_date: payment.transaction_date || undefined,
+        created_at: payment.created_at || undefined,
+        razorpay_order_id: payment.razorpay_order_id || undefined,
+        razorpay_payment_id: payment.razorpay_payment_id || undefined,
+        offline_transaction_id: payment.offline_transaction_id || undefined,
+        approved_by: payment.approved_by,
+    });
 }
 
 // ============================================================================
@@ -431,6 +512,7 @@ export const DocumentCryptoService = {
 
     // Helpers
     buildDocumentPayload,
+    buildDocumentPayloadFromPayment,
     getPublicKey
 };
 

@@ -327,9 +327,18 @@ export default function RouteSelectionSection({
     );
   };
 
+  // Trigger detailed capacity check when route and stop are both selected
+  useEffect(() => {
+    if (selectedRouteId && selectedStopId) {
+      const stopObj = stops.find(s => (s.stopId || s.id || s.name) === selectedStopId);
+      const stopName = stopObj ? (stopObj.name || stopObj.stopName || selectedStopId) : selectedStopId;
+      checkDetailedCapacity(selectedRouteId, selectedStopId, stopName, selectedBusId);
+    }
+  }, [selectedRouteId, selectedStopId, selectedBusId, selectedShift, stops]);
+
   return (
-    <div className="space-y-4">
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4">
+    <div className="space-y-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-6">
         {/* Slot 0: Shift Content (if provided) */}
         {shiftContent && (
           <div className="space-y-1">
@@ -397,6 +406,43 @@ export default function RouteSelectionSection({
           </div>
         </div>
 
+        {/* Slot 3: Pickup Point / Stop Selection */}
+        <div className="space-y-1 transition-all duration-300 ease-in-out">
+          <Label htmlFor="stopId" className="block text-[11px] font-bold tracking-wider text-slate-500 uppercase mb-2">
+            Pickup Point / Stop <span className="text-red-500">*</span>
+          </Label>
+
+          {selectedRouteId ? (
+            <Select
+              key={selectedStopId}
+              value={selectedStopId}
+              onValueChange={handleStopSelect}
+              disabled={isReadOnly || stops.length === 0}
+            >
+              <SelectTrigger className="h-10 bg-blue-600/5 border-slate-800 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-colors text-xs text-slate-200">
+                <SelectValue placeholder="Select Stop" />
+              </SelectTrigger>
+              <SelectContent className="max-h-[300px] bg-slate-900 border-slate-800">
+                {stops.slice(0, -1).map((stop: any, index: number) => {
+                  const val = stop.stopId || stop.id || stop.name;
+                  const display = stop.name || stop.stopName || val;
+                  return (
+                    <SelectItem key={`${val}-${index}`} value={val} className="text-xs">
+                      {display}
+                    </SelectItem>
+                  );
+                })}
+              </SelectContent>
+            </Select>
+          ) : (
+            <Select disabled>
+              <SelectTrigger className="h-10 bg-slate-900/30 border-slate-800 text-slate-600 text-xs text-left italic">
+                <SelectValue placeholder="Select a route first" />
+              </SelectTrigger>
+            </Select>
+          )}
+        </div>
+
         {/* Slot 2: Bus Selection */}
         <div className="space-y-1 transition-all duration-300 ease-in-out">
           <Label htmlFor="busId" className="block text-[11px] font-bold tracking-wider text-slate-500 uppercase mb-2">
@@ -446,43 +492,6 @@ export default function RouteSelectionSection({
               disabled
               className="h-10 bg-slate-900/30 border-slate-800 text-slate-600 cursor-not-allowed text-xs italic"
             />
-          )}
-        </div>
-
-        {/* Slot 3: Pickup Point / Stop Selection */}
-        <div className="space-y-1 transition-all duration-300 ease-in-out md:col-span-2">
-          <Label htmlFor="stopId" className="block text-[11px] font-bold tracking-wider text-slate-500 uppercase mb-2">
-            Pickup Point / Stop <span className="text-red-500">*</span>
-          </Label>
-
-          {selectedRouteId ? (
-            <Select
-              key={selectedStopId}
-              value={selectedStopId}
-              onValueChange={handleStopSelect}
-              disabled={isReadOnly || stops.length === 0}
-            >
-              <SelectTrigger className="h-10 bg-blue-600/5 border-slate-800 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-colors text-xs text-slate-200">
-                <SelectValue placeholder="Select Stop" />
-              </SelectTrigger>
-              <SelectContent className="max-h-[300px] bg-slate-900 border-slate-800">
-                {stops.slice(0, -1).map((stop: any, index: number) => {
-                  const val = stop.stopId || stop.id || stop.name;
-                  const display = stop.name || stop.stopName || val;
-                  return (
-                    <SelectItem key={`${val}-${index}`} value={val} className="text-xs">
-                      {display}
-                    </SelectItem>
-                  );
-                })}
-              </SelectContent>
-            </Select>
-          ) : (
-            <Select disabled>
-              <SelectTrigger className="h-10 bg-slate-900/30 border-slate-800 text-slate-600 text-xs text-left italic">
-                <SelectValue placeholder="Select a route first" />
-              </SelectTrigger>
-            </Select>
           )}
         </div>
       </div>

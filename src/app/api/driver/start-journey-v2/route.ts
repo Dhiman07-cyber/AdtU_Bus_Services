@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { adminDb } from '@/lib/firebase-admin';
 import { notifyRoute } from '@/lib/services/fcm-notification-service';
 import { getSupabaseServer } from '@/lib/supabase-server';
-import { FieldValue, Timestamp } from 'firebase-admin/firestore';
+import { tripLockService } from '@/lib/services/trip-lock-service';
 import { withSecurity } from '@/lib/security/api-security';
 import { StartTripSchema } from '@/lib/security/validation-schemas';
 import { RateLimits } from '@/lib/security/rate-limiter';
@@ -44,39 +44,17 @@ export const POST = withSecurity(
       return NextResponse.json({ error: 'Driver is not assigned to this bus' }, { status: 403 });
     }
 
-    const tripId = crypto.randomUUID();
-    const expiresAt = new Date(Date.now() + 300000); // 5 mins lock
-
-    try {
-      await adminDb.runTransaction(async (transaction: any) => {
-        const busDocSnap = await transaction.get(adminDb.collection('buses').doc(busId));
-        const currentBusData = busDocSnap.data();
-        const lock = currentBusData?.activeTripLock;
-
-        let isLockExpired = lock?.expiresAt && Date.now() > (lock.expiresAt.toMillis ? lock.expiresAt.toMillis() : new Date(lock.expiresAt).getTime());
-
-        if (lock?.active && lock.driverId && lock.driverId !== driverUid && !isLockExpired) {
-          throw new Error('LOCKED_BY_OTHER_DRIVER');
-        }
-
-        if (lock?.active && lock.driverId === driverUid && lock.tripId && !isLockExpired) {
-          throw new Error(`ALREADY_ACTIVE:${lock.tripId}`);
-        }
-
-        transaction.update(adminDb.collection('buses').doc(busId), {
-          activeTripLock: {
-            active: true, tripId, driverId: driverUid, shift: 'both',
-            since: FieldValue.serverTimestamp(), expiresAt: Timestamp.fromDate(expiresAt),
-            startFcmSent: false, endFcmSent: false,
-          },
-          activeDriverId: driverUid, activeTripId: tripId
-        });
-      });
-    } catch (txError: any) {
-      if (txError.message === 'LOCKED_BY_OTHER_DRIVER') return NextResponse.json({ error: 'Bus operated by another driver', errorCode: 'LOCKED_BY_OTHER' }, { status: 409 });
-      if (txError.message.startsWith('ALREADY_ACTIVE:')) return NextResponse.json({ success: true, message: 'Trip already active', tripId: txError.message.split(':')[1] });
-      return NextResponse.json({ error: 'Lock acquisition failed' }, { status: 500 });
+    const requestedTripId = crypto.randomUUID();
+    const lockResult = await tripLockService.startTrip(driverUid, busId, routeId, 'both', requestedTripId);
+    if (!lockResult.success) {
+      return NextResponse.json(
+        { error: lockResult.reason || 'Lock acquisition failed', errorCode: lockResult.errorCode },
+        { status: lockResult.errorCode === 'LOCKED_BY_OTHER' ? 409 : 500 }
+      );
     }
+
+    const tripId = lockResult.tripId || requestedTripId;
+    const isExistingTrip = tripId !== requestedTripId;
 
     // 2. Parallelize State Initialization
     const supabase = getSupabaseServer();
@@ -86,31 +64,43 @@ export const POST = withSecurity(
     const busNumber = formatIdForDisplay(busData?.busNumber || busId);
     const nowIso = new Date().toISOString();
 
-    const initializationTasks = [
+    const initializationTasks: any[] = [
       // Supabase: Driver Status
       supabase.from('driver_status').upsert({
         driver_uid: driverUid, bus_id: busId, route_id: routeId, status: 'on_trip',
         started_at: nowIso, last_updated_at: nowIso, trip_id: tripId
       }, { onConflict: 'driver_uid' }),
-
-      // Supabase: Active Trip
-      supabase.from('active_trips').insert({
-        bus_id: busId, driver_id: driverUid, route_id: routeId, shift: 'both', status: 'active',
-        start_time: nowIso, last_heartbeat: nowIso,
-        metadata: { appTripId: tripId, routeName, busNumber, stopsCount: stops.length }
-      }),
-
-      // Supabase: Initial Location
-      supabase.from('bus_locations').insert({
-        bus_id: busId, route_id: routeId, driver_uid: driverUid, lat: 0, lng: 0, speed: 0,
-        heading: 0, accuracy: 0, timestamp: nowIso, is_snapshot: true, trip_id: tripId
-      })
     ];
 
-    await Promise.all(initializationTasks);
+    if (!isExistingTrip) {
+      initializationTasks.push(
+        supabase.from('bus_locations').insert({
+          bus_id: busId, route_id: routeId, driver_uid: driverUid, lat: 0, lng: 0, speed: 0,
+          heading: 0, accuracy: 0, timestamp: nowIso, is_snapshot: true, trip_id: tripId
+        })
+      );
+    }
+
+    const initializationResults = await Promise.allSettled(initializationTasks);
+    const initializationFailed = initializationResults.some((result) => (
+      result.status === 'rejected' || Boolean(result.value?.error)
+    ));
+
+    if (initializationFailed) {
+      if (!isExistingTrip) {
+        await tripLockService.endTrip(tripId, driverUid, busId).catch((error) => {
+          console.error('Failed to rollback trip after initialization failure:', error);
+        });
+      }
+
+      return NextResponse.json(
+        { error: 'Failed to initialize journey state' },
+        { status: 500 }
+      );
+    }
 
     // 3. Fire-and-forget Broadcasts and Notifications
-    (async () => {
+    if (!isExistingTrip) (async () => {
         try {
             const channel = supabase.channel(`trip-status-${busId}`);
             await channel.subscribe();
@@ -129,7 +119,7 @@ export const POST = withSecurity(
     const elapsed = Date.now() - startTime;
     return NextResponse.json({
       success: true,
-      message: 'Journey started successfully',
+      message: isExistingTrip ? 'Journey already active' : 'Journey started successfully',
       tripId,
       busId,
       routeId,
@@ -138,7 +128,7 @@ export const POST = withSecurity(
     });
   },
   {
-    requiredRoles: ['driver', 'admin'],
+    requiredRoles: ['driver'],
     schema: StartTripSchema,
     rateLimit: RateLimits.CREATE,
     allowBodyToken: true

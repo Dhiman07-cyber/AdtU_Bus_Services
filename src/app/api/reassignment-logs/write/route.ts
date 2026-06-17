@@ -1,129 +1,66 @@
-/**
- * POST /api/reassignment-logs/write
- * 
- * Simple endpoint to write reassignment logs to Supabase.
- * Uses the same pattern as the working student reassignment API.
- */
-
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
+import { z } from 'zod';
 import { getSupabaseServer } from '@/lib/supabase-server';
-import { adminAuth, adminDb } from '@/lib/firebase-admin';
-import { createClient } from '@supabase/supabase-js';
+import { withSecurity } from '@/lib/security/api-security';
+import { RateLimits } from '@/lib/security/rate-limiter';
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+const ReassignmentLogWriteSchema = z.object({
+  operationId: z.string().min(1).max(200),
+  type: z.enum(['driver_reassignment', 'student_reassignment', 'route_reassignment', 'rollback']),
+  actorLabel: z.string().min(1).max(200).optional(),
+  status: z.enum(['pending', 'committed', 'rolled_back', 'failed', 'no-op']),
+  summary: z.string().max(1000).optional(),
+  changes: z.array(z.unknown()).max(1000).optional(),
+  meta: z.record(z.string(), z.unknown()).optional(),
+  rollbackOf: z.string().max(200).optional(),
+});
 
-export async function POST(request: NextRequest) {
-    console.log('[reassignment-logs/write] ========== START ==========');
-    
-    try {
-        // 1. Verify authentication
-        const authHeader = request.headers.get('Authorization');
-        if (!authHeader?.startsWith('Bearer ')) {
-            console.error('[reassignment-logs/write] No auth header');
-            return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-        }
+type ReassignmentLogWriteBody = z.infer<typeof ReassignmentLogWriteSchema>;
 
-        const token = authHeader.substring(7);
-        const decodedToken = await adminAuth.verifyIdToken(token);
-        const uid = decodedToken.uid;
-        console.log('[reassignment-logs/write] User verified:', uid);
+export const POST = withSecurity<ReassignmentLogWriteBody>(
+  async (_request, { auth, body }) => {
+    const supabase = getSupabaseServer();
 
-        // 2. Check admin/moderator
-        const [adminDoc, moderatorDoc] = await Promise.all([
-            adminDb.collection('admins').doc(uid).get(),
-            adminDb.collection('moderators').doc(uid).get(),
-        ]);
+    if (body.type !== 'rollback') {
+      const { error: deleteError } = await supabase
+        .from('reassignment_logs')
+        .delete()
+        .eq('type', body.type);
 
-        if (!adminDoc.exists && !moderatorDoc.exists) {
-            console.error('[reassignment-logs/write] User is not admin/moderator');
-            return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
-        }
-        console.log('[reassignment-logs/write] Admin/Moderator verified');
-
-        // 3. Parse request body
-        const body = await request.json();
-        const { operationId, type, actorId, actorLabel, status, summary, changes, meta } = body;
-        console.log('[reassignment-logs/write] Payload:', { operationId, type, status });
-
-        if (!operationId || !type || !actorId || !actorLabel || !status) {
-            return NextResponse.json({ 
-                error: 'Missing required fields',
-                required: ['operationId', 'type', 'actorId', 'actorLabel', 'status']
-            }, { status: 400 });
-        }
-
-        // 4. Create Supabase client
-        console.log('[reassignment-logs/write] Supabase URL:', supabaseUrl ? 'SET' : 'MISSING');
-        console.log('[reassignment-logs/write] Supabase Key:', supabaseKey ? `SET (${supabaseKey.length} chars)` : 'MISSING');
-
-        if (!supabaseUrl || !supabaseKey) {
-            return NextResponse.json({ 
-                error: 'Server configuration error',
-                details: 'Missing Supabase credentials'
-            }, { status: 500 });
-        }
-
-        const supabase = createClient(supabaseUrl, supabaseKey, {
-            auth: { persistSession: false }
-        });
-
-        // 5. Delete old logs of same type (keep only ONE per type)
-        if (type !== 'rollback') {
-            console.log(`[reassignment-logs/write] Deleting old ${type} logs...`);
-            const { error: deleteError } = await supabase
-                .from('reassignment_logs')
-                .delete()
-                .eq('type', type);
-
-            if (deleteError) {
-                console.warn('[reassignment-logs/write] Delete warning:', deleteError.message);
-            } else {
-                console.log('[reassignment-logs/write] Old logs deleted');
-            }
-        }
-
-        // 6. Insert new log
-        console.log('[reassignment-logs/write] Inserting new log...');
-        const { data, error } = await supabase
-            .from('reassignment_logs')
-            .insert([{
-                operation_id: operationId,
-                type,
-                actor_id: actorId,
-                actor_label: actorLabel,
-                status,
-                summary: summary || null,
-                changes: changes || [],
-                meta: meta || {},
-                rollback_of: body.rollbackOf || null,
-            }])
-            .select()
-            .single();
-
-        if (error) {
-            console.error('[reassignment-logs/write] Insert error:', error);
-            return NextResponse.json({ 
-                error: 'An unexpected error occurred',
-                code: error.code,
-                details: error.details,
-                hint: error.hint
-            }, { status: 500 });
-        }
-
-        console.log('[reassignment-logs/write] ✅ SUCCESS! ID:', data?.id);
-        console.log('[reassignment-logs/write] ========== END ==========');
-
-        return NextResponse.json({
-            success: true,
-            data: { id: data?.id, operation_id: operationId }
-        });
-
-    } catch (err: any) {
-        console.error('[reassignment-logs/write] Exception:', err);
-        return NextResponse.json({ 
-            error: err.message,
-            stack: process.env.NODE_ENV === 'development' ? err.stack : undefined
-        }, { status: 500 });
+      if (deleteError) {
+        return NextResponse.json({ error: 'Failed to prepare reassignment log' }, { status: 500 });
+      }
     }
-}
+
+    const actorLabel = auth.name
+      ? `${auth.name} (${auth.role})`
+      : body.actorLabel || auth.role;
+
+    const { data, error } = await supabase
+      .from('reassignment_logs')
+      .insert([{
+        operation_id: body.operationId,
+        type: body.type,
+        actor_id: auth.uid,
+        actor_label: actorLabel,
+        status: body.status,
+        summary: body.summary || null,
+        changes: body.changes || [],
+        meta: body.meta || {},
+        rollback_of: body.rollbackOf || null,
+      }])
+      .select('id, operation_id')
+      .single();
+
+    if (error) {
+      return NextResponse.json({ error: 'Failed to write reassignment log' }, { status: 500 });
+    }
+
+    return NextResponse.json({ success: true, data });
+  },
+  {
+    requiredRoles: ['admin', 'moderator'],
+    schema: ReassignmentLogWriteSchema,
+    rateLimit: RateLimits.CREATE,
+  }
+);

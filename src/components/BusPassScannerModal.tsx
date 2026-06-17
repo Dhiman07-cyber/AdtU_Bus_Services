@@ -35,6 +35,7 @@ import { getUserProfile } from '@/lib/profile-service';
 import { BusPassVerificationResult } from '@/lib/types';
 import { badgeVariants } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
+import { safeImageSrc } from '@/lib/security/url-sanitizer';
 
 interface BusPassScannerModalProps {
     isOpen: boolean;
@@ -454,7 +455,7 @@ export default function BusPassScannerModal({ isOpen, onClose, onScanSuccess }: 
                                     {/* Profile Photo */}
                                     <div className="w-28 h-28 rounded-full bg-gradient-to-br from-blue-500/20 to-indigo-500/20 border-4 border-blue-500/30 overflow-hidden shadow-2xl mb-4">
                                         {scanResult.studentData.profilePhotoUrl ? (
-                                            <Image src={scanResult.studentData.profilePhotoUrl} width={112} height={112} className="w-full h-full object-cover" alt="Profile" />
+                                            <Image src={safeImageSrc(scanResult.studentData.profilePhotoUrl)} width={112} height={112} className="w-full h-full object-cover" alt="Profile" />
                                         ) : (
                                             <div className="w-full h-full flex items-center justify-center">
                                                 <ShieldCheck className="h-12 w-12 text-blue-400" />

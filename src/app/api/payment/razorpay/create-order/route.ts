@@ -3,11 +3,36 @@ import { createRazorpayOrder, generateReceiptId } from '@/lib/payment/razorpay.s
 import { withSecurity } from '@/lib/security/api-security';
 import { CreateOrderSchema } from '@/lib/security/validation-schemas';
 import { RateLimits } from '@/lib/security/rate-limiter';
+import { adminDb } from '@/lib/firebase-admin';
+import { getSystemConfig } from '@/lib/system-config-service';
+import { z } from 'zod';
 
-export const POST = withSecurity(
-    async (request, { auth, body }) => {
-        const { amount, notes, userName, purpose, enrollmentId, durationYears } = body as any;
+type CreateOrderBody = z.infer<typeof CreateOrderSchema>;
+
+function amountsMatch(clientAmount: number, expectedAmount: number): boolean {
+    return Math.round(clientAmount * 100) === Math.round(expectedAmount * 100);
+}
+
+export const POST = withSecurity<CreateOrderBody>(
+    async (_request, { auth, body }) => {
+        const { amount, notes, userName, purpose, enrollmentId, durationYears } = body;
         const trustedUserId = auth.uid;
+        const trustedDurationYears = durationYears || Number(notes?.duration || 1);
+        const systemConfig = await getSystemConfig();
+        const busFeeAmount = Number(systemConfig.busFee?.amount || 0);
+        const expectedAmount = busFeeAmount * trustedDurationYears;
+
+        if (!busFeeAmount || !amountsMatch(amount, expectedAmount)) {
+            return NextResponse.json(
+                { success: false, error: 'Payment amount does not match the official bus fee' },
+                { status: 400 }
+            );
+        }
+
+        const studentDoc = await adminDb.collection('students').doc(trustedUserId).get().catch(() => null);
+        const studentData = studentDoc?.exists ? studentDoc.data() : null;
+        const trustedEnrollmentId = studentData?.enrollmentId || enrollmentId || notes?.enrollmentId || '';
+        const trustedStudentName = studentData?.fullName || studentData?.name || userName || auth.name || 'Unknown';
 
         // Generate unique receipt ID
         const receipt = generateReceiptId('ADTU_BUS');
@@ -17,18 +42,18 @@ export const POST = withSecurity(
         const orderNotes = {
             ...notes,
             userId: trustedUserId || 'unknown',
-            enrollmentId: enrollmentId || notes?.enrollmentId || '',
-            studentId: enrollmentId || notes?.enrollmentId || trustedUserId || '',
-            studentName: userName || 'Unknown',
-            userName: userName || 'Unknown',
-            durationYears: durationYears?.toString() || notes?.duration?.toString() || '1',
+            enrollmentId: trustedEnrollmentId,
+            studentId: trustedEnrollmentId || trustedUserId || '',
+            studentName: trustedStudentName,
+            userName: trustedStudentName,
+            durationYears: trustedDurationYears.toString(),
             purpose: purpose || 'Bus Service Payment',
             type: purpose === 'renewal' ? 'renewal' : 'new_registration',
             timestamp: new Date().toISOString(),
         };
 
         // Create Razorpay order
-        const order = await createRazorpayOrder(amount, receipt, orderNotes);
+        const order = await createRazorpayOrder(expectedAmount, receipt, orderNotes);
 
         console.log('📝 Order created:', {
             orderId: order.id,

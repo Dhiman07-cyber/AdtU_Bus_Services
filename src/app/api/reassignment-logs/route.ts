@@ -13,12 +13,11 @@
  * SECURITY: Uses withSecurity wrapper for consistent auth, rate limiting, and validation.
  */
 
-import { NextRequest, NextResponse } from 'next/server';
-import { getSupabaseServer } from '@/lib/supabase-server';
+import { NextResponse } from 'next/server';
 import { withSecurity } from '@/lib/security/api-security';
 import { RateLimits } from '@/lib/security/rate-limiter';
 import { z } from 'zod';
-import { createClient } from '@supabase/supabase-js';
+import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 export const dynamic = 'force-dynamic';
 
 // ============================================================================
@@ -28,20 +27,67 @@ export const dynamic = 'force-dynamic';
 const ReassignmentLogCreateSchema = z.object({
     operationId: z.string().min(1).max(200),
     type: z.string().min(1).max(100),
-    actorId: z.string().min(1).max(128),
-    actorLabel: z.string().min(1).max(200),
+    actorId: z.string().min(1).max(128).optional(),
+    actorLabel: z.string().min(1).max(200).optional(),
     status: z.string().min(1).max(50),
     summary: z.string().max(1000).optional(),
-    changes: z.array(z.any()).optional(),
-    meta: z.record(z.string(), z.any()).optional(),
+    changes: z.array(z.unknown()).optional(),
+    meta: z.record(z.string(), z.unknown()).optional(),
     rollbackOf: z.string().max(200).optional(),
 });
+
+type ReassignmentLogRow = {
+    id: string;
+    operation_id: string;
+    type: string;
+    actor_id: string;
+    actor_label: string;
+    logged_at: string;
+    status: string;
+    summary: string | null;
+    changes: unknown[];
+    meta: Record<string, unknown> | null;
+    rollback_of: string | null;
+    created_at: string;
+    updated_at: string | null;
+};
+
+type ReassignmentLogInsert = {
+    operation_id: string;
+    type: string;
+    actor_id: string;
+    actor_label: string;
+    status: string;
+    summary?: string | null;
+    changes?: unknown[];
+    meta?: Record<string, unknown>;
+    rollback_of?: string | null;
+};
+
+type ReassignmentLogUpdate = Partial<ReassignmentLogInsert>;
+
+type ReassignmentLogsDatabase = {
+    public: {
+        Tables: {
+            reassignment_logs: {
+                Row: ReassignmentLogRow;
+                Insert: ReassignmentLogInsert;
+                Update: ReassignmentLogUpdate;
+                Relationships: [];
+            };
+        };
+        Views: Record<string, never>;
+        Functions: Record<string, never>;
+        Enums: Record<string, never>;
+        CompositeTypes: Record<string, never>;
+    };
+};
 
 // ============================================================================
 // SUPABASE CLIENT (lazy singleton)
 // ============================================================================
 
-let _supabase: ReturnType<typeof createClient> | null = null;
+let _supabase: SupabaseClient<ReassignmentLogsDatabase> | null = null;
 
 function getSupabase() {
     if (_supabase) return _supabase;
@@ -50,7 +96,7 @@ function getSupabase() {
     const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
     if (!url || !key) return null;
 
-    _supabase = createClient(url, key, { auth: { persistSession: false } });
+    _supabase = createClient<ReassignmentLogsDatabase>(url, key, { auth: { persistSession: false } });
     return _supabase;
 }
 
@@ -59,7 +105,7 @@ function getSupabase() {
 // ============================================================================
 
 export const GET = withSecurity(
-    async (request, { auth }) => {
+    async (request) => {
         const supabase = getSupabase();
         if (!supabase) {
             return NextResponse.json({ error: 'Server configuration error' }, { status: 500 });
@@ -107,14 +153,15 @@ export const GET = withSecurity(
 // POST - Create new reassignment log
 // ============================================================================
 
-export const POST = withSecurity(
+export const POST = withSecurity<z.infer<typeof ReassignmentLogCreateSchema>>(
     async (request, { auth, body }) => {
         const supabase = getSupabase();
         if (!supabase) {
             return NextResponse.json({ error: 'Server configuration error' }, { status: 500 });
         }
 
-        const { operationId, type, actorId, actorLabel, status } = body as z.infer<typeof ReassignmentLogCreateSchema>;
+        const { operationId, type, status } = body as z.infer<typeof ReassignmentLogCreateSchema>;
+        const actorLabel = auth.name ? `${auth.name} (${auth.role})` : auth.role;
 
         // Delete old logs of the same type first (keep only ONE per type)
         if (type !== 'rollback') {
@@ -129,14 +176,14 @@ export const POST = withSecurity(
             .insert([{
                 operation_id: operationId,
                 type,
-                actor_id: actorId,
+                actor_id: auth.uid,
                 actor_label: actorLabel,
                 status,
-                summary: (body as any).summary || null,
-                changes: (body as any).changes || [],
-                meta: (body as any).meta || {},
-                rollback_of: (body as any).rollbackOf || null,
-            }] as any)
+                summary: body.summary || null,
+                changes: body.changes || [],
+                meta: body.meta || {},
+                rollback_of: body.rollbackOf || null,
+            }])
             .select()
             .single();
 

@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server';
 import { deleteUserAndData } from '@/lib/cleanup-helpers';
 import fs from 'fs';
 import path from 'path';
+import { verifyApiAuth } from '@/lib/security/api-auth';
+import { requireModeratorPermission } from '@/lib/security/moderator-permissions';
 
 // Get the data directory path
 const dataDirectory = path.join(process.cwd(), 'src', 'data');
@@ -21,6 +23,12 @@ const writeJsonFile = (filename: string, data: any) => {
 
 export async function DELETE(request: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
+    const auth = await verifyApiAuth(request, ['admin', 'moderator']);
+    if (!auth.authenticated) return auth.response;
+
+    const permissionDenied = await requireModeratorPermission(auth, 'drivers', 'canDelete');
+    if (permissionDenied) return permissionDenied;
+
     const { id } = await params;
     
     console.log(`Deleting driver with ID: ${id}`);

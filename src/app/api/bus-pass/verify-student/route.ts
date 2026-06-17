@@ -1,86 +1,50 @@
 /**
  * API Route: Verify Student by UID
  * POST /api/bus-pass/verify-student
- * 
- * Simplified verification using student's Firestore UID directly.
- * No temporary tokens - the student UID is the single source of truth.
- * 
- * SECURITY: 
- * - Requires driver authentication
- * - Rate limiting applied
- * - Server-side validation only (no client-side trust)
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { adminAuth, adminDb } from '@/lib/firebase-admin';
+import { adminDb } from '@/lib/firebase-admin';
 import { checkRateLimit, RateLimits, createRateLimitId } from '@/lib/security/rate-limiter';
+import { verifyApiAuth } from '@/lib/security/api-auth';
+import {
+    scannerBusMatchesStudent,
+    validateStudentScannerContext,
+} from '@/lib/security/scanner-auth';
 
-// Helper function to safely convert validUntil to Date
-function getValidUntilDate(validUntil: any): Date | null {
+function getValidUntilDate(validUntil: unknown): Date | null {
     if (!validUntil) return null;
 
     try {
-        if (validUntil.toDate && typeof validUntil.toDate === 'function') {
+        if (
+            typeof validUntil === 'object' &&
+            validUntil !== null &&
+            'toDate' in validUntil &&
+            typeof validUntil.toDate === 'function'
+        ) {
             return validUntil.toDate();
         }
-        if (validUntil instanceof Date) {
-            return validUntil;
-        }
-        return new Date(validUntil);
-    } catch (error) {
-        console.warn('Error converting validUntil to Date:', error);
+        if (validUntil instanceof Date) return validUntil;
+
+        const date = new Date(String(validUntil));
+        return Number.isNaN(date.getTime()) ? null : date;
+    } catch {
         return null;
     }
 }
 
 export async function POST(request: NextRequest) {
     try {
-        // SECURITY: Verify driver authentication
-        const authHeader = request.headers.get('Authorization');
-        const token = authHeader?.replace('Bearer ', '');
+        const auth = await verifyApiAuth(request, ['driver', 'admin', 'moderator']);
+        if (!auth.authenticated) return auth.response;
 
-        if (!token) {
-            return NextResponse.json(
-                { status: 'invalid', message: 'Authentication required' },
-                { status: 401 }
-            );
-        }
-
-        let decodedToken;
-        try {
-            decodedToken = await adminAuth.verifyIdToken(token);
-        } catch (authError) {
-            console.error('Auth verification failed:', authError);
-            return NextResponse.json(
-                { status: 'invalid', message: 'Invalid or expired authentication' },
-                { status: 401 }
-            );
-        }
-
-        const driverUid = decodedToken.uid;
-
-        // SECURITY: Verify caller is a driver, admin, or moderator
-        const userDoc = await adminDb.collection('users').doc(driverUid).get();
-        const userData = userDoc.data();
-        const allowedRoles = ['driver', 'admin', 'moderator'];
-
-        if (!userData || !allowedRoles.includes(userData.role)) {
-            // Check legacy drivers collection if not found in users or role mismatch
-            const driverDoc = await adminDb.collection('drivers').doc(driverUid).get();
-            if (!driverDoc.exists) {
-                console.warn(`Unauthorized user attempted to verify student: ${driverUid}`);
-                return NextResponse.json(
-                    { status: 'invalid', message: 'Only authorized personnel can verify students' },
-                    { status: 403 }
-                );
-            }
-        }
-
-        // SECURITY: Rate limiting (60 scans per minute - high volume for bus operations)
-        const rateLimitId = createRateLimitId(driverUid, 'student-verify');
-        const rateCheck = checkRateLimit(rateLimitId, RateLimits.BUS_PASS_VERIFY.maxRequests, RateLimits.BUS_PASS_VERIFY.windowMs);
+        const rateLimitId = createRateLimitId(auth.uid, 'student-verify');
+        const rateCheck = checkRateLimit(
+            rateLimitId,
+            RateLimits.BUS_PASS_VERIFY.maxRequests,
+            RateLimits.BUS_PASS_VERIFY.windowMs
+        );
         if (!rateCheck.allowed) {
-            console.warn(`Rate limit exceeded for student verification: ${driverUid}`);
             return NextResponse.json(
                 { status: 'rate_limited', message: 'Too many scan requests. Please wait.' },
                 { status: 429 }
@@ -90,38 +54,64 @@ export async function POST(request: NextRequest) {
         const body = await request.json();
         const { studentUid, scannerBusId } = body;
 
-        if (!studentUid) {
+        // Basic Client-side Validation (prevent noise)
+        if (typeof studentUid !== 'string' || !studentUid.trim() || studentUid.length < 5 || studentUid.length > 128 || studentUid.includes('http')) {
             return NextResponse.json(
-                { status: 'invalid', message: 'Student ID is required' },
+                { status: 'invalid', message: 'Invalid Student ID format' },
                 { status: 400 }
             );
         }
 
-        // Fetch student data - this is the ONLY Firestore read for verification
+        const scannerDenied = await validateStudentScannerContext(auth, scannerBusId);
+        if (scannerDenied) return scannerDenied;
+
         let studentData: any = null;
-        let studentDoc;
-
         try {
-            studentDoc = await adminDb.collection('students').doc(studentUid).get();
-
+            const studentDoc = await adminDb.collection('students').doc(studentUid.trim()).get();
             if (studentDoc.exists) {
                 studentData = studentDoc.data();
             } else {
-                // Try users collection as fallback
-                studentDoc = await adminDb.collection('users').doc(studentUid).get();
-                if (studentDoc.exists && studentDoc.data()?.role === 'student') {
-                    studentData = studentDoc.data();
+                const userDoc = await adminDb.collection('users').doc(studentUid.trim()).get();
+                if (userDoc.exists && userDoc.data()?.role === 'student') {
+                    studentData = userDoc.data();
                 }
             }
-        } catch (dbError: any) {
-            console.error('Database access error (likely invalid student ID):', dbError);
+        } catch {
             return NextResponse.json({
                 status: 'invalid',
                 message: 'Invalid Student ID format',
                 studentData: null,
                 isAssigned: false,
-                sessionActive: false
+                sessionActive: false,
             }, { status: 400 });
+        }
+
+        // 1. Fetch activeTripId from buses collection and verify consistency
+        let activeTripId: string | null = null;
+        let isTripStale = false;
+        try {
+            const busDoc = await adminDb.collection('buses').doc(scannerBusId).get();
+            if (busDoc.exists) {
+                const busData = busDoc.data();
+                const possibleTripId = busData?.activeTripId;
+                if (possibleTripId) {
+                    const tripDoc = await adminDb.collection('trip_sessions').doc(possibleTripId).get();
+                    if (tripDoc.exists) {
+                        const tripData = tripDoc.data();
+                        const isExpired = tripData?.status !== 'active' ||
+                            (tripData?.createdAt && (Date.now() - tripData.createdAt.toDate().getTime() > 12 * 60 * 60 * 1000));
+                        if (isExpired) {
+                            isTripStale = true;
+                        } else {
+                            activeTripId = possibleTripId;
+                        }
+                    } else {
+                        isTripStale = true;
+                    }
+                }
+            }
+        } catch (e) {
+            console.warn('Failed to verify active trip context:', e);
         }
 
         if (!studentData) {
@@ -130,37 +120,33 @@ export async function POST(request: NextRequest) {
                 message: 'Student not found. This QR code is not registered.',
                 studentData: null,
                 isAssigned: false,
-                sessionActive: false
+                sessionActive: false,
+                isTripStale
             });
         }
 
-        // Check session validity (validUntil date)
-        const validUntil = studentData.validUntil;
-        const validUntilDate = getValidUntilDate(validUntil);
-        const now = new Date();
+        const validUntilDate = getValidUntilDate(studentData.validUntil);
+        const sessionActive = !validUntilDate || validUntilDate >= new Date();
+        const isStudentActive = studentData.status === 'active';
+        const assignedBusId = studentData.assignedBus || studentData.busId || studentData.currentBusId;
+        const busMatchesScanner = scannerBusMatchesStudent(scannerBusId, assignedBusId);
+        const accountValid = sessionActive && isStudentActive;
 
-        let sessionActive = true;
-        if (validUntilDate && validUntilDate < now) {
-            sessionActive = false;
+        let status = accountValid ? 'success' : 'session_expired';
+        let message = accountValid ? 'Student verified' : 'Student session expired or inactive';
+        if (accountValid && !busMatchesScanner) {
+            status = 'bus_mismatch';
+            message = 'Student is assigned to a different bus';
         }
 
-        // Check student status
-        const isStudentActive = studentData.status === 'active';
-
-        // Check bus assignment (optional - any driver can verify any student)
-        const assignedBusId = studentData.assignedBus || studentData.busId || studentData.currentBusId;
-
-        // Build response with student data for driver display
-        const responseData = {
-            status: sessionActive && isStudentActive ? 'success' : 'session_expired',
-            message: sessionActive && isStudentActive ? 'Student verified' : 'Student session expired or inactive',
+        return NextResponse.json({
+            status,
+            message,
+            // PRIVACY-MINIMAL: Do not return phone, email, payment details, or admin notes.
             studentData: {
-                uid: studentUid,
+                uid: studentUid.trim(),
                 fullName: studentData.fullName || studentData.name,
                 enrollmentId: studentData.enrollmentId || studentData.enrollmentNo,
-                phone: studentData.phone || studentData.mobileNumber || studentData.contactNumber,
-                phoneNumber: studentData.phoneNumber || studentData.phone || studentData.mobileNumber,
-                mobileNumber: studentData.mobileNumber || studentData.phone,
                 gender: studentData.gender,
                 profilePhotoUrl: studentData.profilePhotoUrl || studentData.photoURL || studentData.avatar,
                 assignedBus: assignedBusId,
@@ -168,30 +154,23 @@ export async function POST(request: NextRequest) {
                 assignedShift: studentData.assignedShift || studentData.shift,
                 shift: studentData.assignedShift || studentData.shift,
                 validUntil: validUntilDate ? validUntilDate.toISOString() : undefined,
-                status: studentData.status
+                status: studentData.status,
             },
-            isAssigned: !!assignedBusId,
-            sessionActive: sessionActive && isStudentActive,
+            isAssigned: Boolean(assignedBusId),
+            matchesScannerBus: busMatchesScanner,
+            canBoard: accountValid && busMatchesScanner,
+            sessionActive: accountValid,
             verifiedAt: new Date().toISOString(),
-            verifiedBy: driverUid
-        };
-
-        console.log('✅ Student verified:', {
-            studentUid,
-            driverUid,
-            sessionActive,
-            isStudentActive,
-            assignedBusId
+            verifiedBy: auth.uid,
+            isTripStale
         });
-
-        return NextResponse.json(responseData);
 
     } catch (error: any) {
         console.error('Error in verify student API:', error);
         return NextResponse.json(
             {
                 status: 'invalid',
-                message: 'Internal server error'
+                message: 'Internal server error',
             },
             { status: 500 }
         );

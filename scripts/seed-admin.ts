@@ -1,92 +1,115 @@
-
 import { initializeApp, cert, getApps } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
 import { getAuth } from 'firebase-admin/auth';
 import * as dotenv from 'dotenv';
 
-// Load environment variables
 dotenv.config({ path: '.env' });
 
+function requireEnv(name: string): string {
+    const value = process.env[name]?.trim();
+    if (!value) {
+        throw new Error(`Missing required environment variable: ${name}`);
+    }
+    return value;
+}
+
+function maskEmail(email: string): string {
+    const [local, domain] = email.split('@');
+    if (!local || !domain) return '[invalid-email]';
+    return `${local.slice(0, 2)}***@${domain}`;
+}
+
+function deriveUsername(email: string): string {
+    return email
+        .split('@')[0]
+        .replace(/[^a-zA-Z0-9._-]/g, '')
+        .slice(0, 64);
+}
+
 async function seedAdmin() {
-    console.log('🌱 Seeding Admin User...');
+    console.log('Seeding admin user...');
 
     try {
-        // 1. Initialize Firebase Admin
         if (!getApps().length) {
             const serviceAccount = {
-                projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
-                clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
-                privateKey: process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n'),
+                projectId: requireEnv('NEXT_PUBLIC_FIREBASE_PROJECT_ID'),
+                clientEmail: requireEnv('FIREBASE_CLIENT_EMAIL'),
+                privateKey: requireEnv('FIREBASE_PRIVATE_KEY').replace(/\\n/g, '\n'),
             };
-
-            if (!serviceAccount.projectId || !serviceAccount.clientEmail || !serviceAccount.privateKey) {
-                throw new Error('Missing Firebase Admin credentials in .env');
-            }
 
             initializeApp({
                 credential: cert(serviceAccount)
             });
-            console.log('✅ Firebase Admin initialized');
+            console.log('Firebase Admin initialized');
         }
 
         const db = getFirestore();
         const auth = getAuth();
 
-        // 2. Define the admin user
-        const adminEmail = 'dhimansaikia2007@gmail.com'; // User's email from CLI logs
+        const adminEmail = requireEnv('SEED_ADMIN_EMAIL').toLowerCase();
+        const adminName = requireEnv('SEED_ADMIN_NAME');
+        const adminUsername = process.env.SEED_ADMIN_USERNAME?.trim() || deriveUsername(adminEmail);
 
-        // 3. Check if user exists in Auth
+        if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(adminEmail)) {
+            throw new Error('SEED_ADMIN_EMAIL must be a valid email address');
+        }
+
+        if (!adminUsername) {
+            throw new Error('SEED_ADMIN_USERNAME is required when it cannot be derived from SEED_ADMIN_EMAIL');
+        }
+
         let userRecord;
         try {
             userRecord = await auth.getUserByEmail(adminEmail);
-            console.log(`👤 Found existing Auth user: ${userRecord.uid}`);
-        } catch (e: any) {
-            if (e.code === 'auth/user-not-found') {
-                console.log(`👤 User not found in Auth, creating: ${adminEmail}`);
+            console.log(`Found existing Auth user for ${maskEmail(adminEmail)}: ${userRecord.uid}`);
+        } catch (error: unknown) {
+            const errorCode = typeof error === 'object' && error && 'code' in error
+                ? (error as { code?: unknown }).code
+                : undefined;
+            if (errorCode === 'auth/user-not-found') {
+                console.log(`Creating Auth user for ${maskEmail(adminEmail)}`);
                 userRecord = await auth.createUser({
                     email: adminEmail,
                     emailVerified: true,
-                    displayName: 'Dhiman Saikia'
+                    displayName: adminName
                 });
-                console.log(`✅ Created Auth user: ${userRecord.uid}`);
+                console.log(`Created Auth user: ${userRecord.uid}`);
             } else {
-                throw e;
+                throw error;
             }
         }
 
         const uid = userRecord.uid;
+        const now = new Date().toISOString();
 
-        // 4. Create/Update 'users' collection doc
-        const userDocRef = db.collection('users').doc(uid);
-        await userDocRef.set({
-            uid: uid,
+        await db.collection('users').doc(uid).set({
+            uid,
             email: adminEmail,
             role: 'admin',
-            fullName: 'Dhiman Saikia',
-            displayName: 'Dhiman Saikia', // Add this for consistency
-            createdAt: new Date().toISOString(),
-            updatedAt: new Date().toISOString()
+            fullName: adminName,
+            displayName: adminName,
+            createdAt: userRecord.metadata.creationTime || now,
+            updatedAt: now
         }, { merge: true });
-        console.log(`✅ Updated 'users' collection for ${uid}`);
+        console.log(`Updated users collection for ${uid}`);
 
-        // 5. Create/Update 'admins' collection doc
-        const adminDocRef = db.collection('admins').doc(uid);
-        await adminDocRef.set({
-            uid: uid,
+        await db.collection('admins').doc(uid).set({
+            uid,
             email: adminEmail,
-            username: 'dhiman2007',
-            fullName: 'Dhiman Saikia',
+            username: adminUsername,
+            fullName: adminName,
             role: 'super_admin',
-            createdAt: new Date().toISOString(),
+            createdAt: userRecord.metadata.creationTime || now,
+            updatedAt: now,
             permissions: ['all']
         }, { merge: true });
-        console.log(`✅ Updated 'admins' collection for ${uid}`);
+        console.log(`Updated admins collection for ${uid}`);
 
-        console.log('✨ Admin seeding completed successfully!');
+        console.log('Admin seeding completed successfully');
         process.exit(0);
 
     } catch (error) {
-        console.error('❌ Seeding failed:', error);
+        console.error('Seeding failed:', error instanceof Error ? error.message : 'Unknown error');
         process.exit(1);
     }
 }

@@ -2,6 +2,8 @@ import type { User } from 'firebase/auth';
 
 interface AuthFetchOptions extends RequestInit {
     timeoutMs?: number;
+    retries?: number;
+    baseDelayMs?: number;
     query?: Record<string, string | number | boolean | null | undefined>;
 }
 
@@ -22,9 +24,9 @@ export async function authApiFetch(
         }
     }
 
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), timeoutMs);
-
+    const maxRetries = options.retries ?? 2;
+    const baseDelayMs = options.baseDelayMs ?? 1000;
+    
     const method = (rest.method || 'GET').toUpperCase();
     const resolvedCache = cache ?? 'no-store';
 
@@ -36,18 +38,48 @@ export async function authApiFetch(
         ...(isMutation && rest.body ? { 'Content-Type': 'application/json' } : {}),
     };
 
-    try {
-        return await fetch(url.toString(), {
-            ...rest,
-            cache: resolvedCache,
-            headers: {
-                ...autoHeaders,
-                ...headers,
-            },
-            signal: controller.signal,
-        });
-    } finally {
-        clearTimeout(timeout);
+    let attempt = 0;
+    
+    while (true) {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), timeoutMs);
+
+        try {
+            const response = await fetch(url.toString(), {
+                ...rest,
+                cache: resolvedCache,
+                headers: {
+                    ...autoHeaders,
+                    ...headers,
+                },
+                signal: controller.signal,
+            });
+            
+            // Retry on 5xx server errors or 429 Too Many Requests
+            if (!response.ok && (response.status >= 500 || response.status === 429)) {
+                if (attempt >= maxRetries) return response;
+                // Continue to throw logic below
+                throw new Error(`Retryable status: ${response.status}`);
+            }
+            
+            return response;
+        } catch (error: any) {
+            // Check if it's an abort from our timeout
+            if (error.name === 'AbortError') {
+                if (attempt >= maxRetries) throw error;
+            } else if (attempt >= maxRetries) {
+                // Out of retries
+                throw error;
+            }
+            
+            // Exponential backoff with jitter
+            attempt++;
+            const delay = baseDelayMs * Math.pow(2, attempt - 1) * (0.8 + Math.random() * 0.4);
+            console.warn(`[API] Request failed, retrying (${attempt}/${maxRetries}) in ${Math.round(delay)}ms...`, url.pathname);
+            await new Promise(resolve => setTimeout(resolve, delay));
+        } finally {
+            clearTimeout(timeout);
+        }
     }
 }
 

@@ -1,6 +1,5 @@
 import './globals.css';
 import type { Metadata } from 'next';
-import { Inter } from 'next/font/google';
 import { AuthProvider } from '@/contexts/auth-context';
 import { NotificationProvider } from '@/contexts/NotificationContext';
 import { ToastProvider } from '@/contexts/toast-context';
@@ -12,54 +11,53 @@ import MobileErrorHandler from '@/components/MobileErrorHandler';
 import SmoothScrollProvider from '@/components/smooth-scroll-provider';
 import { SpeedInsights } from "@vercel/speed-insights/next";
 import { Analytics as VercelAnalytics } from "@vercel/analytics/next";
-import Script from 'next/script';
-import { Suspense } from 'react';
 
 declare global {
   interface Window {
-    gtag: (...args: any[]) => void;
-    dataLayer: any[];
+    gtag: (...args: unknown[]) => void;
+    dataLayer: unknown[];
   }
 }
-
-// Configure Inter font with only CSS variable to prevent hydration issues
-const inter = Inter({
-  subsets: ['latin'],
-  display: 'swap',
-  variable: '--font-inter',
-  weight: ['400', '500', '600', '700'],
-});
 
 // Suppress Next.js 15 params warnings in development
 suppressConsoleWarnings();
 
-import { getSystemConfig } from '@/lib/system-config-service';
+const appName = 'AdtU Bus Services';
 
-export async function generateMetadata(): Promise<Metadata> {
-  let appName = 'AdtU Bus Services';
-  try {
-    const config = await getSystemConfig();
-    if (config?.appName) appName = config.appName;
-  } catch (e) {
-    console.error('Error reading system config for metadata:', e);
-  }
-
-  return {
-    title: `${appName} - Live Tracking`,
-    description: 'Real-time bus tracking and management system',
-    manifest: '/manifest.json',
-    appleWebApp: {
-      capable: true,
-      statusBarStyle: 'default',
-      title: appName,
-    },
-    icons: {
-      icon: '/favicon.ico',
-      shortcut: '/favicon.ico',
-      apple: '/icons/icon-192x192.png',
-    },
-  };
-}
+export const metadata: Metadata = {
+  title: {
+    template: `%s | ${appName}`,
+    default: `${appName} - Integrated Transit Management System`,
+  },
+  description: 'AdtU ITMS is a comprehensive real-time bus tracking and transit management system for Assam down town University students, drivers, and administration.',
+  keywords: ['AdtU', 'Assam down town University', 'Bus Tracking', 'Transit Management', 'Student Transport', 'ITMS'],
+  authors: [{ name: 'AdtU IT Cell' }],
+  creator: 'Assam down town University',
+  openGraph: {
+    title: `${appName} - Integrated Transit Management System`,
+    description: 'Real-time bus tracking, smart passes, and secure payment management for AdtU transport services.',
+    url: 'https://bus.adtu.in',
+    siteName: appName,
+    locale: 'en_IN',
+    type: 'website',
+  },
+  twitter: {
+    card: 'summary_large_image',
+    title: `${appName} - Integrated Transit Management`,
+    description: 'Real-time bus tracking and transport management for AdtU.',
+  },
+  manifest: '/manifest.json',
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: 'default',
+    title: appName,
+  },
+  icons: {
+    icon: '/favicon.ico',
+    shortcut: '/favicon.ico',
+    apple: '/icons/icon-192x192.png',
+  },
+};
 
 export const viewport = {
   width: 'device-width',
@@ -73,44 +71,9 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en" className={`${inter.variable} h-full`} suppressHydrationWarning>
+    <html lang="en" className="h-full" suppressHydrationWarning>
 
-      <head>
-        {/* Google Analytics disabled to prevent console errors */}
-        {/* 
-        <Script
-          src="https://www.googletagmanager.com/gtag/js?id=G-61NME56S7Y"
-          strategy="afterInteractive"
-        />
-        <Script id="ga-script" strategy="afterInteractive">
-          {`
-            window.dataLayer = window.dataLayer || [];
-            function gtag(){dataLayer.push(arguments);}
-            window.gtag = gtag;
-            gtag('js', new Date());
-            gtag('config', 'G-61NME56S7Y');
-          `}
-        </Script>
-        */}
-
-        {/* Unregister old service worker to fix cache issues */}
-        <Script
-          id="unregister-sw"
-          strategy="beforeInteractive"
-          dangerouslySetInnerHTML={{
-            __html: `
-              if ('serviceWorker' in navigator) {
-                navigator.serviceWorker.getRegistrations().then(function(registrations) {
-                  for(let registration of registrations) {
-                    registration.unregister();
-                    console.log('Old service worker unregistered');
-                  }
-                });
-              }
-            `,
-          }}
-        />
-      </head>
+      <head />
       <body className="min-h-screen bg-background text-foreground transition-colors" suppressHydrationWarning>
         <MobileErrorHandler />
         <SimpleErrorBoundary>

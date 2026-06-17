@@ -321,22 +321,13 @@ export async function getPaymentStatistics(
 }> {
   try {
     const { paymentsSupabaseService } = await import('@/lib/services/payments-supabase');
-    let paymentDocs = await paymentsSupabaseService.getRecentTransactions(1000);
+    
+    // Default to last 30 days if no dates provided
+    const end = endDate || new Date();
+    const start = startDate || new Date(end.getTime() - 30 * 24 * 60 * 60 * 1000);
 
-    // Filter by status (Completed = success)
-    paymentDocs = paymentDocs.filter(p => p.status === 'Completed');
-
-    // Filter by date range if provided
-    if (startDate) {
-      paymentDocs = paymentDocs.filter(p =>
-        new Date(p.transaction_date || 0) >= startDate
-      );
-    }
-    if (endDate) {
-      paymentDocs = paymentDocs.filter(p =>
-        new Date(p.transaction_date || 0) <= endDate
-      );
-    }
+    // Fetch ONLY completed payments in the date range, using server-side filtering
+    const paymentDocs = await paymentsSupabaseService.getCompletedPaymentsForReporting(start, end);
 
     // Calculate statistics
     const totalRevenue = paymentDocs.reduce((sum, p) => sum + (p.amount || 0), 0);

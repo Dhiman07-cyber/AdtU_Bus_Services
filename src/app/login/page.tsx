@@ -5,8 +5,8 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/contexts/auth-context";
 import { Button } from "@/components/ui/button";
 import { trackEvent } from "@/components/Analytics";
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
-import { Bus, LogIn, Chrome } from "lucide-react";
+import { Bus } from "lucide-react";
+import { motion } from "framer-motion";
 import {
   Dialog,
   DialogContent,
@@ -15,26 +15,39 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { sanitizeRedirectPath } from "@/lib/security/url-sanitizer";
 
 function LoginContent() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [showApplyModal, setShowApplyModal] = useState(false);
   const [isVisible, setIsVisible] = useState(false);
+  const [isExpanded, setIsExpanded] = useState(false);
   const { signInWithGoogle, currentUser, userData, needsApplication } = useAuth();
   const router = useRouter();
   const searchParams = useSearchParams();
   const isRedirectingRef = useRef(false);
+  const [isMobile, setIsMobile] = useState(true);
 
-  // Animation on mount
+  // Monitor viewport width to animate to correct responsive dimensions
   useEffect(() => {
-    const timer = setTimeout(() => setIsVisible(true), 100);
+    const checkMobile = () => {
+      setIsMobile(window.innerWidth < 640);
+    };
+    checkMobile();
+    window.addEventListener("resize", checkMobile);
+    return () => window.removeEventListener("resize", checkMobile);
+  }, []);
+  // Trigger animations sequentially: fade-in the vertical line first, then widen the card
+  useEffect(() => {
+    setIsVisible(true);
+    const timer = setTimeout(() => {
+      setIsExpanded(true);
+    }, 400); // Start widening 400ms after fade-in starts to connect the transitions
     return () => clearTimeout(timer);
   }, []);
 
-
-
-  // Redirect if already logged in
+  // Redirect logic if already logged in
   useEffect(() => {
     console.log('🔄 Login page auth state:', {
       currentUser: !!currentUser,
@@ -44,12 +57,9 @@ function LoginContent() {
     });
 
     if (currentUser && userData) {
-      // Set redirecting flag to prevent loading state reset
       console.log('🚀 Setting redirecting flag and redirecting to:', userData.role);
       isRedirectingRef.current = true;
 
-      // Priority 1: URL Query Param 'redirect'
-      // Priority 2: Session Storage 'returnUrl'
       let queryRedirect = searchParams?.get('redirect');
       if (!queryRedirect && typeof window !== 'undefined') {
         const urlParams = new URLSearchParams(window.location.search);
@@ -57,15 +67,18 @@ function LoginContent() {
       }
       const sessionRedirect = typeof window !== 'undefined' ? sessionStorage.getItem('returnUrl') : null;
       const returnUrl = queryRedirect || sessionRedirect;
+      const safeReturnUrl = returnUrl ? sanitizeRedirectPath(returnUrl) : null;
 
-      if (returnUrl) {
+      if (safeReturnUrl) {
         console.log('🔄 Redirecting to saved URL:', returnUrl);
         if (typeof window !== 'undefined') {
-          sessionStorage.removeItem('returnUrl'); // Clear after use
+          sessionStorage.removeItem('returnUrl');
         }
-        router.push(returnUrl);
+        router.push(safeReturnUrl);
       } else {
-        // Default role-based redirect
+        if (returnUrl && typeof window !== 'undefined') {
+          sessionStorage.removeItem('returnUrl');
+        }
         switch (userData.role) {
           case "admin":
             trackEvent('admin_login');
@@ -85,12 +98,11 @@ function LoginContent() {
         }
       }
     } else if (currentUser && needsApplication) {
-      // User is logged in but needs to apply - redirect to apply page
       console.log('📝 User needs application, redirecting to apply page');
       isRedirectingRef.current = true;
       router.push("/apply");
     }
-  }, [currentUser, userData, router, needsApplication]);
+  }, [currentUser, userData, router, needsApplication, searchParams]);
 
   const handleGoogleSignIn = async () => {
     console.log('🔄 Starting Google sign-in, setting loading to true');
@@ -102,41 +114,33 @@ function LoginContent() {
       console.log('✅ Sign-in result:', result);
 
       if (result.needsApplication) {
-        // User signed in successfully but needs to apply - redirect to apply page
         console.log('📝 User needs application, redirecting to apply page');
         isRedirectingRef.current = true;
         router.push("/apply");
-        // Keep loading state active until redirect completes
         return;
       } else if (!result.success) {
-        // Only reset loading state if sign-in failed and we're not redirecting
         console.log('❌ Sign-in failed, isRedirecting:', isRedirectingRef.current);
         if (!isRedirectingRef.current) {
           console.log('🔄 Resetting loading state due to sign-in failure');
           setLoading(false);
         }
-        // Filter out permission errors and sign-in cancelled messages
         if (result.error &&
           result.error !== "Sign in was cancelled" &&
           !result.error.includes("permission") &&
           !result.error.includes("Missing or insufficient permissions")) {
           setError(result.error || "Failed to sign in");
         } else if (result.error === "Sign in was cancelled") {
-          // User cancelled sign-in - this is normal behavior, don't show error
           console.log("User cancelled sign-in process");
         }
       } else {
         console.log('✅ Sign-in successful, keeping loading state until redirect');
       }
-      // If result.success is true, keep loading state active until redirect happens via useEffect
     } catch (err: any) {
-      // Reset loading state on error only if we're not redirecting
       console.log('💥 Sign-in error, isRedirecting:', isRedirectingRef.current);
       if (!isRedirectingRef.current) {
         console.log('🔄 Resetting loading state due to error');
         setLoading(false);
       }
-      // Don't show permission errors - these are expected for new users
       if (!err.message?.includes("permission")) {
         setError("An unexpected error occurred");
       }
@@ -146,89 +150,190 @@ function LoginContent() {
 
   const handleApplyNow = () => {
     setShowApplyModal(false);
-    // Redirect to the apply page
     router.push("/apply");
   };
 
   return (
-    <div className="flex-1 min-h-[100dvh] flex items-center justify-center bg-gradient-to-br from-[#0E0F12] via-[#12141A] to-[#0E0F12] p-4 transition-all duration-300 relative overflow-hidden">
-      {/* Background Effects */}
-      <div className="absolute inset-0 bg-[radial-gradient(circle_at_20%_50%,rgba(59,130,246,0.1),transparent_50%)]"></div>
-      <div className="absolute inset-0 bg-[radial-gradient(circle_at_80%_20%,rgba(147,51,234,0.1),transparent_50%)]"></div>
-      <div className="absolute inset-0 bg-[radial-gradient(circle_at_40%_80%,rgba(16,185,129,0.1),transparent_50%)]"></div>
-
-      {/* Floating Elements */}
-      <div className="absolute top-20 left-20 w-32 h-32 bg-blue-500/10 rounded-full blur-xl animate-pulse"></div>
-      <div className="absolute bottom-20 right-20 w-40 h-40 bg-purple-500/10 rounded-full blur-xl animate-pulse delay-1000"></div>
-      <div className="absolute top-1/2 left-10 w-24 h-24 bg-green-500/10 rounded-full blur-xl animate-pulse delay-500"></div>
-
-      <Card
-        className={`w-full max-w-md relative z-10 backdrop-blur-xl bg-white/5 border border-white/10 shadow-2xl transition-all duration-700 ${isVisible
-          ? 'opacity-100 translate-y-0 scale-100'
-          : 'opacity-0 translate-y-8 scale-95'
-          }`}
+    <div
+      className="flex-1 min-h-[100dvh] flex items-center justify-center p-4 relative overflow-hidden"
+      style={{
+        backgroundColor: '#000000',
+        backgroundImage: 'radial-gradient(circle at 15% 25%, rgba(92, 89, 165, 0.22) 0%, rgba(92, 89, 165, 0) 55%), radial-gradient(circle at 85% 75%, rgba(92, 89, 165, 0.26) 0%, rgba(92, 89, 165, 0) 55%)'
+      }}
+    >
+      {/* Butter-Smooth Card Container using Framer Motion clipPath */}
+      <motion.div
+        initial={{ 
+          opacity: 0, 
+          y: 20, 
+          scale: 0.98,
+          clipPath: "inset(0% 49.8% 0% 49.8%)"
+        }}
+        animate={{ 
+          opacity: isVisible ? 1 : 0, 
+          y: isVisible ? 0 : 20, 
+          scale: isVisible ? 1 : 0.98,
+          clipPath: isExpanded ? "inset(0% 0% 0% 0%)" : "inset(0% 49.8% 0% 49.8%)"
+        }}
+        transition={{
+          clipPath: { duration: 1.1, ease: [0.16, 1, 0.3, 1] }, // Smooth easeOut clipPath transition
+          opacity: { duration: 0.4, ease: "easeOut" },
+          y: { duration: 0.4, ease: "easeOut" },
+          scale: { duration: 0.4, ease: "easeOut" }
+        }}
+        className="w-full relative z-10 border-t border-b border-white/[0.08] flex flex-row overflow-hidden items-center rounded-[28px] max-w-[370px] sm:max-w-[850px] min-h-[440px] sm:min-h-[460px] shrink-0 justify-center login-card-container-motion"
+        style={{
+          background: 'radial-gradient(circle at bottom right, rgba(92, 89, 165, 0.08) 0%, rgba(92, 89, 165, 0) 50%), linear-gradient(135deg, #111115 0%, #0A0A0D 100%)'
+        }}
       >
-        <CardHeader className="text-center space-y-6">
-          <div className="flex justify-center">
-            <div className="relative">
-              <div className="bg-gradient-to-r from-blue-500 to-indigo-600 p-4 rounded-full shadow-lg">
-                <Bus className="h-8 w-8 text-white animate-pulse" />
+        {/* Left Border Line (translates horizontally outwards on GPU, preventing layout reflow) */}
+        <motion.div
+          initial={{ x: 0 }}
+          animate={{ x: isExpanded ? (isMobile ? -185 : -425) : 0 }}
+          transition={{ duration: 1.1, ease: [0.16, 1, 0.3, 1] }}
+          className="absolute left-1/2 top-0 bottom-0 w-px bg-white/[0.08] z-20 pointer-events-none"
+        />
+
+        {/* Right Border Line (translates horizontally outwards on GPU, preventing layout reflow) */}
+        <motion.div
+          initial={{ x: 0 }}
+          animate={{ x: isExpanded ? (isMobile ? 185 : 425) : 0 }}
+          transition={{ duration: 1.1, ease: [0.16, 1, 0.3, 1] }}
+          className="absolute left-1/2 top-0 bottom-0 w-px bg-white/[0.08] z-20 pointer-events-none"
+        />
+
+        {/* Inner Content Wrapper - maintains static dimensions to prevent text reflow */}
+        <div className="w-[370px] sm:w-[850px] min-h-[440px] sm:min-h-[460px] flex flex-row items-center shrink-0 relative">
+          
+          {/* Glowing Center Line - visible initially and fades out as card expands */}
+          <motion.div
+            initial={{ opacity: 1 }}
+            animate={{ opacity: isExpanded ? 0 : 1 }}
+            transition={{ duration: 0.7, ease: "easeOut", delay: 0.1 }}
+            className="absolute left-1/2 top-0 bottom-0 w-[2px] -translate-x-1/2 pointer-events-none z-20"
+            style={{
+              background: 'linear-gradient(to bottom, transparent, rgba(255, 255, 255, 0.08), transparent)',
+            }}
+          />
+
+          {/* Left Section - AdtU Logo Panel (hidden on mobile, shown on desktop) */}
+          <motion.div 
+            initial={{ opacity: 0, scale: 0.92 }}
+            animate={{ 
+              opacity: isExpanded ? 0.95 : 0,
+              scale: isExpanded ? 1 : 0.92
+            }}
+            transition={{ duration: 0.9, ease: "easeOut", delay: 0.2 }}
+            className="hidden sm:flex flex-col items-center justify-center p-6 shrink-0 select-none w-[400px] login-child-left"
+          >
+            <img
+              src="/image.svg"
+              alt="Assam down town University Logo"
+              className="w-full max-w-[340px] h-auto object-contain opacity-95"
+            />
+          </motion.div>
+
+          {/* Separator Pipe | (hidden on mobile, shown on desktop) */}
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: isExpanded ? 1 : 0 }}
+            transition={{ duration: 0.8, ease: "easeOut", delay: 0.3 }}
+            className="hidden sm:block h-52 w-px bg-white/[0.08] shrink-0 login-child-separator"
+          />
+
+          {/* Right Section - Login Content Form */}
+          <motion.div
+            initial={{ opacity: 0, x: 12 }}
+            animate={{ 
+              opacity: isExpanded ? 1 : 0,
+              x: isExpanded ? 0 : 12
+            }}
+            transition={{ duration: 0.9, ease: "easeOut", delay: 0.2 }}
+            className="flex-1 p-6 sm:p-10 sm:min-w-[340px] flex flex-col justify-center h-full login-child-right"
+          >
+            <div className="text-center space-y-5 p-0">
+              <div className="flex justify-center">
+                <div className="relative flex items-center justify-center w-12 h-12 rounded-full bg-[#18181F] border border-white/[0.06] shadow-[inset_0_1px_2px_rgba(255,255,255,0.05)]">
+                  <Bus className="h-5.5 w-5.5 text-[#5c59a5]" />
+                </div>
               </div>
-              <div className="absolute inset-0 bg-gradient-to-r from-blue-500 to-indigo-600 rounded-full animate-ping opacity-20"></div>
-            </div>
-          </div>
-          <div className="space-y-2">
-            <CardTitle className="text-3xl font-bold bg-gradient-to-r from-white to-blue-100 bg-clip-text text-transparent">
-              ADTU Bus Login
-            </CardTitle>
-            <CardDescription className="text-base text-[#B0B3B8]">
-              Sign in with your Google account to access the campus bus system
-            </CardDescription>
-          </div>
-        </CardHeader>
-        <CardContent>
-          {error && (
-            <div className="mb-6 p-4 bg-red-500/10 backdrop-blur-sm text-red-300 rounded-lg border border-red-500/20 animate-in slide-in-from-top-2 duration-300">
-              <div className="flex items-center gap-2">
-                <div className="w-2 h-2 bg-red-400 rounded-full"></div>
-                {error}
+              <div className="space-y-1.5">
+                <p className="text-[10px] font-bold tracking-[0.25em] text-[#5c59a5] uppercase">
+                  Transit Portal
+                </p>
+                <h2 className="text-2xl font-bold text-white tracking-tight">
+                  AdtU ITMS Login
+                </h2>
+                <p className="text-xs text-zinc-300 max-w-[240px] mx-auto leading-relaxed">
+                  Sign in with your campus Google credentials to access the bus system
+                </p>
               </div>
             </div>
-          )}
-          <div className="space-y-4">
-            <Button
-              onClick={handleGoogleSignIn}
-              className="w-full h-12 text-base font-semibold bg-gradient-to-r from-blue-500 to-indigo-600 hover:from-blue-600 hover:to-indigo-700 text-white border-0 rounded-lg shadow-lg hover:shadow-xl transform hover:scale-[1.02] transition-all duration-200 disabled:opacity-70 disabled:cursor-not-allowed disabled:transform-none"
-              disabled={loading}
-            >
-              {loading ? (
-                <>
-                  <div className="w-4 h-4 border-2 border-white/30 rounded-full animate-spin border-t-white mr-3"></div>
-                  Signing in...
-                </>
-              ) : (
-                <>
-                  <Chrome className="mr-3 h-5 w-5" />
-                  Sign in with Google
-                </>
+
+            <div className="p-0 mt-8">
+              {error && (
+                <div className="mb-5 p-3 bg-red-950/20 border border-red-900/30 text-red-200 rounded-xl flex items-start gap-2.5 text-xs animate-in fade-in duration-200">
+                  <div className="w-1.5 h-1.5 bg-red-500 rounded-full mt-1.5 shrink-0 pulse-dot"></div>
+                  <div className="flex-1 leading-relaxed">
+                    {error}
+                  </div>
+                </div>
               )}
-            </Button>
-          </div>
-          <div className="mt-8 text-center">
-            <div className="flex items-center justify-center gap-3">
-              <div className="h-px bg-white/20 flex-1"></div>
-              <p className="text-sm text-[#B0B3B8] px-2">Secure Authentication</p>
-              <div className="h-px bg-white/20 flex-1"></div>
+
+              <Button
+                onClick={handleGoogleSignIn}
+                className="w-full h-12 text-xs font-semibold bg-white hover:bg-zinc-100 !text-black border-0 rounded-xl active:scale-[0.98] transition-all duration-200 disabled:opacity-80 disabled:cursor-not-allowed flex items-center justify-center cursor-pointer"
+                disabled={loading}
+              >
+                {loading ? (
+                  <>
+                    <div className="w-3.5 h-3.5 border-2 border-black/30 rounded-full animate-spin border-t-black mr-2.5"></div>
+                    Connecting...
+                  </>
+                ) : (
+                  <>
+                    <svg className="w-4.5 h-4.5 mr-2.5 shrink-0" viewBox="0 0 24 24">
+                      <path
+                        fill="#EA4335"
+                        d="M12 5.04c1.66 0 3.2.57 4.38 1.69l3.27-3.27C17.68 1.54 14.98 1 12 1 7.35 1 3.37 3.67 1.39 7.56l3.89 3.02C6.21 7.02 8.87 5.04 12 5.04z"
+                      />
+                      <path
+                        fill="#4285F4"
+                        d="M23.49 12.27c0-.81-.07-1.59-.2-2.36H12v4.51h6.46c-.29 1.48-1.14 2.73-2.4 3.58l3.73 2.89c2.18-2.01 3.7-4.99 3.7-8.62z"
+                      />
+                      <path
+                        fill="#FBBC05"
+                        d="M5.28 14.78c-.24-.72-.38-1.49-.38-2.28s.14-1.56.38-2.28L1.39 7.56C.5 9.35 0 11.35 0 13.5s.5 4.15 1.39 5.94l3.89-3.02C4.9 16.34 4.76 15.58 5.28 14.78z"
+                      />
+                      <path
+                        fill="#34A853"
+                        d="M12 23c3.24 0 5.97-1.07 7.96-2.91l-3.73-2.89c-1.1.74-2.52 1.18-4.23 1.18-3.13 0-5.79-1.98-6.72-5.04l-3.89 3.02C3.37 20.33 7.35 23 12 23z"
+                      />
+                    </svg>
+                    Sign in with Google
+                  </>
+                )}
+              </Button>
+
+              <div className="relative flex items-center my-6">
+                <div className="flex-grow border-t border-white/[0.06]"></div>
+                <span className="flex-shrink mx-3 text-[9px] uppercase tracking-[0.2em] text-zinc-500 font-bold">
+                  Secure Access
+                </span>
+                <div className="flex-grow border-t border-white/[0.06]"></div>
+              </div>
+
+              <div className="flex items-center justify-center gap-2 text-[10px] text-zinc-500 font-semibold">
+                <span className="relative flex h-1.5 w-1.5">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-500"></span>
+                </span>
+                Google OAuth Protected
+              </div>
             </div>
-          </div>
-        </CardContent>
-        <CardFooter className="flex flex-col items-center space-y-3 pt-0">
-          <div className="flex items-center gap-2 text-xs text-[#9CA3AF]">
-            <div className="w-1.5 h-1.5 bg-green-400 rounded-full animate-pulse"></div>
-            Google OAuth 2.0 Protected
-          </div>
-        </CardFooter>
-      </Card>
+          </motion.div>
+        </div>
+      </motion.div>
 
       {/* Apply for Bus Service Modal */}
       <Dialog open={showApplyModal} onOpenChange={setShowApplyModal}>
@@ -261,7 +366,7 @@ function LoginContent() {
 
 export default function LoginPage() {
   return (
-    <Suspense fallback={<div className="flex-1 min-h-[100dvh] flex items-center justify-center bg-[#0E0F12]"></div>}>
+    <Suspense fallback={<div className="flex-1 min-h-[100dvh] flex items-center justify-center bg-[#000000]"></div>}>
       <LoginContent />
     </Suspense>
   );

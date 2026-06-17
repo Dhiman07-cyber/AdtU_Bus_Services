@@ -1,6 +1,5 @@
 import { adminDb } from '@/lib/firebase-admin';
-import { FieldValue, Timestamp } from 'firebase-admin/firestore';
-import { paymentsSupabaseService } from '@/lib/services/payments-supabase';
+import { paymentsSupabaseService, type CreatePaymentInput } from '@/lib/services/payments-supabase';
 
 export interface PaymentTransaction {
   // Core Fields (Required)
@@ -10,6 +9,8 @@ export interface PaymentTransaction {
   paymentMethod: 'online' | 'offline' | 'manual';
   paymentId: string;
   timestamp: string; // ISO string
+  userId?: string; // Firebase UID, used by newer callers
+  studentUid?: string; // Firebase UID, used by Supabase-backed callers
   durationYears: number;
   validUntil: string; // ISO string - for compatibility
   status?: 'completed' | 'pending' | 'failed';
@@ -50,10 +51,76 @@ export interface PaymentTransaction {
 
 
   // Allow additional fields for future extensions
-  [key: string]: any;
+  [key: string]: unknown;
 }
 
 export class PaymentTransactionService {
+  private static getApprovedBy(transaction: PaymentTransaction): CreatePaymentInput['approvedBy'] {
+    if (!transaction.approvedBy || typeof transaction.approvedBy !== 'object') {
+      return undefined;
+    }
+
+    return {
+      type: 'Manual',
+      userId: transaction.approvedBy.userId,
+      empId: transaction.approvedBy.empId,
+      name: transaction.approvedBy.name,
+      role: transaction.approvedBy.role,
+    };
+  }
+
+  private static getApproverInfo(transaction: PaymentTransaction): {
+    userId: string;
+    name: string;
+    empId?: string;
+    role: string;
+  } | undefined {
+    if (!transaction.approvedBy || typeof transaction.approvedBy !== 'object') {
+      return undefined;
+    }
+
+    return {
+      userId: transaction.approvedBy.userId,
+      name: transaction.approvedBy.name,
+      empId: transaction.approvedBy.empId,
+      role: transaction.approvedBy.role === 'admin' ? 'Admin' : 'Moderator',
+    };
+  }
+
+  private static async upsertCompletedTransaction(
+    transaction: PaymentTransaction,
+    method: 'Online' | 'Offline'
+  ): Promise<void> {
+    const approvedBy = this.getApprovedBy(transaction);
+    const paymentId = await paymentsSupabaseService.upsertPayment({
+      paymentId: transaction.paymentId,
+      studentId: transaction.studentId,
+      studentUid: transaction.userId || transaction.studentUid,
+      studentName: transaction.studentName,
+      amount: transaction.amount,
+      method,
+      status: 'Completed',
+      sessionStartYear: transaction.sessionStartYear,
+      sessionEndYear: transaction.sessionEndYear || transaction.newSessionEndYear,
+      durationYears: transaction.durationYears,
+      validUntil: transaction.validUntil ? new Date(transaction.validUntil) : undefined,
+      transactionDate: transaction.timestamp ? new Date(transaction.timestamp) : new Date(),
+      offlineTransactionId: transaction.offlineTransactionId,
+      metadata: {
+        renewalRequestId: transaction.renewalRequestId,
+        previousValidUntil: transaction.previousValidUntil,
+        previousSessionEndYear: transaction.previousSessionEndYear,
+        approvedByDisplay: transaction.approvedByDisplay,
+      },
+      approvedBy,
+      approvedAt: transaction.approvedAtISO ? new Date(transaction.approvedAtISO) : new Date(),
+    });
+
+    if (!paymentId) {
+      throw new Error('Failed to persist completed transaction details to Supabase');
+    }
+  }
+
   /**
    * Save a transaction record - NOW WRITES TO SUPABASE (Firestore is blocked)
    * Prevents duplicates by checking for existing records first.
@@ -71,21 +138,34 @@ export class PaymentTransactionService {
       const method: 'Online' | 'Offline' = (transaction.paymentMethod === 'online') ? 'Online' : 'Offline';
 
       if (existing) {
-        // If it exists and is already completed, don't re-save unless it's a forced update
+        // Pending records are already present; do not churn the ledger on retries.
+        if (status === 'Pending') {
+          console.log(`[PaymentTransaction] Record ${transaction.paymentId} already exists as pending, skipping.`);
+          return;
+        }
+
         if (existing.status === 'Completed' && status === 'Completed') {
           console.log(`[PaymentTransaction] Record ${transaction.paymentId} already completed, skipping.`);
           return;
         }
 
-        // It exists but needs status/validity update (e.g. Pending -> Completed)
+        if (existing.status === 'Rejected') {
+          throw new Error('Cannot complete a rejected payment record');
+        }
+
+        // It exists but needs status/validity update (e.g. Pending -> Completed).
         console.log(`[PaymentTransaction] Updating existing record: ${transaction.paymentId}`);
-        await paymentsSupabaseService.updatePaymentStatus(
+        const updated = await paymentsSupabaseService.updatePaymentStatus(
           transaction.paymentId,
-          status as any,
-          typeof transaction.approvedBy === 'object' ? (transaction.approvedBy as any) : undefined
+          'Completed',
+          this.getApproverInfo(transaction)
         );
-        
-        // Return as the status update is usually the main goal of re-saving during approval
+
+        if (!updated) {
+          throw new Error('Payment was already processed before transaction details could be saved');
+        }
+
+        await this.upsertCompletedTransaction(transaction, method);
         return;
       }
 
@@ -104,7 +184,7 @@ export class PaymentTransactionService {
         validUntil: transaction.validUntil ? new Date(transaction.validUntil) : undefined,
         transactionDate: transaction.timestamp ? new Date(transaction.timestamp) : new Date(),
         offlineTransactionId: transaction.offlineTransactionId,
-        approvedBy: typeof transaction.approvedBy === 'object' ? (transaction.approvedBy as any) : undefined,
+        approvedBy: this.getApprovedBy(transaction),
         approvedAt: transaction.approvedAtISO ? new Date(transaction.approvedAtISO) : undefined,
       });
 
@@ -112,7 +192,8 @@ export class PaymentTransactionService {
         throw new Error('Failed to save transaction to Supabase');
       }
     } catch (error) {
-      console.error('[PaymentTransaction] Save error:', (error as any)?.message);
+      const message = error instanceof Error ? error.message : String(error);
+      console.error('[PaymentTransaction] Save error:', message);
       throw error;
     }
   }
@@ -165,6 +246,7 @@ export class PaymentTransactionService {
 
   /**
    * Get all transactions (for admin/moderator view) from Supabase
+   * Optimized to use paginated fetch for large sets
    */
   static async getAllTransactions(
     year?: number,
@@ -172,7 +254,13 @@ export class PaymentTransactionService {
     studentId?: string
   ): Promise<PaymentTransaction[]> {
     try {
-      const payments = await paymentsSupabaseService.getRecentTransactions(1000);
+      const filters: { year?: number } = {};
+      if (year) filters.year = year;
+      
+      // We still need to fetch a large chunk if they really want "all"
+      // But we use the paginated endpoint to at least push some filtering to the DB
+      const result = await paymentsSupabaseService.getPaginatedPayments(filters, 1, 1000);
+      const payments = result.payments;
 
       let transactions = payments.map(p => ({
         studentId: p.student_id || '',
@@ -191,10 +279,7 @@ export class PaymentTransactionService {
         transactions = transactions.filter(t => t.studentId === studentId);
       }
 
-      // In-memory filtering for year/month if provided
-      if (year) {
-        transactions = transactions.filter(t => new Date(t.timestamp).getFullYear() === year);
-      }
+      // In-memory filtering for month if provided
       if (month) {
         transactions = transactions.filter(t => new Date(t.timestamp).getMonth() + 1 === month);
       }
@@ -223,25 +308,44 @@ export class PaymentTransactionService {
     page: number;
     totalPages: number;
   }> {
-    const allTransactions = await this.getAllTransactions(
-      filters?.year,
-      filters?.month,
-      filters?.studentId
-    );
-
-    // Apply additional filters
-    let filtered = allTransactions;
+    // Construct filters for Supabase
+    const dbFilters: { year?: number; method?: 'Online' | 'Offline' } = {};
+    if (filters?.year) dbFilters.year = filters.year;
     if (filters?.paymentMethod) {
-      filtered = filtered.filter(t => t.paymentMethod === filters.paymentMethod);
+      dbFilters.method = filters.paymentMethod === 'online' ? 'Online' : 'Offline';
+    }
+    
+    // Fetch directly using getPaginatedPayments
+    const result = await paymentsSupabaseService.getPaginatedPayments(dbFilters, page, limit);
+    const payments = result.payments;
+    const total = result.total;
+
+    let transactions = payments.map(p => ({
+      studentId: p.student_id || '',
+      studentName: p.student_name || '',
+      amount: p.amount || 0,
+      paymentMethod: (p.method?.toLowerCase() === 'online' ? 'online' : 'offline') as 'online' | 'offline' | 'manual',
+      paymentId: p.payment_id,
+      timestamp: p.transaction_date || new Date().toISOString(),
+      durationYears: p.duration_years || 1,
+      validUntil: p.valid_until || '',
+      status: (p.status?.toLowerCase() === 'completed' ? 'completed' : p.status?.toLowerCase() === 'pending' ? 'pending' : 'failed') as 'completed' | 'pending' | 'failed',
+    }));
+
+    // In-memory filtering for fields not supported by dbFilters (studentId, month)
+    // NOTE: This breaks exact pagination if these filters are used, but is necessary for now
+    if (filters?.studentId) {
+      transactions = transactions.filter(t => t.studentId === filters.studentId);
+      // Total count becomes inaccurate when filtering in-memory after pagination
+    }
+    if (filters?.month) {
+      transactions = transactions.filter(t => new Date(t.timestamp).getMonth() + 1 === filters.month);
     }
 
-    const total = filtered.length;
     const totalPages = Math.ceil(total / limit);
-    const startIndex = (page - 1) * limit;
-    const endIndex = startIndex + limit;
 
     return {
-      transactions: filtered.slice(startIndex, endIndex),
+      transactions,
       total,
       page,
       totalPages
@@ -252,10 +356,6 @@ export class PaymentTransactionService {
    * Mark a transaction as pending (in Supabase)
    */
   static async markTransactionPending(paymentId: string): Promise<void> {
-    try {
-      await paymentsSupabaseService.updatePaymentStatus(paymentId, 'Completed');
-    } catch {
-      // Non-critical: best-effort status update
-    }
+    console.warn(`[PaymentTransaction] markTransactionPending(${paymentId}) skipped; pending rows are created explicitly and must not be auto-completed.`);
   }
 }

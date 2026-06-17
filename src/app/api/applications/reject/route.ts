@@ -3,6 +3,7 @@ import { adminAuth, adminDb } from '@/lib/firebase-admin';
 import { Application, AuditLogEntry } from '@/lib/types/application';
 import { v2 as cloudinary } from 'cloudinary';
 import { sendApplicationRejectedNotification } from '@/lib/services/admin-email.service';
+import { requireModeratorPermission } from '@/lib/security/moderator-permissions';
 
 // Configure Cloudinary
 if (process.env.CLOUDINARY_API_KEY && process.env.CLOUDINARY_API_SECRET && process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME) {
@@ -38,6 +39,19 @@ export async function POST(request: NextRequest) {
     if (!adminDoc.exists && !modDoc.exists) {
       return NextResponse.json({ error: 'Insufficient permissions' }, { status: 403 });
     }
+
+    const actorData = adminDoc.exists ? adminDoc.data() : modDoc.data();
+    const permissionDenied = await requireModeratorPermission(
+      {
+        uid,
+        email: decodedToken.email || '',
+        role: adminDoc.exists ? 'admin' : 'moderator',
+        name: actorData?.fullName || actorData?.name || '',
+      },
+      'applications',
+      'canReject'
+    );
+    if (permissionDenied) return permissionDenied;
 
     // Get application
     const appRef = adminDb.collection('applications').doc(applicationId);
@@ -126,18 +140,14 @@ export async function POST(request: NextRequest) {
       try {
         const { paymentsSupabaseService } = await import('@/lib/services/payments-supabase');
         
-        // Delete the pending payment record completely
-        console.log('🗑️ Deleting pending payment record:', (appData as any).paymentId);
-        
-        const deleteSuccess = await paymentsSupabaseService.deletePayment((appData as any).paymentId);
-        
-        if (deleteSuccess) {
-          console.log('✅ Pending payment record deleted from Supabase:', (appData as any).paymentId);
-        } else {
-          console.warn('⚠️ Failed to delete pending payment record');
-        }
+        await paymentsSupabaseService.updatePaymentStatus((appData as any).paymentId, 'Rejected', {
+          userId: uid,
+          name: actorData?.fullName || actorData?.name || rejectorName,
+          empId: actorData?.employeeId || actorData?.staffId || '',
+          role: adminDoc.exists ? 'Admin' : 'Moderator',
+        });
       } catch (paymentCleanupError) {
-        console.error('⚠️ Failed to clean up pending payment record:', paymentCleanupError);
+        console.error('Failed to reject pending payment record:', paymentCleanupError);
       }
     }
 

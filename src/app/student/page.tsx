@@ -24,7 +24,6 @@ import { authApiFetch } from '@/lib/secure-api-client';
 // SPARK PLAN SAFETY: Migrated to usePaginatedCollection
 
 
-import "@/styles/animations.css";
 import { PremiumPageLoader } from "@/components/LoadingSpinner";
 
 export default function StudentDashboard() {

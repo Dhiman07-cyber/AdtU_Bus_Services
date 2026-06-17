@@ -35,6 +35,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { getModeratorById, deleteModerator } from '@/lib/dataService';
+import { safeImageSrc } from "@/lib/security/url-sanitizer";
 
 const formatDate = (dateValue: any) => {
   if (!dateValue) return 'Not provided';
@@ -267,7 +268,7 @@ export default function ViewModeratorPage({ params }: { params: Promise<{ id: st
                 <div className="relative rounded-full md:rounded-2xl overflow-hidden bg-gradient-to-br from-gray-50 to-gray-100 dark:from-gray-800 dark:to-gray-900 p-1.5 shadow-xl">
                   {moderator.profilePhotoUrl ? (
                     <img
-                      src={moderator.profilePhotoUrl}
+                      src={safeImageSrc(moderator.profilePhotoUrl)}
                       alt={moderator.fullName || moderator.name}
                       className="w-full aspect-square object-cover rounded-full md:rounded-xl"
                     />

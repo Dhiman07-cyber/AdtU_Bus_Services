@@ -116,7 +116,7 @@ export function FCMTokenManager() {
     } finally {
       isSyncing.current = false;
     }
-  }, [currentUser]);
+  }, [currentUser, userData]);
 
   // ── Initial Registration + Periodic Refresh ──────────────────────────────
   useEffect(() => {

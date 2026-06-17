@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { cn } from '@/lib/utils';
+import { safeImageSrc } from '@/lib/security/url-sanitizer';
 
 interface AvatarProps {
   src?: string | null;
@@ -73,7 +74,7 @@ export default function Avatar({ src, name = '', size = 'md', className }: Avata
     >
       {shouldShowImage ? (
         <img
-          src={src}
+          src={safeImageSrc(src)}
           alt={name}
           className="w-full h-full object-cover"
           onError={() => setImageError(true)}

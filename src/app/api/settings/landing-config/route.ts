@@ -18,15 +18,16 @@ const DEFAULT_CONFIG = {
 
 export async function GET(req: NextRequest) {
     try {
-        const doc = await adminDb.collection(COLLECTION_NAME).doc(DOC_ID).get();
         let config = DEFAULT_CONFIG;
 
-        if (doc.exists) {
-            const data = doc.data();
-            config = { ...DEFAULT_CONFIG, ...data };
+        if (adminDb) {
+            const doc = await adminDb.collection(COLLECTION_NAME).doc(DOC_ID).get();
+            if (doc.exists) {
+                const data = doc.data();
+                config = { ...DEFAULT_CONFIG, ...data };
+            }
         } else {
-            // Seed it if it doesn't exist? Or just return default.
-            // Returning default is safer for read-only.
+            console.warn('⚠️ Firebase Admin DB not initialized. Returning default landing config.');
         }
 
         return NextResponse.json({

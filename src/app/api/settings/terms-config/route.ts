@@ -1,8 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { adminAuth, adminDb } from '@/lib/firebase-admin';
+import { adminDb } from '@/lib/firebase-admin';
+import { verifyApiAuth } from '@/lib/security/api-auth';
 import { getSystemConfig } from '@/lib/system-config-service';
+import { sanitizeLegalConfig } from '@/lib/security/object-safety';
 const COLLECTION_NAME = 'settings';
 const DOC_ID = 'terms';
+const FALLBACK_TITLE = 'Terms & Conditions';
 
 /**
  * GET /api/settings/terms-config
@@ -24,7 +27,7 @@ export async function GET(req: NextRequest) {
 
         if (!config) {
             // Default structure
-            config = { title: "Terms & Conditions", lastUpdated: new Date().toISOString().split('T')[0], sections: [] };
+            config = { title: FALLBACK_TITLE, lastUpdated: new Date().toISOString().split('T')[0], sections: [] };
             source = 'default';
         }
 
@@ -60,37 +63,23 @@ export async function GET(req: NextRequest) {
  */
 export async function POST(req: NextRequest) {
     try {
-        const authHeader = req.headers.get('authorization');
-        if (!authHeader?.startsWith('Bearer ')) {
-            return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
-        }
-
-        const token = authHeader.split('Bearer ')[1];
-        const decodedToken = await adminAuth.verifyIdToken(token);
-
-        // Ensure admin
-        const userDoc = await adminAuth.getUser(decodedToken.uid);
-        if (userDoc.customClaims?.role !== 'admin') {
-            // Or allow if specific permission? Generally admin for settings.
-            // We can proceed if token is valid for simplicity or strictly check custom claims
-        }
+        const auth = await verifyApiAuth(req, ['admin']);
+        if (!auth.authenticated) return auth.response;
 
         const body = await req.json();
         const { config } = body;
 
-        if (!config) {
+        if (!config || typeof config !== 'object' || Array.isArray(config)) {
             return NextResponse.json({ success: false, error: 'Invalid configuration data' }, { status: 400 });
         }
 
-        // Update lastUpdated
-        config.lastUpdated = new Date().toISOString().split('T')[0];
+        const safeConfig = sanitizeLegalConfig(config, FALLBACK_TITLE);
+        safeConfig.lastUpdated = new Date().toISOString().split('T')[0];
 
         // Save to Firestore
-        await adminDb.collection(COLLECTION_NAME).doc(DOC_ID).set(config);
+        await adminDb.collection(COLLECTION_NAME).doc(DOC_ID).set(safeConfig);
 
-        console.log(`[Terms-Config] Updated by ${decodedToken.email} in Firestore`);
-
-        return NextResponse.json({ success: true, message: 'Configuration saved successfully', config });
+        return NextResponse.json({ success: true, message: 'Configuration saved successfully', config: safeConfig });
 
     } catch (error: any) {
         console.error('Error saving terms config:', error);

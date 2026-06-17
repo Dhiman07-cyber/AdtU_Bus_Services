@@ -1,8 +1,16 @@
 import { NextResponse } from 'next/server';
 import { db } from '@/lib/firebase-admin';
+import { verifyApiAuth } from '@/lib/security/api-auth';
+import { requireModeratorPermission } from '@/lib/security/moderator-permissions';
 
 export async function PUT(request: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
+    const auth = await verifyApiAuth(request, ['admin', 'moderator']);
+    if (!auth.authenticated) return auth.response;
+
+    const permissionDenied = await requireModeratorPermission(auth, 'buses', 'canEdit');
+    if (permissionDenied) return permissionDenied;
+
     const { id } = await params;
     
     if (!id) {

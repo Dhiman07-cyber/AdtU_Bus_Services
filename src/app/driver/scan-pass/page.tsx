@@ -33,7 +33,7 @@ import { toast } from 'sonner';
 import { useSystemConfig } from '@/contexts/SystemConfigContext';
 import { auth, db } from '@/lib/firebase';
 import { doc, getDoc } from 'firebase/firestore';
-import Image from 'next/image';
+import { safeImageSrc } from '@/lib/security/url-sanitizer';
 
 // Verified student data interface
 interface VerifiedStudentData {
@@ -337,7 +337,9 @@ export default function DriverScanPassPage() {
       }
 
       // 1. Basic Client-side Validation
-      if (studentUid.length < 5 || studentUid.length > 128 || studentUid.includes('http')) {
+      const isEncryptedToken = studentUid.length > 60 && /^[A-Za-z0-9_-]+$/.test(studentUid);
+
+      if (!isEncryptedToken && (studentUid.length < 5 || studentUid.length > 128 || studentUid.includes('http'))) {
         const errorMsg = studentUid.includes('http')
           ? 'This is a website link, not a student ID.'
           : 'Invalid QR code. Please scan a valid Student Bus Pass.';
@@ -357,17 +359,32 @@ export default function DriverScanPassPage() {
         return;
       }
 
-      const response = await fetch('/api/bus-pass/verify-student', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({
-          studentUid,
-          scannerBusId
-        }),
-      });
+      let response;
+      if (isEncryptedToken) {
+        response = await fetch('/api/bus-pass/verify-secure-qr', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          },
+          body: JSON.stringify({
+            secureToken: studentUid,
+            scannerBusId
+          }),
+        });
+      } else {
+        response = await fetch('/api/bus-pass/verify-student', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          },
+          body: JSON.stringify({
+            studentUid,
+            scannerBusId
+          }),
+        });
+      }
 
       const result = await response.json();
       let sData = result.studentData;
@@ -764,7 +781,7 @@ export default function DriverScanPassPage() {
                               <div className="flex flex-col items-center flex-shrink-0 w-[110px] sm:w-[130px]">
                                 <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-full bg-gradient-to-br from-blue-500/20 to-indigo-500/20 border-2 border-blue-500/30 overflow-hidden shadow-lg mb-1.5">
                                   {scanResult.studentData.profilePhotoUrl ? (
-                                    <Image src={scanResult.studentData.profilePhotoUrl} width={64} height={64} className="w-full h-full object-cover" alt="Profile" />
+                                    <Image src={safeImageSrc(scanResult.studentData.profilePhotoUrl)} width={64} height={64} className="w-full h-full object-cover" alt="Profile" />
                                   ) : (
                                     <div className="w-full h-full flex items-center justify-center">
                                       <User className="h-7 w-7 text-blue-400/40" />
@@ -807,7 +824,7 @@ export default function DriverScanPassPage() {
                             {/* Profile Photo */}
                             <div className="w-20 h-20 rounded-full bg-gradient-to-br from-blue-500/20 to-indigo-500/20 border-4 border-blue-500/30 overflow-hidden shadow-2xl mb-4">
                               {scanResult.studentData.profilePhotoUrl ? (
-                                <Image src={scanResult.studentData.profilePhotoUrl} width={80} height={80} className="w-full h-full object-cover" alt="Profile" />
+                                <Image src={safeImageSrc(scanResult.studentData.profilePhotoUrl)} width={80} height={80} className="w-full h-full object-cover" alt="Profile" />
                               ) : (
                                 <div className="w-full h-full flex items-center justify-center">
                                   <User className="h-10 w-10 text-blue-400/40" />

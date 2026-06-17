@@ -106,7 +106,7 @@ export default function PWAInstallPrompt() {
         <div className="absolute -inset-1 bg-gradient-to-r from-blue-600/10 via-indigo-600/10 to-cyan-400/10 rounded-2xl blur opacity-10 group-hover:opacity-25 transition duration-1000 group-hover:duration-500"></div>
 
         {/* Main Card */}
-        <div className="relative bg-slate-900/90 backdrop-blur-xl border border-white/10 rounded-2xl p-5 shadow-2xl ring-1 ring-white/10 dark:ring-white/5 overflow-hidden">
+        <div className="relative bg-slate-900/95 border border-white/10 rounded-2xl p-5 shadow-2xl ring-1 ring-white/10 dark:ring-white/5 overflow-hidden">
 
           {/* Decorative Background Elements */}
           <div className="absolute top-0 right-0 -mt-4 -mr-4 w-24 h-24 bg-gradient-to-br from-violet-500/20 to-fuchsia-500/20 rounded-full blur-xl pointer-events-none"></div>

@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { adminDb } from '@/lib/firebase-admin';
+import { verifyApiAuth } from '@/lib/security/api-auth';
 
 /**
  * ONE-TIME FIX SCRIPT
@@ -13,6 +14,9 @@ import { adminDb } from '@/lib/firebase-admin';
  */
 export async function POST(request: Request) {
   try {
+    const auth = await verifyApiAuth(request, ['admin']);
+    if (!auth.authenticated) return auth.response;
+
     console.log('🔧 Starting bus-driver assignment fix...');
     
     const results = {

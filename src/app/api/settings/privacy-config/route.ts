@@ -1,8 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { adminAuth, adminDb } from '@/lib/firebase-admin';
+import { adminDb } from '@/lib/firebase-admin';
+import { verifyApiAuth } from '@/lib/security/api-auth';
 import { getSystemConfig } from '@/lib/system-config-service';
+import { sanitizeLegalConfig } from '@/lib/security/object-safety';
 const COLLECTION_NAME = 'settings';
 const DOC_ID = 'privacy';
+const FALLBACK_TITLE = 'Privacy Policy';
 
 export async function GET(req: NextRequest) {
     try {
@@ -21,7 +24,7 @@ export async function GET(req: NextRequest) {
 
         if (!config) {
             config = {
-                title: "Privacy Policy",
+                title: FALLBACK_TITLE,
                 lastUpdated: new Date().toISOString().split('T')[0],
                 sections: []
             };
@@ -55,34 +58,23 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
     try {
-        const authHeader = req.headers.get('authorization');
-        if (!authHeader?.startsWith('Bearer ')) {
-            return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
-        }
-
-        const token = authHeader.split('Bearer ')[1];
-        const decodedToken = await adminAuth.verifyIdToken(token);
-
-        // Ensure admin (optional strictly, but good practice)
-        // const userDoc = await adminAuth.getUser(decodedToken.uid);
-        // if (userDoc.customClaims?.role !== 'admin') ...
+        const auth = await verifyApiAuth(req, ['admin']);
+        if (!auth.authenticated) return auth.response;
 
         const body = await req.json();
         const { config } = body;
 
-        if (!config) {
+        if (!config || typeof config !== 'object' || Array.isArray(config)) {
             return NextResponse.json({ success: false, error: 'Invalid configuration data' }, { status: 400 });
         }
 
-        // Update lastUpdated
-        config.lastUpdated = new Date().toISOString().split('T')[0];
+        const safeConfig = sanitizeLegalConfig(config, FALLBACK_TITLE);
+        safeConfig.lastUpdated = new Date().toISOString().split('T')[0];
 
         // Save to Firestore
-        await adminDb.collection(COLLECTION_NAME).doc(DOC_ID).set(config);
+        await adminDb.collection(COLLECTION_NAME).doc(DOC_ID).set(safeConfig);
 
-        console.log(`[Privacy-Config] Updated by ${decodedToken.email} in Firestore`);
-
-        return NextResponse.json({ success: true, message: 'Configuration saved successfully', config });
+        return NextResponse.json({ success: true, message: 'Configuration saved successfully', config: safeConfig });
 
     } catch (error: any) {
         console.error('Error saving privacy config:', error);

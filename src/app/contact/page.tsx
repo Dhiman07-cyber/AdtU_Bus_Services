@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Mail, Phone, Clock, MapPin, Headphones, MessageCircle, Sparkles, Loader2 } from 'lucide-react';
 import ApplyFormNavbar from '@/components/ApplyFormNavbar';
+import { safeMailtoHref, safeTelHref } from '@/lib/security/url-sanitizer';
 
 export default function ContactPage() {
   const [config, setConfig] = useState<any>(null);
@@ -47,6 +48,8 @@ export default function ContactPage() {
       address: config?.contactInfo?.address || "ADTU Campus, Sankar Madhab Path, Panikhaiti, Guwahati, Assam 781026"
     }
   };
+  const supportMailHref = safeMailtoHref(contactData.content.support_email);
+  const supportPhoneHref = safeTelHref(contactData.content.phone);
 
   return (
     <div className="min-h-screen bg-[#05060e] dark:bg-[#05060e] overflow-x-hidden relative ">
@@ -91,7 +94,7 @@ export default function ContactPage() {
               </span>
               <div className="mt-3 flex flex-col gap-1">
                 <a
-                  href={`mailto:${contactData.content.support_email}`}
+                  href={supportMailHref ?? undefined}
                   className="text-[10px] sm:text-xs text-blue-600 dark:text-blue-400 font-bold hover:underline break-all"
                 >
                   {contactData.content.support_email}
@@ -113,7 +116,7 @@ export default function ContactPage() {
               </span>
               <div className="mt-3 flex flex-col gap-1">
                 <a
-                  href={`tel:${contactData.content.phone.replace(/\s/g, '')}`}
+                  href={supportPhoneHref ?? undefined}
                   className="text-[10px] sm:text-xs text-green-600 dark:text-green-400 font-bold hover:underline"
                 >
                   {contactData.content.phone}
@@ -182,13 +185,13 @@ export default function ContactPage() {
               </p>
               <div className="flex flex-wrap justify-center gap-4">
                 <a
-                  href={`mailto:${contactData.content.support_email}`}
+                  href={supportMailHref ?? undefined}
                   className="px-4 sm:px-6 md:px-8 py-2.5 sm:py-3 md:py-4 bg-white text-blue-600 hover:bg-gray-100 rounded-lg sm:rounded-xl font-bold shadow-2xl transform hover:scale-105 transition-all duration-300 inline-flex items-center gap-2">
                   <MessageCircle className="h-4 w-4 sm:h-5 sm:w-5" />
                   Email Us
                 </a>
                 <a
-                  href={`tel:${contactData.content.phone.replace(/\s/g, '')}`}
+                  href={supportPhoneHref ?? undefined}
                   className="px-4 sm:px-6 md:px-8 py-2.5 sm:py-3 md:py-4 bg-white/10 backdrop-blur-sm border-2 border-white text-white hover:bg-white/20 rounded-lg sm:rounded-xl font-bold shadow-2xl transform hover:scale-105 transition-all duration-300 inline-flex items-center gap-2">
                   <Phone className="h-4 w-4 sm:h-5 sm:w-5" />
                   Call Us

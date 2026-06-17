@@ -1,5 +1,9 @@
-import { db } from '@/lib/firebase';
 import { collection, getDocs, query, where, doc, getDoc } from 'firebase/firestore';
+
+async function getDb() {
+  const { db } = await import('@/lib/firebase');
+  return db;
+}
 
 export interface BusCapacityInfo {
   busId: string;
@@ -45,6 +49,7 @@ export interface CapacityCheckResult {
  */
 export async function checkBusCapacity(busId: string, shift?: string): Promise<BusCapacityInfo | null> {
   try {
+    const db = await getDb();
     const busRef = doc(db, 'buses', busId);
     const busSnap = await getDoc(busRef);
 
@@ -161,6 +166,7 @@ export async function findBusesByStop(stopId: string, stopName: string, shift?: 
     const normalizedStopId = stopId.toLowerCase().trim();
     const normalizedStopName = stopName.toLowerCase().trim();
 
+    const db = await getDb();
     // Step 1: Find all routes that have this stop
     const routesRef = collection(db, 'routes');
     const routesSnap = await getDocs(routesRef);
@@ -507,6 +513,7 @@ export async function createOverloadNotification(
   stopName: string
 ): Promise<boolean> {
   try {
+    const db = await getDb();
     // Fetch admin and moderator IDs - NOTE: This will fail for students due to permissions
     const adminsSnap = await getDocs(collection(db, 'admins'));
     const moderatorsSnap = await getDocs(collection(db, 'moderators'));
@@ -569,6 +576,7 @@ export async function createNearCapacityNotification(
   futurePercentage: number
 ): Promise<boolean> {
   try {
+    const db = await getDb();
     // Fetch admin and moderator IDs - NOTE: This will fail for students due to permissions
     const adminsSnap = await getDocs(collection(db, 'admins'));
     const moderatorsSnap = await getDocs(collection(db, 'moderators'));

@@ -50,17 +50,39 @@ interface CacheEntry<T> {
 }
 
 const dataCache = new Map<string, CacheEntry<any>>();
-// SPARK PLAN SAFETY: 24 hour cache to prevent excessive reads
-// Data persists across page navigations, HMR reloads, and component remounts until refreshed
-const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
+
+export function getDefaultTTL(collectionName: string): number {
+    switch (collectionName) {
+        case 'payments':
+        case 'applications':
+        case 'waiting_flags':
+            return 2 * 60 * 1000; // 2 minutes
+        case 'students':
+        case 'drivers':
+        case 'moderators':
+            return 5 * 60 * 1000; // 5 minutes
+        case 'routes':
+        case 'buses':
+        case 'stops':
+        case 'config':
+            return 15 * 60 * 1000; // 15 minutes
+        case 'bus_locations':
+        case 'trip_sessions':
+        case 'active_trips':
+            return 0; // 0 minutes (no cache)
+        default:
+            return 5 * 60 * 1000; // default to 5 minutes
+    }
+}
 
 function getCacheKey(collectionName: string, orderByField: string, orderDirection: string): string {
     return `${collectionName}:${orderByField}:${orderDirection}`;
 }
 
-function getCachedData<T>(key: string): T[] | null {
+function getCachedData<T>(key: string, ttl: number): T[] | null {
+    if (ttl <= 0) return null;
     const entry = dataCache.get(key);
-    if (entry && Date.now() - entry.timestamp < CACHE_TTL_MS) {
+    if (entry && Date.now() - entry.timestamp < ttl) {
         return entry.data;
     }
     if (entry) {
@@ -111,6 +133,8 @@ export interface UsePaginatedCollectionOptions {
     fetchOnMount?: boolean;
     /** Only fetch when this is true */
     enabled?: boolean;
+    /** Custom Cache TTL in milliseconds */
+    cacheTTL?: number;
 }
 
 export interface UsePaginatedCollectionResult<T> {
@@ -172,10 +196,12 @@ export function usePaginatedCollection<T = DocumentData>(
         orderDirection = 'desc',
         fetchOnMount = true,
         enabled = true,
+        cacheTTL,
     } = options;
 
     // Enforce max page size
     const effectivePageSize = Math.min(pageSize, MAX_QUERY_LIMIT);
+    const ttl = cacheTTL !== undefined ? cacheTTL : getDefaultTTL(collectionName);
 
     const { currentUser } = useAuth();
     const { isVisible, isOnline } = useVisibilityAwareListener();
@@ -218,8 +244,8 @@ export function usePaginatedCollection<T = DocumentData>(
 
         // Check cache for initial page load (not pagination)
         const cacheKey = getCacheKey(collectionName, orderByField, orderDirection);
-        if (!isNextPage && !bypassCache) {
-            const cached = getCachedData<T>(cacheKey);
+        if (!isNextPage && !bypassCache && ttl > 0) {
+            const cached = getCachedData<T>(cacheKey, ttl);
             if (cached) {
                 setPages([cached]);
                 setLoading(false);
@@ -265,7 +291,7 @@ export function usePaginatedCollection<T = DocumentData>(
 
             // Update pages and cache (only for initial page, not pagination)
             setPages(prev => isNextPage ? [...prev, docs] : [docs]);
-            if (!isNextPage) {
+            if (!isNextPage && ttl > 0) {
                 setCachedData(cacheKey, docs);
             }
 

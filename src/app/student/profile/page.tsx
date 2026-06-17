@@ -16,6 +16,7 @@ import SessionStatusBanner from "@/components/student/SessionStatusBanner";
 import ProfileImageUpdateModal from "@/components/ProfileImageUpdateModal";
 import { useToast } from "@/contexts/toast-context";
 import Image from "next/image";
+import { safeImageSrc } from "@/lib/security/url-sanitizer";
 
 export default function StudentProfilePage() {
   const { currentUser, userData } = useAuth();
@@ -232,7 +233,7 @@ export default function StudentProfilePage() {
                     {studentData.profilePhotoUrl && !imageError ? (
                       <div className="w-full h-full rounded-full overflow-hidden ring-2 ring-white/20">
                         <img
-                          src={studentData.profilePhotoUrl}
+                          src={safeImageSrc(studentData.profilePhotoUrl)}
                           alt={studentData.fullName || 'Student'}
                           className="w-full h-full object-cover rounded-full"
                           onError={() => {

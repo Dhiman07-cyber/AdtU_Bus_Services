@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db as adminDb } from '@/lib/firebase-admin';
+import { verifyApiAuth } from '@/lib/security/api-auth';
+import { requireModeratorPermission } from '@/lib/security/moderator-permissions';
 
 /**
  * Set a driver as "Reserved" (not assigned to any bus)
@@ -8,6 +10,12 @@ import { db as adminDb } from '@/lib/firebase-admin';
  */
 export async function POST(req: NextRequest) {
   try {
+    const auth = await verifyApiAuth(req, ['admin', 'moderator']);
+    if (!auth.authenticated) return auth.response;
+
+    const permissionDenied = await requireModeratorPermission(auth, 'drivers', 'canReassign');
+    if (permissionDenied) return permissionDenied;
+
     const { driverUID } = await req.json();
 
     if (!driverUID) {

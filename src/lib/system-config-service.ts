@@ -1,4 +1,5 @@
 import { adminDb } from '@/lib/firebase-admin';
+import { stripUnsafeObjectKeys } from '@/lib/security/object-safety';
 
 const SETTINGS_COLLECTION = 'settings';
 const SYSTEM_DOC = 'config';
@@ -36,7 +37,7 @@ export interface SystemConfig {
  * - Limits history arrays
  */
 function cleanConfigForStorage(config: any): any {
-    const cleaned = { ...config };
+    const cleaned = stripUnsafeObjectKeys({ ...config });
 
     // Remove UI fields explicitly if they exist at top level or nested
     // Based on user request: "values like 'icon': 'Users', or 'gradient'..."

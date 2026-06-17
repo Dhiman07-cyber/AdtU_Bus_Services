@@ -2,12 +2,16 @@ import { NextResponse } from 'next/server';
 import { promises as fs } from 'fs';
 import path from 'path';
 import { SimulationConfig } from '@/lib/types/simulation-config';
+import { verifyApiAuth } from '@/lib/security/api-auth';
 
 // Path to the config file
 const CONFIG_PATH = path.join(process.cwd(), 'src/app/admin/deadline-testing/simulation-config.json');
 
-export async function GET() {
+export async function GET(request: Request) {
     try {
+        const auth = await verifyApiAuth(request, ['admin']);
+        if (!auth.authenticated) return auth.response;
+
         const fileContent = await fs.readFile(CONFIG_PATH, 'utf-8');
         const config = JSON.parse(fileContent) as SimulationConfig;
         return NextResponse.json({ config });
@@ -22,6 +26,9 @@ export async function GET() {
 
 export async function POST(request: Request) {
     try {
+        const auth = await verifyApiAuth(request, ['admin']);
+        if (!auth.authenticated) return auth.response;
+
         const body = await request.json();
         const newConfig = body.config as SimulationConfig;
 

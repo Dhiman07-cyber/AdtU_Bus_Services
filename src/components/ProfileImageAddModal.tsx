@@ -15,6 +15,12 @@ interface ProfileImageAddModalProps {
     immediateUpload?: boolean;
 }
 
+const revokeObjectUrl = (url?: string | null) => {
+    if (url?.startsWith('blob:')) {
+        URL.revokeObjectURL(url);
+    }
+};
+
 export default function ProfileImageAddModal({
     isOpen,
     onClose,
@@ -31,6 +37,7 @@ export default function ProfileImageAddModal({
     const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
     const [error, setError] = useState<string | null>(null);
     const [croppedImageUrl, setCroppedImageUrl] = useState<string | null>(null);
+    const [croppedImageBlob, setCroppedImageBlob] = useState<Blob | null>(null);
     const [imgAspect, setImgAspect] = useState(1);
 
     const fileInputRef = useRef<HTMLInputElement>(null);
@@ -42,16 +49,8 @@ export default function ProfileImageAddModal({
     useEffect(() => {
         if (!isOpen) {
             // Cleanup blob URLs to prevent memory leaks
-            if (previewUrl && previewUrl.startsWith('data:')) {
-                // data URLs don't need cleanup
-            } else if (previewUrl) {
-                URL.revokeObjectURL(previewUrl);
-            }
-            if (croppedImageUrl && croppedImageUrl.startsWith('data:')) {
-                // data URLs don't need cleanup
-            } else if (croppedImageUrl) {
-                URL.revokeObjectURL(croppedImageUrl);
-            }
+            revokeObjectUrl(previewUrl);
+            revokeObjectUrl(croppedImageUrl);
             
             setStep('select');
             setSelectedFile(null);
@@ -60,6 +59,7 @@ export default function ProfileImageAddModal({
             setPosition({ x: 0, y: 0 });
             setError(null);
             setCroppedImageUrl(null);
+            setCroppedImageBlob(null);
             setImgAspect(1);
             // Reset file input
             if (fileInputRef.current) {
@@ -87,13 +87,15 @@ export default function ProfileImageAddModal({
         setError(null);
         setSelectedFile(file);
 
-        // Create preview URL
-        const reader = new FileReader();
-        reader.onload = () => {
-            setPreviewUrl(reader.result as string);
-            setStep('crop');
-        };
-        reader.readAsDataURL(file);
+        revokeObjectUrl(previewUrl);
+        revokeObjectUrl(croppedImageUrl);
+
+        setPreviewUrl(URL.createObjectURL(file));
+        setCroppedImageUrl(null);
+        setCroppedImageBlob(null);
+        setZoom(1);
+        setPosition({ x: 0, y: 0 });
+        setStep('crop');
     };
 
     const handleDragStart = (e: React.MouseEvent | React.TouchEvent) => {
@@ -136,7 +138,7 @@ export default function ProfileImageAddModal({
         };
     }, [isDragging, handleDragMove, handleDragEnd]);
 
-    const cropImage = useCallback((): string | null => {
+    const cropImage = useCallback(async (): Promise<Blob | null> => {
         if (!canvasRef.current || !imageRef.current || !previewUrl) return null;
 
         const canvas = canvasRef.current;
@@ -230,13 +232,17 @@ export default function ProfileImageAddModal({
         );
 
         ctx.restore();
-        return canvas.toDataURL('image/jpeg', 0.92);
+        return new Promise((resolve) => {
+            canvas.toBlob((blob) => resolve(blob), 'image/jpeg', 0.9);
+        });
     }, [previewUrl, zoom, position]);
 
-    const handleCropConfirm = () => {
-        const croppedUrl = cropImage();
-        if (croppedUrl) {
-            setCroppedImageUrl(croppedUrl);
+    const handleCropConfirm = async () => {
+        const croppedBlob = await cropImage();
+        if (croppedBlob) {
+            revokeObjectUrl(croppedImageUrl);
+            setCroppedImageBlob(croppedBlob);
+            setCroppedImageUrl(URL.createObjectURL(croppedBlob));
             setStep('confirm');
         } else {
             setError('Failed to crop image');
@@ -244,22 +250,13 @@ export default function ProfileImageAddModal({
     };
 
     const handleFinalConfirm = async () => {
-        if (!croppedImageUrl || !selectedFile) return;
+        if (!croppedImageBlob || !selectedFile) return;
 
         setStep('uploading');
         setError(null);
 
         try {
-            // Convert base64 to Blob without using fetch (CSP-safe)
-            const base64Data = croppedImageUrl.split(',')[1];
-            const byteCharacters = atob(base64Data);
-            const byteNumbers = new Array(byteCharacters.length);
-            for (let i = 0; i < byteCharacters.length; i++) {
-                byteNumbers[i] = byteCharacters.charCodeAt(i);
-            }
-            const byteArray = new Uint8Array(byteNumbers);
-            const blob = new Blob([byteArray], { type: 'image/jpeg' });
-            const croppedFile = new File([blob], selectedFile.name.replace(/\.[^/.]+$/, '.jpg'), { type: 'image/jpeg' });
+            const croppedFile = new File([croppedImageBlob], selectedFile.name.replace(/\.[^/.]+$/, '.jpg'), { type: 'image/jpeg' });
 
             if (immediateUpload) {
                 // Upload to Cloudinary
@@ -274,7 +271,7 @@ export default function ProfileImageAddModal({
             } else {
                 // Local handling - Create a persistent local URL
                 // Note: The parent component should handle revoking this URL if needed
-                const localUrl = URL.createObjectURL(blob);
+                const localUrl = URL.createObjectURL(croppedFile);
 
                 // Call confirm with local URL and file
                 await onConfirm(localUrl, croppedFile);
@@ -325,7 +322,7 @@ export default function ProfileImageAddModal({
                         <div className="space-y-4">
                             <div
                                 onClick={() => fileInputRef.current?.click()}
-                                className="border-2 border-dashed border-gray-600 rounded-xl p-8 text-center cursor-pointer hover:border-blue-500 hover:bg-blue-500/5 transition-all"
+                                className="border-2 border-dashed border-gray-600 rounded-xl p-8 text-center cursor-pointer hover:border-blue-500 hover:bg-blue-500/5 transition-colors"
                             >
                                 <Plus className="h-12 w-12 text-gray-400 mx-auto mb-3" />
                                 <p className="text-gray-300 font-medium">Click to select image</p>

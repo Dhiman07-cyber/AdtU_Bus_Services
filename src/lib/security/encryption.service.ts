@@ -452,22 +452,27 @@ export function encryptData(text: string): string {
         encrypted
     ]);
 
-    return combined.toString('base64url');
+    return `enc:v1:${combined.toString('base64url')}`;
 }
 
 /**
  * Decrypt string data
  */
-export function decryptData(encryptedText: string): string {
+export function decryptData(encryptedText: string): string | null {
     if (!encryptedText) return encryptedText;
 
+    // Legacy plaintext values return as-is when no enc:v1: prefix exists
+    if (!encryptedText.startsWith('enc:v1:')) {
+        return encryptedText;
+    }
+
     try {
-        const buffer = Buffer.from(encryptedText, 'base64url');
+        const ciphertext = encryptedText.substring(7);
+        const buffer = Buffer.from(ciphertext, 'base64url');
 
         // Minimum size check
         if (buffer.length < SALT_LENGTH + IV_LENGTH + AUTH_TAG_LENGTH) {
-            // Not a valid encrypted string, might be legacy plain text
-            return encryptedText;
+            return null;
         }
 
         let offset = 0;
@@ -495,8 +500,8 @@ export function decryptData(encryptedText: string): string {
 
         return decrypted.toString('utf8');
     } catch (error) {
-        // If decryption fails, it might be plain text (legacy data)
-        // console.warn('Decryption failed, returning original text:', error);
-        return encryptedText;
+        // Versioned encrypted values must never return raw ciphertext on decrypt failure
+        console.error('Decryption failed for enc:v1: data:', error);
+        return null;
     }
 }

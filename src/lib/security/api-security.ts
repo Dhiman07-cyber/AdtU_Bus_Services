@@ -456,7 +456,13 @@ export function withCronSecurity(
             }
 
             const authHeader = request.headers.get('authorization') || request.headers.get('Authorization');
-            if (authHeader !== `Bearer ${cronSecret}`) {
+            const providedSecret = authHeader?.startsWith('Bearer ') ? authHeader.substring(7) : '';
+
+            // SECURITY: Use timing-safe comparison to prevent timing attacks
+            const secretsMatch = providedSecret.length === cronSecret.length &&
+                crypto.timingSafeEqual(Buffer.from(providedSecret), Buffer.from(cronSecret));
+
+            if (!secretsMatch) {
                 console.warn(`[${requestId}] Unauthorized cron request`);
                 return NextResponse.json(
                     { success: false, error: 'Unauthorized', requestId },

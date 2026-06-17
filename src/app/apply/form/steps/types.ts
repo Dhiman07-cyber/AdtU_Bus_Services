@@ -6,6 +6,7 @@ export interface StepProps {
   handleInputChange: (field: string, value: any) => void;
   onNext: () => void;
   onPrev?: () => void;
+  onClear?: () => void;
   isSubmitting?: boolean;
 }
 

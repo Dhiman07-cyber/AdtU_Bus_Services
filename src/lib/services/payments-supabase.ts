@@ -10,6 +10,7 @@
 
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { encryptData, decryptData } from '@/lib/security/encryption.service';
+import { DocumentCryptoService, buildDocumentPayloadFromPayment } from '@/lib/security/document-crypto.service';
 
 // ============================================
 // TYPES
@@ -54,6 +55,8 @@ export interface PaymentRecord {
         role?: string;
     };
     rejected_at?: string;
+    purpose?: string;
+    metadata?: Record<string, unknown>;
     created_at?: string;
     updated_at?: string;
     // RSA-2048 digital signature for tamper-proof receipts
@@ -77,7 +80,7 @@ export interface CreatePaymentInput {
     offlineTransactionId?: string;
     razorpayPaymentId?: string;
     razorpayOrderId?: string;
-    metadata?: Record<string, any>;
+    metadata?: Record<string, unknown>;
     approvedBy?: {
         type?: string;
         userId?: string;
@@ -102,7 +105,7 @@ class PaymentsSupabaseService {
 
         if (!url || !serviceKey) {
             console.error('[PaymentsSupabaseService] Missing Supabase credentials');
-            this.supabase = null as any;
+            this.supabase = null as unknown as SupabaseClient;
             return;
         }
 
@@ -116,6 +119,8 @@ class PaymentsSupabaseService {
         return this.isInitialized;
     }
 
+
+
     // ============================================
     // ENCRYPTION HELPERS
     // ============================================
@@ -126,17 +131,55 @@ class PaymentsSupabaseService {
     private decryptRecord(record: PaymentRecord): PaymentRecord {
         if (!record) return record;
 
-        // decryptData() handles both encrypted and plain-text values:
-        // - If encrypted: returns decrypted value
-        // - If plain text (legacy): returns as-is
+        const student_name = record.student_name ? decryptData(record.student_name) : undefined;
+        const student_id = record.student_id ? decryptData(record.student_id) : undefined;
+        const offline_transaction_id = record.offline_transaction_id ? decryptData(record.offline_transaction_id) : undefined;
+        const stop_id = record.stop_id ? decryptData(record.stop_id) : undefined;
+
         return {
             ...record,
-            student_name: decryptData(record.student_name || ''),
-            student_id: decryptData(record.student_id || ''),
-            offline_transaction_id: decryptData(record.offline_transaction_id || ''),
-            stop_id: decryptData(record.stop_id || ''),
+            student_name: student_name !== null ? student_name : undefined,
+            student_id: student_id !== null ? student_id : undefined,
+            offline_transaction_id: offline_transaction_id !== null ? offline_transaction_id : undefined,
+            stop_id: stop_id !== null ? stop_id : undefined,
             // razorpay_payment_id & razorpay_order_id are stored as plaintext for lookup
         };
+    }
+
+    private normalizeApprovedBy(input: CreatePaymentInput): CreatePaymentInput['approvedBy'] {
+        if (input.approvedBy) return input.approvedBy;
+        if (input.status === 'Completed' && input.method === 'Online') {
+            return { type: 'SYSTEM' };
+        }
+        return undefined;
+    }
+
+    private buildCompletedPaymentSignature(input: CreatePaymentInput, normalized: {
+        paymentId: string;
+        validUntil?: string;
+        transactionDate: string;
+    }): string | null {
+        if (input.status !== 'Completed') return null;
+        const approvedBy = this.normalizeApprovedBy(input);
+
+        const documentPayload = buildDocumentPayloadFromPayment({
+            payment_id: normalized.paymentId,
+            student_uid: input.studentUid || '',
+            student_name: input.studentName || 'Unknown',
+            student_id: input.studentId || '',
+            amount: input.amount || 0,
+            method: input.method,
+            session_start_year: input.sessionStartYear,
+            session_end_year: input.sessionEndYear,
+            valid_until: normalized.validUntil,
+            transaction_date: normalized.transactionDate,
+            razorpay_order_id: input.razorpayOrderId,
+            razorpay_payment_id: input.razorpayPaymentId,
+            offline_transaction_id: input.offlineTransactionId,
+            approved_by: approvedBy,
+        });
+
+        return DocumentCryptoService.signDocumentPayload(documentPayload);
     }
 
     // ============================================
@@ -156,7 +199,16 @@ class PaymentsSupabaseService {
             // Prepare record - encrypt PII fields before storage
             // Data is stored encrypted in existing columns
             // decryptData() will handle both encrypted and legacy plain-text when reading
-            const record: any = {
+            const validUntilIso = input.validUntil?.toISOString();
+            const transactionDateIso = input.transactionDate?.toISOString() || new Date().toISOString();
+            const documentSignature = this.buildCompletedPaymentSignature(input, {
+                paymentId: input.paymentId,
+                validUntil: validUntilIso,
+                transactionDate: transactionDateIso,
+            });
+            const approvedBy = this.normalizeApprovedBy(input);
+
+            const record: Record<string, unknown> = {
                 payment_id: input.paymentId,
                 student_uid: input.studentUid,  // NOT encrypted - needed for RLS filtering
                 amount: input.amount,
@@ -166,8 +218,8 @@ class PaymentsSupabaseService {
                 session_start_year: input.sessionStartYear,
                 session_end_year: input.sessionEndYear,
                 duration_years: input.durationYears,
-                valid_until: input.validUntil?.toISOString(),
-                transaction_date: input.transactionDate?.toISOString() || new Date().toISOString(),
+                valid_until: validUntilIso,
+                transaction_date: transactionDateIso,
 
                 // ENCRYPTED PII FIELDS - stored in existing columns
                 student_name: input.studentName ? encryptData(input.studentName) : null,
@@ -181,9 +233,13 @@ class PaymentsSupabaseService {
                 razorpay_payment_id: input.razorpayPaymentId,
                 razorpay_order_id: input.razorpayOrderId,
 
-                approved_by: input.approvedBy,
+                approved_by: approvedBy,
                 approved_at: input.approvedAt?.toISOString(),
             };
+
+            if (documentSignature) {
+                record.document_signature = documentSignature;
+            }
 
             const { data, error } = await this.supabase
                 .from('payments')
@@ -204,15 +260,80 @@ class PaymentsSupabaseService {
     }
 
     /**
-     * Alias for upsertPayment - creates a new payment record
+     * Create a new payment record without overwriting an existing ledger entry.
+     * Retries and duplicate submissions return the existing payment_id instead
+     * of downgrading or replacing a processed financial record.
      */
     async createPayment(input: CreatePaymentInput): Promise<string | null> {
-        return this.upsertPayment(input);
+        if (!this.isReady()) {
+            console.error('[PaymentsSupabaseService] Not initialized');
+            return null;
+        }
+
+        try {
+            const validUntilIso = input.validUntil?.toISOString();
+            const transactionDateIso = input.transactionDate?.toISOString() || new Date().toISOString();
+            const documentSignature = this.buildCompletedPaymentSignature(input, {
+                paymentId: input.paymentId,
+                validUntil: validUntilIso,
+                transactionDate: transactionDateIso,
+            });
+            const approvedBy = this.normalizeApprovedBy(input);
+
+            const record: Record<string, unknown> = {
+                payment_id: input.paymentId,
+                student_uid: input.studentUid,
+                amount: input.amount,
+                currency: 'INR',
+                method: input.method,
+                status: input.status || 'Pending',
+                session_start_year: input.sessionStartYear,
+                session_end_year: input.sessionEndYear,
+                duration_years: input.durationYears,
+                valid_until: validUntilIso,
+                transaction_date: transactionDateIso,
+                student_name: input.studentName ? encryptData(input.studentName) : null,
+                student_id: input.studentId ? encryptData(input.studentId) : null,
+                offline_transaction_id: input.offlineTransactionId ? encryptData(input.offlineTransactionId) : null,
+                razorpay_payment_id: input.razorpayPaymentId,
+                razorpay_order_id: input.razorpayOrderId,
+                approved_by: approvedBy,
+                approved_at: input.approvedAt?.toISOString(),
+            };
+
+            if (documentSignature) {
+                record.document_signature = documentSignature;
+            }
+
+            const { data, error } = await this.supabase
+                .from('payments')
+                .insert([record])
+                .select('payment_id')
+                .single();
+
+            if (error) {
+                if (error.code === '23505') {
+                    return input.paymentId;
+                }
+                console.error('[PaymentsSupabaseService] Insert error:', error);
+                return null;
+            }
+
+            return data?.payment_id || input.paymentId;
+        } catch (err) {
+            console.error('[PaymentsSupabaseService] Insert exception:', err);
+            return null;
+        }
     }
 
     /**
      * Update payment status (approve or reject payment)
      * Allows: Pending → Completed, Pending → Rejected
+     */
+    /**
+     * Update payment status with ATOMIC transition guard.
+     * Only allows: Pending → Completed, Pending → Rejected
+     * The WHERE clause ensures no double-approval/rejection race conditions.
      */
     async updatePaymentStatus(
         paymentId: string,
@@ -228,7 +349,7 @@ class PaymentsSupabaseService {
 
         try {
             const now = new Date().toISOString();
-            const updateData: any = { status };
+            const updateData: Record<string, unknown> = { status };
 
             if (status === 'Completed' && approverInfo) {
                 updateData.approved_by = {
@@ -239,6 +360,27 @@ class PaymentsSupabaseService {
                     role: approverInfo.role,
                 };
                 updateData.approved_at = now;
+
+                const { data: pendingPayment, error: pendingError } = await this.supabase
+                    .from('payments')
+                    .select('*')
+                    .eq('payment_id', paymentId)
+                    .eq('status', 'Pending')
+                    .single();
+
+                if (pendingError || !pendingPayment) {
+                    console.warn(`[PaymentsSupabaseService] Cannot sign ${paymentId} before completion; pending row not found`);
+                    return false;
+                }
+
+                const paymentForSignature = {
+                    ...this.decryptRecord(pendingPayment as PaymentRecord),
+                    approved_by: updateData.approved_by as PaymentRecord['approved_by'],
+                };
+
+                updateData.document_signature = DocumentCryptoService.signDocumentPayload(
+                    buildDocumentPayloadFromPayment(paymentForSignature)
+                );
             } else if (status === 'Rejected' && approverInfo) {
                 updateData.rejected_by = {
                     type: approverInfo.role === 'Admin' ? 'admin' : 'moderator',
@@ -250,13 +392,22 @@ class PaymentsSupabaseService {
                 updateData.rejected_at = now;
             }
 
-            const { error } = await this.supabase
+            // ATOMIC: Only transition from 'Pending' — prevents race conditions
+            const { data, error } = await this.supabase
                 .from('payments')
                 .update(updateData)
-                .eq('payment_id', paymentId);
+                .eq('payment_id', paymentId)
+                .eq('status', 'Pending')
+                .select('payment_id');
 
             if (error) {
                 console.error('[PaymentsSupabaseService] Update error:', error);
+                return false;
+            }
+
+            // If no rows matched, the payment was already processed
+            if (!data || data.length === 0) {
+                console.warn(`[PaymentsSupabaseService] No rows updated for ${paymentId} — already processed or not found`);
                 return false;
             }
 
@@ -268,50 +419,45 @@ class PaymentsSupabaseService {
     }
 
     /**
-     * Delete a payment record from Supabase
-     * Used for cleaning up rejected applications
+     * @deprecated Payments are IMMUTABLE financial records and cannot be deleted.
+     * This method is intentionally blocked. Use updatePaymentStatus('Rejected') instead.
      */
-    async deletePayment(paymentId: string): Promise<boolean> {
-        if (!this.isReady()) return false;
-
-        try {
-            const { error } = await this.supabase
-                .from('payments')
-                .delete()
-                .eq('payment_id', paymentId);
-
-            if (error) {
-                console.error('[PaymentsSupabaseService] Delete error:', error);
-                return false;
-            }
-
-            return true;
-        } catch (err) {
-            console.error('[PaymentsSupabaseService] Delete exception:', err);
-            return false;
-        }
+    async deletePayment(): Promise<boolean> {
+        console.error('[PaymentsSupabaseService] ❌ BLOCKED: deletePayment() called. Payments are IMMUTABLE.');
+        return false;
     }
 
     /**
      * Store document signature for a payment (for tamper-proof receipts)
      * This signature is generated using RSA-2048 and stored separately
      */
-    async storeDocumentSignature(paymentId: string, signature: string): Promise<boolean> {
+    async storeDocumentSignature(
+        paymentId: string,
+        signature: string,
+        options: { onlyIfMissing?: boolean } = {}
+    ): Promise<boolean> {
         if (!this.isReady()) return false;
 
         try {
-            const { error } = await this.supabase
+            let query = this.supabase
                 .from('payments')
                 .update({ document_signature: signature })
-                .eq('payment_id', paymentId);
+                .eq('payment_id', paymentId)
+                .eq('status', 'Completed');
+
+            if (options.onlyIfMissing) {
+                query = query.is('document_signature', null);
+            }
+
+            const { data, error } = await query.select('payment_id, document_signature');
 
             if (error) {
                 console.error('[PaymentsSupabaseService] Signature storage error:', error);
                 return false;
             }
 
-            return true;
-        } catch (err) {
+            return Boolean(data?.[0]?.document_signature === signature);
+        } catch (err: unknown) {
             console.error('[PaymentsSupabaseService] Signature storage exception:', err);
             return false;
         }
@@ -358,7 +504,7 @@ class PaymentsSupabaseService {
                 return null;
             }
             return this.decryptRecord(data as PaymentRecord);
-        } catch (err) {
+        } catch {
             return null;
         }
     }
@@ -518,6 +664,51 @@ class PaymentsSupabaseService {
     }
 
     /**
+     * Get paginated and filtered payments (SERVER-SIDE)
+     */
+    async getPaginatedPayments(
+        filters: { method?: string; status?: string; year?: number },
+        page: number = 1,
+        pageSize: number = 20
+    ): Promise<{ payments: PaymentRecord[], total: number }> {
+        if (!this.isReady()) return { payments: [], total: 0 };
+
+        try {
+            let query = this.supabase
+                .from('payments')
+                .select('*', { count: 'exact' });
+
+            if (filters.method) {
+                query = query.eq('method', filters.method);
+            }
+            if (filters.status) {
+                query = query.eq('status', filters.status);
+            }
+            if (filters.year) {
+                query = query.eq('session_start_year', filters.year);
+            }
+
+            const offset = (page - 1) * pageSize;
+            query = query.order('created_at', { ascending: false }).range(offset, offset + pageSize - 1);
+
+            const { data, count, error } = await query;
+
+            if (error) {
+                console.error('[PaymentsSupabaseService] Paginated fetch error:', error);
+                return { payments: [], total: 0 };
+            }
+
+            return {
+                payments: (data || []).map(p => this.decryptRecord(p as PaymentRecord)),
+                total: count || 0
+            };
+        } catch (err) {
+            console.error('[PaymentsSupabaseService] Paginated fetch exception:', err);
+            return { payments: [], total: 0 };
+        }
+    }
+
+    /**
      * Get completed payments for a date range (for reporting)
      * READ-ONLY - no modifications
      */
@@ -554,6 +745,7 @@ class PaymentsSupabaseService {
 
     /**
      * Get payment statistics for dashboard
+     * Optimized to fetch only required fields
      */
     async getPaymentStats(): Promise<{
         totalPayments: number;
@@ -568,6 +760,7 @@ class PaymentsSupabaseService {
         }
 
         try {
+            // Only pull the fields we need to reduce payload size
             const { data, error } = await this.supabase
                 .from('payments')
                 .select('status, amount, method');
@@ -578,22 +771,39 @@ class PaymentsSupabaseService {
             }
 
             const payments = data || [];
-            const completed = payments.filter(p => (p.status || '').toLowerCase() === 'completed' || p.status === 'Completed');
-            const pending = payments.filter(p => (p.status || '').toLowerCase() === 'pending' || p.status === 'Pending');
-            const totalRevenue = completed.reduce((sum, p) => sum + (p.amount || 0), 0);
-            
-            const onlinePayments = completed.filter(p => (p.method || '').toLowerCase() === 'online').length;
-            const offlinePayments = completed.filter(p => (p.method || '').toLowerCase() === 'offline').length;
+            let completedCount = 0;
+            let pendingCount = 0;
+            let totalRevenue = 0;
+            let onlineCount = 0;
+            let offlineCount = 0;
+
+            for (const p of payments) {
+                const isCompleted = p.status === 'Completed' || (p.status || '').toLowerCase() === 'completed';
+                const isPending = p.status === 'Pending' || (p.status || '').toLowerCase() === 'pending';
+
+                if (isCompleted) {
+                    completedCount++;
+                    totalRevenue += (p.amount || 0);
+                    
+                    if (p.method === 'Online' || (p.method || '').toLowerCase() === 'online') {
+                        onlineCount++;
+                    } else if (p.method === 'Offline' || (p.method || '').toLowerCase() === 'offline') {
+                        offlineCount++;
+                    }
+                } else if (isPending) {
+                    pendingCount++;
+                }
+            }
 
             return {
                 totalPayments: payments.length,
-                completedPayments: completed.length,
-                pendingPayments: pending.length,
+                completedPayments: completedCount,
+                pendingPayments: pendingCount,
                 totalRevenue,
-                onlinePayments,
-                offlinePayments
+                onlinePayments: onlineCount,
+                offlinePayments: offlineCount
             };
-        } catch (error) {
+        } catch (error: unknown) {
             console.error('[PaymentsSupabaseService] Stats error:', error);
             return { totalPayments: 0, completedPayments: 0, pendingPayments: 0, totalRevenue: 0, onlinePayments: 0, offlinePayments: 0 };
         }
@@ -620,7 +830,7 @@ class PaymentsSupabaseService {
                 { name: 'Online Payments', value: online, color: '#6366f1' },
                 { name: 'Offline Payments', value: offline, color: '#10b981' }
             ];
-        } catch (error) {
+        } catch {
             return [];
         }
     }

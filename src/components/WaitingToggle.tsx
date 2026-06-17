@@ -7,7 +7,7 @@ import { useAuth } from "@/contexts/auth-context";
 import { db } from '@/lib/firebase';
 import { collection, addDoc, serverTimestamp, query, where, getDocs, updateDoc, doc } from 'firebase/firestore';
 import { supabase } from '@/lib/supabase-client';
-import { v4 as uuidv4 } from 'uuid';
+import { createRandomId } from '@/lib/security/random-id';
 
 interface WaitingToggleProps {
   studentId: string;
@@ -80,7 +80,7 @@ export function WaitingToggle({ studentId, busId, routeId, stopName }: WaitingTo
         setIsWaiting(false);
       } else {
         // Create waiting flag in Supabase
-        const newFlagId = uuidv4();
+        const newFlagId = createRandomId();
         const { error } = await supabase
           .from('waiting_flags')
           .insert({

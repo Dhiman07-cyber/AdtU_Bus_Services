@@ -6,10 +6,14 @@
  * The xlsx package had unpatched Prototype Pollution and ReDoS vulnerabilities.
  */
 
-import type ExcelJSTypes from 'exceljs';
-// @ts-ignore
-import * as ExcelJSRuntime from 'exceljs/dist/exceljs.min.js';
-const ExcelJS: typeof ExcelJSTypes = ExcelJSRuntime.default || ExcelJSRuntime;
+type ExcelWorkbook = import('exceljs').Workbook;
+type ExcelJSRuntime = typeof import('exceljs');
+
+async function loadExcelJS() {
+  const runtime = await import('exceljs/dist/exceljs.min.js');
+  const excelRuntime = runtime as unknown as ExcelJSRuntime & { default?: ExcelJSRuntime };
+  return excelRuntime.default || excelRuntime;
+}
 
 /**
  * Export data to Excel file (client-side download)
@@ -17,6 +21,8 @@ const ExcelJS: typeof ExcelJSTypes = ExcelJSRuntime.default || ExcelJSRuntime;
  */
 export async function exportToExcel(data: any[] | any[][], filename: string, sheetName: string = 'Sheet1') {
   try {
+    const ExcelJS = await loadExcelJS();
+
     // Create workbook and worksheet
     const workbook = new ExcelJS.Workbook();
     workbook.creator = 'ADTU Bus Services';
@@ -320,6 +326,8 @@ export async function exportAllData(
   applications: any[] = []
 ) {
   try {
+    const ExcelJS = await loadExcelJS();
+
     const workbook = new ExcelJS.Workbook();
     workbook.creator = 'ADTU Bus Services';
     workbook.created = new Date();
@@ -382,7 +390,7 @@ export async function exportAllData(
 /**
  * Helper function to add data to a worksheet with styling
  */
-function addDataToWorksheet(workbook: ExcelJSTypes.Workbook, sheetName: string, data: any[]) {
+function addDataToWorksheet(workbook: ExcelWorkbook, sheetName: string, data: any[]) {
   const worksheet = workbook.addWorksheet(sheetName);
 
   if (data.length === 0) {
@@ -426,6 +434,8 @@ function addDataToWorksheet(workbook: ExcelJSTypes.Workbook, sheetName: string, 
 export async function generateBusServicesReport(
   students: any[], drivers: any[], moderators: any[], buses: any[], routes: any[], notifications: unknown) {
   try {
+    const ExcelJS = await loadExcelJS();
+
     const workbook = new ExcelJS.Workbook();
     workbook.creator = 'ADTU Bus Services';
     workbook.created = new Date();

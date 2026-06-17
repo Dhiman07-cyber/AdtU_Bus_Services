@@ -49,7 +49,7 @@ function getCachedUserData(): User | null {
 
     return JSON.parse(cached);
   } catch (error) {
-    console.warn('Failed to read cache:', error);
+
     return null;
   }
 }
@@ -67,7 +67,7 @@ function setCachedUserData(data: User | null): void {
       localStorage.removeItem(CACHE_EXPIRY_KEY);
     }
   } catch (error) {
-    console.warn('Failed to cache data:', error);
+
   }
 }
 
@@ -77,53 +77,45 @@ function setCachedUserData(data: User | null): void {
  */
 function checkIfExpired(validUntil: any): boolean {
   if (!validUntil) {
-    console.log('🔴 checkIfExpired: validUntil is null/undefined');
+
     return true;
   }
 
   try {
-    console.log('🔍 checkIfExpired received:', {
-      value: validUntil,
-      type: typeof validUntil,
-      hasToDate: validUntil?.toDate !== undefined,
-      hasSeconds: validUntil?.seconds !== undefined,
-      isDate: validUntil instanceof Date
-    });
 
     let expiryDate: Date;
 
     // Handle Firestore Timestamp
     if (validUntil?.toDate && typeof validUntil.toDate === 'function') {
       expiryDate = validUntil.toDate();
-      console.log('✅ Parsed as Firestore Timestamp:', expiryDate);
+
     }
     // Handle Firebase Timestamp seconds/nanoseconds
     else if (validUntil?.seconds) {
       expiryDate = new Date(validUntil.seconds * 1000);
-      console.log('✅ Parsed as seconds:', expiryDate);
+
     }
     // Handle Date object
     else if (validUntil instanceof Date) {
       expiryDate = validUntil;
-      console.log('✅ Already a Date:', expiryDate);
+
     }
     // Handle string
     else if (typeof validUntil === 'string') {
       expiryDate = new Date(validUntil);
-      console.log('✅ Parsed from string:', expiryDate);
+
     }
     else {
-      console.error('❌ Unknown validUntil format:', validUntil);
+
       return true;
     }
 
     const now = new Date();
     const isExpired = expiryDate < now;
-    console.log(`📅 Date comparison: ${expiryDate.toISOString()} < ${now.toISOString()} = ${isExpired}`);
 
     return isExpired;
   } catch (error) {
-    console.error('❌ Error parsing validUntil:', error);
+
     return true;
   }
 }
@@ -134,7 +126,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [needsApplication, setNeedsApplication] = useState(false);
 
-  console.log('=== AuthProvider rendered ===', { currentUser: !!currentUser, loading });
 
   const [isExpired, setIsExpired] = useState(false);
   const listenerUnsubscribe = useRef<Unsubscribe | null>(null);
@@ -154,11 +145,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       if (!isMounted) return;
 
-      console.log('🔄 Auth state changed:', {
-        hasUser: !!user,
-        uid: user?.uid,
-        email: user?.email
-      });
 
       setCurrentUser(user);
 
@@ -166,7 +152,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // Step 1: Try to load from cache first (INSTANT UI)
         const cachedData = getCachedUserData();
         if (cachedData && cachedData.uid === user.uid) {
-          console.log('✅ Loaded user from cache');
+
           setUserData(cachedData);
           setNeedsApplication(false);
           // Only check expiration for students (they have validUntil field)
@@ -186,8 +172,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             listenerUnsubscribe.current();
           }
 
-          // First, check which collection to use based on role
-          // Priority: students collection for student role (has validUntil)
+          // First, check which collection to use based on role from the authoritative 'users' collection
           const userDocRef = doc(db, 'users', user.uid);
           const userDocSnap = await getDoc(userDocRef);
 
@@ -196,62 +181,30 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
           if (userDocSnap.exists()) {
             userDocData = userDocSnap.data();
-            console.log(`👤 Found user in users collection with role: ${userDocData?.role}`);
 
             // Immediately set needsApplication to false since user exists
             setNeedsApplication(false);
 
             if (userDocData?.role === 'student') {
-              // Student role MUST use students collection for full data
               targetCollection = 'students';
-              console.log(`🔄 Switching to students collection for student role`);
             } else if (userDocData?.role === 'driver') {
-              // Driver role MUST use drivers collection for full data
               targetCollection = 'drivers';
-              console.log(`🔄 Switching to drivers collection for driver role`);
             } else if (userDocData?.role === 'moderator') {
-              // Moderator role MUST use moderators collection for full data
               targetCollection = 'moderators';
-              console.log(`🔄 Switching to moderators collection for moderator role`);
             } else if (userDocData?.role === 'admin') {
-              // Admin role MUST use admins collection for full data
               targetCollection = 'admins';
-              console.log(`🔄 Switching to admins collection for admin role`);
             }
           } else {
-            // PERF: Parallel lookup across ALL role-specific collections simultaneously
-            // instead of sequential nested checks (saves ~600ms on first login)
-            const [studentResult, driverResult, modResult, adminResult] = await Promise.allSettled([
-              getDoc(doc(db, 'students', user.uid)),
-              getDoc(doc(db, 'drivers', user.uid)),
-              getDoc(doc(db, 'moderators', user.uid)),
-              getDoc(doc(db, 'admins', user.uid)),
-            ]);
-
-            const studentDocSnap = studentResult.status === 'fulfilled' ? studentResult.value : null;
-            const driverDocSnap = driverResult.status === 'fulfilled' ? driverResult.value : null;
-            const modDocSnap = modResult.status === 'fulfilled' ? modResult.value : null;
-            const adminDocSnap = adminResult.status === 'fulfilled' ? adminResult.value : null;
-
-            if (studentDocSnap?.exists()) {
-              targetCollection = 'students';
-              setNeedsApplication(false);
-            } else if (driverDocSnap?.exists()) {
-              targetCollection = 'drivers';
-              setNeedsApplication(false);
-            } else if (modDocSnap?.exists()) {
-              targetCollection = 'moderators';
-              setNeedsApplication(false);
-            } else if (adminDocSnap?.exists()) {
-              targetCollection = 'admins';
-              setNeedsApplication(false);
-            } else {
-              setNeedsApplication(true);
-            }
+            // users collection is the authoritative source. If not there, they need to apply.
+            setNeedsApplication(true);
+            setUserData(null);
+            setCachedUserData(null);
+            setLoading(false);
+            return;
           }
 
           // Set up listener on the correct collection
-          console.log(`🔍 Setting up listener on ${targetCollection} for user ${user.uid}`);
+
           const docRef = doc(db, targetCollection, user.uid);
 
           listenerUnsubscribe.current = onSnapshot(
@@ -266,7 +219,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                   ...docSnapshot.data()
                 } as User;
 
-                console.log(`📡 Realtime update from ${targetCollection}:`, data.fullName || data.name);
 
                 // Update state and cache
                 setUserData(data);
@@ -284,20 +236,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               } else {
                 // Document doesn't exist in target collection
                 // For students, this means they need to apply
-                console.log(`❌ User document not found in ${targetCollection}`);
 
                 // Only set needsApplication if we're SURE they need to apply
                 // Don't redirect if we found them in users but not students (they might be applying)
                 if (targetCollection === 'students' && userDocData?.role === 'student') {
                   // They have a user doc with student role but no student doc = need to apply
-                  console.warn('⚠️ Student user found but no student document - they need to apply');
+
                   setUserData(null);
                   setCachedUserData(null);
                   setNeedsApplication(true);
                   setIsExpired(false);
                 } else if (!userDocData) {
                   // No user document at all = definitely need to apply
-                  console.warn('⚠️ No user document found - they need to apply');
+
                   setUserData(null);
                   setCachedUserData(null);
                   setNeedsApplication(true);
@@ -322,7 +273,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               if (isPermissionError) {
                 // During active session, permission denied usually means user needs to apply
                 // But only if we're not in signout process
-                console.warn('Permission denied - user may need to apply');
+
                 setUserData(null);
                 setCachedUserData(null);
                 setNeedsApplication(true);
@@ -331,7 +282,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               } else {
                 // Other errors - log but don't immediately assume they need to apply
                 // Could be network issues, Firestore service issues, etc.
-                console.warn('Listener error (non-permission):', error.message || error.code || 'Unknown error');
+
                 setLoading(false);
               }
             }
@@ -339,7 +290,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         } catch (error: any) {
           if (!isMounted) return;
 
-          console.error('❌ Error setting up user listener:', error);
 
           // All errors here are treated as "user needs to apply"
           // Permission errors are EXPECTED for new users
@@ -385,7 +335,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // Don't treat "Sign in was cancelled" as an error that should be displayed to the user
         if (response.error === 'Sign in was cancelled') {
           // This is a normal user action, not an error - don't log it
-          console.log('User cancelled sign-in process');
+
           return { success: false };
         }
         return { success: false, error: response.error || 'Sign in failed' };
@@ -425,7 +375,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         await signOutUser();
       } catch (signOutError) {
         // Even if Firebase signout fails, we've already cleared local state
-        console.warn('Firebase signout error (user state already cleared):', signOutError);
+
       }
 
       // Reset the flag after a longer delay to allow any pending errors to be suppressed

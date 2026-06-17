@@ -3,36 +3,62 @@
 import { useEffect, useState, useMemo, useCallback } from 'react';
 import { useAuth } from '@/contexts/auth-context';
 import { useRouter } from 'next/navigation';
-import Link from 'next/link';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
+import dynamic from 'next/dynamic';
 // SPARK PLAN SAFETY: Migrated to usePaginatedCollection
 import { usePaginatedCollection } from '@/hooks/usePaginatedCollection';
 import { PremiumPageLoader } from '@/components/LoadingSpinner';
 
-import {
-  BarChart as BarChartIcon,
-} from 'lucide-react';
 import HighLoadAlert from '@/components/HighLoadAlert';
 
-const CHART_COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899'];
-import {
-  DashboardHeader,
-  SystemHealthStrip,
-  HeroLiveOperations,
-  KeyMetricsGrid,
-  TransactionalAnalytics,
-  BusUtilization,
-  RouteOccupancy,
-  StudentDistribution,
-  SystemLifecycleIntelligence,
-  QuickActions,
-  DashboardStats,
-  PlatformAnalytics
-} from '@/components/admin/dashboard';
+import DashboardHeader from '@/components/admin/dashboard/DashboardHeader';
+import type { DashboardStats } from '@/components/admin/dashboard/types';
 import { useSystemConfig } from '@/contexts/SystemConfigContext';
 import { authApiFetch } from '@/lib/secure-api-client';
+
+const DashboardPanelFallback = () => (
+  <div className="min-h-[140px] rounded-xl border border-white/5 bg-white/[0.02] [contain:content]" />
+);
+
+const SystemHealthStrip = dynamic(() => import('@/components/admin/dashboard/SystemHealthStrip'), {
+  ssr: false,
+  loading: DashboardPanelFallback,
+});
+const HeroLiveOperations = dynamic(() => import('@/components/admin/dashboard/HeroLiveOperations'), {
+  ssr: false,
+  loading: DashboardPanelFallback,
+});
+const KeyMetricsGrid = dynamic(() => import('@/components/admin/dashboard/KeyMetricsGrid'), {
+  ssr: false,
+  loading: DashboardPanelFallback,
+});
+const TransactionalAnalytics = dynamic(() => import('@/components/admin/dashboard/TransactionalAnalytics'), {
+  ssr: false,
+  loading: DashboardPanelFallback,
+});
+const BusUtilization = dynamic(() => import('@/components/admin/dashboard/BusUtilization'), {
+  ssr: false,
+  loading: DashboardPanelFallback,
+});
+const RouteOccupancy = dynamic(() => import('@/components/admin/dashboard/RouteOccupancy'), {
+  ssr: false,
+  loading: DashboardPanelFallback,
+});
+const StudentDistribution = dynamic(() => import('@/components/admin/dashboard/StudentDistribution'), {
+  ssr: false,
+  loading: DashboardPanelFallback,
+});
+const SystemLifecycleIntelligence = dynamic(() => import('@/components/admin/dashboard/SystemLifecycleIntelligence'), {
+  ssr: false,
+  loading: DashboardPanelFallback,
+});
+const QuickActions = dynamic(() => import('@/components/admin/dashboard/QuickActions'), {
+  ssr: false,
+  loading: DashboardPanelFallback,
+});
+const PlatformAnalytics = dynamic(() => import('@/components/admin/dashboard/PlatformAnalytics'), {
+  ssr: false,
+  loading: DashboardPanelFallback,
+});
 
 // ============================================================================
 // DASHBOARD CACHING UTILITIES
@@ -638,15 +664,6 @@ export default function EnhancedAdminDashboard() {
   const handleKpiClick = (path: string) => {
     router.push(path);
   };
-
-  // Empty state component for charts
-  const EmptyChartState = ({ title, description }: { title: string; description: string }) => (
-    <div className="flex flex-col items-center justify-center h-64 text-gray-400">
-      <BarChartIcon className="h-12 w-12 mb-4 opacity-50" />
-      <h3 className="text-lg font-semibold mb-2">{title}</h3>
-      <p className="text-sm text-center">{description}</p>
-    </div>
-  );
 
   return (
     <div className="flex-1 bg-[#05060e] min-h-screen relative overflow-hidden transition-all duration-700">

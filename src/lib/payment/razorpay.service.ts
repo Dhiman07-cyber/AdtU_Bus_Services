@@ -178,7 +178,7 @@ export async function fetchOrderDetails(orderId: string) {
  */
 export function generateReceiptId(prefix: string = 'ADTU'): string {
   const timestamp = Date.now();
-  const random = Math.random().toString(36).substring(2, 8).toUpperCase();
+  const random = crypto.randomBytes(8).toString('hex').toUpperCase();
   return `${prefix}_${timestamp}_${random}`;
 }
 

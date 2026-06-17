@@ -1,6 +1,7 @@
 /**
  * Utility functions for downloading files
  */
+import { safeDownloadUrl } from '@/lib/security/url-sanitizer';
 
 /**
  * Downloads a file from a URL
@@ -9,12 +10,15 @@
  */
 export async function downloadFile(url: string, filename?: string): Promise<void> {
   try {
+    const safeUrl = safeDownloadUrl(url);
+    if (!safeUrl) throw new Error('Unsafe download URL');
+
     // Determine the final filename
-    const fileExtension = url.split('.').pop()?.split('?')[0] || 'file';
-    const finalFilename = filename || url.split('/').pop()?.split('?')[0] || `receipt.${fileExtension}`;
+    const fileExtension = safeUrl.split('.').pop()?.split('?')[0] || 'file';
+    const finalFilename = filename || safeUrl.split('/').pop()?.split('?')[0] || `receipt.${fileExtension}`;
 
     // Construct the proxy URL
-    const proxyUrl = `/api/download?url=${encodeURIComponent(url)}&filename=${encodeURIComponent(finalFilename)}`;
+    const proxyUrl = `/api/download?url=${encodeURIComponent(safeUrl)}&filename=${encodeURIComponent(finalFilename)}`;
 
     // Create a temporary anchor element pointing to the proxy
     const link = document.createElement('a');
@@ -30,7 +34,7 @@ export async function downloadFile(url: string, filename?: string): Promise<void
     console.error('Download via proxy failed:', error);
 
     // Attempt Fallback: Direct window open if something goes wrong with the link trick
-    window.open(url, '_blank', 'noopener,noreferrer');
+    const safeUrl = safeDownloadUrl(url);
+    if (safeUrl) window.open(safeUrl, '_blank', 'noopener,noreferrer');
   }
 }
-

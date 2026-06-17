@@ -15,6 +15,17 @@ import { getDeadlineConfig } from '@/lib/deadline-config-service';
 import { withSecurity } from '@/lib/security/api-security';
 import { CreateUserSchema } from '@/lib/security/validation-schemas';
 import { RateLimits } from '@/lib/security/rate-limiter';
+import { requireModeratorPermission } from '@/lib/security/moderator-permissions';
+import { z } from 'zod';
+
+type CreateUserBody = z.infer<typeof CreateUserSchema>;
+
+type RouteStop = {
+    id?: string;
+    stopId?: string;
+    name?: string;
+    stopName?: string;
+};
 
 /**
  * Optimized Create User API (Student, Driver, Moderator, Admin)
@@ -45,8 +56,8 @@ async function resolveReferenceNames(routeId?: string, busId?: string, stopId?: 
         (async () => {
             if (!routeId || !stopId) return 'Not Selected';
             const doc = await adminDb.collection('routes').doc(routeId).get();
-            const stops = doc.data()?.stops || [];
-            const stop = stops.find((s: any) => s.id === stopId || s.stopId === stopId);
+            const stops = (doc.data()?.stops || []) as RouteStop[];
+            const stop = stops.find((s) => s.id === stopId || s.stopId === stopId);
             return stop?.name || stop?.stopName || stopId;
         })()
     ];
@@ -62,7 +73,7 @@ function normalizeShift(shift?: string): string {
     return 'Morning';
 }
 
-export const POST = withSecurity(
+export const POST = withSecurity<CreateUserBody>(
     async (request, { auth, body }) => {
         const currentUserUid = auth.uid;
         const currentUserRole = auth.role;
@@ -81,12 +92,27 @@ export const POST = withSecurity(
 
         const {
             email, name, role, phone, alternatePhone, profilePhotoUrl, enrollmentId,
-            gender, age, faculty, department, semester, parentName, parentPhone,
+            gender, faculty, department, semester, parentName, parentPhone,
             dob, licenseNumber, joiningDate, aadharNumber, driverId,
             employeeId, staffId, assignedRouteId, routeId, assignedBusId,
             busId, address, bloodGroup, shift, durationYears, sessionDuration,
             sessionStartYear, sessionEndYear, validUntil, pickupPoint, stopId, status
-        } = body as any;
+        } = body;
+
+        if (currentUserRole === 'moderator') {
+            if (role === 'admin' || role === 'moderator') {
+                return NextResponse.json(
+                    { success: false, error: 'Moderators cannot create staff accounts' },
+                    { status: 403 }
+                );
+            }
+
+            const permissionDenied = role === 'student'
+                ? await requireModeratorPermission(auth, 'students', 'canAdd')
+                : await requireModeratorPermission(auth, 'drivers', 'canAdd');
+
+            if (permissionDenied) return permissionDenied;
+        }
 
         const finalStopId = stopId || pickupPoint || '';
         const finalDuration = durationYears || (typeof sessionDuration === 'string' ? parseInt(sessionDuration) : sessionDuration) || 1;
@@ -117,6 +143,7 @@ export const POST = withSecurity(
             const blockDates = computeBlockDatesFromValidUntil(finalValidUntil, deadlineConfig);
             const busFeeAmount = systemConfig?.busFee?.amount || 5000;
             const totalAmount = busFeeAmount * finalDuration;
+            const paymentId = totalAmount > 0 ? generateOfflinePaymentId('new_registration') : null;
 
             const studentDoc = {
                 address: address || '', alternatePhone: alternatePhone || '', approvedAt: now,
@@ -136,17 +163,16 @@ export const POST = withSecurity(
             };
 
             // Write all student-related data in parallel
-            const writeTasks: Promise<any>[] = [
+            const writeTasks: Promise<unknown>[] = [
                 adminDb.collection('students').doc(uid).set(studentDoc),
                 adminDb.collection('users').doc(uid).set({ createdAt: now, email, name, role: 'student', uid })
             ];
 
             // Add payment record if applicable
-            if (totalAmount > 0) {
-                const paymentId = generateOfflinePaymentId('new_registration');
+            if (paymentId) {
                 writeTasks.push((async () => {
                     const { paymentsSupabaseService } = await import('@/lib/services/payments-supabase');
-                    return paymentsSupabaseService.createPayment({
+                    const createdPaymentId = await paymentsSupabaseService.createPayment({
                         paymentId, studentId: enrollmentId || '', studentUid: uid, studentName: name,
                         stopId: finalStopId, amount: totalAmount, method: 'Offline', status: 'Completed',
                         sessionStartYear: sessionStartYear || new Date().getFullYear(),
@@ -156,6 +182,10 @@ export const POST = withSecurity(
                         approvedBy: { type: 'Manual', userId: currentUserUid, empId: currentUserEmployeeId, name: currentUserName, role: currentUserRole === 'admin' ? 'Admin' : 'Moderator' },
                         approvedAt: new Date(),
                     });
+                    if (!createdPaymentId) {
+                        throw new Error('Failed to create payment ledger record');
+                    }
+                    return createdPaymentId;
                 })());
             }
 
@@ -170,26 +200,25 @@ export const POST = withSecurity(
             if (currentUserRole === 'moderator') {
                 (async () => {
                     try {
-                        const [routeName, busName, resolvedStopName, adminRecipients] = await Promise.all([
-                            resolveReferenceNames(routeId, busId, finalStopId).then(names => names[0]),
-                            resolveReferenceNames(routeId, busId, finalStopId).then(names => names[1]),
-                            resolveReferenceNames(routeId, busId, finalStopId).then(names => names[2]),
+                        const [[routeName, busName, resolvedStopName], adminRecipients] = await Promise.all([
+                            resolveReferenceNames(routeId, busId, finalStopId),
                             getAdminEmailRecipients()
                         ]);
 
                         if (adminRecipients.length > 0) {
-                            const paymentId = generateOfflinePaymentId('new_registration'); // Re-generate or pass from above
                             const emailData: StudentAddedEmailData = {
                                 studentName: name, studentEmail: email, studentPhone: phone || '', enrollmentId: enrollmentId || '',
                                 faculty: faculty || '', department: department || '', semester: semester || '', shift: shift || 'Morning',
                                 routeName, busName, pickupPoint: resolvedStopName, sessionStartYear: sessionStartYear || new Date().getFullYear(),
                                 sessionEndYear: finalSessionEndYear, validUntil: finalValidUntil, durationYears: finalDuration,
-                                paymentAmount: totalAmount, transactionId: paymentId,
+                                paymentAmount: totalAmount, transactionId: paymentId || 'N/A',
                                 addedBy: { name: currentUserName, employeeId: currentUserEmployeeId, role: 'moderator' },
                                 addedAt: now
                             };
 
-                            const pdfBuffer = await generateReceiptPdf(paymentId).catch(() => null);
+                            const pdfBuffer = paymentId
+                                ? await generateReceiptPdf(paymentId).catch(() => null)
+                                : null;
                             await sendStudentAddedNotification(
                                 adminRecipients, emailData,
                                 pdfBuffer ? { content: pdfBuffer, filename: `Receipt_${name.replace(/\s+/g, '_')}_${paymentId}.pdf` } : undefined
@@ -208,7 +237,7 @@ export const POST = withSecurity(
                 status: 'active', createdAt: now, updatedAt: now,
             };
 
-            const driverTasks: Promise<any>[] = [
+            const driverTasks: Promise<unknown>[] = [
                 adminDb.collection('drivers').doc(uid).set(driverDocData),
                 adminDb.collection('users').doc(uid).set({ createdAt: now, email, name, role: 'driver', uid })
             ];

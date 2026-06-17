@@ -12,7 +12,7 @@ import { Timestamp, DocumentReference } from 'firebase/firestore';
 // ============================================================================
 
 export type PaymentMethod = 'Online' | 'Offline';
-export type PaymentStatus = 'Pending' | 'Completed';
+export type PaymentStatus = 'Pending' | 'Completed' | 'Rejected';
 
 export type ApproverType = 'SYSTEM' | 'Manual';
 export type ApproverRole = 'Moderator' | 'Admin';
@@ -324,7 +324,7 @@ export function isManualApprover(approver: PaymentApprover): approver is ManualA
  * Check if payment is immutable (completed or rejected)
  */
 export function isPaymentImmutable(payment: PaymentDocument): boolean {
-    return payment.status === 'Completed';
+    return payment.status === 'Completed' || payment.status === 'Rejected';
 }
 
 // ============================================================================
@@ -332,11 +332,36 @@ export function isPaymentImmutable(payment: PaymentDocument): boolean {
 // ============================================================================
 
 /**
+ * Generate a cryptographically secure random string of a given length
+ */
+function getSecureRandomString(len: number = 8): string {
+    const cryptoObj = typeof window !== 'undefined' ? (window.crypto || (window as any).msCrypto) : globalThis.crypto;
+    if (cryptoObj && cryptoObj.randomUUID) {
+        return cryptoObj.randomUUID().replace(/-/g, '').substring(0, len).toUpperCase();
+    } else if (cryptoObj && cryptoObj.getRandomValues) {
+        const array = new Uint32Array(Math.ceil(len / 4));
+        cryptoObj.getRandomValues(array);
+        let result = '';
+        for (let i = 0; i < array.length; i++) {
+            result += array[i].toString(36);
+        }
+        return result.substring(0, len).toUpperCase();
+    } else {
+        let result = '';
+        const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+        for (let i = 0; i < len; i++) {
+            result += chars[Math.floor(Math.random() * chars.length)];
+        }
+        return result;
+    }
+}
+
+/**
  * Generate a unique payment ID for offline payments
  */
 export function generateOfflinePaymentId(purpose: 'new_registration' | 'renewal' = 'new_registration'): string {
     const timestamp = Date.now();
-    const random = Math.random().toString(36).substring(2, 6).toUpperCase();
+    const random = getSecureRandomString(8);
     const prefix = purpose === 'new_registration' ? 'OADF_' : 'ORTF_';
     return `${prefix}${timestamp}_${random}`;
 }
@@ -346,7 +371,7 @@ export function generateOfflinePaymentId(purpose: 'new_registration' | 'renewal'
  */
 export function generateOnlinePaymentId(purpose: 'new_registration' | 'renewal' = 'new_registration'): string {
     const timestamp = Date.now();
-    const random = Math.random().toString(36).substring(2, 6).toUpperCase();
+    const random = getSecureRandomString(8);
     const prefix = purpose === 'new_registration' ? 'OADN_' : 'ORTN_';
     return `${prefix}${timestamp}_${random}`;
 }
@@ -370,6 +395,8 @@ export function getStatusBadgeClass(status: PaymentStatus): string {
             return 'bg-gradient-to-r from-green-500 to-emerald-600 text-white';
         case 'Pending':
             return 'bg-gradient-to-r from-yellow-500 to-amber-600 text-white';
+        case 'Rejected':
+            return 'bg-gradient-to-r from-red-500 to-rose-600 text-white';
         default:
             return 'bg-gray-500 text-white';
     }

@@ -2,111 +2,83 @@
  * Payment Rejection API Route
  * 
  * POST /api/payments/reject
- * Rejects an offline pending payment and deletes the document.
- * Per specification: Rejection should not store any data.
+ * Rejects an offline pending payment.
  * 
- * Authentication: Required (Admin or Moderator only)
+ * SECURITY:
+ * - withSecurity wrapper: auth, RBAC, rate limiting, CSRF, Zod validation
+ * - ATOMIC: Supabase WHERE status='Pending' prevents double-rejection
+ * - IMMUTABLE: Payment record preserved with 'Rejected' status (no deletions)
+ * - IDEMPOTENT: Already-rejected payments return success
  */
 
-import { NextRequest, NextResponse } from 'next/server';
-import { verifyToken, adminDb } from '@/lib/firebase-admin';
+import { NextResponse } from 'next/server';
+import { adminDb } from '@/lib/firebase-admin';
 import { rejectOfflinePayment } from '@/lib/payment/payment.service';
+import { withSecurity } from '@/lib/security/api-security';
+import { RejectPaymentSchema } from '@/lib/security/validation-schemas';
+import { RateLimits } from '@/lib/security/rate-limiter';
+import { requireModeratorPermission } from '@/lib/security/moderator-permissions';
 
-export async function POST(request: NextRequest) {
-    try {
-        // Verify authentication
-        const token = request.headers.get('Authorization')?.replace('Bearer ', '');
-        if (!token) {
-            return NextResponse.json(
-                { success: false, error: 'Unauthorized' },
-                { status: 401 }
-            );
-        }
+export const POST = withSecurity(
+    async (request, { auth, body, requestId }) => {
+        const { paymentId } = body as { paymentId: string };
+        const userId = auth.uid;
 
-        const decodedToken = await verifyToken(token);
-        const userId = decodedToken.uid;
+        const permissionDenied = await requireModeratorPermission(
+            auth,
+            'payments',
+            'canRejectOfflinePayment',
+            requestId
+        );
+        if (permissionDenied) return permissionDenied;
 
-        // Get user data to verify role
-        const userDoc = await adminDb.collection('users').doc(userId).get();
-        const userData = userDoc.data();
+        // Get rejector details from role-specific collection
+        let rejectorEmpId = '';
+        let rejectorName = auth.name || '';
 
-        if (!userData) {
-            return NextResponse.json(
-                { success: false, error: 'User not found' },
-                { status: 404 }
-            );
-        }
-
-        // Only admins and moderators can reject payments
-        if (!['admin', 'moderator'].includes(userData.role)) {
-            return NextResponse.json(
-                { success: false, error: 'Insufficient permissions' },
-                { status: 403 }
-            );
-        }
-
-        // Parse request body
-        const body = await request.json();
-        const { paymentId } = body;
-
-        if (!paymentId) {
-            return NextResponse.json(
-                { success: false, error: 'Payment ID is required' },
-                { status: 400 }
-            );
-        }
-
-        // Get rejector details for logging (not stored in DB per spec)
-        let rejectorName = userData.name || '';
-        let rejectorEmpId = userData.empId || '';
-
-        if (userData.role === 'moderator') {
+        if (auth.role === 'moderator') {
             const modDoc = await adminDb.collection('moderators').doc(userId).get();
             if (modDoc.exists) {
                 const modData = modDoc.data();
-                rejectorEmpId = modData?.empId || rejectorEmpId;
+                rejectorEmpId = modData?.empId || '';
                 rejectorName = modData?.name || modData?.fullName || rejectorName;
             }
-        } else if (userData.role === 'admin') {
+        } else if (auth.role === 'admin') {
             const adminDoc = await adminDb.collection('admins').doc(userId).get();
             if (adminDoc.exists) {
                 const adminData = adminDoc.data();
-                rejectorEmpId = adminData?.empId || rejectorEmpId;
+                rejectorEmpId = adminData?.empId || '';
                 rejectorName = adminData?.name || adminData?.fullName || rejectorName;
             }
         }
 
-        // Reject the payment (document will be deleted)
+        // Reject the payment (ATOMIC + IDEMPOTENT)
         const result = await rejectOfflinePayment({
             paymentId,
             rejectorUserId: userId,
             rejectorEmpId,
             rejectorName,
-            rejectorRole: userData.role as 'Admin' | 'Moderator'
+            rejectorRole: auth.role === 'admin' ? 'Admin' : 'Moderator',
         });
 
         if (!result.success) {
             return NextResponse.json(
-                { success: false, error: result.error },
+                { success: false, error: result.error, requestId },
                 { status: 400 }
             );
         }
 
-        console.log(`🗑️ Payment ${paymentId} rejected by ${rejectorName} (${rejectorEmpId})`);
+        console.log(`🗑️ [${requestId}] Payment ${paymentId} rejected by ${rejectorName} (${rejectorEmpId})`);
 
         return NextResponse.json({
             success: true,
-            message: 'Payment rejected and removed'
+            message: 'Payment rejected successfully',
+            requestId,
         });
-
-    } catch (error) {
-        console.error('Error rejecting payment:', error);
-        return NextResponse.json(
-            {
-                success: false,
-                error: 'Failed to reject payment'
-            },
-            { status: 500 }
-        );
+    },
+    {
+        requiredRoles: ['admin', 'moderator'],
+        schema: RejectPaymentSchema,
+        rateLimit: RateLimits.PAYMENT_CREATE,
     }
-}
+);

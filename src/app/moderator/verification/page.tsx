@@ -18,7 +18,6 @@ import {
     XCircle,
     AlertCircle,
     Loader2,
-    Calendar,
     Scan,
     RotateCcw,
     Layout,
@@ -27,19 +26,15 @@ import {
     Copy,
     Bus,
     ShieldCheck,
-    Receipt,
-    CreditCard,
     User,
-    Shield,
-    ReceiptIcon
 } from 'lucide-react';
 import ReceiptVerificationModal from '@/components/ReceiptVerificationModal';
 import jsQR from 'jsqr';
 import { motion, AnimatePresence } from 'framer-motion';
 import { toast } from 'sonner';
-import { useSystemConfig } from '@/contexts/SystemConfigContext';
 import { auth, db } from '@/lib/firebase';
 import { doc, getDoc } from 'firebase/firestore';
+import { safeImageSrc } from '@/lib/security/url-sanitizer';
 
 // Result interfaces
 interface StudentData {
@@ -78,9 +73,12 @@ interface ScanResult {
     sessionActive?: boolean;
 }
 
+function getErrorMessage(error: unknown): string {
+    return error instanceof Error ? error.message : 'Verification failed';
+}
+
 export default function ModeratorVerificationPage() {
     const { userData, currentUser, loading: authLoading } = useAuth();
-    const { appName } = useSystemConfig();
     const router = useRouter();
     const videoRef = useRef<HTMLVideoElement>(null);
     const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -185,8 +183,8 @@ export default function ModeratorVerificationPage() {
                 await videoRef.current.play();
                 requestAnimationFrame(scanQRCode);
             }
-        } catch (err: any) {
-            setCameraError(err.message || 'Failed to access camera');
+        } catch (err: unknown) {
+            setCameraError(getErrorMessage(err));
             setIsScanning(false);
         }
     };
@@ -212,7 +210,7 @@ export default function ModeratorVerificationPage() {
         // Native BarcodeDetector (fastest)
         if ('BarcodeDetector' in window) {
             try {
-                // @ts-ignore
+                // @ts-expect-error Browser BarcodeDetector types are not available in all TS DOM libs.
                 const barcodeDetector = new window.BarcodeDetector({ formats: ['qr_code'] });
                 const barcodes = await barcodeDetector.detect(video);
                 if (barcodes.length > 0) {
@@ -246,7 +244,7 @@ export default function ModeratorVerificationPage() {
                 handleScanSuccess(code.data);
                 return;
             }
-        } catch (err) {
+        } catch {
             // Canvas error - skip this frame
         }
 
@@ -316,8 +314,8 @@ export default function ModeratorVerificationPage() {
             setScannedResults(prev => [scanResult, ...prev]);
             if (scanResult.valid) toast.success('Student verified!');
             else toast.error(result.message || 'Verification failed');
-        } catch (err: any) {
-            setError(err.message || 'Verification failed');
+        } catch (err: unknown) {
+            setError(getErrorMessage(err));
             toast.error('Verification failed');
         } finally {
             setIsVerifying(false);
@@ -338,28 +336,7 @@ export default function ModeratorVerificationPage() {
             });
 
             const result = await response.json();
-            let rData = result.receiptData;
-
-            // Fetch profile photo from Firestore if missing from API
-            if (rData?.studentUid && (!rData.studentProfilePic || rData.studentProfilePic === '')) {
-                try {
-                    // Check students collection first
-                    let snap = await getDoc(doc(db, 'students', rData.studentUid));
-                    if (!snap.exists()) {
-                        snap = await getDoc(doc(db, 'users', rData.studentUid));
-                    }
-
-                    if (snap.exists()) {
-                        const uData = snap.data();
-                        rData = {
-                            ...rData,
-                            studentProfilePic: uData.profilePhotoUrl || uData.profileImage || uData.photoURL
-                        };
-                    }
-                } catch (e) {
-                    console.error('Firestore image fetch error for receipt:', e);
-                }
-            }
+            const rData = result.receiptData;
 
             const scanResult: ScanResult = {
                 scanId: crypto.randomUUID(),
@@ -378,8 +355,8 @@ export default function ModeratorVerificationPage() {
 
             if (scanResult.valid) toast.success('Receipt verified!');
             else toast.error(result.message || 'Verification failed');
-        } catch (err: any) {
-            setError(err.message || 'Verification failed');
+        } catch (err: unknown) {
+            setError(getErrorMessage(err));
             toast.error('Verification failed');
         } finally {
             setIsVerifying(false);
@@ -573,7 +550,7 @@ export default function ModeratorVerificationPage() {
                                 </div>
                             </div>
                             <p className="text-center text-white/40 text-[10px] font-black tracking-[0.2em] mt-8">
-                                Scan the QR code to verify student's bus pass or payment receipt
+                                Scan the QR code to verify student&apos;s bus pass or payment receipt
                             </p>
                         </motion.div>
                     ) : (
@@ -632,7 +609,7 @@ export default function ModeratorVerificationPage() {
                                                                 <div className="flex flex-col items-center gap-2 flex-shrink-0 w-[110px] sm:w-[140px]">
                                                                     <div className="w-14 h-14 sm:w-20 sm:h-20 rounded-full bg-gradient-to-br from-blue-500/20 to-indigo-500/20 border-2 border-blue-500/30 flex items-center justify-center flex-shrink-0 overflow-hidden shadow-lg">
                                                                         {scanResult.receiptData.studentProfilePic ? (
-                                                                            <Image src={scanResult.receiptData.studentProfilePic} width={80} height={80} className="w-full h-full object-cover" alt="Profile" />
+                                                                            <Image src={safeImageSrc(scanResult.receiptData.studentProfilePic)} width={80} height={80} className="w-full h-full object-cover" alt="Profile" />
                                                                         ) : (
                                                                             <User className="w-7 h-7 text-blue-400" />
                                                                         )}
@@ -682,7 +659,7 @@ export default function ModeratorVerificationPage() {
                                                                 <div className="flex items-center gap-4">
                                                                     <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-full bg-gradient-to-br from-blue-500/20 to-indigo-500/20 border-2 border-blue-500/30 flex items-center justify-center flex-shrink-0 overflow-hidden shadow-lg">
                                                                         {scanResult.receiptData.studentProfilePic ? (
-                                                                            <Image src={scanResult.receiptData.studentProfilePic} width={80} height={80} className="w-full h-full object-cover" alt="Profile" />
+                                                                            <Image src={safeImageSrc(scanResult.receiptData.studentProfilePic)} width={80} height={80} className="w-full h-full object-cover" alt="Profile" />
                                                                         ) : (
                                                                             <User className="w-8 h-8 sm:w-10 sm:h-10 text-blue-400" />
                                                                         )}
@@ -762,7 +739,7 @@ export default function ModeratorVerificationPage() {
                                                                 <div className="flex flex-col items-center flex-shrink-0 w-[110px] sm:w-[130px]">
                                                                     <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-full bg-gradient-to-br from-blue-500/20 to-indigo-500/20 border-2 border-blue-500/30 overflow-hidden shadow-lg mb-1.5">
                                                                         {scanResult.studentData.profilePhotoUrl ? (
-                                                                            <Image src={scanResult.studentData.profilePhotoUrl} width={64} height={64} className="w-full h-full object-cover" alt="Profile" />
+                                                                            <Image src={safeImageSrc(scanResult.studentData.profilePhotoUrl)} width={64} height={64} className="w-full h-full object-cover" alt="Profile" />
                                                                         ) : (
                                                                             <div className="w-full h-full flex items-center justify-center">
                                                                                 <ShieldCheck className="h-7 w-7 text-blue-400/40" />
@@ -805,7 +782,7 @@ export default function ModeratorVerificationPage() {
                                                             {/* Profile Photo */}
                                                             <div className="w-20 h-20 rounded-full bg-gradient-to-br from-blue-500/20 to-indigo-500/20 border-4 border-blue-500/30 overflow-hidden shadow-2xl mb-4">
                                                                 {scanResult.studentData.profilePhotoUrl ? (
-                                                                    <Image src={scanResult.studentData.profilePhotoUrl} width={80} height={80} className="w-full h-full object-cover" alt="Profile" />
+                                                                    <Image src={safeImageSrc(scanResult.studentData.profilePhotoUrl)} width={80} height={80} className="w-full h-full object-cover" alt="Profile" />
                                                                 ) : (
                                                                     <div className="w-full h-full flex items-center justify-center">
                                                                         <ShieldCheck className="h-10 w-10 text-blue-400/40" />

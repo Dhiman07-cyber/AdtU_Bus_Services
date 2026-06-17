@@ -16,6 +16,33 @@ import { Timestamp } from 'firebase-admin/firestore';
 // Configuration from environment
 const HEARTBEAT_TIMEOUT_SECONDS = 300;
 const LOCK_TTL_SECONDS = 300;
+const HEARTBEAT_MIN_WRITE_INTERVAL_MS = 20 * 1000;
+const heartbeatWriteCache = new Map<string, number>();
+
+function getErrorMessage(error: unknown): string {
+    return error instanceof Error ? error.message : 'Unknown error';
+}
+
+function timestampToMillis(value: unknown): number | null {
+    if (!value) return null;
+    if (typeof value === 'object' && value !== null && 'toMillis' in value && typeof value.toMillis === 'function') {
+        return value.toMillis();
+    }
+    if (typeof value === 'object' && value !== null && '_seconds' in value && typeof value._seconds === 'number') {
+        return value._seconds * 1000;
+    }
+    if (!(value instanceof Date) && typeof value !== 'string' && typeof value !== 'number') {
+        return null;
+    }
+    const parsed = new Date(value).getTime();
+    return Number.isFinite(parsed) ? parsed : null;
+}
+
+function isLockExpired(lock: ActiveTripLock | undefined, nowMs = Date.now()): boolean {
+    if (!lock?.active) return true;
+    const expiresAtMs = timestampToMillis(lock.expiresAt);
+    return expiresAtMs === null || nowMs > expiresAtMs;
+}
 
 // Types
 export interface ActiveTripLock {
@@ -87,8 +114,8 @@ export class TripLockService {
             const busData = busDoc.data();
             const lock = busData?.activeTripLock as ActiveTripLock | undefined;
 
-            // No lock or inactive lock
-            if (!lock || !lock.active) {
+            // No lock, inactive lock, or expired lock
+            if (!lock || !lock.active || isLockExpired(lock)) {
                 return { allowed: true };
             }
 
@@ -103,7 +130,7 @@ export class TripLockService {
                 reason: 'This bus is currently being operated by another driver. Please wait or try again later.'
             };
 
-        } catch (error: any) {
+        } catch (error: unknown) {
             console.error('Error checking lock status:', error);
             throw error;
         }
@@ -130,12 +157,14 @@ export class TripLockService {
 
         try {
             // STEP 1: Acquire Firestore lock via transaction
-            const busRef = adminDb.collection('buses').doc(busId);
+            const busRef = adminDb.collection('buses').doc(busId) as FirebaseFirestore.DocumentReference<FirebaseFirestore.DocumentData>;
             const now = new Date();
             const expiresAt = new Date(now.getTime() + LOCK_TTL_SECONDS * 1000);
+            let acquiredNewLock = false;
+            let lockedTripId = tripId;
 
             try {
-                await adminDb.runTransaction(async (transaction: { get: (arg0: any) => any; update: (arg0: any, arg1: { activeTripLock: { active: boolean; tripId: string; driverId: string; shift: "morning" | "evening" | "both"; since: FieldValue; expiresAt: Timestamp; }; activeDriverId: string; activeTripId: string; }) => void; }) => {
+                lockedTripId = await adminDb.runTransaction(async (transaction: FirebaseFirestore.Transaction) => {
                     const busDoc = await transaction.get(busRef);
 
                     if (!busDoc.exists) {
@@ -144,9 +173,15 @@ export class TripLockService {
 
                     const busData = busDoc.data();
                     const lock = busData?.activeTripLock as ActiveTripLock | undefined;
+                    const expired = isLockExpired(lock, now.getTime());
+
+                    // Idempotent double-click/retry: return the existing active trip for this driver.
+                    if (lock?.active && lock.driverId === driverId && lock.tripId && !expired) {
+                        return lock.tripId;
+                    }
 
                     // Check if already locked by another driver
-                    if (lock?.active && lock.driverId !== driverId) {
+                    if (lock?.active && lock.driverId !== driverId && !expired) {
                         throw new Error('LOCKED_BY_OTHER');
                     }
 
@@ -158,17 +193,23 @@ export class TripLockService {
                             driverId: driverId,
                             shift: shift,
                             since: FieldValue.serverTimestamp(),
-                            expiresAt: Timestamp.fromDate(expiresAt)
+                            expiresAt: Timestamp.fromDate(expiresAt),
+                            startFcmSent: false,
+                            endFcmSent: false
                         },
                         activeDriverId: driverId,
                         activeTripId: tripId
                     });
+
+                    acquiredNewLock = true;
+                    return tripId;
                 });
 
-            } catch (txError: any) {
+            } catch (txError: unknown) {
                 console.error('Firestore transaction error:', txError);
 
-                if (txError.message === 'LOCKED_BY_OTHER') {
+                const message = getErrorMessage(txError);
+                if (message === 'LOCKED_BY_OTHER') {
                     return {
                         success: false,
                         reason: 'This bus is currently being operated by another driver. Please wait or try again later.',
@@ -176,10 +217,30 @@ export class TripLockService {
                     };
                 }
 
-                return { success: false, reason: txError.message, errorCode: 'FIRESTORE_ERROR' };
+                return { success: false, reason: message, errorCode: 'FIRESTORE_ERROR' };
+            }
+
+            if (!acquiredNewLock) {
+                return { success: true, tripId: lockedTripId };
             }
 
             // STEP 2: Create active_trips record
+            const staleCutoff = new Date(now.getTime() - HEARTBEAT_TIMEOUT_SECONDS * 1000).toISOString();
+            await Promise.allSettled([
+                this.supabase
+                    .from('active_trips')
+                    .update({ status: 'ended', end_time: now.toISOString() })
+                    .eq('bus_id', busId)
+                    .eq('status', 'active')
+                    .lt('last_heartbeat', staleCutoff),
+                this.supabase
+                    .from('active_trips')
+                    .update({ status: 'ended', end_time: now.toISOString() })
+                    .eq('driver_id', driverId)
+                    .eq('status', 'active')
+                    .lt('last_heartbeat', staleCutoff)
+            ]);
+
             const { error: activeInsertError } = await this.supabase
                 .from('active_trips')
                 .insert({
@@ -196,17 +257,30 @@ export class TripLockService {
             if (activeInsertError) {
                 console.error('Error creating active_trips record:', activeInsertError);
 
-                // Rollback: release Firestore lock
-                await this.releaseLock(busId);
+                const { data: existingTrip } = await this.supabase
+                    .from('active_trips')
+                    .select('trip_id, bus_id, driver_id, route_id')
+                    .eq('status', 'active')
+                    .or(`bus_id.eq.${busId},driver_id.eq.${driverId}`)
+                    .limit(1)
+                    .maybeSingle();
+
+                if (existingTrip?.driver_id === driverId && existingTrip?.bus_id === busId) {
+                    await this.updateFirestoreLockTripId(busId, existingTrip.trip_id);
+                    return { success: true, tripId: existingTrip.trip_id };
+                }
+
+                // Rollback: release Firestore lock acquired by this request.
+                await this.releaseLockIfMatches(busId, tripId);
 
                 return { success: false, reason: 'Failed to create trip record', errorCode: 'SUPABASE_ERROR' };
             }
 
             return { success: true, tripId: tripId };
 
-        } catch (error: any) {
+        } catch (error: unknown) {
             console.error('Start trip error:', error);
-            return { success: false, reason: error.message || 'Unknown error' };
+            return { success: false, reason: getErrorMessage(error) };
         }
     }
 
@@ -223,20 +297,33 @@ export class TripLockService {
         }
 
         const now = new Date();
+        const cacheKey = `${tripId}:${driverId}:${busId}`;
+        const lastWrite = heartbeatWriteCache.get(cacheKey) || 0;
+
+        if (now.getTime() - lastWrite < HEARTBEAT_MIN_WRITE_INTERVAL_MS) {
+            return { success: true };
+        }
+
         const expiresAt = new Date(now.getTime() + LOCK_TTL_SECONDS * 1000);
 
         try {
             // Update Supabase heartbeat
-            const { error: updateError } = await this.supabase
+            const { data: heartbeatRows, error: updateError } = await this.supabase
                 .from('active_trips')
                 .update({ last_heartbeat: now.toISOString() })
                 .eq('trip_id', tripId)
                 .eq('driver_id', driverId)
-                .eq('status', 'active');
+                .eq('bus_id', busId)
+                .eq('status', 'active')
+                .select('trip_id');
 
             if (updateError) {
                 console.error('Error updating heartbeat:', updateError);
                 return { success: false, reason: 'Failed to update heartbeat' };
+            }
+
+            if (!heartbeatRows || heartbeatRows.length === 0) {
+                return { success: false, reason: 'Active trip not found for this driver and bus' };
             }
 
             // Update Firestore lock expiration
@@ -244,16 +331,23 @@ export class TripLockService {
                 'activeTripLock.expiresAt': Timestamp.fromDate(expiresAt)
             });
 
+            heartbeatWriteCache.set(cacheKey, now.getTime());
+            if (heartbeatWriteCache.size > 5000) {
+                const firstKey = heartbeatWriteCache.keys().next().value;
+                if (firstKey) heartbeatWriteCache.delete(firstKey);
+            }
+
             return { success: true };
 
-        } catch (error: any) {
+        } catch (error: unknown) {
             console.error('Heartbeat error:', error);
-            return { success: false, reason: error.message };
+            return { success: false, reason: getErrorMessage(error) };
         }
     }
 
     /**
-     * End a trip cleanly
+     * End a trip cleanly (IDEMPOTENT + OWNERSHIP VERIFIED)
+     * Updates active_trips to 'ended' status instead of deleting (audit trail).
      */
     async endTrip(
         tripId: string,
@@ -267,25 +361,55 @@ export class TripLockService {
         try {
             const now = new Date();
 
-            // Delete active_trips row
-            const { error: updateError } = await this.supabase
+            // Verify driver ownership before ending
+            const { data: activeTrip } = await this.supabase
                 .from('active_trips')
-                .delete()
+                .select('driver_id, status')
                 .eq('trip_id', tripId)
-                .eq('driver_id', driverId);
+                .eq('bus_id', busId)
+                .maybeSingle();
 
-            if (updateError) {
-                console.error('Error ending trip in Supabase:', updateError);
+            if (activeTrip) {
+                // Ownership check: only the assigned driver can end
+                if (activeTrip.driver_id !== driverId) {
+                    return { success: false, reason: 'Only the assigned driver can end this trip' };
+                }
+
+                // IDEMPOTENT: If already ended, return success
+                if (activeTrip.status === 'ended') {
+                    await this.releaseLock(busId);
+                    heartbeatWriteCache.delete(`${tripId}:${driverId}:${busId}`);
+                    return { success: true };
+                }
+
+                // Update to 'ended' status instead of deleting (preserves audit trail)
+                const { error: updateError } = await this.supabase
+                    .from('active_trips')
+                    .update({
+                        status: 'ended',
+                        end_time: now.toISOString(),
+                    })
+                    .eq('trip_id', tripId)
+                    .eq('driver_id', driverId)
+                    .eq('bus_id', busId)
+                    .eq('status', 'active');
+
+                if (updateError) {
+                    console.error('Error ending trip in Supabase:', updateError);
+                }
+            } else {
+                console.warn('No active trip record found for trip:', tripId);
             }
 
             // Release Firestore lock
             await this.releaseLock(busId);
+            heartbeatWriteCache.delete(`${tripId}:${driverId}:${busId}`);
 
             return { success: true };
 
-        } catch (error: any) {
+        } catch (error: unknown) {
             console.error('End trip error:', error);
-            return { success: false, reason: error.message };
+            return { success: false, reason: getErrorMessage(error) };
         }
     }
 
@@ -313,6 +437,41 @@ export class TripLockService {
             console.error('Error releasing lock:', error);
             throw error;
         }
+    }
+
+    private async releaseLockIfMatches(busId: string, tripId: string): Promise<void> {
+        if (!adminDb) return;
+
+        await adminDb.runTransaction(async (transaction) => {
+            const busRef = adminDb.collection('buses').doc(busId);
+            const busDoc = await transaction.get(busRef);
+            const lock = busDoc.data()?.activeTripLock;
+
+            if (lock?.tripId === tripId) {
+                transaction.update(busRef, {
+                    activeTripLock: {
+                        active: false,
+                        tripId: null,
+                        driverId: null,
+                        shift: null,
+                        since: null,
+                        expiresAt: null
+                    },
+                    activeDriverId: null,
+                    activeTripId: null,
+                    lastEndedAt: FieldValue.serverTimestamp()
+                });
+            }
+        });
+    }
+
+    private async updateFirestoreLockTripId(busId: string, tripId: string): Promise<void> {
+        if (!adminDb) return;
+
+        await adminDb.collection('buses').doc(busId).update({
+            'activeTripLock.tripId': tripId,
+            activeTripId: tripId
+        });
     }
 
     /**

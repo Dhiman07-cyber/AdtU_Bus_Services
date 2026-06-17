@@ -17,6 +17,7 @@ import { CompactPingIndicator } from '@/components/PingIndicator';
 import { useSystemConfig } from '@/contexts/SystemConfigContext';
 import { useNotifications } from '@/contexts/NotificationContext';
 import { cn } from "@/lib/utils";
+import { safeImageSrc } from "@/lib/security/url-sanitizer";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   DropdownMenu,
@@ -304,7 +305,7 @@ const Navbar = React.memo(function Navbar({ onMenuToggle, isSidebarOpen = false 
                     <div className="w-full h-full rounded-full bg-blue-950 flex items-center justify-center overflow-hidden">
                       {userData?.role !== 'admin' && (userData?.profilePhotoUrl || userData?.photoURL) ? (
                         <img
-                          src={userData.profilePhotoUrl || userData.photoURL}
+                          src={safeImageSrc(userData.profilePhotoUrl || userData.photoURL)}
                           alt={userData.fullName || userData.name || "Profile"}
                           className="w-full h-full object-cover"
                         />

@@ -9,6 +9,7 @@ import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { cn } from '@/lib/utils';
 import type { StudentData } from '@/app/admin/smart-allocation/page';
+import { safeImageSrc } from '@/lib/security/url-sanitizer';
 
 interface StudentRosterProps {
   students: StudentData[];
@@ -96,7 +97,7 @@ export default function StudentRoster({
         <div className="w-8 h-8 rounded-full overflow-hidden bg-muted flex-shrink-0">
           {student.photoURL ? (
             <img
-              src={student.photoURL}
+              src={safeImageSrc(student.photoURL)}
               alt={student.fullName}
               className="w-full h-full object-cover"
             />

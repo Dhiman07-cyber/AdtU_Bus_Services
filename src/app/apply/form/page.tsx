@@ -1,4 +1,5 @@
 "use client";
+
 import FormStepper from './components/FormStepper';
 import Step1Personal from './steps/Step1Personal';
 import Step2Academic from './steps/Step2Academic';
@@ -6,7 +7,7 @@ import Step3Bus from './steps/Step3Bus';
 import Step4ServicePayment from './steps/Step4ServicePayment';
 import Step5Review from './steps/Step5Review';
 
-import { useEffect, useState, useRef, useCallback } from 'react';
+import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import { useAuth } from '@/contexts/auth-context';
 import { useRouter, usePathname } from 'next/navigation';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -72,6 +73,14 @@ const STEP_LABELS = [
   { num: 5, title: "Review Information" }
 ];
 
+const APPLICATION_DRAFT_EXCLUDED_FIELDS = ['profilePhotoUrl', 'paymentInfo.paymentEvidenceUrl'];
+
+const revokeBlobUrl = (url?: string | null) => {
+  if (url?.startsWith('blob:')) {
+    URL.revokeObjectURL(url);
+  }
+};
+
 function ApplicationFormContent() {
   const { currentUser, userData, loading } = useAuth();
   const router = useRouter();
@@ -82,27 +91,11 @@ function ApplicationFormContent() {
   const [currentStep, setCurrentStep] = useState(1);
   const TOTAL_STEPS = 5;
 
-  const goToNextStep = () => {
-    if (currentStep < TOTAL_STEPS) {
-      localStorage.setItem('applicationDraft', JSON.stringify(formData));
-      setCurrentStep(prev => prev + 1);
-      window.scrollTo({ top: 0, behavior: 'smooth' });
-    }
-  };
-
-  const goToPrevStep = () => {
-    if (currentStep > 1) {
-      setCurrentStep(prev => prev - 1);
-      window.scrollTo({ top: 0, behavior: 'smooth' });
-    }
-  };
-
-  const goToStep = (step: number) => {
-    if (step >= 1 && step <= TOTAL_STEPS) {
-      setCurrentStep(step);
-      window.scrollTo({ top: 0, behavior: 'smooth' });
-    }
-  };
+  const scrollToFormTop = useCallback(() => {
+    requestAnimationFrame(() => {
+      window.scrollTo({ top: 0, behavior: 'auto' });
+    });
+  }, []);
 
   // Helper function to get initial form data from localStorage
   const getInitialFormData = (): ApplicationFormData => {
@@ -192,6 +185,28 @@ function ApplicationFormContent() {
   // Form state - Initialize with data from localStorage
   const [formData, setFormData] = useState<ApplicationFormData>(getInitialFormData);
 
+  const goToNextStep = useCallback(() => {
+    if (currentStep < TOTAL_STEPS) {
+      localStorage.setItem('applicationDraft', JSON.stringify(formData));
+      setCurrentStep(prev => prev + 1);
+      scrollToFormTop();
+    }
+  }, [currentStep, formData, scrollToFormTop]);
+
+  const goToPrevStep = useCallback(() => {
+    if (currentStep > 1) {
+      setCurrentStep(prev => prev - 1);
+      scrollToFormTop();
+    }
+  }, [currentStep, scrollToFormTop]);
+
+  const goToStep = useCallback((step: number) => {
+    if (step >= 1 && step <= TOTAL_STEPS) {
+      setCurrentStep(step);
+      scrollToFormTop();
+    }
+  }, [scrollToFormTop]);
+
   // Profile photo state
   const [previewUrl, setPreviewUrl] = useState<string>('');
   const [finalImageUrl, setFinalImageUrl] = useState<string | null>(null);
@@ -210,6 +225,7 @@ function ApplicationFormContent() {
   const hoverTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const [facultySelected, setFacultySelected] = useState(false);
   const [declarationAgreed, setDeclarationAgreed] = useState(false);
+  const [paymentResetKey, setPaymentResetKey] = useState(0);
   const [busFees, setBusFees] = useState(0);
   const [showSuccessDialog, setShowSuccessDialog] = useState(false);
   const [assignedBusInfo, setAssignedBusInfo] = useState<any>(null);
@@ -248,13 +264,21 @@ function ApplicationFormContent() {
 
   const toastShownRef = useRef(false);
 
+  useEffect(() => {
+    return () => revokeBlobUrl(profilePhotoUrl);
+  }, [profilePhotoUrl]);
+
+  useEffect(() => {
+    return () => revokeBlobUrl(receiptPreview);
+  }, [receiptPreview]);
+
   // Debounced auto-save to prevent excessive localStorage writes
   const debouncedAutoSave = useRef<NodeJS.Timeout | null>(null);
 
   // Import debounced storage hook
   const storage = useDebouncedStorage<ApplicationFormData>('applicationDraft', {
     debounceMs: 500,
-    excludeFields: ['profilePhotoUrl', 'paymentInfo.paymentEvidenceUrl'],
+    excludeFields: APPLICATION_DRAFT_EXCLUDED_FIELDS,
   });
 
   // Auto-save formData changes (debounced) - ONLY save, don't read
@@ -284,7 +308,7 @@ function ApplicationFormContent() {
         clearTimeout(debouncedAutoSave.current);
       }
     };
-  }, [formData]); // Removed storage from deps - it's stable
+  }, [formData, storage]);
 
   // Mobile detection
   useEffect(() => {
@@ -332,68 +356,82 @@ function ApplicationFormContent() {
     };
   }, []);
 
-  // Step validation logic
-  const isStepComplete = useCallback((stepNum: number) => {
-    switch (stepNum) {
-      case 1:
-        return !!(formData.fullName && formData.gender && formData.dob &&
-          formData.phoneNumber && formData.parentName && formData.parentPhone &&
-          formData.address && (finalImageUrl || profilePhotoUrl));
-      case 2:
-        return !!(formData.faculty && formData.department && formData.semester && formData.enrollmentId);
-      case 3:
-        return !!(formData.routeId && formData.stopId && formData.shift);
-      case 4:
-        return paymentCompleted;
-      default:
-        return false;
-    }
-  }, [formData, finalImageUrl, profilePhotoUrl, paymentCompleted]);
+  // Step validation logic used by the always-mounted steppers.
+  const completedSteps = useMemo(() => ({
+    1: !!(formData.fullName && formData.gender && formData.dob &&
+      formData.phoneNumber && formData.parentName && formData.parentPhone &&
+      formData.address && (finalImageUrl || profilePhotoUrl)),
+    2: !!(formData.faculty && formData.department && formData.semester && formData.enrollmentId),
+    3: !!(formData.routeId && formData.stopId && formData.shift),
+    4: paymentCompleted,
+  }), [
+    formData.fullName,
+    formData.gender,
+    formData.dob,
+    formData.phoneNumber,
+    formData.parentName,
+    formData.parentPhone,
+    formData.address,
+    formData.faculty,
+    formData.department,
+    formData.semester,
+    formData.enrollmentId,
+    formData.routeId,
+    formData.stopId,
+    formData.shift,
+    finalImageUrl,
+    profilePhotoUrl,
+    paymentCompleted,
+  ]);
 
   const [visitedSteps, setVisitedSteps] = useState<number[]>([1]);
+  const hasInitializedRef = useRef(false);
 
   useEffect(() => {
-    if (!visitedSteps.includes(currentStep)) {
-      setVisitedSteps(prev => [...prev, currentStep]);
-    }
-  }, [currentStep, visitedSteps]);
-
-
-  useEffect(() => {
-    console.log('ðŸ“‹ Application Form - Auth State:', {
-      loading,
-      currentUser: !!currentUser,
-      userData: !!userData,
-      userRole: userData?.role
+    setVisitedSteps(prev => {
+      if (!prev.includes(currentStep)) {
+        return [...prev, currentStep];
+      }
+      return prev;
     });
+  }, [currentStep]);
 
+
+  // Auth check & redirection effect (stable dependencies)
+  useEffect(() => {
     if (!loading && !currentUser) {
-      console.log('ðŸ”„ No user, redirecting to login');
+      console.log('🔄 No user, redirecting to login');
       router.push('/login');
       return;
     }
 
     if (userData && userData.role) {
-      console.log('ðŸ”„ User has role, redirecting to dashboard');
+      console.log('🔄 User has role, redirecting to dashboard');
       router.push(`/${userData.role}`);
       return;
     }
+  }, [loading, currentUser, userData, router]);
 
-    // Check if user has already submitted an application
+  // Form initialization effect (guaranteed once via hasInitializedRef)
+  useEffect(() => {
     const checkExistingApplication = async () => {
+      if (!currentUser || loading || userData?.role || hasInitializedRef.current) return;
+      hasInitializedRef.current = true;
+
+      console.log('📋 Checking existing application for user:', currentUser.uid);
+
       try {
         const response = await fetch('/api/applications/check', {
           headers: {
-            'Authorization': `Bearer ${await currentUser?.getIdToken()}`
+            'Authorization': `Bearer ${await currentUser.getIdToken()}`
           }
         });
 
         if (response.ok) {
           const data = await response.json();
           // If application exists and is not rejected/draft (so submitted, approved, verified), show status card
-          // User request: "until that student's application is not rejected OR as long as his firestore doc remains"
           if (data.hasApplication && data.application?.state !== 'rejected' && data.application?.state !== 'draft' && data.application?.state !== 'noDoc') {
-            console.log('âœ… User has existing application in state:', data.application?.state);
+            console.log('✅ User has existing application in state:', data.application?.state);
 
             // Show toast only once
             if (!toastShownRef.current) {
@@ -409,37 +447,27 @@ function ApplicationFormContent() {
         console.error('Error checking existing application:', error);
       }
 
-      if (currentUser) {
-        console.log('âœ… Loading application form resources');
-        loadResources();
-        loadDraftOrExisting();
-      }
+      console.log('✅ Loading application form resources (once)...');
+      loadResources();
+      loadDraftOrExisting();
     };
 
-    if (currentUser && !userData?.role) {
-      checkExistingApplication();
-    }
-  }, [loading, currentUser, userData, router, applicationId]); // Added applicationId back to keep dependency array size constant
+    checkExistingApplication();
+  }, [loading, currentUser, userData]);
 
 
 
   const loadResources = async () => {
     try {
-      const token = await currentUser?.getIdToken();
-
       // Load routes and buses
-      const [routesData, busesData, modsRes] = await Promise.all([
+      const [routesData, busesData] = await Promise.all([
         getAllRoutes(),
-        getAllBuses(),
-        fetch('/api/moderators/get-all', {
-          headers: { 'Authorization': `Bearer ${token}` }
-        })
+        getAllBuses()
       ]);
 
-      console.log('ðŸ›£ï¸ Loaded routes:', routesData);
+      console.log('🛣️ Loaded routes:', routesData);
       setRoutes(routesData);
       setBuses(busesData);
-
 
     } catch (error) {
       console.error('Error loading resources:', error);
@@ -532,9 +560,7 @@ function ApplicationFormContent() {
 
   const handleImageRemove = () => {
     // Clean up the object URL to prevent memory leaks
-    if (profilePhotoUrl.startsWith('blob:')) {
-      URL.revokeObjectURL(profilePhotoUrl);
-    }
+    revokeBlobUrl(profilePhotoUrl);
     setProfilePhotoUrl('');
     setFinalImageUrl(null);
     setProfilePhotoFile(null);
@@ -573,9 +599,7 @@ function ApplicationFormContent() {
     }
 
     // Clean up previous object URL if it exists
-    if (receiptPreview && receiptPreview.startsWith('blob:')) {
-      URL.revokeObjectURL(receiptPreview);
-    }
+    revokeBlobUrl(receiptPreview);
 
     try {
       // Mobile optimization: Compress image if on mobile device
@@ -795,89 +819,198 @@ function ApplicationFormContent() {
     }
   };
 
+  const [showClearPaymentConfirm, setShowClearPaymentConfirm] = useState(false);
+  const [clearPaymentCountdown, setClearPaymentCountdown] = useState(7);
+  const countdownIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
-const [showDeletePaymentDialog, setShowDeletePaymentDialog] = useState(false);
+  const handleClearStep = (stepNum: number) => {
+    // Reset declaration status on any clear
+    setDeclarationAgreed(false);
 
-const performFullReset = () => {
-  // Clear form data
-  setFormData({
-    fullName: '',
-    email: currentUser?.email || '',
-    phoneNumber: '',
-    alternatePhone: '',
-    enrollmentId: '',
-    gender: '',
-    dob: '',
-    age: '',
-    profilePhotoUrl: '',
-    faculty: '',
-    department: '',
-    semester: '',
-    address: '',
-    parentName: '',
-    parentPhone: '',
-    bloodGroup: '',
-    routeId: '',
-    stopId: '',
-    busId: '',
-    busAssigned: '',
-    assignedBusId: '',
-    shift: 'morning',
-    sessionInfo: {
-      sessionStartYear: new Date().getFullYear(),
-      durationYears: 1,
-      sessionEndYear: new Date().getFullYear() + 1,
-      feeEstimate: 0
-    },
-    paymentInfo: {
-      paymentMode: 'offline',
-      amountPaid: 0,
-      paymentEvidenceProvided: false,
-      paymentEvidenceUrl: '',
-      paymentReference: ''
-    },
-    declarationAccepted: false
-  });
+    // Reset application state to draft since form details are being cleared
+    setApplicationState('draft');
+    localStorage.setItem('applicationState', 'draft');
 
-  // Clear all related state
-  setPreviewUrl('');
-  setFinalImageUrl(null);
-  setImagePosition({ x: 0, y: 0, scale: 1 });
-  setProfilePhotoFile(null);
-  setProfilePhotoUrl('');
-  setApplicationId('');
-  setFacultySelected(false);
-  setDeclarationAgreed(false);
-  setPaymentCompleted(false);
-  setPaymentDetails(null);
-  setUseOnlinePayment(false);
-  setReceiptPreview('');
-  setReceiptFile(null);
+    // Remove verification flags if NOT a completed online payment
+    const isOnlinePaymentCompleted = paymentCompleted && formData.paymentInfo?.paymentMode === 'online';
+    if (!isOnlinePaymentCompleted) {
+      localStorage.removeItem('verificationCompleted');
+      localStorage.removeItem('backup_verification_state');
+      localStorage.removeItem('verificationCompletedAt');
+    }
 
-  localStorage.removeItem('applicationDraft');
-  localStorage.removeItem('receiptPreview');
-  localStorage.removeItem('profilePhotoPreview');
+    switch (stepNum) {
+      case 1:
+        setFormData(prev => ({
+          ...prev,
+          declarationAccepted: false,
+          fullName: '',
+          gender: '',
+          dob: '',
+          age: '',
+          profilePhotoUrl: '',
+          bloodGroup: '',
+          phoneNumber: '',
+          alternatePhone: '',
+          parentName: '',
+          parentPhone: '',
+          address: ''
+        }));
+        setProfilePhotoUrl('');
+        setFinalImageUrl(null);
+        setProfilePhotoFile(null);
+        showToast('Step 1 (Personal Information) cleared.', 'info');
+        break;
 
-  // CRITICAL FIX: Never delete payment sessions on form reset
-  // localStorage.removeItem('paymentSessions');
-  // localStorage.removeItem('currentPaymentSession');
+      case 2:
+        setFormData(prev => ({
+          ...prev,
+          declarationAccepted: false,
+          faculty: '',
+          department: '',
+          semester: '',
+          enrollmentId: ''
+        }));
+        setFacultySelected(false);
+        showToast('Step 2 (Academic Information) cleared.', 'info');
+        break;
 
-  if (currentUser?.uid) {
-    localStorage.removeItem(`payment_receipt_${currentUser.uid}_new_registration`);
-  }
+      case 3:
+        setFormData(prev => ({
+          ...prev,
+          declarationAccepted: false,
+          routeId: '',
+          stopId: '',
+          busId: '',
+          busAssigned: '',
+          assignedBusId: '',
+          shift: ''
+        }));
+        showToast('Step 3 (Bus Information) cleared.', 'info');
+        break;
 
-  showToast('Form reset successfully', 'success');
-  setShowDeletePaymentDialog(false);
-};
+      case 4:
+        if (isOnlinePaymentCompleted) {
+          setClearPaymentCountdown(7);
+          setShowClearPaymentConfirm(true);
 
-const handleResetForm = () => {
-  // Check if online payment is active/completed
-  const isOnlinePaymentActive = paymentCompleted && formData.paymentInfo?.paymentMode === 'online';
+          if (countdownIntervalRef.current) {
+            clearInterval(countdownIntervalRef.current);
+          }
 
-  if (isOnlinePaymentActive) {
-    // If payment exists, execute Partial Reset (preserve payment) regardless of dirty state
-    const currentPaymentInfo = { ...formData.paymentInfo };
+          countdownIntervalRef.current = setInterval(() => {
+            setClearPaymentCountdown(prev => {
+              if (prev <= 1) {
+                if (countdownIntervalRef.current) clearInterval(countdownIntervalRef.current);
+                return 0;
+              }
+              return prev - 1;
+            });
+          }, 1000);
+        } else {
+          setPaymentCompleted(false);
+          setPaymentDetails(null);
+          setUseOnlinePayment(false);
+          setReceiptPreview('');
+          setReceiptFile(null);
+          setPaymentResetKey(prev => prev + 1);
 
+          // Clear all payment/verification related localStorage keys for offline clear
+          localStorage.removeItem('verificationCompleted');
+          localStorage.removeItem('backup_verification_state');
+          localStorage.removeItem('verificationCompletedAt');
+          if (currentUser?.uid) {
+            localStorage.removeItem(`payment_receipt_${currentUser.uid}_new_registration`);
+            clearPaymentSession(currentUser.uid, 'new_registration');
+          }
+
+          const keysToRemove: string[] = [];
+          for (let i = 0; i < localStorage.length; i++) {
+            const key = localStorage.key(i);
+            if (key && (key.toLowerCase().includes('payment') || key.toLowerCase().includes('verification'))) {
+              if (key !== 'paymentSessions') {
+                keysToRemove.push(key);
+              }
+            }
+          }
+          keysToRemove.forEach(key => localStorage.removeItem(key));
+
+          setFormData(prev => ({
+            ...prev,
+            declarationAccepted: false,
+            paymentInfo: {
+              paymentMode: 'offline',
+              amountPaid: 0,
+              paymentEvidenceProvided: false,
+              paymentReference: '',
+              paymentEvidenceUrl: ''
+            }
+          }));
+          showToast('Step 4 (Payment Information) cleared.', 'info');
+        }
+        break;
+    }
+  };
+
+  const performClearPayment = () => {
+    setPaymentCompleted(false);
+    setPaymentDetails(null);
+    setUseOnlinePayment(false);
+    setReceiptPreview('');
+    setReceiptFile(null);
+    setDeclarationAgreed(false);
+    setPaymentResetKey(prev => prev + 1);
+
+    setFormData(prev => ({
+      ...prev,
+      declarationAccepted: false,
+      paymentInfo: {
+        paymentMode: 'offline',
+        amountPaid: 0,
+        paymentEvidenceProvided: false,
+        paymentReference: '',
+        paymentEvidenceUrl: ''
+      }
+    }));
+
+    localStorage.removeItem('verificationCompleted');
+    localStorage.removeItem('applicationState');
+    localStorage.removeItem('backup_verification_state');
+    localStorage.removeItem('verificationCompletedAt');
+
+    if (currentUser?.uid) {
+      localStorage.removeItem(`payment_receipt_${currentUser.uid}_new_registration`);
+      clearPaymentSession(currentUser.uid, 'new_registration');
+    }
+
+    const keysToRemove: string[] = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key && (key.toLowerCase().includes('payment') || key.toLowerCase().includes('verification'))) {
+        if (key !== 'paymentSessions') {
+          keysToRemove.push(key);
+        }
+      }
+    }
+    keysToRemove.forEach(key => localStorage.removeItem(key));
+
+    setApplicationState('draft');
+    setShowClearPaymentConfirm(false);
+    showToast('Online payment information cleared successfully.', 'success');
+  };
+
+  useEffect(() => {
+    return () => {
+      if (countdownIntervalRef.current) {
+        clearInterval(countdownIntervalRef.current);
+      }
+    };
+  }, []);
+
+  const [showDeletePaymentDialog, setShowDeletePaymentDialog] = useState(false);
+
+  const performFullReset = () => {
+    // Clear form data
     setFormData({
       fullName: '',
       email: currentUser?.email || '',
@@ -900,704 +1033,808 @@ const handleResetForm = () => {
       busId: '',
       busAssigned: '',
       assignedBusId: '',
-      shift: '',
+      shift: 'morning',
       sessionInfo: {
         sessionStartYear: new Date().getFullYear(),
-        durationYears: 0,
-        sessionEndYear: new Date().getFullYear(),
+        durationYears: 1,
+        sessionEndYear: new Date().getFullYear() + 1,
         feeEstimate: 0
       },
-      paymentInfo: currentPaymentInfo, // Key: Preserve this!
+      paymentInfo: {
+        paymentMode: 'offline',
+        amountPaid: 0,
+        paymentEvidenceProvided: false,
+        paymentEvidenceUrl: '',
+        paymentReference: ''
+      },
       declarationAccepted: false
     });
 
-    // Reset most state, but KEEP payment state
+    // Clear all related state
     setPreviewUrl('');
     setFinalImageUrl(null);
     setImagePosition({ x: 0, y: 0, scale: 1 });
     setProfilePhotoFile(null);
     setProfilePhotoUrl('');
-
-    // Force state to 'draft' so user can edit the form again
-    setApplicationState('draft');
-
+    setApplicationId('');
     setFacultySelected(false);
     setDeclarationAgreed(false);
-
+    setPaymentCompleted(false);
+    setPaymentDetails(null);
+    setUseOnlinePayment(false);
     setReceiptPreview('');
     setReceiptFile(null);
+    setPaymentResetKey(prev => prev + 1);
 
-    // Clear localStorage BUT preserve payment keys
     localStorage.removeItem('applicationDraft');
-    localStorage.removeItem('');
-    localStorage.removeItem('verificationExpiry');
-    localStorage.removeItem('');
+    localStorage.removeItem('receiptPreview');
+    localStorage.removeItem('profilePhotoPreview');
 
-    // Do NOT remove paymentSessions, currentPaymentSession, etc.
+    // CRITICAL FIX: Never delete payment sessions on form reset
+    // localStorage.removeItem('paymentSessions');
+    // localStorage.removeItem('currentPaymentSession');
 
-    showToast('Form reset successful.', 'info');
-  } else {
-    // Case 3: No online payment -> Full Reset
-    performFullReset();
-  }
-};
+    if (currentUser?.uid) {
+      localStorage.removeItem(`payment_receipt_${currentUser.uid}_new_registration`);
+    }
 
-const handleSubmitApplication = async () => {
-  console.log('ðŸš€ Starting application submission...');
-  console.log('ðŸ“‹ Current state:', {
-    applicationState,
-    hasReceiptFile: !!receiptFile,
-    receiptFileName: receiptFile?.name,
-    hasReceiptUrl: !!formData.paymentInfo?.paymentEvidenceUrl,
-    receiptUrl: formData.paymentInfo?.paymentEvidenceUrl,
-    hasProfilePhotoFile: !!profilePhotoFile,
-    profilePhotoFileName: profilePhotoFile?.name,
-    hasProfilePhotoUrl: !!formData.profilePhotoUrl,
-    paymentMode: formData.paymentInfo?.paymentMode
-  });
+    showToast('Form reset successfully', 'success');
+    setShowDeletePaymentDialog(false);
+  };
 
-  if (applicationState !== 'verified') {
-    showToast('Please complete verification first', 'error');
-    return;
-  }
+  const handleResetForm = () => {
+    // Check if online payment is active/completed
+    const isOnlinePaymentActive = paymentCompleted && formData.paymentInfo?.paymentMode === 'online';
 
-  if (!formData.declarationAccepted) {
-    showToast('Please accept the declaration first', 'error');
-    return;
-  }
+    if (isOnlinePaymentActive) {
+      // If payment exists, execute Partial Reset (preserve payment) regardless of dirty state
+      const currentPaymentInfo = { ...formData.paymentInfo };
 
-  // CRITICAL: Re-validate form data before final submission
-  // Even if verified (via online payment), we must ensure all fields are filled
-  if (!validateForm()) {
-    return;
-  }
+      setFormData({
+        fullName: '',
+        email: currentUser?.email || '',
+        phoneNumber: '',
+        alternatePhone: '',
+        enrollmentId: '',
+        gender: '',
+        dob: '',
+        age: '',
+        profilePhotoUrl: '',
+        faculty: '',
+        department: '',
+        semester: '',
+        address: '',
+        parentName: '',
+        parentPhone: '',
+        bloodGroup: '',
+        routeId: '',
+        stopId: '',
+        busId: '',
+        busAssigned: '',
+        assignedBusId: '',
+        shift: '',
+        sessionInfo: {
+          sessionStartYear: new Date().getFullYear(),
+          durationYears: 0,
+          sessionEndYear: new Date().getFullYear(),
+          feeEstimate: 0
+        },
+        paymentInfo: currentPaymentInfo, // Key: Preserve this!
+        declarationAccepted: false
+      });
 
-  setSubmitting(true);
-  try {
-    // First, handle profile photo upload if we have a file waiting
-    // Uses priority: 1. Raw file (new upload), 2. Nested state, 3. Standalone state
-    let finalProfilePhotoUrl = formData.profilePhotoUrl || profilePhotoUrl;
+      // Reset most state, but KEEP payment state
+      setPreviewUrl('');
+      setFinalImageUrl(null);
+      setImagePosition({ x: 0, y: 0, scale: 1 });
+      setProfilePhotoFile(null);
+      setProfilePhotoUrl('');
 
-    if (profilePhotoFile) {
-      // Show uploading toast - REMOVED per user request
-      // const uploadToast = showToast('Uploading profile photo...', 'info');
+      // Force state to 'draft' so user can edit the form again
+      setApplicationState('draft');
 
-      try {
-        const uploadedUrl = await uploadImage(profilePhotoFile);
-        if (uploadedUrl) {
-          finalProfilePhotoUrl = uploadedUrl;
-          console.log('âœ… Profile photo uploaded successfully:', finalProfilePhotoUrl);
-        } else {
-          throw new Error('Upload returned empty URL');
+      setFacultySelected(false);
+      setDeclarationAgreed(false);
+
+      setReceiptPreview('');
+      setReceiptFile(null);
+
+      // Clear localStorage BUT preserve payment keys
+      localStorage.removeItem('applicationDraft');
+      localStorage.removeItem('');
+      localStorage.removeItem('verificationExpiry');
+      localStorage.removeItem('');
+
+      // Do NOT remove paymentSessions, currentPaymentSession, etc.
+
+      showToast('Form reset successful.', 'info');
+    } else {
+      // Case 3: No online payment -> Full Reset
+      performFullReset();
+    }
+  };
+
+  const handleSubmitApplication = async () => {
+    console.log('ðŸš€ Starting application submission...');
+    console.log('ðŸ“‹ Current state:', {
+      applicationState,
+      hasReceiptFile: !!receiptFile,
+      receiptFileName: receiptFile?.name,
+      hasReceiptUrl: !!formData.paymentInfo?.paymentEvidenceUrl,
+      receiptUrl: formData.paymentInfo?.paymentEvidenceUrl,
+      hasProfilePhotoFile: !!profilePhotoFile,
+      profilePhotoFileName: profilePhotoFile?.name,
+      hasProfilePhotoUrl: !!formData.profilePhotoUrl,
+      paymentMode: formData.paymentInfo?.paymentMode
+    });
+
+    if (applicationState !== 'verified') {
+      showToast('Please complete verification first', 'error');
+      return;
+    }
+
+    if (!formData.declarationAccepted) {
+      showToast('Please accept the declaration first', 'error');
+      return;
+    }
+
+    // CRITICAL: Re-validate form data before final submission
+    // Even if verified (via online payment), we must ensure all fields are filled
+    if (!validateForm()) {
+      return;
+    }
+
+    setSubmitting(true);
+    try {
+      // First, handle profile photo upload if we have a file waiting
+      // Uses priority: 1. Raw file (new upload), 2. Nested state, 3. Standalone state
+      let finalProfilePhotoUrl = formData.profilePhotoUrl || profilePhotoUrl;
+
+      if (profilePhotoFile) {
+        // Show uploading toast - REMOVED per user request
+        // const uploadToast = showToast('Uploading profile photo...', 'info');
+
+        try {
+          const uploadedUrl = await uploadImage(profilePhotoFile);
+          if (uploadedUrl) {
+            finalProfilePhotoUrl = uploadedUrl;
+            console.log('âœ… Profile photo uploaded successfully:', finalProfilePhotoUrl);
+          } else {
+            throw new Error('Upload returned empty URL');
+          }
+        } catch (uploadError) {
+          console.error('Failed to upload profile photo:', uploadError);
+          showToast('Failed to upload profile photo. Please try again.', 'error');
+          setSubmitting(false);
+          return;
         }
-      } catch (uploadError) {
-        console.error('Failed to upload profile photo:', uploadError);
-        showToast('Failed to upload profile photo. Please try again.', 'error');
+      }
+
+      // Safety check: Ensure we never submit a blob URL
+      if (finalProfilePhotoUrl && finalProfilePhotoUrl.startsWith('blob:')) {
+        console.error('â Œ Attempted to submit blob URL for profile photo');
+        showToast('Profile photo upload invalid. Please re-select your photo.', 'error');
         setSubmitting(false);
         return;
       }
-    }
 
-    // Safety check: Ensure we never submit a blob URL
-    if (finalProfilePhotoUrl && finalProfilePhotoUrl.startsWith('blob:')) {
-      console.error('â Œ Attempted to submit blob URL for profile photo');
-      showToast('Profile photo upload invalid. Please re-select your photo.', 'error');
-      setSubmitting(false);
-      return;
-    }
+      const applicationData = {
+        ...formData,
+        profilePhotoUrl: finalProfilePhotoUrl, // Use the uploaded URL, not the blob
+        age: formData.age.toString(), // Ensure age is string
+        paymentInfo: {
+          ...formData.paymentInfo,
+          // Ensure payment status matches mode
+          paymentStatus: formData.paymentInfo.paymentMode === 'online' ? 'completed' : 'pending'
+        }
+      };
+      console.log('ðŸš€ Starting application submission process...');
 
-    const applicationData = {
-      ...formData,
-      profilePhotoUrl: finalProfilePhotoUrl, // Use the uploaded URL, not the blob
-      age: formData.age.toString(), // Ensure age is string
-      paymentInfo: {
-        ...formData.paymentInfo,
-        // Ensure payment status matches mode
-        paymentStatus: formData.paymentInfo.paymentMode === 'online' ? 'completed' : 'pending'
-      }
-    };
-    console.log('ðŸš€ Starting application submission process...');
-
-    // Force token refresh to ensure authentication is valid (handles case where phone screen was off)
-    let token;
-    try {
-      console.log('ðŸ”„ Refreshing auth token...');
-      token = await currentUser?.getIdToken(true);
-    } catch (authError) {
-      console.error('â Œ Failed to refresh auth token:', authError);
-      // Fallback to existing token if refresh fails
-      token = await currentUser?.getIdToken();
-    }
-
-    if (!token) {
-      console.error('â Œ Failed to get auth token');
-      throw new Error('Authentication session expired. Please refresh the page and sign in again.');
-    }
-    console.log('âœ… Auth token retrieved successfully');
-
-    // Upload receipt file if there's one (using same /api/upload as profile photo)
-    let receiptUrl = formData.paymentInfo.paymentEvidenceUrl || '';
-    let receiptProvided = formData.paymentInfo.paymentEvidenceProvided;
-
-    if (receiptFile) {
-      console.log('ðŸ“¤ Uploading receipt during form submission...');
-
-      // Mobile optimization: Check file size and compress if needed
-      if (receiptFile.size > 2 * 1024 * 1024) { // 2MB threshold for mobile
-        console.log('âš ï¸  Large file detected on mobile, this might cause issues');
-        showToast('Large file detected. Upload may take longer on mobile.', 'info');
+      // Force token refresh to ensure authentication is valid (handles case where phone screen was off)
+      let token;
+      try {
+        console.log('ðŸ”„ Refreshing auth token...');
+        token = await currentUser?.getIdToken(true);
+      } catch (authError) {
+        console.error('â Œ Failed to refresh auth token:', authError);
+        // Fallback to existing token if refresh fails
+        token = await currentUser?.getIdToken();
       }
 
-      const formDataUpload = new FormData();
-      formDataUpload.append('file', receiptFile);
+      if (!token) {
+        console.error('â Œ Failed to get auth token');
+        throw new Error('Authentication session expired. Please refresh the page and sign in again.');
+      }
+      console.log('âœ… Auth token retrieved successfully');
 
-      // Mobile-specific retry logic
-      let uploadSuccess = false;
-      let lastError: Error | null = null;
-      const maxRetries = isMobileDevice() ? 2 : 1; // More retries on mobile
+      // Upload receipt file if there's one (using same /api/upload as profile photo)
+      let receiptUrl = formData.paymentInfo.paymentEvidenceUrl || '';
+      let receiptProvided = formData.paymentInfo.paymentEvidenceProvided;
 
-      for (let attempt = 1; attempt <= maxRetries && !uploadSuccess; attempt++) {
-        try {
-          console.log(`ðŸ“¤ Upload attempt ${attempt}/${maxRetries}`);
+      if (receiptFile) {
+        console.log('ðŸ“¤ Uploading receipt during form submission...');
 
-          if (attempt > 1) {
-            showToast(`Retrying upload (${attempt}/${maxRetries})...`, 'info');
-            // Wait before retry
-            await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
+        // Mobile optimization: Check file size and compress if needed
+        if (receiptFile.size > 2 * 1024 * 1024) { // 2MB threshold for mobile
+          console.log('âš ï¸  Large file detected on mobile, this might cause issues');
+          showToast('Large file detected. Upload may take longer on mobile.', 'info');
+        }
+
+        const formDataUpload = new FormData();
+        formDataUpload.append('file', receiptFile);
+
+        // Mobile-specific retry logic
+        let uploadSuccess = false;
+        let lastError: Error | null = null;
+        const maxRetries = isMobileDevice() ? 2 : 1; // More retries on mobile
+
+        for (let attempt = 1; attempt <= maxRetries && !uploadSuccess; attempt++) {
+          try {
+            console.log(`ðŸ“¤ Upload attempt ${attempt}/${maxRetries}`);
+
+            if (attempt > 1) {
+              showToast(`Retrying upload (${attempt}/${maxRetries})...`, 'info');
+              // Wait before retry
+              await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
+            }
+
+            // Mobile-specific timeout and retry logic
+            const uploadResponse = await Promise.race([
+              fetch('/api/upload', {
+                method: 'POST',
+                headers: token ? { 'Authorization': `Bearer ${token}` } : {},
+                body: formDataUpload
+              }),
+              new Promise((_, reject) =>
+                setTimeout(() => reject(new Error('Upload timeout')), 30000) // 30 second timeout
+              )
+            ]) as Response;
+
+            if (uploadResponse.ok) {
+              const uploadData = await uploadResponse.json();
+              receiptUrl = uploadData.url;
+              receiptProvided = true; // Mark as provided when receipt is uploaded
+              console.log('âœ… Receipt uploaded successfully:', receiptUrl);
+              uploadSuccess = true;
+            } else {
+              const errorText = await uploadResponse.text();
+              console.error(`â Œ Receipt upload failed (attempt ${attempt}):`, errorText);
+              lastError = new Error(`Upload failed with status ${uploadResponse.status}: ${errorText}`);
+            }
+          } catch (uploadError: any) {
+            console.error(`â Œ Receipt upload error (attempt ${attempt}):`, uploadError);
+            lastError = uploadError;
+
+            if (uploadError.message === 'Upload timeout') {
+              lastError = new Error('Upload timed out. Please try with a smaller image or better network connection.');
+            } else if (uploadError.name === 'TypeError' && uploadError.message.includes('fetch')) {
+              lastError = new Error('Network error during upload. Please check your internet connection and try again.');
+            }
           }
+        }
 
-          // Mobile-specific timeout and retry logic
-          const uploadResponse = await Promise.race([
-            fetch('/api/upload', {
-              method: 'POST',
-              headers: token ? { 'Authorization': `Bearer ${token}` } : {},
-              body: formDataUpload
-            }),
-            new Promise((_, reject) =>
-              setTimeout(() => reject(new Error('Upload timeout')), 30000) // 30 second timeout
-            )
-          ]) as Response;
-
-          if (uploadResponse.ok) {
-            const uploadData = await uploadResponse.json();
-            receiptUrl = uploadData.url;
-            receiptProvided = true; // Mark as provided when receipt is uploaded
-            console.log('âœ… Receipt uploaded successfully:', receiptUrl);
-            uploadSuccess = true;
-          } else {
-            const errorText = await uploadResponse.text();
-            console.error(`â Œ Receipt upload failed (attempt ${attempt}):`, errorText);
-            lastError = new Error(`Upload failed with status ${uploadResponse.status}: ${errorText}`);
-          }
-        } catch (uploadError: any) {
-          console.error(`â Œ Receipt upload error (attempt ${attempt}):`, uploadError);
-          lastError = uploadError;
-
-          if (uploadError.message === 'Upload timeout') {
-            lastError = new Error('Upload timed out. Please try with a smaller image or better network connection.');
-          } else if (uploadError.name === 'TypeError' && uploadError.message.includes('fetch')) {
-            lastError = new Error('Network error during upload. Please check your internet connection and try again.');
-          }
+        if (!uploadSuccess && lastError) {
+          throw lastError;
         }
       }
 
-      if (!uploadSuccess && lastError) {
-        throw lastError;
-      }
-    }
-
-    // Submit application with verification code ID
-    console.log('ðŸ“¤ Sending final application data to /api/applications/submit-final...');
-    const response = await fetch('/api/applications/submit-final', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token}`
-      },
-      body: JSON.stringify({
-        formData: {
-          ...formData,
-          profilePhotoUrl: finalProfilePhotoUrl,
-          paymentInfo: {
-            ...formData.paymentInfo,
-            paymentEvidenceUrl: receiptUrl,
-            paymentEvidenceProvided: receiptProvided
-          }
+      // Submit application with verification code ID
+      console.log('ðŸ“¤ Sending final application data to /api/applications/submit-final...');
+      const response = await fetch('/api/applications/submit-final', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
         },
-        needsCapacityReview: capacityCheckResult?.needsCapacityReview || false
-      })
-    });
+        body: JSON.stringify({
+          formData: {
+            ...formData,
+            profilePhotoUrl: finalProfilePhotoUrl,
+            paymentInfo: {
+              ...formData.paymentInfo,
+              paymentEvidenceUrl: receiptUrl,
+              paymentEvidenceProvided: receiptProvided
+            }
+          },
+          needsCapacityReview: capacityCheckResult?.needsCapacityReview || false
+        })
+      });
 
-    console.log('ðŸ“¥ Response received from submit-final:', {
-      status: response.status,
-      ok: response.ok,
-      statusText: response.statusText
-    });
+      console.log('ðŸ“¥ Response received from submit-final:', {
+        status: response.status,
+        ok: response.ok,
+        statusText: response.statusText
+      });
 
-    if (response.ok) {
-      const data = await response.json();
-      console.log('âœ… Application submission confirmed by server');
+      if (response.ok) {
+        const data = await response.json();
+        console.log('âœ… Application submission confirmed by server');
 
-      trackEvent('student_added');
-      showToast('Application submitted successfully! Waiting for approval from the Managing Team.', 'success');
+        trackEvent('student_added');
+        showToast('Application submitted successfully! Waiting for approval from the Managing Team.', 'success');
 
-      // Clean up all localStorage data related to the application
-      const cleanupKeys = [
-        'applicationDraft', 'applicationState',
-        'receiptPreview', 'profilePhotoPreview',
-        'lastFormStep', 'form_start_time'
-      ];
+        // Clean up all localStorage data related to the application
+        const cleanupKeys = [
+          'applicationDraft', 'applicationState',
+          'receiptPreview', 'profilePhotoPreview',
+          'lastFormStep', 'form_start_time'
+        ];
 
-      cleanupKeys.forEach(key => localStorage.removeItem(key));
+        cleanupKeys.forEach(key => localStorage.removeItem(key));
 
-      // Use service to safely clear current user's payment data
-      if (currentUser?.uid) {
-        clearPaymentSession(currentUser.uid, 'new_registration');
-        localStorage.removeItem(`payment_receipt_${currentUser.uid}_new_registration`);
-      }
+        // Use service to safely clear current user's payment data
+        if (currentUser?.uid) {
+          clearPaymentSession(currentUser.uid, 'new_registration');
+          localStorage.removeItem(`payment_receipt_${currentUser.uid}_new_registration`);
+        }
 
-      // Deep cleanup of dynamic keys (excluding shared payment sessions)
-      // Correctly collect keys FIRST before removing to avoid indexing issues
-      const keysToRemove: string[] = [];
-      for (let i = 0; i < localStorage.length; i++) {
-        const key = localStorage.key(i);
-        if (!key) continue;
+        // Deep cleanup of dynamic keys (excluding shared payment sessions)
+        // Correctly collect keys FIRST before removing to avoid indexing issues
+        const keysToRemove: string[] = [];
+        for (let i = 0; i < localStorage.length; i++) {
+          const key = localStorage.key(i);
+          if (!key) continue;
 
-        // Skip important cross-user data
-        if (key === 'paymentSessions') continue;
+          // Skip important cross-user data
+          if (key === 'paymentSessions') continue;
 
-        // Target application, form, draft, and payment related keys
-        const lowerKey = key.toLowerCase();
-        if (lowerKey.includes('application') ||
-          lowerKey.includes('form') ||
-          lowerKey.includes('draft') ||
-          lowerKey.includes('payment')) {
+          // Target application, form, draft, and payment related keys
+          const lowerKey = key.toLowerCase();
+          if (lowerKey.includes('application') ||
+            lowerKey.includes('form') ||
+            lowerKey.includes('draft') ||
+            lowerKey.includes('payment')) {
 
-          // Final safety check for shared storage
-          if (key !== 'paymentSessions') {
-            keysToRemove.push(key);
+            // Final safety check for shared storage
+            if (key !== 'paymentSessions') {
+              keysToRemove.push(key);
+            }
           }
         }
-      }
 
-      // Final execution of key removal
-      keysToRemove.forEach(key => localStorage.removeItem(key));
-      console.log(`Cleared ${keysToRemove.length} application-related localStorage keys.`);
+        // Final execution of key removal
+        keysToRemove.forEach(key => localStorage.removeItem(key));
+        console.log(`Cleared ${keysToRemove.length} application-related localStorage keys.`);
 
-      // Clean up the object URLs if they were local previews
-      if (formData.profilePhotoUrl && formData.profilePhotoUrl.startsWith('blob:')) {
-        URL.revokeObjectURL(formData.profilePhotoUrl);
-      }
-      if (receiptPreview && receiptPreview.startsWith('blob:')) {
-        URL.revokeObjectURL(receiptPreview);
-      }
+        // Clean up the object URLs if they were local previews
+        if (formData.profilePhotoUrl && formData.profilePhotoUrl.startsWith('blob:')) {
+          URL.revokeObjectURL(formData.profilePhotoUrl);
+        }
+        if (receiptPreview && receiptPreview.startsWith('blob:')) {
+          URL.revokeObjectURL(receiptPreview);
+        }
 
-      // Redirect to welcome/info page
-      router.push('/apply');
-    } else {
-      let errorData;
-      try {
-        const text = await response.text();
+        // Redirect to welcome/info page
+        router.push('/apply');
+      } else {
+        let errorData;
         try {
-          errorData = JSON.parse(text);
+          const text = await response.text();
+          try {
+            errorData = JSON.parse(text);
+          } catch (e) {
+            console.error('â Œ Failed to parse error response as JSON:', text);
+            errorData = { message: `Server error (${response.status}): ${text.substring(0, 100)}...` };
+          }
+        } catch (readError) {
+          errorData = { message: `Critical server error (${response.status})` };
+        }
+        throw new Error(errorData.message || errorData.error || 'Failed to submit application');
+      }
+    } catch (error: any) {
+      console.error('â Œ CRITICAL: Error submitting application:', error);
+      console.error('Diagnostic Info:', {
+        name: error.name,
+        message: error.message,
+        isTypeError: error instanceof TypeError,
+        url: typeof window !== 'undefined' ? window.location.href : 'unknown',
+        stack: error.stack
+      });
+
+      // Provide user-friendly error messages
+      let errorMessage = 'Failed to submit application';
+
+      if (error.message.includes('Cloudinary')) {
+        errorMessage = 'Failed to upload payment receipt. Please check your internet connection and try again.';
+      } else if (error.message.includes('profile photo')) {
+        errorMessage = 'Failed to upload profile photo. Please try again or choose a different image.';
+      } else if (error.message.includes('Failed to fetch')) {
+        errorMessage = 'Network error. Please check your internet connection and try again.';
+      } else if (error.message.includes('verification')) {
+        errorMessage = error.message; // Use the specific verification error message
+      } else {
+        errorMessage = error.message || 'Failed to submit application. Please try again.';
+      }
+
+      showToast(errorMessage, 'error');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  useEffect(() => {
+    console.log('ðŸ”  CHECKING VERIFICATION STATE ON LOAD...');
+
+    // Check for completed payment (both online and offline) and verification state
+    if (currentUser) {
+      console.log('ðŸ‘¤ Current user found, checking verification state...');
+
+      // Log all relevant localStorage keys
+      const verificationCompleted = localStorage.getItem('verificationCompleted');
+      const savedApplicationState = localStorage.getItem('applicationState');
+      const backupVerificationState = localStorage.getItem('backup_verification_state');
+      const verificationCompletedAt = localStorage.getItem('verificationCompletedAt');
+
+      console.log('ðŸ“‹ localStorage verification data:', {
+        verificationCompleted,
+        savedApplicationState,
+        backupVerificationState,
+        verificationCompletedAt,
+        allKeys: Object.keys(localStorage).filter(key =>
+          key.includes('verification') || key.includes('application')
+        )
+      });
+
+      // First check if verification was completed (most reliable)
+      if (verificationCompleted === 'true' && savedApplicationState === 'verified') {
+        console.log('âœ… RESTORING VERIFICATION STATE from localStorage flags');
+        setApplicationState('verified');
+        setPaymentCompleted(true);
+        return;
+      }
+
+      // Check backup verification state
+      if (backupVerificationState) {
+        try {
+          const backupData = JSON.parse(backupVerificationState);
+          if (backupData.verified && backupData.userId === currentUser.uid) {
+            console.log('âœ… RESTORING VERIFICATION STATE from backup data');
+            setApplicationState('verified');
+            setPaymentCompleted(true);
+            // Restore primary flags if missing
+            localStorage.setItem('verificationCompleted', 'true');
+            localStorage.setItem('applicationState', 'verified');
+            return;
+          }
         } catch (e) {
-          console.error('â Œ Failed to parse error response as JSON:', text);
-          errorData = { message: `Server error (${response.status}): ${text.substring(0, 100)}...` };
+          console.warn('âš ï¸  Failed to parse backup verification state:', e);
         }
-      } catch (readError) {
-        errorData = { message: `Critical server error (${response.status})` };
       }
-      throw new Error(errorData.message || errorData.error || 'Failed to submit application');
-    }
-  } catch (error: any) {
-    console.error('â Œ CRITICAL: Error submitting application:', error);
-    console.error('Diagnostic Info:', {
-      name: error.name,
-      message: error.message,
-      isTypeError: error instanceof TypeError,
-      url: typeof window !== 'undefined' ? window.location.href : 'unknown',
-      stack: error.stack
-    });
 
-    // Provide user-friendly error messages
-    let errorMessage = 'Failed to submit application';
-
-    if (error.message.includes('Cloudinary')) {
-      errorMessage = 'Failed to upload payment receipt. Please check your internet connection and try again.';
-    } else if (error.message.includes('profile photo')) {
-      errorMessage = 'Failed to upload profile photo. Please try again or choose a different image.';
-    } else if (error.message.includes('Failed to fetch')) {
-      errorMessage = 'Network error. Please check your internet connection and try again.';
-    } else if (error.message.includes('verification')) {
-      errorMessage = error.message; // Use the specific verification error message
-    } else {
-      errorMessage = error.message || 'Failed to submit application. Please try again.';
-    }
-
-    showToast(errorMessage, 'error');
-  } finally {
-    setSubmitting(false);
-  }
-};
-
-useEffect(() => {
-  console.log('ðŸ”  CHECKING VERIFICATION STATE ON LOAD...');
-
-  // Check for completed payment (both online and offline) and verification state
-  if (currentUser) {
-    console.log('ðŸ‘¤ Current user found, checking verification state...');
-
-    // Log all relevant localStorage keys
-    const verificationCompleted = localStorage.getItem('verificationCompleted');
-    const savedApplicationState = localStorage.getItem('applicationState');
-    const backupVerificationState = localStorage.getItem('backup_verification_state');
-    const verificationCompletedAt = localStorage.getItem('verificationCompletedAt');
-
-    console.log('ðŸ“‹ localStorage verification data:', {
-      verificationCompleted,
-      savedApplicationState,
-      backupVerificationState,
-      verificationCompletedAt,
-      allKeys: Object.keys(localStorage).filter(key =>
-        key.includes('verification') || key.includes('application')
-      )
-    });
-
-    // First check if verification was completed (most reliable)
-    if (verificationCompleted === 'true' && savedApplicationState === 'verified') {
-      console.log('âœ… RESTORING VERIFICATION STATE from localStorage flags');
-      setApplicationState('verified');
-      setPaymentCompleted(true);
-      return;
-    }
-
-    // Check backup verification state
-    if (backupVerificationState) {
-      try {
-        const backupData = JSON.parse(backupVerificationState);
-        if (backupData.verified && backupData.userId === currentUser.uid) {
-          console.log('âœ… RESTORING VERIFICATION STATE from backup data');
-          setApplicationState('verified');
-          setPaymentCompleted(true);
-          // Restore primary flags if missing
-          localStorage.setItem('verificationCompleted', 'true');
-          localStorage.setItem('applicationState', 'verified');
-          return;
-        }
-      } catch (e) {
-        console.warn('âš ï¸  Failed to parse backup verification state:', e);
-      }
-    }
-
-    // Fallback to payment session check
-    console.log('ðŸ”„ Checking payment session as fallback...');
-    const completedPayment = hasCompletedPayment(currentUser.uid, 'new_registration');
-    if (completedPayment) {
-      console.log('ðŸ’³ Found completed payment, checking session...');
-      setPaymentCompleted(true);
-      const session = getCurrentPaymentSession();
-      if (session) {
-        console.log('ðŸ“¦ Payment session found:', session);
-        // Handle online payment
-        if (session.paymentMode === 'online' && session.razorpayPaymentId) {
-          setPaymentDetails({
-            paymentId: session.razorpayPaymentId,
-            orderId: session.razorpayOrderId,
-            amount: session.amount
-          });
-          setUseOnlinePayment(true);
-          setApplicationState('verified');
-          console.log('âœ… Restored online payment verification from localStorage');
-        }
-        // Handle offline payment
-        else if (session.paymentMode === 'offline' && session.offlinePaymentId) {
-          setUseOnlinePayment(false);
-          setApplicationState('verified');
-          console.log('âœ… Restored offline payment verification from localStorage');
+      // Fallback to payment session check
+      console.log('ðŸ”„ Checking payment session as fallback...');
+      const completedPayment = hasCompletedPayment(currentUser.uid, 'new_registration');
+      if (completedPayment) {
+        console.log('ðŸ’³ Found completed payment, checking session...');
+        setPaymentCompleted(true);
+        const session = getCurrentPaymentSession();
+        if (session) {
+          console.log('ðŸ“¦ Payment session found:', session);
+          // Handle online payment
+          if (session.paymentMode === 'online' && session.razorpayPaymentId) {
+            setPaymentDetails({
+              paymentId: session.razorpayPaymentId,
+              orderId: session.razorpayOrderId,
+              amount: session.amount
+            });
+            setUseOnlinePayment(true);
+            setApplicationState('verified');
+            console.log('âœ… Restored online payment verification from localStorage');
+          }
+          // Handle offline payment
+          else if (session.paymentMode === 'offline' && session.offlinePaymentId) {
+            setUseOnlinePayment(false);
+            setApplicationState('verified');
+            console.log('âœ… Restored offline payment verification from localStorage');
+          }
+        } else {
+          console.log('âš ï¸  No payment session found despite completed payment flag');
         }
       } else {
-        console.log('âš ï¸  No payment session found despite completed payment flag');
+        console.log('â„¹ï¸  No completed payment found');
       }
     } else {
-      console.log('â„¹ï¸  No completed payment found');
+      console.log('âš ï¸  No current user found');
     }
-  } else {
-    console.log('âš ï¸  No current user found');
+
+    console.log('ðŸ”  VERIFICATION STATE CHECK COMPLETED');
+  }, [currentUser]);
+
+  if (loading || (currentUser && loadingResources)) {
+    return <PremiumPageLoader fullScreen message="Initializing Application Form..." subMessage="Loading resources and verification status..." />;
   }
 
-  console.log('ðŸ”  VERIFICATION STATE CHECK COMPLETED');
-}, [currentUser]);
+  if (isSubmitted) {
+    return (
+      <div className="min-h-screen bg-[#05060e] py-12 px-4 sm:px-6 lg:px-8 relative overflow-hidden">
 
-if (loading || (currentUser && loadingResources)) {
-  return <PremiumPageLoader fullScreen message="Initializing Application Form..." subMessage="Loading resources and verification status..." />;
-}
 
-if (isSubmitted) {
-  return (
-    <div className="min-h-screen bg-[#05060e] py-12 px-4 sm:px-6 lg:px-8 relative overflow-hidden">
-      <div className="fixed inset-0 pointer-events-none">
-        <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-indigo-500/10 blur-[120px] rounded-full animate-pulse" />
-        <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-blue-500/10 blur-[120px] rounded-full animate-pulse delay-1000" />
-      </div>
-
-      <div className="max-w-4xl mx-auto relative z-10">
-        <div className="bg-[#0c0e1a]/80 backdrop-blur-xl border border-slate-800/50 rounded-[2.5rem] shadow-2xl shadow-black/50 overflow-hidden">
-          <div className="p-8 sm:p-12 md:p-16">
-            <div className="flex flex-col items-center">
-              {/* Success Icon */}
-              <div className="relative mb-10">
-                <div className="absolute inset-0 bg-emerald-500 rounded-full blur-2xl opacity-20 animate-pulse"></div>
-                <div className="relative h-24 w-24 sm:h-28 sm:w-28 bg-gradient-to-br from-emerald-400 to-green-600 rounded-3xl flex items-center justify-center shadow-2xl shadow-emerald-500/20 rotate-3 transition-transform hover:rotate-6 duration-500">
-                  <CheckCircle className="h-12 w-12 sm:h-14 sm:w-14 text-white drop-shadow-lg" />
-                </div>
-                <div className="absolute -bottom-3 left-1/2 -translate-x-1/2 bg-slate-900 border border-indigo-500/30 py-1 px-3 rounded-full shadow-lg flex items-center gap-1.5 whitespace-nowrap">
-                  <div className="w-1.5 h-1.5 rounded-full bg-emerald-500"></div>
-                  <span className="text-[10px] font-bold tracking-wider uppercase text-slate-300">Success</span>
-                </div>
-              </div>
-
-              <h1 className="text-4xl sm:text-5xl font-bold text-transparent bg-clip-text bg-gradient-to-br from-white via-indigo-100 to-slate-400 text-center tracking-tight mb-4 drop-shadow-sm">
-                Application Received
-              </h1>
-
-              <p className="text-lg text-slate-400 text-center max-w-md font-light leading-relaxed">
-                Your application has been securely submitted to the <span className="text-indigo-300 font-medium">AdtU Bus Services</span> portal.
-              </p>
-            </div>
-
-            {/* Progress Timeline */}
-            <div className="mb-10 bg-slate-800/50 rounded-2xl p-6 border border-slate-700/50 backdrop-blur-sm mt-10">
-              <div className="flex items-center justify-between relative">
-                {/* Connecting Line */}
-                <div className="absolute top-1/3 left-4 right-4 h-0.5 bg-slate-700/50 -translate-y-1/2 z-0"></div>
-                <div className="absolute top-1/3 left-4 right-1/2 h-0.5 bg-gradient-to-r from-indigo-500 to-blue-500 -translate-y-1/2 z-0"></div>
-
-                {/* Step 1 */}
-                <div className="relative z-10 flex flex-col items-start gap-2 sm:gap-3">
-                  <div className="w-8 h-8 rounded-full bg-indigo-900/80 border-2 border-indigo-500 flex items-center justify-center shadow-[0_0_15px_-3px_rgba(99,102,241,0.4)]">
-                    <CheckCircle className="w-4 h-4 text-indigo-200" />
+        <div className="max-w-4xl mx-auto relative z-10">
+          <div className="bg-[#0c0e1a] border border-slate-800/50 rounded-[2.5rem] shadow-2xl shadow-black/50 overflow-hidden">
+            <div className="p-8 sm:p-12 md:p-16">
+              <div className="flex flex-col items-center">
+                {/* Success Icon */}
+                <div className="relative mb-10">
+                  <div className="absolute inset-0 bg-emerald-500 rounded-full blur-2xl opacity-20 animate-pulse"></div>
+                  <div className="relative h-24 w-24 sm:h-28 sm:w-28 bg-gradient-to-br from-emerald-400 to-green-600 rounded-3xl flex items-center justify-center shadow-2xl shadow-emerald-500/20 rotate-3 transition-transform hover:rotate-6 duration-500">
+                    <CheckCircle className="h-12 w-12 sm:h-14 sm:w-14 text-white drop-shadow-lg" />
                   </div>
-                  <span className="text-[9px] sm:text-xs font-semibold text-indigo-200 tracking-wide uppercase">Submitted</span>
-                </div>
-
-                {/* Step 2 */}
-                <div className="relative z-10 flex flex-col items-center gap-2 sm:gap-3">
-                  <div className="w-8 h-8 rounded-full bg-slate-800 border-2 border-blue-500/50 flex items-center justify-center shadow-[0_0_15px_-3px_rgba(59,130,246,0.3)]">
-                    <FileText className="w-4 h-4 text-blue-400" />
+                  <div className="absolute -bottom-3 left-1/2 -translate-x-1/2 bg-slate-900 border border-indigo-500/30 py-1 px-3 rounded-full shadow-lg flex items-center gap-1.5 whitespace-nowrap">
+                    <div className="w-1.5 h-1.5 rounded-full bg-emerald-500"></div>
+                    <span className="text-[10px] font-bold tracking-wider uppercase text-slate-300">Success</span>
                   </div>
-                  <span className="text-[9px] sm:text-xs font-semibold text-blue-200 tracking-wide uppercase text-center">Under Review</span>
                 </div>
 
-                {/* Step 3 */}
-                <div className="relative z-10 flex flex-col items-end gap-2 sm:gap-3">
-                  <div className="w-8 h-8 rounded-full bg-slate-800 border-2 border-slate-600 flex items-center justify-center">
-                    <div className="w-2 h-2 rounded-full bg-slate-600"></div>
-                  </div>
-                  <span className="text-[9px] sm:text-xs font-semibold text-slate-500 tracking-wide uppercase">Approved</span>
-                </div>
-              </div>
-            </div>
+                <h1 className="text-4xl sm:text-5xl font-bold text-transparent bg-clip-text bg-gradient-to-br from-white via-indigo-100 to-slate-400 text-center tracking-tight mb-4 drop-shadow-sm">
+                  Application Received
+                </h1>
 
-            {/* Info Box */}
-            <div className="bg-indigo-500/5 border border-indigo-500/10 rounded-xl p-5 mb-8 flex gap-4 items-start">
-              <div className="p-2 bg-indigo-500/10 rounded-lg shrink-0">
-                <Info className="w-5 h-5 text-indigo-400" />
-              </div>
-              <div>
-                <h4 className="text-sm font-semibold text-indigo-200 mb-1">What happens next?</h4>
-                <p className="text-sm text-indigo-200/70 leading-relaxed">
-                  Our administrative team will review your application details. This process typically takes 24-48 hours. Once verified, you will receive full access to your student dashboard.
+                <p className="text-lg text-slate-400 text-center max-w-md font-light leading-relaxed">
+                  Your application has been securely submitted to the <span className="text-indigo-300 font-medium">AdtU Bus Services</span> portal.
                 </p>
               </div>
-            </div>
 
-            {/* Footer / ID */}
-            <div className="flex flex-col items-center justify-center border-t border-slate-700/50 pt-8">
-              <div className="flex items-center gap-3 text-sm text-slate-500 font-medium bg-slate-800/50 px-4 py-2 rounded-full border border-slate-700/30">
-                <span className="flex h-2 w-2 relative">
-                  <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
-                </span>
-                <span>Refreshed just now</span>
-                <span className="w-1 h-1 bg-slate-600 rounded-full"></span>
-                <span>ID: <span className="font-mono text-indigo-300 font-bold tracking-wider">{applicationId || 'PENDING'}</span></span>
+              {/* Progress Timeline */}
+              <div className="mb-10 bg-slate-800/50 rounded-2xl p-6 border border-slate-700/50 backdrop-blur-sm mt-10">
+                <div className="flex items-center justify-between relative">
+                  {/* Connecting Line */}
+                  <div className="absolute top-1/3 left-4 right-4 h-0.5 bg-slate-700/50 -translate-y-1/2 z-0"></div>
+                  <div className="absolute top-1/3 left-4 right-1/2 h-0.5 bg-gradient-to-r from-indigo-500 to-blue-500 -translate-y-1/2 z-0"></div>
+
+                  {/* Step 1 */}
+                  <div className="relative z-10 flex flex-col items-start gap-2 sm:gap-3">
+                    <div className="w-8 h-8 rounded-full bg-indigo-900/80 border-2 border-indigo-500 flex items-center justify-center shadow-[0_0_15px_-3px_rgba(99,102,241,0.4)]">
+                      <CheckCircle className="w-4 h-4 text-indigo-200" />
+                    </div>
+                    <span className="text-[9px] sm:text-xs font-semibold text-indigo-200 tracking-wide uppercase">Submitted</span>
+                  </div>
+
+                  {/* Step 2 */}
+                  <div className="relative z-10 flex flex-col items-center gap-2 sm:gap-3">
+                    <div className="w-8 h-8 rounded-full bg-slate-800 border-2 border-blue-500/50 flex items-center justify-center shadow-[0_0_15px_-3px_rgba(59,130,246,0.3)]">
+                      <FileText className="w-4 h-4 text-blue-400" />
+                    </div>
+                    <span className="text-[9px] sm:text-xs font-semibold text-blue-200 tracking-wide uppercase text-center">Under Review</span>
+                  </div>
+
+                  {/* Step 3 */}
+                  <div className="relative z-10 flex flex-col items-end gap-2 sm:gap-3">
+                    <div className="w-8 h-8 rounded-full bg-slate-800 border-2 border-slate-600 flex items-center justify-center">
+                      <div className="w-2 h-2 rounded-full bg-slate-600"></div>
+                    </div>
+                    <span className="text-[9px] sm:text-xs font-semibold text-slate-500 tracking-wide uppercase">Approved</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Info Box */}
+              <div className="bg-indigo-500/5 border border-indigo-500/10 rounded-xl p-5 mb-8 flex gap-4 items-start">
+                <div className="p-2 bg-indigo-500/10 rounded-lg shrink-0">
+                  <Info className="w-5 h-5 text-indigo-400" />
+                </div>
+                <div>
+                  <h4 className="text-sm font-semibold text-indigo-200 mb-1">What happens next?</h4>
+                  <p className="text-sm text-indigo-200/70 leading-relaxed">
+                    Our administrative team will review your application details. This process typically takes 24-48 hours. Once verified, you will receive full access to your student dashboard.
+                  </p>
+                </div>
+              </div>
+
+              {/* Footer / ID */}
+              <div className="flex flex-col items-center justify-center border-t border-slate-700/50 pt-8">
+                <div className="flex items-center gap-3 text-sm text-slate-500 font-medium bg-slate-800/50 px-4 py-2 rounded-full border border-slate-700/30">
+                  <span className="flex h-2 w-2 relative">
+                    <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                  </span>
+                  <span>Refreshed just now</span>
+                  <span className="w-1 h-1 bg-slate-600 rounded-full"></span>
+                  <span>ID: <span className="font-mono text-indigo-300 font-bold tracking-wider">{applicationId || 'PENDING'}</span></span>
+                </div>
               </div>
             </div>
           </div>
-        </div>
 
-        {/* Help Text */}
-        <p className="text-center text-slate-500 text-xs mt-6">
-          Need help? <a href="/contact" className="underline hover:text-indigo-400">Contact support</a> or visit the bus office.
-        </p>
+          {/* Help Text */}
+          <p className="text-center text-slate-500 text-xs mt-6">
+            Need help? <a href="/contact" className="underline hover:text-indigo-400">Contact support</a> or visit the bus office.
+          </p>
+        </div>
       </div>
-    </div>
-  );
-}
+    );
+  }
 
-return (
-  <div className="min-h-screen bg-[#05060e] dark:bg-[#05060e] overflow-x-hidden">
-    <ApplyFormNavbar />
+  return (
+    <div className="min-h-screen bg-[#05060e] dark:bg-[#05060e] overflow-x-hidden">
+      <ApplyFormNavbar />
 
-    {/* Decorative background elements */}
-    <div className="fixed top-0 left-0 w-full h-full overflow-hidden pointer-events-none z-0">
-      <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-indigo-500/10 rounded-full blur-[120px]" />
-      <div className="absolute bottom-[10%] right-[-5%] w-[30%] h-[30%] bg-blue-500/10 rounded-full blur-[100px]" />
-    </div>
 
-    <div className="relative z-10 pt-16 sm:pt-24 pb-16 min-h-screen">
-      <div className="flex flex-col md:flex-row justify-start px-4 sm:px-12 max-w-[1600px] mx-auto">
-        {/* Left Sidebar - Fixed Vertical Navigation (Desktop) */}
-        <div className="hidden md:flex fixed left-10 top-[calc(50%+28px)] -translate-y-1/2 w-72 flex-col gap-4 z-50">
-          <div className="bg-[#0c0e1a]/60 backdrop-blur-xl border border-white/5 rounded-3xl p-5 shadow-2xl">
-            <FormStepper
-              steps={STEP_LABELS}
-              currentStep={currentStep}
-              onStepClick={(step) => goToStep(step)}
-              vertical={true}
-              isStepComplete={isStepComplete}
-              visitedSteps={visitedSteps}
-            />
-          </div>
-        </div>
 
-        {/* Mobile Stepper - Horizontal */}
-        <div className="w-full md:hidden mb-8">
-          <div className="bg-[#0c0e1a]/40 backdrop-blur-md border border-slate-800/50 rounded-2xl p-4 py-8">
-            <FormStepper
-              steps={STEP_LABELS}
-              currentStep={currentStep}
-              onStepClick={(step) => goToStep(step)}
-              isStepComplete={isStepComplete}
-              visitedSteps={visitedSteps}
-            />
-          </div>
-        </div>
-
-        {/* Right Side - Form Content */}
-        <div className="flex-1 w-full max-w-4xl ml-0 md:ml-85 flex flex-col gap-6">
-          <div className="bg-[#0c0e1a]/80 backdrop-blur-xl border border-slate-800/50 rounded-3xl shadow-2xl overflow-hidden p-0 sm:p-8 animate-in fade-in slide-in-from-right-4 duration-500 flex flex-col">
-            <div className="p-6 sm:p-2">
-              {currentStep === 1 && (
-                <Step1Personal
-                  formData={formData}
-                  handleInputChange={handleInputChange}
-                  onNext={goToNextStep}
-                  currentUser={currentUser}
-                  profilePhotoUrl={profilePhotoUrl}
-                  finalImageUrl={finalImageUrl}
-                  setShowProfileUpdateModal={setShowProfileUpdateModal}
-                  handleImageRemove={handleImageRemove}
-                />
-              )}
-
-              {currentStep === 2 && (
-                <Step2Academic
-                  formData={formData}
-                  handleInputChange={handleInputChange}
-                  onNext={goToNextStep}
-                  onPrev={goToPrevStep}
-                  handleFacultySelect={handleFacultySelect}
-                  handleDepartmentSelect={handleDepartmentSelect}
-                />
-              )}
-
-              {currentStep === 3 && (
-                <Step3Bus
-                  formData={formData}
-                  handleInputChange={handleInputChange}
-                  onNext={goToNextStep}
-                  onPrev={goToPrevStep}
-                  routes={routes}
-                  buses={buses}
-                  setCapacityCheckResult={setCapacityCheckResult}
-                  handleRefChange={handleRefChange}
-                  applicationState={applicationState}
-                />
-              )}
-
-              {currentStep === 4 && (
-                <Step4ServicePayment
-                  formData={formData}
-                  handleInputChange={handleInputChange}
-                  onNext={goToNextStep}
-                  onPrev={goToPrevStep}
-                  currentUser={currentUser}
-                  calculateTotalFee={calculateTotalFee}
-                  handleSessionDurationChange={handleSessionDurationChange}
-                  deadlineConfig={deadlineConfig}
-                  applicationState={applicationState}
-                  checkFormCompletion={checkFormCompletion}
-                  setPaymentCompleted={setPaymentCompleted}
-                  setPaymentDetails={setPaymentDetails}
-                  setUseOnlinePayment={setUseOnlinePayment}
-                  setApplicationState={setApplicationState}
-                  setReceiptFile={setReceiptFile}
-                  setReceiptPreview={setReceiptPreview}
-                  showToast={showToast}
-                />
-              )}
-
-              {currentStep === 5 && (
-                <Step5Review
-                  formData={formData}
-                  handleInputChange={handleInputChange}
-                  onPrev={goToPrevStep}
-                  onNext={() => { }}
-                  applicationState={applicationState}
-                  handleSubmitApplication={handleSubmitApplication}
-                  declarationAgreed={declarationAgreed}
-                  setDeclarationAgreed={setDeclarationAgreed}
-                  validateForm={validateForm}
-                  saving={saving}
-                  handleSaveDraft={handleSaveDraft}
-                  submitting={submitting}
-                  useOnlinePayment={useOnlinePayment}
-                  finalImageUrl={finalImageUrl}
-                />
-              )}
+      <div className="relative z-10 pt-16 sm:pt-24 pb-16 min-h-screen">
+        <div className="flex flex-col md:flex-row justify-start px-4 sm:px-12 max-w-[1600px] mx-auto">
+          {/* Left Sidebar - Fixed Vertical Navigation (Desktop) */}
+          <div className="hidden md:flex fixed left-10 top-[calc(50%+28px)] -translate-y-1/2 w-72 flex-col gap-4 z-50">
+            <div className="bg-[#0c0e1a]/90 border border-slate-800/70 rounded-3xl p-5 shadow-xl shadow-black/30 [contain:layout_paint]">
+              <FormStepper
+                steps={STEP_LABELS}
+                currentStep={currentStep}
+                onStepClick={goToStep}
+                vertical={true}
+                completedSteps={completedSteps}
+                visitedSteps={visitedSteps}
+              />
             </div>
           </div>
 
-          {/* Mobile Actions area */}
-          <div className="md:hidden flex justify-center mt-4 text-center">
-            <Button variant="ghost" size="sm" onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })} className="text-[10px] text-slate-500 hover:text-white">
-              Back to top
-            </Button>
+          {/* Mobile Stepper - Horizontal */}
+          <div className="w-full md:hidden mb-8">
+            <div className="bg-[#0c0e1a]/90 border border-slate-800/60 rounded-2xl p-4 py-8 shadow-lg shadow-black/25 [contain:layout_paint]">
+              <FormStepper
+                steps={STEP_LABELS}
+                currentStep={currentStep}
+                onStepClick={goToStep}
+                completedSteps={completedSteps}
+                visitedSteps={visitedSteps}
+              />
+            </div>
+          </div>
+
+          {/* Right Side - Form Content */}
+          <div className="flex-1 w-full max-w-4xl lg:max-w-6xl ml-0 md:ml-[300px] lg:ml-[340px] flex flex-col gap-6">
+            <div className="bg-[#0c0e1a]/95 md:bg-[#0c0e1a]/90 border border-slate-800/60 rounded-3xl shadow-xl shadow-black/30 overflow-hidden p-0 sm:p-8 flex flex-col [contain:layout_paint] md:min-h-[600px]">
+              <div className="p-6 sm:p-2 flex-1 flex flex-col">
+                {currentStep === 1 && (
+                  <Step1Personal
+                    formData={formData}
+                    handleInputChange={handleInputChange}
+                    onNext={goToNextStep}
+                    currentUser={currentUser}
+                    profilePhotoUrl={profilePhotoUrl}
+                    finalImageUrl={finalImageUrl}
+                    setShowProfileUpdateModal={setShowProfileUpdateModal}
+                    handleImageRemove={handleImageRemove}
+                    onClear={() => handleClearStep(1)}
+                  />
+                )}
+
+                {currentStep === 2 && (
+                  <Step2Academic
+                    formData={formData}
+                    handleInputChange={handleInputChange}
+                    onNext={goToNextStep}
+                    onPrev={goToPrevStep}
+                    handleFacultySelect={handleFacultySelect}
+                    handleDepartmentSelect={handleDepartmentSelect}
+                    onClear={() => handleClearStep(2)}
+                  />
+                )}
+
+                {currentStep === 3 && (
+                  <Step3Bus
+                    formData={formData}
+                    handleInputChange={handleInputChange}
+                    onNext={goToNextStep}
+                    onPrev={goToPrevStep}
+                    routes={routes}
+                    buses={buses}
+                    setCapacityCheckResult={setCapacityCheckResult}
+                    handleRefChange={handleRefChange}
+                    applicationState={applicationState}
+                    onClear={() => handleClearStep(3)}
+                  />
+                )}
+
+                {currentStep === 4 && (
+                  <Step4ServicePayment
+                    key={paymentResetKey}
+                    formData={formData}
+                    handleInputChange={handleInputChange}
+                    onNext={goToNextStep}
+                    onPrev={goToPrevStep}
+                    currentUser={currentUser}
+                    calculateTotalFee={calculateTotalFee}
+                    handleSessionDurationChange={handleSessionDurationChange}
+                    deadlineConfig={deadlineConfig}
+                    applicationState={applicationState}
+                    checkFormCompletion={checkFormCompletion}
+                    setPaymentCompleted={setPaymentCompleted}
+                    setPaymentDetails={setPaymentDetails}
+                    setUseOnlinePayment={setUseOnlinePayment}
+                    setApplicationState={setApplicationState}
+                    setReceiptFile={setReceiptFile}
+                    setReceiptPreview={setReceiptPreview}
+                    showToast={showToast}
+                    onClear={() => handleClearStep(4)}
+                  />
+                )}
+
+                {currentStep === 5 && (
+                  <Step5Review
+                    formData={formData}
+                    handleInputChange={handleInputChange}
+                    onPrev={goToPrevStep}
+                    onNext={() => { }}
+                    applicationState={applicationState}
+                    handleSubmitApplication={handleSubmitApplication}
+                    declarationAgreed={declarationAgreed}
+                    setDeclarationAgreed={setDeclarationAgreed}
+                    validateForm={validateForm}
+                    saving={saving}
+                    handleSaveDraft={handleSaveDraft}
+                    submitting={submitting}
+                    useOnlinePayment={useOnlinePayment}
+                    finalImageUrl={finalImageUrl}
+                  />
+                )}
+              </div>
+            </div>
+
+            {/* Mobile Actions area */}
+            <div className="md:hidden flex justify-center mt-4 text-center">
+              <Button variant="ghost" size="sm" onClick={scrollToFormTop} className="text-[10px] text-slate-500 hover:text-white">
+                Back to top
+              </Button>
+            </div>
           </div>
         </div>
       </div>
-    </div>
 
-    <Dialog open={showDeletePaymentDialog} onOpenChange={setShowDeletePaymentDialog}>
-      <DialogContent className="bg-slate-950 border-slate-900 max-w-sm rounded-xl py-8">
-        <div className="text-center space-y-4">
-          <div className="w-16 h-16 bg-red-500/10 rounded-full flex items-center justify-center mx-auto">
-            <RotateCcw className="w-8 h-8 text-red-500" />
+      <Dialog open={showDeletePaymentDialog} onOpenChange={setShowDeletePaymentDialog}>
+        <DialogContent className="bg-slate-950 border-slate-900 max-w-sm rounded-xl py-8">
+          <div className="text-center space-y-4">
+            <div className="w-16 h-16 bg-red-500/10 rounded-full flex items-center justify-center mx-auto">
+              <RotateCcw className="w-8 h-8 text-red-500" />
+            </div>
+            <DialogHeader>
+              <DialogTitle className="text-xl font-bold text-white mb-2 text-center">Reset Application?</DialogTitle>
+              <DialogDescription className="text-slate-400 text-sm text-center">
+                This will delete all current payment data and reset your application progress. This action cannot be undone.
+              </DialogDescription>
+            </DialogHeader>
+            <DialogFooter className="justify-center gap-3 pt-6 flex-row">
+              <Button variant="outline" onClick={() => setShowDeletePaymentDialog(false)} className="flex-1 bg-transparent border-slate-800 text-slate-400 hover:bg-slate-900 h-11">Cancel</Button>
+              <Button variant="destructive" onClick={performFullReset} className="flex-1 bg-red-600 hover:bg-red-700 font-bold h-11">Reset All</Button>
+            </DialogFooter>
           </div>
-          <DialogHeader>
-            <DialogTitle className="text-xl font-bold text-white mb-2 text-center">Reset Application?</DialogTitle>
-            <DialogDescription className="text-slate-400 text-sm text-center">
-              This will delete all current payment data and reset your application progress. This action cannot be undone.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter className="justify-center gap-3 pt-6 flex-row">
-            <Button variant="outline" onClick={() => setShowDeletePaymentDialog(false)} className="flex-1 bg-transparent border-slate-800 text-slate-400 hover:bg-slate-900 h-11">Cancel</Button>
-            <Button variant="destructive" onClick={performFullReset} className="flex-1 bg-red-600 hover:bg-red-700 font-bold h-11">Reset All</Button>
-          </DialogFooter>
-        </div>
-      </DialogContent>
-    </Dialog>
+        </DialogContent>
+      </Dialog>
 
-    {showProfileUpdateModal && (
-      <ProfileImageAddModal
-        isOpen={showProfileUpdateModal}
-        onClose={() => setShowProfileUpdateModal(false)}
-        onConfirm={handleProfileImageUpdate}
-        immediateUpload={false}
-      />
-    )}
-  </div>
-);
+      <Dialog open={showClearPaymentConfirm} onOpenChange={setShowClearPaymentConfirm}>
+        <DialogContent className="bg-slate-950 border-slate-900 max-w-sm rounded-xl py-8">
+          <div className="text-center space-y-4">
+            <div className="w-16 h-16 bg-red-500/10 rounded-full flex items-center justify-center mx-auto">
+              <RotateCcw className="w-8 h-8 text-red-500" />
+            </div>
+            <DialogHeader>
+              <DialogTitle className="text-xl font-bold text-white mb-2 text-center">Clear payment information?</DialogTitle>
+              <DialogDescription className="text-slate-400 text-sm text-center">
+                This action can never be undone. Your completed online payment details will be cleared from this registration.
+              </DialogDescription>
+            </DialogHeader>
+            <DialogFooter className="justify-center gap-3 pt-6 flex-row">
+              <Button variant="outline" onClick={() => setShowClearPaymentConfirm(false)} className="flex-1 bg-transparent border-slate-800 text-slate-400 hover:bg-slate-900 h-11">Cancel</Button>
+              <Button
+                variant="destructive"
+                onClick={performClearPayment}
+                disabled={clearPaymentCountdown > 0}
+                className="flex-1 bg-red-600 hover:bg-red-700 font-bold h-11 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {clearPaymentCountdown > 0 ? `Clear (${clearPaymentCountdown}s)` : 'Clear'}
+              </Button>
+            </DialogFooter>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {showProfileUpdateModal && (
+        <ProfileImageAddModal
+          isOpen={showProfileUpdateModal}
+          onClose={() => setShowProfileUpdateModal(false)}
+          onConfirm={handleProfileImageUpdate}
+          immediateUpload={false}
+        />
+      )}
+    </div>
+  );
 }
 
 export default function ApplicationFormPage() {

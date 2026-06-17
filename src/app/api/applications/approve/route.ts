@@ -7,6 +7,8 @@ import { generateOfflinePaymentId } from '@/lib/types/payment';
 import { computeBlockDatesFromValidUntil } from '@/lib/utils/deadline-computation';
 import { getDeadlineConfig } from '@/lib/deadline-config-service';
 import { deleteAsset, extractPublicId } from '@/lib/cloudinary-server';
+import { requireModeratorPermission } from '@/lib/security/moderator-permissions';
+import { PaymentTransactionService } from '@/lib/payment/payment-transaction.service';
 
 /**
  * Optimized Application Approval API
@@ -53,6 +55,19 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Insufficient permissions' }, { status: 403 });
     }
 
+    const approverData = adminSnap.exists ? adminSnap.data() : modSnap.data();
+    const permissionDenied = await requireModeratorPermission(
+      {
+        uid,
+        email: decodedToken.email || '',
+        role: adminSnap.exists ? 'admin' : 'moderator',
+        name: approverData?.fullName || approverData?.name || '',
+      },
+      'applications',
+      'canApprove'
+    );
+    if (permissionDenied) return permissionDenied;
+
     if (!appSnap.exists) return NextResponse.json({ error: 'Application not found' }, { status: 404 });
     const appData = appSnap.data() as Application;
     if (appData.state !== 'submitted') return NextResponse.json({ error: 'Application already processed' }, { status: 400 });
@@ -82,7 +97,6 @@ export async function POST(request: NextRequest) {
 
     // 3. Prepare data for atomic creation
     const approvedAt = new Date().toISOString();
-    const approverData = adminSnap.exists ? adminSnap.data() : modSnap.data();
     const approverName = approverData?.fullName || approverData?.name || 'Admin';
     const approverEmpId = approverData?.employeeId || approverData?.staffId || (adminSnap.exists ? 'ADMIN' : 'MOD');
     const approvedByDisplay = `${approverName} (${adminSnap.exists ? 'Admin' : approverEmpId})`;
@@ -111,6 +125,67 @@ export async function POST(request: NextRequest) {
       name: formData.fullName, role: 'student', uid: appData.applicantUid
     };
 
+    const amount = Number(formData.paymentInfo?.amountPaid || 0);
+    if (amount > 0) {
+      const { paymentsSupabaseService } = await import('@/lib/services/payments-supabase');
+      const isOnline = formData.paymentInfo?.paymentMode === 'online' || !!formData.paymentInfo?.razorpayPaymentId;
+
+      if (isOnline) {
+        const studentPayments = await paymentsSupabaseService.getPaymentsByStudentUid(appData.applicantUid);
+        const onlinePayment = studentPayments.find(p => p.method === 'Online' && p.status === 'Completed');
+        if (!onlinePayment) {
+          throw new Error('Completed online payment record not found');
+        }
+
+        const updatedPaymentId = await paymentsSupabaseService.upsertPayment({
+          paymentId: onlinePayment.payment_id,
+          studentId: formData.enrollmentId,
+          studentUid: appData.applicantUid,
+          studentName: formData.fullName,
+          amount: onlinePayment.amount,
+          method: 'Online',
+          status: 'Completed',
+          sessionStartYear: onlinePayment.session_start_year,
+          sessionEndYear: studentDoc.sessionEndYear,
+          durationYears: onlinePayment.duration_years,
+          validUntil: new Date(newValidUntil),
+          stopId: finalStopId,
+          razorpayPaymentId: onlinePayment.razorpay_payment_id,
+          razorpayOrderId: onlinePayment.razorpay_order_id,
+        });
+
+        if (!updatedPaymentId) {
+          throw new Error('Failed to update online payment validity');
+        }
+      } else {
+        const paymentId = (appData as any).paymentId || formData.paymentId || formData.paymentInfo?.paymentReference || generateOfflinePaymentId('new_registration');
+        await PaymentTransactionService.saveTransaction({
+          paymentId,
+          studentId: formData.enrollmentId,
+          studentName: formData.fullName,
+          userId: appData.applicantUid,
+          amount,
+          paymentMethod: 'offline',
+          status: 'completed',
+          sessionStartYear: formData.sessionInfo.sessionStartYear,
+          sessionEndYear: studentDoc.sessionEndYear,
+          durationYears: formData.sessionInfo.durationYears,
+          validUntil: newValidUntil,
+          timestamp: approvedAt,
+          offlineTransactionId: formData.paymentInfo?.paymentReference || `app_fee_${applicationId}`,
+          approvedBy: {
+            userId: uid,
+            empId: approverEmpId,
+            name: approverName,
+            role: adminSnap.exists ? 'admin' : 'moderator',
+            email: decodedToken.email || '',
+          },
+          approvedByDisplay,
+          approvedAtISO: approvedAt,
+        });
+      }
+    }
+
     // 4. Batch/Parallelize ALL Firestore Writes & Deletions
     // Using individual set/delete calls but firing in parallel is faster for distributed IDs
     await Promise.all([
@@ -131,44 +206,6 @@ export async function POST(request: NextRequest) {
       })(),
       // Bus Capacity Sync
       incrementBusCapacity(busId, appData.applicantUid, formData.shift).catch(() => null),
-      // Supabase Payment Sync
-      (async () => {
-        try {
-          const { paymentsSupabaseService } = await import('@/lib/services/payments-supabase');
-          const amount = Number(formData.paymentInfo?.amountPaid || 0);
-          if (amount <= 0) return;
-
-          const isOnline = formData.paymentInfo?.paymentMode === 'online' || !!formData.paymentInfo?.razorpayPaymentId;
-          
-          if (isOnline) {
-             const studentPayments = await paymentsSupabaseService.getPaymentsByStudentUid(appData.applicantUid);
-             const onlinePayment = studentPayments.find(p => p.method === 'Online' && p.status === 'Completed');
-             if (onlinePayment) {
-               await paymentsSupabaseService.upsertPayment({
-                 paymentId: onlinePayment.payment_id, studentId: formData.enrollmentId,
-                 studentUid: appData.applicantUid, studentName: formData.fullName,
-                 amount: onlinePayment.amount, method: 'Online', status: 'Completed',
-                 sessionStartYear: onlinePayment.session_start_year,
-                 sessionEndYear: studentDoc.sessionEndYear, durationYears: onlinePayment.duration_years,
-                 validUntil: new Date(newValidUntil), stopId: finalStopId,
-                 razorpayPaymentId: onlinePayment.razorpay_payment_id, razorpayOrderId: onlinePayment.razorpay_order_id,
-               });
-             }
-          } else {
-            let paymentId = (appData as any).paymentId || formData.paymentId || formData.paymentInfo?.paymentReference || generateOfflinePaymentId('new_registration');
-            await paymentsSupabaseService.upsertPayment({
-              paymentId, studentId: formData.enrollmentId, studentUid: appData.applicantUid,
-              studentName: formData.fullName, amount, method: 'Offline', status: 'Completed',
-              stopId: finalStopId, sessionStartYear: formData.sessionInfo.sessionStartYear,
-              sessionEndYear: studentDoc.sessionEndYear, durationYears: formData.sessionInfo.durationYears,
-              validUntil: new Date(newValidUntil), transactionDate: new Date(),
-              offlineTransactionId: formData.paymentInfo?.paymentReference || `app_fee_${applicationId}`,
-              approvedBy: { type: 'Manual', userId: uid, empId: approverEmpId, name: approverName, role: adminSnap.exists ? 'Admin' : 'Moderator' },
-              approvedAt: new Date(),
-            });
-          }
-        } catch (e) { console.error('Supabase sync error:', e); }
-      })()
     ];
 
     // Optional: Await them briefly or just return if backgrounding is safe

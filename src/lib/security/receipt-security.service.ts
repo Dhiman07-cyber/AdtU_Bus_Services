@@ -20,8 +20,28 @@ import crypto from 'crypto';
 // CONFIGURATION
 // ============================================================================
 
-const RECEIPT_SECRET = process.env.RECEIPT_SIGNING_SECRET || process.env.ENCRYPTION_SECRET_KEY || crypto.randomBytes(32).toString('hex');
+// SECURITY: RECEIPT_SECRET must be configured in production.
+// Falling back to random bytes would break verification across serverless instances.
+const RECEIPT_SECRET = (() => {
+    const secret = process.env.RECEIPT_SIGNING_SECRET || process.env.ENCRYPTION_SECRET_KEY;
+    if (!secret) {
+        if (process.env.NODE_ENV === 'production') {
+            throw new Error('FATAL: RECEIPT_SIGNING_SECRET or ENCRYPTION_SECRET_KEY must be set in production');
+        }
+        console.warn('⚠️ Receipt signing secret not configured — using ephemeral key (dev only)');
+        return crypto.randomBytes(32).toString('hex');
+    }
+    return secret;
+})();
 const RECEIPT_EXPIRY_DAYS = 365 * 5; // Receipts valid for 5 years
+
+function safeEqualString(a: unknown, b: string): boolean {
+    if (typeof a !== 'string') return false;
+    const left = Buffer.from(a);
+    const right = Buffer.from(b);
+    if (left.length !== right.length) return false;
+    return crypto.timingSafeEqual(left, right);
+}
 
 // ============================================================================
 // TYPES
@@ -89,9 +109,12 @@ export function generateReceiptSignature(
     studentName: string,
     enrollmentId: string,
     amount: number,
-    method: 'Online' | 'Offline',
-    sessionYear: string
+    _method: 'Online' | 'Offline',
+    _sessionYear: string
 ): string {
+    void _method;
+    void _sessionYear;
+
     const now = Date.now();
     const expiresAt = now + (RECEIPT_EXPIRY_DAYS * 24 * 60 * 60 * 1000);
 
@@ -112,7 +135,7 @@ export function generateReceiptSignature(
     // Create HMAC signature
     const hmac = crypto.createHmac('sha256', RECEIPT_SECRET);
     hmac.update(payloadString);
-    const signature = hmac.digest('hex').substring(0, 12); // 12 chars for brevity
+    const signature = hmac.digest('hex').substring(0, 32); // 32 hex chars = 128-bit security
 
     // Combine payload with signature
     const signedPayload = { ...compactPayload, s: signature };
@@ -156,10 +179,10 @@ export function verifyReceiptSignature(token: string): ReceiptPayload | null {
             // Recreate signature to verify
             const hmac = crypto.createHmac('sha256', RECEIPT_SECRET);
             hmac.update(JSON.stringify(payload));
-            const expectedSig = hmac.digest('hex').substring(0, 12);
+            const expectedSig = hmac.digest('hex').substring(0, 32);
 
             // Constant-time comparison
-            if (!crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expectedSig))) {
+            if (!safeEqualString(signature, expectedSig)) {
                 console.warn('Receipt token: Signature mismatch - possible tampering');
                 return null;
             }
@@ -191,7 +214,7 @@ export function verifyReceiptSignature(token: string): ReceiptPayload | null {
             hmac.update(JSON.stringify(payload));
             const expectedSig = hmac.digest('hex').substring(0, 16);
 
-            if (!crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expectedSig))) {
+            if (!safeEqualString(sig, expectedSig)) {
                 console.warn('Receipt token: Signature mismatch - possible tampering');
                 return null;
             }
@@ -230,14 +253,14 @@ export function quickValidateReceiptToken(token: string): boolean {
             const { s: signature, ...payload } = decoded;
             const hmac = crypto.createHmac('sha256', RECEIPT_SECRET);
             hmac.update(JSON.stringify(payload));
-            const expectedSig = hmac.digest('hex').substring(0, 12);
-            return crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expectedSig));
+            const expectedSig = hmac.digest('hex').substring(0, 32);
+            return safeEqualString(signature, expectedSig);
         } else {
             const { sig, ...payload } = decoded;
             const hmac = crypto.createHmac('sha256', RECEIPT_SECRET);
             hmac.update(JSON.stringify(payload));
             const expectedSig = hmac.digest('hex').substring(0, 16);
-            return crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expectedSig));
+            return safeEqualString(sig, expectedSig);
         }
     } catch {
         return false;

@@ -48,6 +48,7 @@ import {
 import { MoreHorizontal, Eye, Edit, Trash2, Search, Loader2, Plus, Filter, ArrowRightLeft, RefreshCw } from "lucide-react";
 import { deleteDriver } from '@/lib/dataService';
 import { useToast } from '@/contexts/toast-context';
+import { safeImageSrc } from "@/lib/security/url-sanitizer";
 import Avatar from '@/components/Avatar';
 // SPARK PLAN SAFETY: Event-driven refresh - only fetches when mutations occur
 import { usePaginatedCollection, invalidateCollectionCache } from '@/hooks/usePaginatedCollection';
@@ -385,7 +386,7 @@ export default function AdminDrivers() {
                           <TableCell className="py-2">
                             <div className="flex flex-row items-center gap-2">
                               <Avatar
-                                src={driver.profilePhotoUrl}
+                                src={safeImageSrc(driver.profilePhotoUrl)}
                                 name={driver.name || driver.fullName}
                                 size="sm"
                                 className="flex-shrink-0"

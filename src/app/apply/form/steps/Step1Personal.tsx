@@ -1,5 +1,5 @@
 import React from 'react';
-import { Camera, X } from 'lucide-react';
+import { Camera, X, ArrowRight, ArrowLeft } from 'lucide-react';
 import Image from 'next/image';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
@@ -16,23 +16,43 @@ export default function Step1Personal({
   formData,
   handleInputChange,
   onNext,
+  onPrev,
   currentUser,
   profilePhotoUrl,
   finalImageUrl,
   setShowProfileUpdateModal,
-  handleImageRemove
+  handleImageRemove,
+  onClear
 }: PersonalStepProps) {
+  const [localAddress, setLocalAddress] = React.useState(formData.address);
+
+  React.useEffect(() => {
+    setLocalAddress(formData.address);
+  }, [formData.address]);
+
   return (
-    <div className="space-y-4 animate-in fade-in slide-in-from-bottom-4 duration-500">
-      <div>
-        <h2 className="text-xl font-bold tracking-tight text-white mb-0.5">Your Profile</h2>
-        <p className="text-xs text-slate-500">All fields are required. This information is saved to your account.</p>
+    <div className="space-y-4 flex-1 flex flex-col">
+      <div className="flex items-start justify-between gap-4 border-b border-slate-800/40 pb-4">
+        <div>
+          <h2 className="text-xl font-bold tracking-tight text-white mb-0.5">Your Profile</h2>
+          <p className="text-xs text-slate-500">All fields are required. This information is saved to your account.</p>
+        </div>
+        {onClear && (
+          <Button
+            type="button"
+            variant="outline"
+            onClick={onClear}
+            className="border-red-950/30 bg-red-950/10 text-red-400 hover:text-white hover:bg-red-900/40 h-9 px-4 text-xs font-semibold rounded-xl transition-colors shrink-0"
+          >
+            Clear
+          </Button>
+        )}
       </div>
 
       <div className="flex flex-col items-center justify-center mb-6 pt-2">
         <div className="relative group cursor-pointer" onClick={() => setShowProfileUpdateModal(true)}>
           {finalImageUrl ? (
-            <div className="relative h-24 w-24 sm:h-28 sm:w-28 rounded-full overflow-hidden border-4 border-[#0c0e1a] shadow-2xl ring-2 ring-indigo-900/50">
+            <div className="relative h-24 w-24 sm:h-28 sm:w-28 rounded-full overflow-hidden border-4 border-[#0c0e1a] shadow-xl ring-2 ring-indigo-900/50">
               <Image src={finalImageUrl} alt="Profile" fill className="object-cover" />
             </div>
           ) : (
@@ -41,14 +61,14 @@ export default function Step1Personal({
             </div>
           )}
 
-          <div className="absolute inset-0 rounded-full bg-black/50 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity backdrop-blur-[2px]">
+          <div className="absolute inset-0 rounded-full bg-black/50 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
             <Camera className="h-8 w-8 text-white drop-shadow-md" />
           </div>
 
           {finalImageUrl && (
             <button
               onClick={(e) => { e.stopPropagation(); handleImageRemove(); }}
-              className="absolute 0 top-0 right-0 p-2 bg-red-500/90 hover:bg-red-500 text-white rounded-full shadow-lg z-10 transition-transform hover:scale-110"
+              className="absolute 0 top-0 right-0 p-2 bg-red-500/90 hover:bg-red-500 text-white rounded-full shadow-lg z-10 transition-transform hover:scale-105"
               title="Remove photo"
             >
               <X className="h-4 w-4" strokeWidth={3} />
@@ -127,10 +147,11 @@ export default function Step1Personal({
             Age
           </Label>
           <Input
-            type="number"
+            type="text"
             id="age"
             value={formData.age}
             readOnly
+            placeholder="Choose DOB first"
             className="bg-slate-900 border-slate-800 text-slate-500 cursor-not-allowed h-10 text-xs"
           />
         </div>
@@ -220,8 +241,13 @@ export default function Step1Personal({
           <p className="text-[10px] text-slate-500 mb-1.5 italic">Please provide your complete billing and residential address.</p>
           <Textarea
             id="address"
-            value={formData.address}
-            onChange={(e) => handleInputChange('address', e.target.value)}
+            value={localAddress}
+            onChange={(e) => setLocalAddress(e.target.value)}
+            onBlur={() => {
+              if (localAddress !== formData.address) {
+                handleInputChange('address', localAddress);
+              }
+            }}
             rows={3}
             required
             className="resize-none bg-transparent border-slate-800 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-colors py-2 h-24 text-xs"
@@ -230,9 +256,21 @@ export default function Step1Personal({
         </div>
       </div>
 
-      <div className="pt-4 border-t border-slate-800 flex justify-end">
-        <Button onClick={onNext} className="bg-white hover:bg-slate-200 text-black font-bold h-10 px-8 rounded-full shadow-lg shadow-white/10 transition-all hover:scale-105">
-          Save & Continue →
+      <div className="mt-auto pt-6 border-t border-slate-800 flex justify-between gap-4">
+        <Button
+          onClick={onPrev}
+          variant="outline"
+          className="border-slate-800 bg-transparent hover:bg-slate-900 text-slate-400 hover:text-white h-11 px-5 font-semibold rounded-xl transition-colors flex items-center gap-2"
+        >
+          <ArrowLeft className="w-4 h-4" />
+          Back
+        </Button>
+        <Button
+          onClick={onNext}
+          className="bg-indigo-600 hover:bg-indigo-500 text-white font-semibold h-11 px-6 rounded-xl shadow-lg shadow-indigo-600/20 transition-colors flex items-center gap-2"
+        >
+          Continue
+          <ArrowRight className="w-4 h-4" />
         </Button>
       </div>
     </div>

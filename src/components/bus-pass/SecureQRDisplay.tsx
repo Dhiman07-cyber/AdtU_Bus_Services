@@ -216,21 +216,21 @@ export default function SecureQRDisplay({
             ctx.fillRect(0, 0, width, 70);
 
             ctx.fillStyle = '#ffffff';
-            ctx.font = 'bold 18px Inter, system-ui, sans-serif';
+            ctx.font = 'bold 18px system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
             ctx.textAlign = 'center';
             ctx.fillText('Assam down town University', width / 2, 35);
 
             ctx.fillStyle = 'rgba(255, 255, 255, 0.6)';
-            ctx.font = '600 11px Inter, system-ui, sans-serif';
+            ctx.font = '600 11px system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
             ctx.fillText('Secure Digital Bus Pass', width / 2, 55);
 
             // Student info
             ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
-            ctx.font = '600 10px Inter, system-ui, sans-serif';
+            ctx.font = '600 10px system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
             ctx.fillText('STUDENT', width / 2, 95);
 
             ctx.fillStyle = '#ffffff';
-            ctx.font = 'bold 20px Inter, system-ui, sans-serif';
+            ctx.font = 'bold 20px system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
             ctx.fillText(studentName, width / 2, 120);
 
             // QR Code
@@ -255,7 +255,7 @@ export default function SecureQRDisplay({
             ctx.fill();
 
             ctx.fillStyle = '#10b981';
-            ctx.font = 'bold 11px Inter, system-ui, sans-serif';
+            ctx.font = 'bold 11px system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
             ctx.fillText('🔒 END-TO-END ENCRYPTED', width / 2, 398);
 
             // Enrollment ID
@@ -265,7 +265,7 @@ export default function SecureQRDisplay({
             ctx.fill();
 
             ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
-            ctx.font = '600 9px Inter, system-ui, sans-serif';
+            ctx.font = '600 9px system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
             ctx.fillText('ENROLLMENT ID', width / 2, 450);
 
             ctx.fillStyle = '#60a5fa';
@@ -274,7 +274,7 @@ export default function SecureQRDisplay({
 
             // Footer
             ctx.fillStyle = 'rgba(255, 255, 255, 0.3)';
-            ctx.font = '500 9px Inter, system-ui, sans-serif';
+            ctx.font = '500 9px system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
             ctx.fillText('This pass is cryptographically secured', width / 2, 520);
             ctx.fillText(`Generated: ${new Date().toLocaleString()}`, width / 2, 535);
 

@@ -28,6 +28,7 @@ import {
 } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { getStudentById as getStudentByUid } from "@/lib/dataService";
+import { safeImageSrc } from "@/lib/security/url-sanitizer";
 
 const StatusBadge = ({ status }: { status: string }) => {
   const statusConfig: Record<string, { bg: string; text: string; dot: string }> = {
@@ -182,7 +183,7 @@ export default function DriverStudentDetailPage({ params }: { params: Promise<{ 
                 {student.profilePhotoUrl || student.profilePicture ? (
                   <div className="relative w-full aspect-square rounded-2xl overflow-hidden shadow-2xl border-4 border-border bg-gradient-to-br from-card to-card/80">
                     <img
-                      src={student.profilePhotoUrl || student.profilePicture}
+                      src={safeImageSrc(student.profilePhotoUrl || student.profilePicture)}
                       alt={student.fullName || student.name}
                       className="w-full h-full object-cover"
                     />

@@ -42,6 +42,7 @@ import {
 } from "@/components/ui/tooltip";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
+import { safeImageSrc } from "@/lib/security/url-sanitizer";
 import { motion, AnimatePresence } from "framer-motion";
 import Avatar from "@/components/Avatar";
 
@@ -950,7 +951,7 @@ export default function SmartDriverAssignmentPage() {
                                                 <div className="flex items-center gap-3">
                                                     {/* Checkbox removed as per single-select requirement */}
                                                     <Avatar
-                                                        src={driver.profilePhotoUrl}
+                                                        src={safeImageSrc(driver.profilePhotoUrl)}
                                                         name={driver.fullName || driver.name}
                                                         size="sm"
                                                     />

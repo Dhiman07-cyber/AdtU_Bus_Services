@@ -26,6 +26,7 @@ import { cn } from '@/lib/utils';
 import { downloadFile } from '@/lib/download-utils';
 import { PremiumPageLoader } from '@/components/LoadingSpinner';
 import { invalidateCollectionCache } from '@/hooks/usePaginatedCollection';
+import { safeImageSrc, safeMailtoHref, safeTelHref } from '@/lib/security/url-sanitizer';
 
 export default function ModeratorApplicationDetailPage() {
   const { currentUser, userData, loading } = useAuth();
@@ -61,8 +62,9 @@ export default function ModeratorApplicationDetailPage() {
 
     try {
       setDownloadingReceipt(true);
-      const filename = `${application.formData.fullName.replace(/\s+/g, '_')}_receipt.${application.formData.paymentInfo.paymentEvidenceUrl.split('.').pop()?.split('?')[0] || 'jpg'}`;
-      await downloadFile(application.formData.paymentInfo.paymentEvidenceUrl, filename);
+      const evidenceUrl = application.formData.paymentInfo.paymentEvidenceUrl;
+      const filename = `${application.formData.fullName.replace(/\s+/g, '_')}_receipt.${evidenceUrl.split('.').pop()?.split('?')[0] || 'jpg'}`;
+      await downloadFile(evidenceUrl, filename);
       showToast('Receipt downloaded successfully!', 'success');
       setReceiptModalOpen(false);
     } catch (error) {
@@ -395,7 +397,7 @@ export default function ModeratorApplicationDetailPage() {
                         {application.formData?.profilePhotoUrl ? (
                           <div className="w-full h-full rounded-full overflow-hidden ring-2 ring-white/10">
                             <img
-                              src={application.formData.profilePhotoUrl}
+                              src={safeImageSrc(application.formData.profilePhotoUrl)}
                               alt={application.formData?.fullName}
                               className="w-full h-full object-cover rounded-full"
                             />
@@ -436,13 +438,13 @@ export default function ModeratorApplicationDetailPage() {
                       </div>
                       <div className="flex items-center gap-2">
                         <Phone className="h-3.5 w-3.5 text-zinc-500" />
-                        <a href={`tel:${application.formData?.phoneNumber}`} className="hover:text-indigo-400 transition-colors">
+                        <a href={safeTelHref(application.formData?.phoneNumber) ?? undefined} className="hover:text-indigo-400 transition-colors">
                           {application.formData?.phoneNumber}
                         </a>
                       </div>
                       <div className="flex items-center gap-2">
                         <Mail className="h-3.5 w-3.5 text-zinc-500" />
-                        <a href={`mailto:${application.email || application.formData?.email}`} className="hover:text-indigo-400 transition-colors">
+                        <a href={safeMailtoHref(application.email || application.formData?.email) ?? undefined} className="hover:text-indigo-400 transition-colors">
                           {(() => {
                             const email = application.email || application.formData?.email;
                             return (typeof email === 'string' && email.includes('@')) ? email : '—';
@@ -771,7 +773,7 @@ export default function ModeratorApplicationDetailPage() {
 
                   <div className="relative shadow-2xl rounded-lg overflow-hidden border border-white/10 bg-[#0E0F12]">
                     <Image
-                      src={application.formData.paymentInfo.paymentEvidenceUrl}
+                      src={safeImageSrc(application.formData.paymentInfo.paymentEvidenceUrl)}
                       alt="Payment receipt"
                       width={800}
                       height={1000}

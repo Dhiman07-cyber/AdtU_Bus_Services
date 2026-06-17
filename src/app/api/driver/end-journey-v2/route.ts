@@ -10,9 +10,9 @@
  */
 
 import { NextResponse } from 'next/server';
-import { db as adminDb, messaging } from '@/lib/firebase-admin';
+import { db as adminDb } from '@/lib/firebase-admin';
 import { getSupabaseServer } from '@/lib/supabase-server';
-import { FieldValue } from 'firebase-admin/firestore';
+import { tripLockService } from '@/lib/services/trip-lock-service';
 import { withSecurity } from '@/lib/security/api-security';
 import { EndTripSchema } from '@/lib/security/validation-schemas';
 import { RateLimits } from '@/lib/security/rate-limiter';
@@ -48,7 +48,8 @@ interface CleanupStats {
 async function cleanupSupabase(
   supabase: any,
   busId: string,
-  tripId: string,
+  routeId: string,
+  tripId: string | null,
   driverUid: string
 ): Promise<Partial<CleanupStats>> {
   console.log('🧹 Starting COMPREHENSIVE Supabase cleanup...');
@@ -58,10 +59,10 @@ async function cleanupSupabase(
   // Execute all cleanup operations in parallel
   const results = await Promise.allSettled([
     // 1. Delete bus_locations for this bus (current state)
-    supabase
-      .from('bus_locations')
-      .delete()
-      .eq('bus_id', busId)
+    (tripId
+      ? supabase.from('bus_locations').delete().eq('bus_id', busId).eq('trip_id', tripId)
+      : supabase.from('bus_locations').delete().eq('bus_id', busId).eq('driver_uid', driverUid)
+    )
       .then(({ count, error }: { count: number | null, error: any }) => {
         if (error) console.error('❌ Error deleting bus_locations:', error);
         else {
@@ -75,6 +76,7 @@ async function cleanupSupabase(
       .from('driver_location_updates')
       .delete()
       .eq('bus_id', busId)
+      .eq('driver_uid', driverUid)
       .then(({ count, error }: { count: number | null, error: any }) => {
         if (error) console.error('❌ Error deleting driver_location_updates:', error);
         else {
@@ -97,34 +99,11 @@ async function cleanupSupabase(
         }
       }),
 
-    // 4a. DELETE active_trips by bus_id
-    supabase
-      .from('active_trips')
-      .delete()
-      .eq('bus_id', busId)
-      .then(({ count, error }: { count: number | null, error: any }) => {
-        if (error) console.error('❌ Error deleting active_trips by bus_id:', error);
-        else {
-          stats.activeTrips = count || 0;
-          console.log(`✅ Deleted ${count || 0} active_trips (by bus_id)`);
-        }
-      }),
-
-    // 4b. Also DELETE active_trips by driver_id as safety fallback
-    supabase
-      .from('active_trips')
-      .delete()
-      .eq('driver_id', driverUid)
-      .then(({ count, error }: { count: number | null, error: any }) => {
-        if (error) console.error('❌ Error deleting active_trips by driver_id:', error);
-        else console.log(`✅ Deleted ${count || 0} active_trips (by driver_id)`);
-      }),
-
-    // 5. DELETE driver_status row completely
-    supabase
-      .from('driver_status')
-      .delete()
-      .eq('bus_id', busId)
+    // 5. DELETE this driver's status row only
+    (tripId
+      ? supabase.from('driver_status').delete().eq('driver_uid', driverUid).eq('trip_id', tripId)
+      : supabase.from('driver_status').delete().eq('driver_uid', driverUid)
+    )
       .then(({ count, error }: { count: number | null, error: any }) => {
         if (error) console.error('❌ Error deleting driver_status:', error);
         else {
@@ -138,6 +117,7 @@ async function cleanupSupabase(
       .from('driver_status')
       .delete()
       .eq('driver_uid', driverUid)
+      .eq('trip_id', tripId || '')
       .then(({ count, error }: { count: number | null, error: any }) => {
         if (error) console.error('❌ Error deleting driver_status by driver_uid:', error);
         else console.log(`✅ Deleted ${count || 0} driver_status row(s) by driver_uid`);
@@ -149,7 +129,7 @@ async function cleanupSupabase(
       .from('missed_bus_requests')
       .update({ status: 'expired' })
       .eq('status', 'pending')
-      .eq('route_id', busId)  // missed_bus_requests use route_id
+      .eq('route_id', routeId)
       .then(({ count, error }: { count: number | null, error: any }) => {
         if (error) console.error('❌ Error expiring missed_bus_requests:', error);
         else {
@@ -249,13 +229,22 @@ export const POST = withSecurity(
     
     const busData = busDoc.data();
     let activeTripId = tripId || busData?.activeTripId;
-    
+
     if (!activeTripId) {
-        activeTripId = `trip_${busId}_${crypto.randomUUID()}`;
+      const { data: activeTrip } = await supabase
+        .from('active_trips')
+        .select('trip_id, route_id')
+        .eq('bus_id', busId)
+        .eq('driver_id', driverUid)
+        .eq('status', 'active')
+        .maybeSingle();
+
+      activeTripId = activeTrip?.trip_id || null;
     }
 
     const rawBusNumber = busData?.busNumber || busId;
     const busNumber = formatIdForDisplay(rawBusNumber);
+    const routeId = busData?.routeId || busData?.route_id || busId;
     const rawRouteName = busData?.routeName || `Route for Bus ${busNumber}`;
     const routeName = formatIdForDisplay(rawRouteName);
 
@@ -265,31 +254,33 @@ export const POST = withSecurity(
       return NextResponse.json({ error: 'Not the lock holder', errorCode: 'NOT_LOCK_HOLDER' }, { status: 403 });
     }
 
-    // 2. Parallelize ALL Cleanup and Notification Tasks
-    const finalizationTasks = [
-        // Firestore: Release lock
-        adminDb.collection('buses').doc(busId).update({
-            activeTripLock: { active: false, tripId: null, driverId: null, shift: null, since: null, expiresAt: null },
-            activeTripId: null, activeDriverId: null, lastEndedAt: FieldValue.serverTimestamp()
-        }),
+    if (activeTripId) {
+      const endResult = await tripLockService.endTrip(activeTripId, driverUid, busId);
+      if (!endResult.success) {
+        return NextResponse.json({ error: endResult.reason || 'Failed to end trip' }, { status: 403 });
+      }
+    }
 
+    // 2. Parallelize cleanup and notifications after the durable trip state is ended.
+    const finalizationTasks: any[] = [
         // Supabase: Comprehensive Cleanup
-        cleanupSupabase(supabase, busId, activeTripId, driverUid),
-
-        // Supabase: Broadcasts
-        broadcastTripEnd(supabase, busId, activeTripId, busNumber),
-
-        // FCM: Notifications
-        notifyRoute({
-            routeId: busData?.routeId || busData?.route_id || busId,
-            tripId: activeTripId, routeName, busId, eventType: 'TRIP_ENDED'
-        })
+        cleanupSupabase(supabase, busId, routeId, activeTripId, driverUid),
     ];
+
+    if (activeTripId) {
+      finalizationTasks.push(
+        broadcastTripEnd(supabase, busId, activeTripId, busNumber),
+        notifyRoute({
+          routeId,
+          tripId: activeTripId, routeName, busId, eventType: 'TRIP_ENDED'
+        })
+      );
+    }
 
     const taskResults = await Promise.allSettled(finalizationTasks);
     
-    // Extract stats from cleanup task (index 1)
-    const supabaseStats = taskResults[1].status === 'fulfilled' ? (taskResults[1].value as any) : {};
+    // Extract stats from cleanup task (index 0)
+    const supabaseStats = taskResults[0].status === 'fulfilled' ? (taskResults[0].value as any) : {};
     
     const totalElapsed = Date.now() - startTime;
 
@@ -298,7 +289,7 @@ export const POST = withSecurity(
       busLocations: supabaseStats.busLocations || 0,
       waitingFlags: supabaseStats.waitingFlags || 0,
       driverLocationUpdates: supabaseStats.driverLocationUpdates || 0,
-      activeTrips: supabaseStats.activeTrips || 0,
+      activeTrips: activeTripId ? 1 : 0,
       driverStatus: supabaseStats.driverStatus || 0,
       missedBusRequests: supabaseStats.missedBusRequests || 0,
       deviceSessions: supabaseStats.deviceSessions || 0,
@@ -328,7 +319,7 @@ export const POST = withSecurity(
     });
   },
   {
-    requiredRoles: ['driver', 'admin'],
+    requiredRoles: ['driver'],
     schema: EndTripSchema,
     rateLimit: RateLimits.CREATE, // Prevent spam
     allowBodyToken: true

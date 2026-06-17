@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { adminAuth, adminDb } from '@/lib/firebase-admin';
+import { verifyApiAuth, verifyCronSecret } from '@/lib/security/api-auth';
 
 /**
  * Cleanup old unauth users and handle application states
@@ -7,6 +8,10 @@ import { adminAuth, adminDb } from '@/lib/firebase-admin';
  */
 export async function POST(request: NextRequest) {
   try {
+    if (!verifyCronSecret(request)) {
+      const auth = await verifyApiAuth(request, ['admin']);
+      if (!auth.authenticated) return auth.response;
+    }
 
     if (!adminDb) {
       console.error('❌ Admin Firestore not initialized');

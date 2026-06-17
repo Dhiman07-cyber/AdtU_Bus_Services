@@ -19,9 +19,13 @@ export function getOrCreateDeviceId(): string {
     let deviceId = localStorage.getItem(STORAGE_KEY);
 
     if (!deviceId) {
-        // Generate a unique ID using crypto API if available, fallback to Math.random
-        if (window.crypto?.randomUUID) {
-            deviceId = window.crypto.randomUUID();
+        const cryptoObj = typeof window !== 'undefined' ? (window.crypto || (window as any).msCrypto) : null;
+        if (cryptoObj?.randomUUID) {
+            deviceId = cryptoObj.randomUUID();
+        } else if (cryptoObj?.getRandomValues) {
+            const array = new Uint8Array(16);
+            cryptoObj.getRandomValues(array);
+            deviceId = Array.from(array, byte => byte.toString(16).padStart(2, '0')).join('');
         } else {
             deviceId = `${Date.now()}-${Math.random().toString(36).substring(2, 15)}`;
         }

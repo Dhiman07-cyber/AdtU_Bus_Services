@@ -10,6 +10,8 @@ yarn-debug.log*
 ts-debug.log*
 .vscode/
 .next/
+loadtests/
+docs/
 
 # Environment files - CRITICAL: Never commit secrets!
 .env
@@ -56,3 +58,6 @@ firestore_data.json
 
 # Map data
 public/maps/guwahati.pmtiles
+
+# Agent metadata
+.agents/

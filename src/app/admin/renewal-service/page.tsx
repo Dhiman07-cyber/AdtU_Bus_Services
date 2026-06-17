@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useAuth } from '@/contexts/auth-context';
 import { useRouter } from 'next/navigation';
+import { safeImageSrc } from '@/lib/security/url-sanitizer';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -900,7 +901,7 @@ export default function AdminRenewalServicePage() {
                           {/* Avatar Column */}
                           <div className="flex justify-center">
                             <Avatar
-                              src={request.studentData?.profilePhotoUrl || ''}
+                              src={safeImageSrc(request.studentData?.profilePhotoUrl)}
                               name={request.studentName}
                               size="sm"
                               className="h-7 w-7 flex-shrink-0"
@@ -1263,7 +1264,7 @@ export default function AdminRenewalServicePage() {
                 <div className="relative">
                   <div className="absolute -inset-1 bg-gradient-to-br from-indigo-500 to-purple-500 rounded-full opacity-70 blur-md"></div>
                   <Avatar
-                    src={selectedRequest?.studentData?.profilePhotoUrl || ''}
+                    src={safeImageSrc(selectedRequest?.studentData?.profilePhotoUrl)}
                     name={selectedRequest?.studentName || 'Student'}
                     size="xl"
                     className="relative h-16 w-16 sm:h-20 sm:w-20 ring-4 ring-black/50 shadow-xl"

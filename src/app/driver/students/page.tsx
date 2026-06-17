@@ -33,6 +33,7 @@ import {
 } from "lucide-react";
 import { getDriverById as getDriverByUid, getStudentsByBusId } from "@/lib/dataService";
 import { useWaitingFlags } from "@/hooks/useWaitingFlags";
+import { safeImageSrc } from "@/lib/security/url-sanitizer";
 
 // Custom Image component with fallback
 const StudentImage = ({
@@ -46,46 +47,49 @@ const StudentImage = ({
   size?: number;
   className?: string;
 }) => {
-  const [imgSrc, setImgSrc] = useState(src);
+  const sanitizeOptionalImage = (value: string | undefined) => value ? safeImageSrc(value) : undefined;
+  const [imgSrc, setImgSrc] = useState(sanitizeOptionalImage(src));
   const [hasError, setHasError] = useState(false);
 
   useEffect(() => {
-    setImgSrc(src);
+    setImgSrc(sanitizeOptionalImage(src));
     setHasError(false);
   }, [src]);
 
   // Handle Cloudinary URLs properly with minimal optimization
   const processImageUrl = (url: string | undefined) => {
     if (!url) return url;
+    const trimmedUrl = url.trim();
 
     // If it's already a full URL, use it as is
-    if (url.startsWith('http')) {
+    if (trimmedUrl.startsWith('http')) {
+      const safeUrl = safeImageSrc(trimmedUrl);
       // If it's a Cloudinary URL, add minimal optimization parameters
-      if (url.includes('cloudinary.com')) {
+      if (safeUrl.includes('cloudinary.com')) {
         // Only add quality optimization, don't force dimensions
-        const separator = url.includes('?') ? '&' : '?';
-        return `${url}${separator}q_auto,f_auto`;
+        const separator = safeUrl.includes('?') ? '&' : '?';
+        return `${safeUrl}${separator}q_auto,f_auto`;
       }
-      return url;
+      return safeUrl;
     }
 
     // If it's a relative path, it might be from Cloudinary
-    if (url.startsWith('/')) {
+    if (trimmedUrl.startsWith('/')) {
       const cloudName = process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME;
       if (cloudName) {
-        return `https://res.cloudinary.com/${cloudName}/image/upload/q_auto,f_auto${url}`;
+        return safeImageSrc(`https://res.cloudinary.com/${cloudName}/image/upload/q_auto,f_auto${trimmedUrl}`);
       }
     }
 
     // If it looks like a Cloudinary public ID (no extension or path)
-    if (!url.includes('/') && !url.includes('.')) {
+    if (/^[A-Za-z0-9_-]{1,200}$/.test(trimmedUrl)) {
       const cloudName = process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME;
       if (cloudName) {
-        return `https://res.cloudinary.com/${cloudName}/image/upload/q_auto,f_auto/${url}`;
+        return safeImageSrc(`https://res.cloudinary.com/${cloudName}/image/upload/q_auto,f_auto/${trimmedUrl}`);
       }
     }
 
-    return url;
+    return sanitizeOptionalImage(trimmedUrl);
   };
 
   const processedSrc = processImageUrl(imgSrc);

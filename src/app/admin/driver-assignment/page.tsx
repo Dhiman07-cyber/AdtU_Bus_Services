@@ -446,7 +446,7 @@ export default function SmartDriverAssignmentPage() {
         );
 
         const change: StagedDriverChange = {
-            id: `stg-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+            id: `stg-${Date.now()}-${typeof window !== 'undefined' && window.crypto?.randomUUID ? window.crypto.randomUUID().substring(0, 6) : Math.random().toString(36).slice(2, 8)}`,
             busId: currentBus?.id || "",
             busNumber: currentBus?.busNumber || "N/A",
             busShift: currentBus ? normalizeBusShift(currentBus.shift) : "Both",
@@ -506,7 +506,7 @@ export default function SmartDriverAssignmentPage() {
         const driverCode = formatDriverCode(driver.driverId || driver.employeeId || driver.id);
 
         const change: StagedDriverChange = {
-            id: `stg-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+            id: `stg-${Date.now()}-${typeof window !== 'undefined' && window.crypto?.randomUUID ? window.crypto.randomUUID().substring(0, 6) : Math.random().toString(36).slice(2, 8)}`,
             busId: payload.busId,
             busNumber: payload.busNumber,
             busShift: payload.busShift,

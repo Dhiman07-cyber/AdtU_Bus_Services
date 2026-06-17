@@ -49,6 +49,7 @@ import Link from 'next/link';
 import { parseFirestoreDate, formatDate, daysUntil, isDateExpired } from '@/lib/utils/date-utils';
 // SPARK PLAN SAFETY: Migrated to usePaginatedCollection
 import { usePaginatedCollection } from '@/hooks/usePaginatedCollection';
+import { safeImageSrc } from '@/lib/security/url-sanitizer';
 
 interface Transaction {
   studentId: string;
@@ -419,7 +420,7 @@ export default function StudentRenewalPage() {
                     <div className="relative w-full h-full rounded-full bg-[#0a0c12] border-[3px] border-[#0a0c12] p-1.5 flex items-center justify-center overflow-hidden z-10">
                       {studentData?.profilePhotoUrl ? (
                         <div className="w-full h-full rounded-full overflow-hidden border border-white/10 ring-1 ring-white/5">
-                          <Image src={studentData.profilePhotoUrl} alt="Profile" width={96} height={96} className="w-full h-full object-cover rounded-full" />
+                          <Image src={safeImageSrc(studentData.profilePhotoUrl)} alt="Profile" width={96} height={96} className="w-full h-full object-cover rounded-full" />
                         </div>
                       ) : (
                         <div className="w-full h-full rounded-full bg-white/5 flex items-center justify-center">

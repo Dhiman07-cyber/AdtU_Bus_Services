@@ -1,22 +1,50 @@
 
 import { NextRequest, NextResponse } from 'next/server';
+import { safeExternalUrl } from '@/lib/security/url-sanitizer';
+
+const ALLOWED_DOWNLOAD_HOSTS = new Set([
+    'res.cloudinary.com',
+    'firebasestorage.googleapis.com',
+]);
+
+function isAllowedDownloadUrl(value: string): string | null {
+    const parsed = safeExternalUrl(value);
+    if (!parsed) return null;
+    const url = new URL(parsed);
+    const host = url.hostname.toLowerCase();
+    if (ALLOWED_DOWNLOAD_HOSTS.has(host) || host.endsWith('.supabase.co') || host.endsWith('.supabase.in')) {
+        return url.toString();
+    }
+    return null;
+}
+
+function safeFilename(value: string): string {
+    const cleaned = value
+        .replace(/[\\/:*?"<>|\u0000-\u001f\u007f]/g, '_')
+        .replace(/\s+/g, '_')
+        .slice(0, 120);
+    return cleaned || 'file';
+}
 
 export async function GET(request: NextRequest) {
     const searchParams = request.nextUrl.searchParams;
     const fileUrl = searchParams.get('url');
-    const filename = searchParams.get('filename') || 'file';
+    const filename = safeFilename(searchParams.get('filename') || 'file');
 
     if (!fileUrl) {
         return NextResponse.json({ error: 'Missing file URL' }, { status: 400 });
     }
 
+    const safeUrl = isAllowedDownloadUrl(fileUrl);
+    if (!safeUrl) {
+        return NextResponse.json({ error: 'Unsupported download source' }, { status: 400 });
+    }
+
     try {
-        // Validate URL to prevent arbitrary SSRF if needed, 
-        // but for now we assume the frontend sends valid signed/public URLs
-        const response = await fetch(fileUrl);
+        const response = await fetch(safeUrl, { redirect: 'error' });
 
         if (!response.ok) {
-            console.error(`Failed to fetch file: ${response.status} ${response.statusText}`);
+            console.error('Failed to fetch download source');
             return NextResponse.json({ error: 'Failed to fetch file from source' }, { status: 502 });
         }
 

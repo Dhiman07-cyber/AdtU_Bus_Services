@@ -51,6 +51,7 @@ import { PremiumPageLoader } from '@/components/LoadingSpinner';
 import { MoreHorizontal, Eye, Edit, Trash2, Search, Loader2, Plus, RefreshCw, Filter, X, Users, ArrowRightLeft, ChevronDown, QrCode, Download } from "lucide-react";
 import { deleteStudent } from '@/lib/dataService';
 import { useToast } from '@/contexts/toast-context';
+import { safeImageSrc } from "@/lib/security/url-sanitizer";
 import Avatar from '@/components/Avatar';
 // SPARK PLAN SAFETY: Replaced useRealtimeCollection with usePaginatedCollection
 import { usePaginatedCollection, invalidateCollectionCache } from '@/hooks/usePaginatedCollection';
@@ -508,7 +509,7 @@ export default function AdminStudents() {
                           <TableCell className="py-1.5">
                             <div className="flex flex-row items-center gap-2">
                               <Avatar
-                                src={student.profilePhotoUrl || student.photoURL}
+                                src={safeImageSrc(student.profilePhotoUrl || student.photoURL)}
                                 name={student.name || student.fullName}
                                 size="xs"
                                 className="flex-shrink-0"

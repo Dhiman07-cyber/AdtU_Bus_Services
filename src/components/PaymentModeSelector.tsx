@@ -424,10 +424,9 @@ export default function PaymentModeSelector({
   };
 
   return (
-    <Card className="w-full border-0 shadow-xl sm:shadow-2xl bg-[#111117] border border-white/5 backdrop-blur-sm overflow-hidden flex flex-col h-full">
+    <Card className="w-full border-0 shadow-xl sm:shadow-2xl bg-[#111117] border border-white/5 overflow-hidden flex flex-col h-full">
       {showHeader && (
-        <CardHeader className="relative pb-4 sm:pb-6 pt-5 sm:pt-8 px-4 sm:px-6 bg-white/[0.02] border-b border-white/5">
-          <div className="absolute top-0 right-0 w-40 h-40 bg-gradient-to-br from-violet-500/10 to-fuchsia-500/10 rounded-full blur-3xl"></div>
+        <CardHeader className="relative pb-4 sm:pb-6 pt-5 sm:pt-8 px-4 sm:px-6 bg-white/[0.02] bg-[radial-gradient(ellipse_at_top_right,rgba(139,92,246,0.08),transparent_70%)] border-b border-white/5">
           <div className="relative">
             <div className="flex items-center justify-between gap-2 sm:gap-3 mb-2">
               <div className="flex items-center gap-2 sm:gap-3">
@@ -480,7 +479,7 @@ export default function PaymentModeSelector({
 
             {/* Summary Grid */}
             <div className="grid grid-cols-3 gap-1 sm:gap-2">
-              <div className="p-1 sm:p-2 bg-white/15 backdrop-blur-sm rounded-lg lg:rounded-xl">
+              <div className="p-1 sm:p-2 bg-white/[0.08] border border-white/5 rounded-lg lg:rounded-xl">
                 <div className="flex items-center gap-0.5 mb-0.5">
                   <Clock className="h-2.5 w-2.5 sm:h-3 sm:w-3 text-blue-200" />
                   <span className="text-[7px] sm:text-[9px] text-blue-100 font-semibold uppercase tracking-wider">Duration</span>
@@ -488,7 +487,7 @@ export default function PaymentModeSelector({
                 <p className="font-black text-[9px] sm:text-xs text-white uppercase">{duration} Year{duration > 1 ? 's' : ''}</p>
               </div>
 
-              <div className="p-1 sm:p-2 bg-white/15 backdrop-blur-sm rounded-lg lg:rounded-xl">
+              <div className="p-1 sm:p-2 bg-white/[0.08] border border-white/5 rounded-lg lg:rounded-xl">
                 <div className="flex items-center gap-0.5 mb-0.5">
                   <Calendar className="h-2.5 w-2.5 sm:h-3 sm:w-3 text-purple-200" />
                   <span className="text-[7px] sm:text-[9px] text-purple-100 font-semibold uppercase tracking-wider">Session</span>
@@ -496,7 +495,7 @@ export default function PaymentModeSelector({
                 <p className="font-black text-[9px] sm:text-xs text-white">{sessionStartYear}-{sessionEndYear}</p>
               </div>
 
-              <div className="p-1 sm:p-2 bg-white/15 backdrop-blur-sm rounded-lg lg:rounded-xl">
+              <div className="p-1 sm:p-2 bg-white/[0.08] border border-white/5 rounded-lg lg:rounded-xl">
                 <div className="flex items-center gap-0.5 mb-0.5">
                   <CheckCircle className="h-2.5 w-2.5 sm:h-3 sm:w-3 text-green-300" />
                   <span className="text-[7px] sm:text-[9px] text-green-100 font-semibold uppercase tracking-wider text-nowrap">Valid Until</span>
@@ -508,7 +507,7 @@ export default function PaymentModeSelector({
             </div>
 
             {/* Total Amount */}
-            <div className="relative overflow-hidden p-2 sm:p-3 bg-white/10 backdrop-blur-md rounded-lg sm:rounded-xl border border-white/5">
+            <div className="relative overflow-hidden p-2 sm:p-3 bg-white/[0.06] rounded-lg sm:rounded-xl border border-white/5">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-1.5 sm:gap-2">
                   <div className="p-1 sm:p-1.5 rounded-md lg:rounded-lg bg-gradient-to-br from-green-400 to-emerald-500 shadow-lg">
@@ -531,7 +530,7 @@ export default function PaymentModeSelector({
             <div className="absolute inset-0 bg-gradient-to-br from-green-500 to-emerald-600"></div>
             <div className="relative p-5 sm:p-6">
               <div className="flex items-start gap-3 sm:gap-4 mb-4">
-                <div className="p-2 sm:p-2.5 bg-white/20 backdrop-blur-sm rounded-xl">
+                <div className="p-2 sm:p-2.5 bg-white/[0.08] border border-white/5 rounded-xl">
                   <CheckCircle className="h-6 w-6 sm:h-7 sm:w-7 text-white" />
                 </div>
                 <div className="flex-1">
@@ -541,7 +540,7 @@ export default function PaymentModeSelector({
               </div>
 
               {paymentDetails && (
-                <div className="space-y-2 bg-white/10 backdrop-blur-sm rounded-xl p-3 sm:p-4">
+                <div className="space-y-2 bg-white/[0.05] border border-white/5 rounded-xl p-3 sm:p-4">
                   <div className="flex justify-between items-center text-xs sm:text-sm">
                     <span className="text-green-50">Payment ID</span>
                     <span className="font-mono font-semibold text-white">{paymentDetails.paymentId}</span>
@@ -613,14 +612,14 @@ export default function PaymentModeSelector({
                     type="button"
                     onClick={() => !(isReadOnly || isVerified) && setPaymentMode('online')}
                     disabled={isReadOnly || isVerified}
-                    className={`relative group px-1.5 sm:px-4 py-2.5 sm:py-3.5 rounded-xl transition-all duration-300 select-none touch-manipulation ${isReadOnly ? 'cursor-not-allowed opacity-80' : ''}`}
+                    className={`relative group px-1.5 sm:px-4 py-2.5 sm:py-3.5 rounded-xl transition-all duration-300 select-none touch-manipulation ${isReadOnly ? 'cursor-not-allowed opacity-80' : 'cursor-pointer'}`}
                   >
                     <div className="flex items-center justify-center gap-1.5 sm:gap-2.5">
                       {/* Icon */}
                       <div className="relative">
                         <div className={`p-1.5 rounded-lg transition-all duration-300 ${paymentMode === 'online'
-                          ? 'bg-white/20 backdrop-blur-sm shadow-lg'
-                          : 'bg-white/5'
+                          ? 'bg-white/[0.12] border border-white/10 shadow-lg'
+                          : 'bg-white/5 border border-transparent'
                           }`}>
                           <CreditCard className={`h-3.5 w-3.5 sm:h-4.5 sm:w-4.5 transition-colors ${paymentMode === 'online' ? 'text-white' : 'text-gray-400'
                             }`} />
@@ -652,14 +651,14 @@ export default function PaymentModeSelector({
                     type="button"
                     onClick={() => !(isReadOnly || isVerified) && setPaymentMode('offline')}
                     disabled={isReadOnly || isVerified}
-                    className={`relative group px-1.5 sm:px-4 py-2.5 sm:py-3.5 rounded-xl transition-all duration-300 select-none touch-manipulation ${isReadOnly ? 'cursor-not-allowed opacity-80' : ''}`}
+                    className={`relative group px-1.5 sm:px-4 py-2.5 sm:py-3.5 rounded-xl transition-all duration-300 select-none touch-manipulation ${isReadOnly ? 'cursor-not-allowed opacity-80' : 'cursor-pointer'}`}
                   >
                     <div className="flex items-center justify-center gap-1.5 sm:gap-2.5">
                       {/* Icon */}
                       <div className="relative">
                         <div className={`p-1.5 rounded-lg transition-all duration-300 ${paymentMode === 'offline'
-                          ? 'bg-white/20 backdrop-blur-sm shadow-lg'
-                          : 'bg-white/5'
+                          ? 'bg-white/[0.12] border border-white/10 shadow-lg'
+                          : 'bg-white/5 border border-transparent'
                           }`}>
                           <Building2 className={`h-3.5 w-3.5 sm:h-4.5 sm:w-4.5 transition-colors ${paymentMode === 'offline' ? 'text-white' : 'text-gray-400'
                             }`} />
@@ -848,7 +847,7 @@ export default function PaymentModeSelector({
             {paymentMode === 'online' && (
               <div className="space-y-3 sm:space-y-4">
                 {/* Payment Flow */}
-                <div className="p-3 sm:p-4 bg-white/[0.03] border border-white/10 backdrop-blur-sm rounded-xl">
+                <div className="p-3 sm:p-4 bg-white/[0.03] border border-white/10 rounded-xl">
                   <div className="flex items-center gap-2 mb-3">
                     <div className="p-1.5 bg-blue-600 rounded-lg">
                       <Info className="h-3.5 w-3.5 text-white" />
@@ -894,9 +893,15 @@ export default function PaymentModeSelector({
 
                 {/* Online Payment Button */}
                 <Button
-                  onClick={handleOnlinePayment}
-                  disabled={isProcessingPayment || isProcessing || !isFormComplete}
-                  className="w-full h-11 sm:h-14 text-xs sm:text-base font-bold bg-gradient-to-r from-emerald-600 via-teal-600 to-cyan-600 hover:from-emerald-700 hover:via-teal-700 hover:to-cyan-700 text-white shadow-xl hover:shadow-2xl transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer active:scale-[0.98]"
+                  onClick={() => {
+                    if (!isFormComplete) {
+                      toast.error("Please fill out all required fields in steps 1, 2, and 3 before making payment.");
+                      return;
+                    }
+                    handleOnlinePayment();
+                  }}
+                  disabled={isProcessingPayment || isProcessing}
+                  className={`w-full h-11 sm:h-14 text-xs sm:text-base font-bold bg-gradient-to-r from-emerald-600 via-teal-600 to-cyan-600 hover:from-emerald-700 hover:via-teal-700 hover:to-cyan-700 text-white shadow-xl hover:shadow-2xl transition-all duration-200 cursor-pointer active:scale-[0.98] ${!isFormComplete ? 'opacity-50' : ''}`}
                 >
                   {isProcessingPayment || isProcessing ? (
                     <>

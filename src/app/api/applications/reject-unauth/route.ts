@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { adminAuth, adminDb } from '@/lib/firebase-admin';
 import { v2 as cloudinary } from 'cloudinary';
 import { sendApplicationRejectedNotification } from '@/lib/services/admin-email.service';
+import { requireModeratorPermission } from '@/lib/security/moderator-permissions';
 
 // Configure Cloudinary
 if (process.env.CLOUDINARY_API_KEY && process.env.CLOUDINARY_API_SECRET && process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME) {
@@ -41,6 +42,17 @@ export async function POST(request: NextRequest) {
     }
 
     const moderatorData = moderatorDoc.exists ? moderatorDoc.data() : adminDoc.data();
+    const permissionDenied = await requireModeratorPermission(
+      {
+        uid: moderatorUid,
+        email: moderatorEmail || '',
+        role: adminDoc.exists ? 'admin' : 'moderator',
+        name: moderatorData?.fullName || moderatorData?.name || '',
+      },
+      'applications',
+      'canReject'
+    );
+    if (permissionDenied) return permissionDenied;
 
     // Get application data
     const applicationRef = adminDb.collection('applications').doc(studentUid);
@@ -53,6 +65,20 @@ export async function POST(request: NextRequest) {
     const appData = applicationDoc.data()!;
     const formData = appData.formData;
     const now = new Date().toISOString();
+
+    if ((appData as any).paymentId) {
+      try {
+        const { paymentsSupabaseService } = await import('@/lib/services/payments-supabase');
+        await paymentsSupabaseService.updatePaymentStatus((appData as any).paymentId, 'Rejected', {
+          userId: moderatorUid,
+          name: moderatorData?.fullName || moderatorData?.name || 'Moderator',
+          empId: moderatorData?.employeeId || moderatorData?.staffId || '',
+          role: adminDoc.exists ? 'Admin' : 'Moderator',
+        });
+      } catch (paymentError) {
+        console.error('Failed to reject pending payment record:', paymentError);
+      }
+    }
 
     // ✅ CLEANUP: Delete payment proof from Cloudinary
     if (formData.paymentInfo?.paymentEvidenceUrl && cloudinary.config().api_key) {

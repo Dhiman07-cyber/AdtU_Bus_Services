@@ -43,6 +43,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { getDriverById, deleteDriver } from '@/lib/dataService';
+import { safeImageSrc } from "@/lib/security/url-sanitizer";
 
 const formatDate = (dateValue: any) => {
   if (!dateValue) return 'Not provided';
@@ -272,7 +273,7 @@ export default function ViewDriverPage({ params }: { params: Promise<{ id: strin
                 {driver.profilePhotoUrl ? (
                   <div className="relative w-full aspect-square rounded-full overflow-hidden shadow-2xl border-2 border-border bg-gradient-to-br from-card to-card/80">
                     <img
-                      src={driver.profilePhotoUrl}
+                      src={safeImageSrc(driver.profilePhotoUrl)}
                       alt={driver.name}
                       className="w-full h-full object-cover"
                     />

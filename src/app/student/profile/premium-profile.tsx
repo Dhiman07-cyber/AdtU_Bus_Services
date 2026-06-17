@@ -17,6 +17,7 @@ import { useRealtimeDocument } from "@/hooks/useRealtimeDocument";
 // SPARK PLAN SAFETY: Migrated to usePaginatedCollection
 import { usePaginatedCollection } from '@/hooks/usePaginatedCollection';
 import Image from "next/image";
+import { safeImageSrc } from "@/lib/security/url-sanitizer";
 
 const formatDate = (dateString: string | any) => {
   if (!dateString) return 'Not Set';
@@ -107,7 +108,7 @@ export default function PremiumStudentProfile() {
                 {student?.profilePhotoUrl || student?.profilePicture ? (
                   <div className="h-32 w-32 md:h-40 md:w-40 rounded-full border-4 border-white dark:border-gray-900 overflow-hidden shadow-2xl bg-white">
                     <Image
-                      src={student.profilePhotoUrl || student.profilePicture}
+                      src={safeImageSrc(student.profilePhotoUrl || student.profilePicture)}
                       alt={student?.fullName || 'Student'}
                       width={160}
                       height={160}

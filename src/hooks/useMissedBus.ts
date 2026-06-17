@@ -257,9 +257,13 @@ export function useMissedBus(
     };
 }
 
-/**
- * Generate a unique operation ID for idempotency
- */
 export function generateOpId(): string {
-    return `mbr_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    const cryptoObj = typeof window !== 'undefined' ? (window.crypto || (window as any).msCrypto) : globalThis.crypto;
+    if (cryptoObj && cryptoObj.randomUUID) {
+        return `mbr_${Date.now()}_${cryptoObj.randomUUID().substring(0, 8)}`;
+    }
+    const randomHex = cryptoObj && cryptoObj.getRandomValues
+        ? Array.from(cryptoObj.getRandomValues(new Uint8Array(4))).map(b => (b as any).toString(16).padStart(2, '0')).join('')
+        : Math.random().toString(36).substring(2, 10);
+    return `mbr_${Date.now()}_${randomHex}`;
 }

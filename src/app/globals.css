@@ -5,9 +5,10 @@ html {
   color-scheme: dark;
 }
 
-/* Fallback font stack */
+/* System-only font stacks; avoid network font dependencies on low-end devices. */
 :root {
-  --font-inter: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  --font-sans: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Consolas, "Liberation Mono", Menlo, monospace;
 }
 
 :root {
@@ -117,8 +118,124 @@ html {
 body {
   background-color: hsl(var(--background));
   color: hsl(var(--foreground));
-  font-family: var(--font-inter), 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  font-family: var(--font-sans);
   font-feature-settings: "rlig" 1, "calt" 1;
+}
+
+button,
+input,
+textarea,
+select,
+option {
+  font-family: inherit;
+}
+
+code,
+kbd,
+samp,
+pre {
+  font-family: var(--font-mono);
+}
+
+@keyframes blob {
+
+  0%,
+  100% {
+    transform: translate(0, 0) scale(1);
+  }
+
+  33% {
+    transform: translate(30px, -50px) scale(1.1);
+  }
+
+  66% {
+    transform: translate(-20px, 20px) scale(0.9);
+  }
+}
+
+@keyframes breathingGlow {
+
+  0%,
+  100% {
+    box-shadow:
+      0 0 20px #00ffaa40,
+      0 0 40px #00ffaa20,
+      inset 0 0 20px #00ffaa10;
+  }
+
+  50% {
+    box-shadow:
+      0 0 40px #00ffaa60,
+      0 0 80px #00ffaa30,
+      inset 0 0 30px #00ffaa20;
+  }
+}
+
+.animate-blob {
+  animation: blob 7s infinite;
+}
+
+.animate-breathing-glow {
+  animation: breathingGlow 3s infinite;
+}
+
+.animation-delay-2000 {
+  animation-delay: 2s;
+}
+
+.animation-delay-4000 {
+  animation-delay: 4s;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html:focus-within {
+    scroll-behavior: auto !important;
+  }
+
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-delay: 0ms !important;
+    transition-duration: 0.01ms !important;
+  }
+
+  .animate-spin,
+  .pink-purple-spinner,
+  .pink-purple-spinner::after {
+    animation-iteration-count: infinite !important;
+    animation-play-state: running !important;
+  }
+
+  .animate-spin,
+  .pink-purple-spinner {
+    animation-duration: 1s !important;
+  }
+
+  .pink-purple-spinner::after {
+    animation-duration: 1.5s !important;
+  }
+}
+
+@media (max-width: 768px) {
+
+  .backdrop-blur-sm,
+  .backdrop-blur,
+  .backdrop-blur-md,
+  .backdrop-blur-lg,
+  .backdrop-blur-xl,
+  .backdrop-blur-2xl,
+  .backdrop-blur-3xl {
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
+  }
+
+  .animate-blob,
+  .animate-breathing-glow {
+    animation: none !important;
+  }
 }
 
 /* Premium theme enhancements */
@@ -150,7 +267,7 @@ body {
 }
 
 .animate-spin {
-  animation: spin 1s linear infinite;
+  animation: spin 1s linear infinite !important;
 }
 
 /* Custom thin scrollbar for modals */
@@ -1103,7 +1220,7 @@ body {
       #a855f7 180deg,
       #8b5cf6 270deg,
       #ec4899 360deg);
-  animation: spin-gradient 1s linear infinite;
+  animation: spin-gradient 1s linear infinite !important;
 }
 
 /* Responsive sizing for larger screens */
@@ -1145,7 +1262,7 @@ body {
   border-radius: 50%;
   filter: blur(8px);
   z-index: -1;
-  animation: spin-gradient 1.5s linear infinite;
+  animation: spin-gradient 1.5s linear infinite !important;
 }
 
 @media (min-width: 640px) {
@@ -1175,6 +1292,28 @@ html.lenis body {
 
 .lenis.lenis-scrolling iframe {
   pointer-events: none;
+}
+
+/* ========================================
+   PREMIUM LOGIN PAGE SSR SAFETY
+   ======================================== */
+.login-card-container-motion {
+  opacity: 0;
+  transform: translateY(20px) scale(0.98);
+  clip-path: inset(0% 49.8% 0% 49.8%);
+  -webkit-clip-path: inset(0% 49.8% 0% 49.8%);
+}
+
+.login-child-left {
+  opacity: 0;
+}
+
+.login-child-separator {
+  opacity: 0;
+}
+
+.login-child-right {
+  opacity: 0;
 }
 
 /* ========================================

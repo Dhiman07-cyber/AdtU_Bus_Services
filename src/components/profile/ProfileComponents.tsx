@@ -7,6 +7,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { LucideIcon } from 'lucide-react';
+import { safeImageSrc } from '@/lib/security/url-sanitizer';
 
 /**
  * InfoRow - Display label and value in a consistent format
@@ -130,7 +131,7 @@ export function ProfileHeaderCard({
 
             <Avatar className="relative h-24 w-24 border-4 border-white dark:border-gray-900 shadow-2xl">
               <AvatarImage
-                src={profilePhotoUrl}
+                src={safeImageSrc(profilePhotoUrl)}
                 alt={name}
                 className="object-cover"
                 style={{ objectFit: 'cover' }}
@@ -188,7 +189,7 @@ export function ProfileHeaderCard({
           <div className="relative ml-6">
             <Avatar className="h-24 w-24 border-4 border-white/30 shadow-xl">
               <AvatarImage
-                src={profilePhotoUrl}
+                src={safeImageSrc(profilePhotoUrl)}
                 alt={name}
                 className="object-cover"
                 style={{ objectFit: 'cover' }}

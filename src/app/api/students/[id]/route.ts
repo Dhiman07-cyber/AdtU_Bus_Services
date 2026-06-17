@@ -1,8 +1,10 @@
 import { NextResponse } from 'next/server';
-import { getApps, initializeApp } from 'firebase-admin/app';
+import { cert, getApps, initializeApp } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
 import fs from 'fs';
 import path from 'path';
+import { verifyApiAuth } from '@/lib/security/api-auth';
+import { requireModeratorPermission } from '@/lib/security/moderator-permissions';
 
 // Define types for our data
 interface Student {
@@ -50,11 +52,10 @@ const initializeFirebase = async () => {
     if (process.env.FIREBASE_CLIENT_EMAIL && process.env.FIREBASE_PRIVATE_KEY) {
       let adminApp;
       if (!getApps().length) {
-        const admin = await import('firebase-admin');
         // Fix private key parsing issue
         const privateKey = process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n');
         adminApp = initializeApp({
-          credential: admin.credential.cert({
+          credential: cert({
             projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
             clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
             privateKey: privateKey,
@@ -76,6 +77,12 @@ initializeFirebase();
 
 export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
+    const auth = await verifyApiAuth(request, ['admin', 'moderator']);
+    if (!auth.authenticated) return auth.response;
+
+    const permissionDenied = await requireModeratorPermission(auth, 'students', 'canView');
+    if (permissionDenied) return permissionDenied;
+
     const { id } = await params;
     
     // Try to fetch from Firebase first

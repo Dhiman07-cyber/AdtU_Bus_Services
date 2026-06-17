@@ -4,109 +4,81 @@
  * POST /api/payments/approve
  * Approves an offline pending payment and updates student validity.
  * 
- * Authentication: Required (Admin or Moderator only)
+ * SECURITY:
+ * - withSecurity wrapper: auth, RBAC, rate limiting, CSRF, Zod validation
+ * - ATOMIC: Supabase WHERE status='Pending' prevents double-approval
+ * - IDEMPOTENT: Already-completed payments return success
  */
 
-import { NextRequest, NextResponse } from 'next/server';
-import { verifyToken, adminDb } from '@/lib/firebase-admin';
+import { NextResponse } from 'next/server';
+import { adminDb } from '@/lib/firebase-admin';
 import { approveOfflinePayment } from '@/lib/payment/payment.service';
+import { withSecurity } from '@/lib/security/api-security';
+import { ApprovePaymentSchema } from '@/lib/security/validation-schemas';
+import { RateLimits } from '@/lib/security/rate-limiter';
+import { requireModeratorPermission } from '@/lib/security/moderator-permissions';
 
-export async function POST(request: NextRequest) {
-    try {
-        // Verify authentication
-        const token = request.headers.get('Authorization')?.replace('Bearer ', '');
-        if (!token) {
-            return NextResponse.json(
-                { success: false, error: 'Unauthorized' },
-                { status: 401 }
-            );
-        }
+export const POST = withSecurity(
+    async (request, { auth, body, requestId }) => {
+        const { paymentId } = body as { paymentId: string };
+        const userId = auth.uid;
 
-        const decodedToken = await verifyToken(token);
-        const userId = decodedToken.uid;
+        const permissionDenied = await requireModeratorPermission(
+            auth,
+            'payments',
+            'canApproveOfflinePayment',
+            requestId
+        );
+        if (permissionDenied) return permissionDenied;
 
-        // Get user data to verify role and get approver info
-        const userDoc = await adminDb.collection('users').doc(userId).get();
-        const userData = userDoc.data();
+        // Get approver details from role-specific collection
+        let approverEmpId = '';
+        let approverName = auth.name || '';
 
-        if (!userData) {
-            return NextResponse.json(
-                { success: false, error: 'User not found' },
-                { status: 404 }
-            );
-        }
-
-        // Only admins and moderators can approve payments
-        if (!['admin', 'moderator'].includes(userData.role)) {
-            return NextResponse.json(
-                { success: false, error: 'Insufficient permissions' },
-                { status: 403 }
-            );
-        }
-
-        // Parse request body
-        const body = await request.json();
-        const { paymentId } = body;
-
-        if (!paymentId) {
-            return NextResponse.json(
-                { success: false, error: 'Payment ID is required' },
-                { status: 400 }
-            );
-        }
-
-        // Get approver details - check moderators or admins collection
-        let approverEmpId = userData.empId || '';
-        let approverName = userData.name || '';
-
-        if (userData.role === 'moderator') {
+        if (auth.role === 'moderator') {
             const modDoc = await adminDb.collection('moderators').doc(userId).get();
             if (modDoc.exists) {
                 const modData = modDoc.data();
-                approverEmpId = modData?.empId || approverEmpId;
+                approverEmpId = modData?.empId || '';
                 approverName = modData?.name || modData?.fullName || approverName;
             }
-        } else if (userData.role === 'admin') {
+        } else if (auth.role === 'admin') {
             const adminDoc = await adminDb.collection('admins').doc(userId).get();
             if (adminDoc.exists) {
                 const adminData = adminDoc.data();
-                approverEmpId = adminData?.empId || approverEmpId;
+                approverEmpId = adminData?.empId || '';
                 approverName = adminData?.name || adminData?.fullName || approverName;
             }
         }
 
-        // Approve the payment
+        // Approve the payment (ATOMIC + IDEMPOTENT)
         const result = await approveOfflinePayment({
             paymentId,
             approverUserId: userId,
             approverEmpId,
             approverName,
-            approverRole: userData.role as 'Admin' | 'Moderator'
+            approverRole: auth.role === 'admin' ? 'Admin' : 'Moderator',
         });
 
         if (!result.success) {
             return NextResponse.json(
-                { success: false, error: result.error },
+                { success: false, error: result.error, requestId },
                 { status: 400 }
             );
         }
 
-        console.log(`✅ Payment ${paymentId} approved by ${approverName} (${approverEmpId})`);
+        console.log(`✅ [${requestId}] Payment ${paymentId} approved by ${approverName} (${approverEmpId})`);
 
         return NextResponse.json({
             success: true,
             message: 'Payment approved successfully',
-            payment: result.payment
+            payment: result.payment,
+            requestId,
         });
-
-    } catch (error) {
-        console.error('Error approving payment:', error);
-        return NextResponse.json(
-            {
-                success: false,
-                error: 'Failed to approve payment'
-            },
-            { status: 500 }
-        );
+    },
+    {
+        requiredRoles: ['admin', 'moderator'],
+        schema: ApprovePaymentSchema,
+        rateLimit: RateLimits.PAYMENT_CREATE,
     }
-}
+);

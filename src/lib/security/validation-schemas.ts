@@ -46,8 +46,8 @@ export const ReassignStudentsSchema = z.object({
         stopName: z.string().max(200).optional(),
     })),
     sourceBusId: z.string().min(1).max(100),
-    actorId: z.string().min(1).max(128),
-    actorName: z.string().min(1).max(200),
+    actorId: z.string().min(1).max(128).optional(),
+    actorName: z.string().min(1).max(200).optional(),
 });
 
 export const AdminSwapBusSchema = z.object({
@@ -190,6 +190,15 @@ export const VerifyBusPassSchema = z.object({
     scannerBusId: z.string().min(1).max(50),
 });
 
+export const VerifyReceiptSchema = z.object({
+    receiptToken: z.string().min(8).max(2048),
+    scanContext: z.object({
+        busId: z.string().max(100).optional(),
+        routeId: z.string().max(100).optional(),
+        source: z.string().max(50).optional(),
+    }).passthrough().optional(),
+});
+
 // ============================================================================
 // Student Schemas
 // ============================================================================
@@ -300,6 +309,7 @@ export const DriverSwapRequestSchema = z.object({
 export const StartTripSchema = z.object({
     busId: z.string().min(1).max(100),
     routeId: z.string().min(1).max(100),
+    shift: z.enum(['morning', 'evening', 'both']).optional(),
 });
 
 export const NotifyStudentsSchema = z.object({
@@ -432,7 +442,7 @@ export const LocationUpdateBodySchema = z.object({
     routeId: z.string().min(1).max(100),
     lat: z.union([z.number(), z.string().transform(Number)]).optional(),
     lng: z.union([z.number(), z.string().transform(Number)]).optional(),
-    accuracy: z.union([z.number(), z.string().transform(Number)]),
+    accuracy: z.union([z.number(), z.string().transform(Number)]).optional(),
     speed: z.union([z.number(), z.string().transform(Number)]).optional(),
     heading: z.union([z.number(), z.string().transform(Number)]).optional(),
     timestamp: z.union([z.number(), z.string()]).optional(),
@@ -458,6 +468,18 @@ export const RejectRenewalSchema = z.object({
     reason: z.string().max(500),
 });
 
+// ============================================================================
+// Payment Approve/Reject Schemas
+// ============================================================================
+
+export const ApprovePaymentSchema = z.object({
+    paymentId: z.string().min(1).max(200),
+});
+
+export const RejectPaymentSchema = z.object({
+    paymentId: z.string().min(1).max(200),
+});
+
 export const RequestWaitSchema = z.object({
     busId: z.string().min(1).max(100),
     studentId: z.string().min(1).max(128),
@@ -479,6 +501,16 @@ export type ValidationResult<T> =
     | { success: true; data: T }
     | { success: false; error: string; details?: z.ZodError };
 
+type ZodIssueLike = {
+    path?: Array<string | number>;
+    message?: string;
+};
+
+type ZodErrorLike = {
+    name?: string;
+    issues?: ZodIssueLike[];
+};
+
 /**
  * Validate input against a Zod schema
  * Returns typed data on success, or error message on failure
@@ -490,14 +522,19 @@ export function validateInput<T>(
     try {
         const data = schema.parse(input);
         return { success: true, data };
-    } catch (error: any) {
-        if (error instanceof z.ZodError || error?.name === 'ZodError') {
-            const issues = error.issues?.map((i: any) => `${i.path.join('.')}: ${i.message}`) || [];
+    } catch (error: unknown) {
+        const zodError = error instanceof z.ZodError ? error : null;
+        const errorLike = error as ZodErrorLike;
+
+        if (zodError || errorLike.name === 'ZodError') {
+            const issues = zodError
+                ? zodError.issues.map((i) => `${i.path.map(String).join('.')}: ${i.message}`)
+                : (errorLike.issues || []).map((i) => `${(i.path || []).join('.')}: ${i.message || 'Invalid value'}`);
             console.error('[validateInput] ❌ Validation failed:', issues);
             return {
                 success: false,
                 error: `Validation failed: ${issues.join(', ')}`,
-                details: error
+                details: zodError || undefined
             };
         }
         console.error('[validateInput] ❌ Non-Zod error:', error);

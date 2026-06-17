@@ -30,10 +30,16 @@ import crypto from 'crypto';
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-export const POST = withSecurity(
+type StartTripBody = {
+    busId: string;
+    routeId: string;
+    shift?: 'morning' | 'evening' | 'both';
+};
+
+export const POST = withSecurity<StartTripBody>(
     async (request, { auth, body }) => {
         const startTime = Date.now();
-        const { busId, routeId, shift } = body as any;
+        const { busId, routeId, shift } = body;
         const driverId = auth.uid;
 
         // Validate shift
@@ -77,6 +83,8 @@ export const POST = withSecurity(
             );
         }
 
+        const activeTripId = result.tripId || tripId;
+
         // ── Parallel Execution of Secondary Operations ──────────────────
         // We run status updates, broadcasts, and notifications in parallel
         // to minimize response time.
@@ -96,7 +104,7 @@ export const POST = withSecurity(
                         status: 'on_trip',
                         started_at: now.toISOString(),
                         last_updated_at: now.toISOString(),
-                        trip_id: tripId
+                        trip_id: activeTripId
                     }, { onConflict: 'driver_uid' });
 
                 // 2. Broadcast trip start (Fire-and-forget broadcast)
@@ -104,7 +112,7 @@ export const POST = withSecurity(
                     type: 'broadcast',
                     event: 'trip_started',
                     payload: {
-                        busId, routeId, driverId, tripId,
+                        busId, routeId, driverId, tripId: activeTripId,
                         timestamp: now.toISOString(),
                     },
                 }).catch(e => console.warn('Broadcast failed:', e.message));
@@ -129,7 +137,7 @@ export const POST = withSecurity(
                         // High-performance Topic Notification (doesn't require fetching 100s of tokens)
                         await notifyRouteTopic({ 
                             routeId, 
-                            tripId, 
+                            tripId: activeTripId,
                             routeName, 
                             busId, 
                             eventType: 'TRIP_STARTED' 
@@ -149,7 +157,7 @@ export const POST = withSecurity(
 
         return NextResponse.json({
             success: true,
-            tripId: result.tripId,
+            tripId: activeTripId,
             busId,
             routeId,
             timestamp: new Date().toISOString(),
@@ -157,7 +165,7 @@ export const POST = withSecurity(
         });
     },
     {
-        requiredRoles: ['driver', 'admin'],
+        requiredRoles: ['driver'],
         schema: StartTripSchema,
         rateLimit: RateLimits.CREATE, // Start trip shouldn't be spammed
         allowBodyToken: true // For backward compatibility with older clients

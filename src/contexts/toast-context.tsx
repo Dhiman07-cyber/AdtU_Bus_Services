@@ -2,7 +2,7 @@
 
 import { createContext, useContext, useState, ReactNode } from 'react';
 import Toast from '@/components/toast';
-import { v4 as uuidv4 } from 'uuid';
+import { createRandomId } from '@/lib/security/random-id';
 
 type ToastType = 'success' | 'error' | 'warning' | 'info';
 
@@ -23,7 +23,7 @@ export const ToastProvider = ({ children }: { children: ReactNode }) => {
   const [toasts, setToasts] = useState<Toast[]>([]);
 
   const addToast = (message: string, type: ToastType) => {
-    const id = uuidv4();
+    const id = createRandomId();
     setToasts((prev) => [...prev, { id, message, type }]);
   };
 

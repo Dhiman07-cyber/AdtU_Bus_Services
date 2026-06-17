@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import fs from 'fs';
 import path from 'path';
+import { verifyApiAuth } from '@/lib/security/api-auth';
 
 // Define types for our data
 interface Moderator {
@@ -30,6 +31,9 @@ const writeJsonFile = (filename: string, data: any) => {
 
 export async function POST(request: Request) {
   try {
+    const auth = await verifyApiAuth(request, ['admin']);
+    if (!auth.authenticated) return auth.response;
+
     const newModeratorData = await request.json();
     
     const moderators: Moderator[] = readJsonFile('Moderators.json');

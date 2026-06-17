@@ -3,6 +3,7 @@ import { adminAuth, adminDb } from '@/lib/firebase-admin';
 import { getDeadlineConfig, updateDeadlineConfig } from '@/lib/deadline-config-service';
 import { getSystemConfig, updateSystemConfig } from '@/lib/system-config-service';
 import { DeadlineConfig } from '@/lib/types/deadline-config';
+import { safeGetNested, stripUnsafeObjectKeys } from '@/lib/security/object-safety';
 
 /**
  * GET: Retrieve deadline config from Firestore
@@ -56,7 +57,8 @@ export async function POST(req: NextRequest) {
             }
         }
 
-        const { config } = await req.json();
+        const { config: rawConfig } = await req.json();
+        const config = stripUnsafeObjectKeys(rawConfig);
 
         if (!config) {
             return NextResponse.json(
@@ -189,20 +191,20 @@ function validateDateConfig(config: any): string | null {
     ];
 
     for (const { field, monthKey, dayKey } of dateFields) {
-        const section = config[field];
-        if (!section) continue;
+        const section = safeGetNested(config, [field]);
+        if (!section || typeof section !== 'object' || Array.isArray(section)) continue;
 
-        const month = section[monthKey];
-        const day = section[dayKey];
+        const month = (section as Record<string, unknown>)[monthKey];
+        const day = (section as Record<string, unknown>)[dayKey];
 
         if (month === undefined || day === undefined) continue;
 
-        if (month < 0 || month > 11) {
+        if (typeof month !== 'number' || !Number.isInteger(month) || month < 0 || month > 11) {
             return `Invalid month in ${field}: ${month}. Must be 0-11.`;
         }
 
         const maxDay = getMaxDayForMonth(month);
-        if (day < 1 || day > maxDay) {
+        if (typeof day !== 'number' || !Number.isInteger(day) || day < 1 || day > maxDay) {
             const monthNames = ['January', 'February', 'March', 'April', 'May', 'June',
                 'July', 'August', 'September', 'October', 'November', 'December'];
             return `Invalid day ${day} for ${monthNames[month]} in ${field}. Max is ${maxDay}.`;

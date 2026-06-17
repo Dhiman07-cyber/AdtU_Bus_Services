@@ -1,9 +1,10 @@
 import { NextResponse } from 'next/server';
-import { getApps, initializeApp } from 'firebase-admin/app';
+import { cert, getApps, initializeApp } from 'firebase-admin/app';
 import { getFirestore, FieldValue } from 'firebase-admin/firestore';
 import fs from 'fs';
 import path from 'path';
 import {  getUpdaterInfo } from '@/lib/utils/updatedBy';
+import { verifyApiAuth } from '@/lib/security/api-auth';
 
 // Get the data directory path
 const dataDirectory = path.join(process.cwd(), 'src', 'data');
@@ -29,11 +30,10 @@ const initializeFirebase = async () => {
     if (process.env.FIREBASE_CLIENT_EMAIL && process.env.FIREBASE_PRIVATE_KEY) {
       let adminApp;
       if (!getApps().length) {
-        const admin = await import('firebase-admin');
         // Fix private key parsing issue
         const privateKey = process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n');
         adminApp = initializeApp({
-          credential: admin.credential.cert({
+          credential: cert({
             projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
             clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
             privateKey: privateKey,
@@ -55,6 +55,9 @@ initializeFirebase();
 
 export async function PUT(request: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
+    const auth = await verifyApiAuth(request, ['admin']);
+    if (!auth.authenticated) return auth.response;
+
     const { id } = await params;
     const updatedModeratorData = await request.json();
 

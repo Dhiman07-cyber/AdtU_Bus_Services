@@ -353,25 +353,6 @@ export interface BusPassToken {
   [key: string]: any;
 }
 
-// Bus Pass Scan (Audit Log) type
-export interface BusPassScan {
-  scanId: string;
-  tokenId: string;
-  studentUid: string;
-  driverUid: string;
-  scannerBusId: string;
-  result: 'verified' | 'not_assigned' | 'expired' | 'used' | 'invalid';
-  timestamp: Timestamp | string;
-  studentInfo: {
-    fullName: string;
-    enrollmentId: string;
-    assignedBus: string;
-    assignedRoute: string;
-    assignedShift: string;
-  };
-  [key: string]: any;
-}
-
 // Bus Pass Verification Result type
 export interface BusPassVerificationResult {
   status: 'success' | 'expired' | 'used' | 'invalid' | 'not_assigned' | 'session_expired';
@@ -402,20 +383,6 @@ export interface BusPassVerificationResult {
   };
   isAssigned?: boolean;
   sessionActive?: boolean;
-  scanId?: string;
-}
-
-// Boarding Action type
-export interface BoardingAction {
-  id: string;
-  scanId: string;
-  studentUid: string;
-  driverUid: string;
-  busId: string;
-  action: 'allow' | 'deny';
-  notes?: string;
-  timestamp: Timestamp | string;
-  [key: string]: any;
 }
 
 // Rate Limit Entry type

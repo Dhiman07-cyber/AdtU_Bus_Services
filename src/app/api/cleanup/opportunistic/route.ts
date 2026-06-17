@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { CleanupService } from '@/lib/cleanup-service';
+import { verifyApiAuth } from '@/lib/security/api-auth';
 
 /**
  * Opportunistic cleanup endpoint
@@ -7,6 +8,9 @@ import { CleanupService } from '@/lib/cleanup-service';
  */
 export async function POST(request: Request) {
   try {
+    const auth = await verifyApiAuth(request, ['admin']);
+    if (!auth.authenticated) return auth.response;
+
     // Run cleanup asynchronously (don't block the response)
     CleanupService.runOpportunisticCleanup().catch(err => {
       console.error('Background cleanup error:', err);

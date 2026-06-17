@@ -27,10 +27,15 @@ import { formatIdForDisplay } from '@/lib/utils';
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-export const POST = withSecurity(
+type EndTripBody = {
+    busId: string;
+    tripId?: string;
+};
+
+export const POST = withSecurity<EndTripBody>(
     async (request, { auth, body }) => {
         const startTime = Date.now();
-        const { tripId, busId } = body as any;
+        const { tripId, busId } = body;
         const driverId = auth.uid;
 
 
@@ -43,6 +48,20 @@ export const POST = withSecurity(
         // Get trip details from trip lock (before ending it)
         const activeTrip = await tripLockService.getActiveTrip(busId);
         if (activeTrip) {
+            if (activeTrip.driver_id !== driverId) {
+                return NextResponse.json(
+                    { success: false, reason: 'Only the assigned driver can end this trip' },
+                    { status: 403 }
+                );
+            }
+
+            if (activeTripId && activeTripId !== activeTrip.trip_id) {
+                return NextResponse.json(
+                    { success: false, reason: 'Trip mismatch for this bus' },
+                    { status: 409 }
+                );
+            }
+
             if (!activeTripId) activeTripId = activeTrip.trip_id;
             routeId = activeTrip.route_id || '';
         }
@@ -67,10 +86,19 @@ export const POST = withSecurity(
         if (activeTripId) {
             const result = await tripLockService.endTrip(activeTripId, driverId, busId);
             if (!result.success) {
-                console.error('Error ending trip lock:', result.reason);
+                return NextResponse.json(
+                    { success: false, reason: result.reason || 'Failed to end trip' },
+                    { status: result.reason?.includes('assigned driver') ? 403 : 500 }
+                );
             }
         } else {
-            console.warn('No active trip ID found for bus:', busId);
+            return NextResponse.json({
+                success: true,
+                reason: 'No active trip found',
+                busId,
+                timestamp: new Date().toISOString(),
+                processingTimeMs: Date.now() - startTime,
+            });
         }
 
         // ── Supabase cleanup + broadcast ─────────────────────────────────────
@@ -80,8 +108,8 @@ export const POST = withSecurity(
 
             // Parallel cleanup of all trip-related tables
             const cleanupPromises = [
-                supabase.from('driver_status').delete().eq('bus_id', busId),
-                supabase.from('bus_locations').delete().eq('bus_id', busId),
+                supabase.from('driver_status').delete().eq('driver_uid', driverId).eq('bus_id', busId),
+                supabase.from('bus_locations').delete().eq('bus_id', busId).eq('trip_id', activeTripId),
                 supabase.from('waiting_flags').delete().eq('bus_id', busId),
                 supabase.from('driver_location_updates').delete().eq('driver_uid', driverId).eq('bus_id', busId),
             ];
@@ -126,8 +154,9 @@ export const POST = withSecurity(
                         }
                     });
                 });
-            } catch (err: any) {
-                console.warn('⚠️ Broadcast send failed (non-critical):', err.message);
+            } catch (err: unknown) {
+                const message = err instanceof Error ? err.message : 'unknown error';
+                console.warn('Broadcast send failed (non-critical):', message);
             }
         }
 
@@ -158,7 +187,7 @@ export const POST = withSecurity(
         });
     },
     {
-        requiredRoles: ['driver', 'admin'],
+        requiredRoles: ['driver'],
         schema: EndTripSchema,
         rateLimit: RateLimits.CREATE,
         allowBodyToken: true,
