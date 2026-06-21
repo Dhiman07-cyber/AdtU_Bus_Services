@@ -117,8 +117,8 @@ const StatusBadge = ({ status }: { status: string }) => {
   const config = statusConfig[currentStatus] || statusConfig.inactive;
 
   return (
-    <div className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border ${config.bg} ${config.text} backdrop-blur-sm`}>
-      <span className={`w-1.5 h-1.5 rounded-full ${config.dot} animate-pulse`}></span>
+    <div className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border ${config.bg} ${config.text}`}>
+      <span className={`w-1.5 h-1.5 rounded-full ${config.dot}`}></span>
       <span className="text-xs font-medium">{config.label}</span>
     </div>
   );
@@ -224,7 +224,7 @@ export default function ViewModeratorPage({ params }: { params: Promise<{ id: st
   return (
     <div className="min-h-screen pb-12 mt-15 bg-gradient-to-br from-background via-background to-muted/20">
       {/* Header */}
-      <div className="bg-gradient-to-r from-card via-card to-card/95 border-b border-border shadow-sm backdrop-blur-sm">
+      <div className="bg-card border-b border-border shadow-sm">
         <div className="max-w-7xl mx-auto px-4 py-3">
           <div className="flex items-center justify-between gap-3">
             <div className="flex items-center gap-2">
@@ -264,7 +264,6 @@ export default function ViewModeratorPage({ params }: { params: Promise<{ id: st
           <div className="relative w-32 md:w-full md:h-auto mx-auto md:mx-0">
             <div className="md:sticky md:top-6">
               <div className="relative group">
-                <div className="absolute inset-0 bg-gradient-to-br from-purple-500 to-pink-600 rounded-full md:rounded-2xl blur-lg opacity-20 group-hover:opacity-30 transition-opacity"></div>
                 <div className="relative rounded-full md:rounded-2xl overflow-hidden bg-gradient-to-br from-gray-50 to-gray-100 dark:from-gray-800 dark:to-gray-900 p-1.5 shadow-xl">
                   {moderator.profilePhotoUrl ? (
                     <img
@@ -343,7 +342,7 @@ export default function ViewModeratorPage({ params }: { params: Promise<{ id: st
         <div className="my-4 flex items-center justify-center">
           <div className="relative inline-flex items-center gap-3">
             <div className="w-12 h-[1.5px] bg-gradient-to-r from-transparent to-primary/40"></div>
-            <div className="px-4 py-1.5 rounded-lg bg-gradient-to-r from-blue-500/10 via-purple-500/10 to-pink-500/10 border border-gradient-to-r from-blue-400/30 via-purple-400/30 to-pink-400/30 backdrop-blur-sm shadow-md">
+            <div className="px-4 py-1.5 rounded-lg bg-gradient-to-r from-blue-500/10 via-purple-500/10 to-pink-500/10 border border-purple-400/30 shadow-md">
               <span className="text-xs font-bold bg-gradient-to-r from-blue-600 via-purple-600 to-pink-600 dark:from-blue-400 dark:via-purple-400 dark:to-pink-400 bg-clip-text text-transparent">Detailed Information</span>
             </div>
             <div className="w-12 h-[1.5px] bg-gradient-to-l from-transparent to-primary/40"></div>

@@ -59,10 +59,10 @@ export default function HeroLiveOperations({
 
     // 2. Idle Resources
     const idleBuses = buses.filter(b => (b.currentMembers || 0) === 0).length;
-    const idleDrivers = drivers.filter(d => !d.assignedBusId && !d.busId).length;
+    const idleDrivers = s ? Math.max(0, s.totalDrivers - s.activeDrivers) : 0;
     const idleRoutes = routes.filter(r => !r.assignedBuses || r.assignedBuses.length === 0).length;
 
-    const possiblePoints = (buses.length || 1) + (drivers.length || 1) + (routes.length || 1);
+    const possiblePoints = (buses.length || 1) + ((s ? s.totalDrivers : drivers.length) || 1) + (routes.length || 1);
     const idlePoints = idleBuses + idleDrivers + idleRoutes;
     const idleScore = Math.round((idlePoints / possiblePoints) * 10);
 
@@ -169,11 +169,7 @@ export default function HeroLiveOperations({
 
     return (
       <Card className="relative overflow-hidden bg-[#0a0b14] border-white/5 shadow-2xl mb-5 min-h-[195px] group transition-all duration-500 overflow-visible">
-        {/* Abstract Ambient Background */}
-        <div className="absolute inset-0 overflow-hidden pointer-events-none">
-          <div className="absolute top-0 right-0 w-[500px] h-[500px] bg-blue-600/5 rounded-full blur-[100px] opacity-40" />
-          <div className="absolute bottom-0 left-0 w-[500px] h-[500px] bg-indigo-600/5 rounded-full blur-[100px] opacity-40" />
-        </div>
+
 
         <CardContent className="p-0 h-full relative z-10 flex flex-col md:flex-row divide-y md:divide-y-0 md:divide-x divide-white/[0.03]">
           {/* Dashboard Header & Efficiency Score */}
@@ -368,8 +364,7 @@ export default function HeroLiveOperations({
             <div className="space-y-1">
               <div className="flex items-center gap-3">
                 <div className="relative">
-                  <div className="absolute inset-0 bg-emerald-500/20 blur-md rounded-full animate-pulse" />
-                  <div className="relative h-3 w-3 bg-emerald-500 rounded-full shadow-[0_0_8px_rgba(16,185,129,0.8)]" />
+                  <div className="relative h-3 w-3 bg-emerald-500 rounded-full shadow-[0_0_8px_rgba(16,185,129,0.8)] animate-pulse" />
                 </div>
                 <h3 className="text-xl md:text-2xl font-bold text-white flex items-center gap-3">
                   Live Operations Center
@@ -488,7 +483,6 @@ export default function HeroLiveOperations({
 
             {/* Live Map Representation Side */}
             <div className="relative">
-              <div className="absolute inset-0 bg-blue-600/5 rounded-3xl blur-2xl" />
               <div className="relative h-full min-h-[300px] rounded-3xl border border-white/10 bg-slate-900 overflow-hidden shadow-inner">
                 {/* Simulated Map UI */}
                 <div className="absolute inset-0 opacity-40">
@@ -506,7 +500,7 @@ export default function HeroLiveOperations({
                   <div className="relative w-full h-full bg-indigo-500 rounded-full shadow-[0_0_10px_rgba(79,70,229,0.8)] flex items-center justify-center">
                     <Bus className="w-2.5 h-2.5 text-white" />
                   </div>
-                  <div className="absolute top-1/2 left-full ml-2 w-max px-2 py-1 bg-black/80 backdrop-blur-md rounded border border-white/10 text-[8px] font-bold text-white whitespace-nowrap">
+                  <div className="absolute top-1/2 left-full ml-2 w-max px-2 py-1 bg-[#090a10] rounded border border-white/10 text-[8px] font-bold text-white whitespace-nowrap">
                     BUS 038 • EN-ROUTE
                   </div>
                 </div>
@@ -516,13 +510,13 @@ export default function HeroLiveOperations({
                   <div className="relative w-full h-full bg-cyan-500 rounded-full shadow-[0_0_10px_rgba(6,182,212,0.8)] flex items-center justify-center">
                     <Bus className="w-2.5 h-2.5 text-white" />
                   </div>
-                  <div className="absolute top-1/2 right-full mr-2 w-max px-2 py-1 bg-black/80 backdrop-blur-md rounded border border-white/10 text-[8px] font-bold text-white whitespace-nowrap">
+                  <div className="absolute top-1/2 right-full mr-2 w-max px-2 py-1 bg-[#090a10] rounded border border-white/10 text-[8px] font-bold text-white whitespace-nowrap">
                     BUS 102 • EN-ROUTE
                   </div>
                 </div>
 
                 {/* Map Overlay Text */}
-                <div className="absolute bottom-4 left-4 right-4 p-4 rounded-2xl bg-black/60 backdrop-blur-md border border-white/10">
+                <div className="absolute bottom-4 left-4 right-4 p-4 rounded-2xl bg-[#090a10] border border-white/10">
                   <div className="flex items-center justify-between">
                     <div className="space-y-0.5">
                       <div className="text-[10px] font-bold text-indigo-400 uppercase tracking-widest">Active Fleet Area</div>

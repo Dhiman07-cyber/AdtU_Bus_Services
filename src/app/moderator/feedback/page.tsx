@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useMemo } from 'react';
 import { useAuth } from '@/contexts/auth-context';
 import { useRouter } from 'next/navigation';
 import { cn } from "@/lib/utils";
@@ -210,21 +210,23 @@ export default function ModeratorFeedbackPage() {
         }
     }, [currentUser]);
 
-    // Filtering Logic
-    const filteredFeedback = feedback.filter(item => {
-        const matchesSearch =
-            item.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-            item.email.toLowerCase().includes(searchQuery.toLowerCase()) ||
-            item.message.toLowerCase().includes(searchQuery.toLowerCase()) ||
-            item.user_id.toLowerCase().includes(searchQuery.toLowerCase());
+    // Filtering Logic — memoized so searching/filtering doesn't rescan on every
+    // unrelated re-render (modal opens, refresh spinner, etc.).
+    const filteredFeedback = useMemo(() => {
+        const q = searchQuery.toLowerCase();
+        return feedback.filter(item => {
+            const matchesSearch =
+                !q ||
+                item.name.toLowerCase().includes(q) ||
+                item.email.toLowerCase().includes(q) ||
+                item.message.toLowerCase().includes(q) ||
+                item.user_id.toLowerCase().includes(q);
 
-        const matchesRole = roleFilter === 'all' || item.role === roleFilter;
+            const matchesRole = roleFilter === 'all' || item.role === roleFilter;
 
-        return matchesSearch && matchesRole;
-    });
-
-    // Count unread feedback
-    const unreadCount = feedback.filter(item => !item.read).length;
+            return matchesSearch && matchesRole;
+        });
+    }, [feedback, searchQuery, roleFilter]);
 
     const formatDate = (dateString: string) => {
         const date = new Date(dateString);
@@ -519,7 +521,7 @@ export default function ModeratorFeedbackPage() {
                                                 <div className="flex items-center gap-2">
                                                     <h3 className="text-base font-bold text-white">{item.name}</h3>
                                                     {item.read ? null : (
-                                                        <Badge className="bg-purple-500/20 text-purple-400 border-0 text-[10px] font-semibold px-2 py-0.5 animate-pulse">
+                                                        <Badge className="bg-purple-500/20 text-purple-400 border-0 text-[10px] font-semibold px-2 py-0.5">
                                                             NEW
                                                         </Badge>
                                                     )}

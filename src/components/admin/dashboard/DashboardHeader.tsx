@@ -30,7 +30,7 @@ export default function DashboardHeader({
   const systemLoad = stats.totalBuses > 0 ? Math.round((stats.activeBuses / stats.totalBuses) * 100) : 0;
 
   return (
-    <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 mb-4 mt-2 animate-in fade-in slide-in-from-top-2 duration-700">
+    <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 mb-4 mt-2 animate-in fade-in duration-300">
       <div className="space-y-4">
         <div className="flex flex-col sm:flex-row sm:items-center gap-4">
           <div className="relative">
@@ -44,8 +44,8 @@ export default function DashboardHeader({
           </div>
 
           <div className={cn(
-            "flex items-center gap-2 px-3 py-1.5 rounded-xl backdrop-blur-xl shadow-lg ring-1",
-            theme === 'dark' ? "bg-slate-900/80 border-slate-700/50 ring-white/5" : "bg-white border-[#E5E7EB] ring-[#E5E7EB]/50"
+            "flex items-center gap-2 px-3 py-1.5 rounded-xl shadow-lg ring-1",
+            theme === 'dark' ? "bg-[#0a0b14] border-white/5 ring-white/5" : "bg-white border-[#E5E7EB] ring-[#E5E7EB]/50"
           )}>
             <div className="relative flex h-2 w-2">
               <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
@@ -56,7 +56,7 @@ export default function DashboardHeader({
         </div>
 
         <p className={cn(
-          "text-xs md:text-sm max-w-xl leading-relaxed font-medium animate-in fade-in slide-in-from-left-4 duration-1000 delay-300",
+          "text-xs md:text-sm max-w-xl leading-relaxed font-medium",
           theme === 'dark' ? "text-slate-400" : "text-[#6B7280]"
         )}>
           {role === 'moderator'
@@ -80,9 +80,9 @@ export default function DashboardHeader({
           onClick={onRefresh}
           disabled={isRefreshing}
           className={cn(
-            "group h-10 px-5 border rounded-xl transition-all duration-300 active:scale-95 backdrop-blur-xl",
+            "group h-10 px-5 border rounded-xl transition-all duration-300 active:scale-95",
             theme === 'dark'
-              ? "bg-slate-900/50 hover:bg-slate-800 text-cyan-400 border-cyan-500/20 hover:border-cyan-400/50 shadow-lg shadow-cyan-500/5 hover:shadow-cyan-500/10"
+              ? "bg-[#0a0b14] hover:bg-[#0f101f] text-cyan-400 border-cyan-500/20 hover:border-cyan-400/50 shadow-lg shadow-cyan-500/5 hover:shadow-cyan-500/10"
               : "bg-[#1E3A8A] hover:bg-[#1E40AF] text-white border-[#1E3A8A]/20 hover:border-[#1E3A8A]/50 shadow-lg shadow-[#1E3A8A]/10 hover:shadow-[#1E3A8A]/20"
           )}
         >

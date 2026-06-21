@@ -1,7 +1,7 @@
 "use client";
 
 import { useAuth } from '@/contexts/auth-context';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo, useCallback, memo } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { exportToExcel } from '@/lib/export-helpers';
@@ -57,6 +57,134 @@ import { usePaginatedCollection, invalidateCollectionCache } from '@/hooks/usePa
 import { useEventDrivenRefresh } from '@/hooks/useEventDrivenRefresh';
 import { useTheme } from '@/components/theme-provider';
 import { cn } from '@/lib/utils';
+
+// Memoized table row — skips re-rendering for drivers whose data/handlers are
+// unchanged, keeping search/filter typing smooth with a full page of rows.
+const DriverRow = memo(function DriverRow({
+  driver,
+  theme,
+  busDisplay,
+  onDelete,
+}: {
+  driver: any;
+  theme: string | undefined;
+  busDisplay: string | null;
+  onDelete: (item: { id: string; name: string }) => void;
+}) {
+  const joining = driver.joiningDate || driver.joinDate;
+  const years = (() => {
+    if (!joining) return 'N/A';
+    const joinDate = new Date(joining);
+    const y = Math.floor((Date.now() - joinDate.getTime()) / (365.25 * 24 * 60 * 60 * 1000));
+    return y > 0 ? `${y} year${y > 1 ? 's' : ''}` : '< 1 year';
+  })();
+
+  return (
+    <TableRow>
+      <TableCell className="py-2">
+        <div className="flex flex-row items-center gap-2">
+          <Avatar
+            src={safeImageSrc(driver.profilePhotoUrl)}
+            name={driver.name || driver.fullName}
+            size="sm"
+            className="flex-shrink-0"
+          />
+          <div className="flex flex-col min-w-0">
+            <div className="font-medium text-foreground text-sm">{driver.name || driver.fullName}</div>
+            <div className="text-xs text-muted-foreground">{driver.email}</div>
+          </div>
+        </div>
+      </TableCell>
+      <TableCell className="py-2 text-center">
+        <div className="inline-block text-left space-y-0.5">
+          <div className="font-semibold text-foreground text-xs">
+            Ph: {driver.phone || 'N/A'}
+          </div>
+          {driver.alternatePhone && (
+            <div className="text-xs text-muted-foreground">
+              Alt: {driver.alternatePhone}
+            </div>
+          )}
+        </div>
+      </TableCell>
+      <TableCell className="py-2 text-center">
+        <div className="font-mono text-xs text-foreground">
+          {driver.employeeId || driver.empId || driver.driverId || 'N/A'}
+        </div>
+      </TableCell>
+      <TableCell className="py-2 text-center">
+        {busDisplay ? (
+          <span className="text-[10px] whitespace-nowrap">
+            {busDisplay}
+          </span>
+        ) : (
+          <span className={cn(
+            "inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium",
+            theme === 'dark' ? "bg-green-100 text-green-800" : "bg-green-50 text-green-700"
+          )}>
+            Reserved
+          </span>
+        )}
+      </TableCell>
+      <TableCell className="py-2 text-center">
+        <div className="inline-block text-left text-xs">
+          <div className="font-medium text-foreground">{years}</div>
+          <div className="text-[10px] text-muted-foreground">
+            Since {new Date(joining).getFullYear() || 'N/A'}
+          </div>
+        </div>
+      </TableCell>
+      <TableCell className="text-right py-2">
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="ghost" className={cn(
+              "h-8 w-8 p-0 cursor-pointer",
+              theme === 'dark' ? "hover:bg-gray-700" : "hover:bg-gray-100"
+            )}>
+              <MoreHorizontal className="h-4 w-4" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className={cn(
+            "shadow-xl rounded-lg w-44",
+            theme === 'dark' ? "bg-gray-900 border-gray-600" : "bg-white border-[#E5E7EB]"
+          )}>
+            <DropdownMenuLabel className={cn("font-semibold px-2 py-1.5 text-sm", theme === 'dark' ? "text-white" : "text-[#111827]")}>Actions</DropdownMenuLabel>
+            <DropdownMenuSeparator className={cn(theme === 'dark' ? "bg-gray-600" : "bg-[#E5E7EB]")} />
+            <DropdownMenuItem asChild>
+              <Link href={`/admin/drivers/view/${driver.id}`} className={cn(
+                "px-2 py-1.5 text-sm",
+                theme === 'dark' ? "text-white hover:bg-gray-800 focus:bg-gray-800" : "text-[#111827] hover:bg-gray-100 focus:bg-gray-100"
+              )}>
+                <Eye className="mr-2 h-3.5 w-3.5 text-blue-400" />
+                View Details
+              </Link>
+            </DropdownMenuItem>
+            <DropdownMenuItem asChild>
+              <Link href={`/admin/drivers/edit/${driver.id}`} className={cn(
+                "px-2 py-1.5 text-sm",
+                theme === 'dark' ? "text-white hover:bg-gray-800 focus:bg-gray-800" : "text-[#111827] hover:bg-gray-100 focus:bg-gray-100"
+              )}>
+                <Edit className="mr-2 h-3.5 w-3.5 text-yellow-400" />
+                Edit
+              </Link>
+            </DropdownMenuItem>
+            <DropdownMenuSeparator className={cn(theme === 'dark' ? "bg-gray-600" : "bg-[#E5E7EB]")} />
+            <DropdownMenuItem
+              className={cn(
+                "px-2 py-1.5 text-sm cursor-pointer transition-colors",
+                theme === 'dark' ? "text-white hover:!bg-red-600 focus:!bg-red-600" : "text-[#111827] hover:!bg-red-600 focus:!bg-red-600"
+              )}
+              onClick={() => onDelete({ id: driver.id, name: driver.name || driver.fullName })}
+            >
+              <Trash2 className="mr-2 h-3.5 w-3.5" />
+              Delete
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </TableCell>
+    </TableRow>
+  );
+});
 
 export default function AdminDrivers() {
   const { currentUser, userData, loading: authLoading } = useAuth();
@@ -118,15 +246,26 @@ export default function AdminDrivers() {
 
   // Real-time listeners handle data fetching automatically
 
-  const getBusDisplay = (busId: string) => {
+  // Index buses by both id fields once so per-row lookups are O(1) instead of
+  // scanning the whole bus array for every driver row on every render.
+  const busById = useMemo(() => {
+    const map = new Map<string, any>();
+    for (const b of buses) {
+      if (b.busId) map.set(b.busId, b);
+      if (b.id) map.set(b.id, b);
+    }
+    return map;
+  }, [buses]);
+
+  const getBusDisplay = useCallback((busId: string) => {
     if (!busId) return null; // Return null for reserved drivers
 
-    const bus = buses.find(b => b.busId === busId || b.id === busId);
+    const bus = busById.get(busId);
     if (!bus) return busId;
 
     const busNum = busId.replace(/[^0-9]/g, '') || '?';
     return `Bus-${busNum} (${bus.busNumber || 'N/A'})`;
-  };
+  }, [busById]);
 
   // Calculate years of experience for filtering
   const getYearsOfExperience = (joiningDate: string) => {
@@ -136,44 +275,54 @@ export default function AdminDrivers() {
     return Math.floor((currentDate.getTime() - joinDate.getTime()) / (365.25 * 24 * 60 * 60 * 1000));
   };
 
-  // Filter and sort drivers
-  const filteredDrivers = drivers
-    .filter(driver => {
-      // Search filter
-      const matchesSearch =
-        (driver.name && driver.name.toLowerCase().includes(searchTerm.toLowerCase())) ||
-        (driver.email && driver.email.toLowerCase().includes(searchTerm.toLowerCase())) ||
-        (driver.phone && driver.phone.includes(searchTerm)) ||
-        (driver.employeeId && driver.employeeId.includes(searchTerm)) ||
-        (driver.empId && driver.empId.includes(searchTerm)) ||
-        (driver.driverId && driver.driverId.includes(searchTerm));
+  // Stable delete handler so memoized rows don't re-render on unrelated updates.
+  const handleDeleteClick = useCallback((item: { id: string; name: string }) => {
+    setDeleteItem(item);
+    setIsDialogOpen(true);
+  }, []);
 
-      // Experience filter
-      let matchesExperience = true;
-      if (experienceFilter !== "all") {
-        const years = getYearsOfExperience(driver.joiningDate || driver.joinDate);
-        if (experienceFilter === "0-2") matchesExperience = years >= 0 && years <= 2;
-        else if (experienceFilter === "3-5") matchesExperience = years >= 3 && years <= 5;
-        else if (experienceFilter === "6-10") matchesExperience = years >= 6 && years <= 10;
-        else if (experienceFilter === "10+") matchesExperience = years > 10;
-      }
+  // Filter and sort drivers — memoized so it only recomputes when the data,
+  // search term, or filter changes (not on every render).
+  const filteredDrivers = useMemo(() => {
+    const term = searchTerm.toLowerCase();
+    return drivers
+      .filter(driver => {
+        // Search filter
+        const matchesSearch = !searchTerm ||
+          (driver.name && driver.name.toLowerCase().includes(term)) ||
+          (driver.email && driver.email.toLowerCase().includes(term)) ||
+          (driver.phone && driver.phone.includes(searchTerm)) ||
+          (driver.employeeId && driver.employeeId.includes(searchTerm)) ||
+          (driver.empId && driver.empId.includes(searchTerm)) ||
+          (driver.driverId && driver.driverId.includes(searchTerm));
 
-      return matchesSearch && matchesExperience;
-    })
-    .sort((a, b) => {
-      // Sort: Bus-assigned first (by bus number), then reserved
-      const aBusId = a.assignedBusId || a.busId;
-      const bBusId = b.assignedBusId || b.busId;
+        // Experience filter
+        let matchesExperience = true;
+        if (experienceFilter !== "all") {
+          const years = getYearsOfExperience(driver.joiningDate || driver.joinDate);
+          if (experienceFilter === "0-2") matchesExperience = years >= 0 && years <= 2;
+          else if (experienceFilter === "3-5") matchesExperience = years >= 3 && years <= 5;
+          else if (experienceFilter === "6-10") matchesExperience = years >= 6 && years <= 10;
+          else if (experienceFilter === "10+") matchesExperience = years > 10;
+        }
 
-      if (aBusId && !bBusId) return -1; // a has bus, b doesn't
-      if (!aBusId && bBusId) return 1;  // b has bus, a doesn't
-      if (!aBusId && !bBusId) return 0; // both reserved
+        return matchesSearch && matchesExperience;
+      })
+      .sort((a, b) => {
+        // Sort: Bus-assigned first (by bus number), then reserved
+        const aBusId = a.assignedBusId || a.busId;
+        const bBusId = b.assignedBusId || b.busId;
 
-      // Both have buses - sort by bus number
-      const aBusNum = parseInt(aBusId.replace(/[^0-9]/g, '') || '999');
-      const bBusNum = parseInt(bBusId.replace(/[^0-9]/g, '') || '999');
-      return aBusNum - bBusNum;
-    });
+        if (aBusId && !bBusId) return -1; // a has bus, b doesn't
+        if (!aBusId && bBusId) return 1;  // b has bus, a doesn't
+        if (!aBusId && !bBusId) return 0; // both reserved
+
+        // Both have buses - sort by bus number
+        const aBusNum = parseInt(aBusId.replace(/[^0-9]/g, '') || '999');
+        const bBusNum = parseInt(bBusId.replace(/[^0-9]/g, '') || '999');
+        return aBusNum - bBusNum;
+      });
+  }, [drivers, searchTerm, experienceFilter]);
 
   // Export drivers data
   const handleExportDrivers = async () => {
@@ -375,127 +524,15 @@ export default function AdminDrivers() {
                       </TableCell>
                     </TableRow>
                   ) : (
-                    filteredDrivers.map((driver) => {
-                      // Calculate years of service
-                      const calculateYearsOfService = (joiningDate: string) => {
-                        if (!joiningDate) return 'N/A';
-                        const joinDate = new Date(joiningDate);
-                        const currentDate = new Date();
-                        const years = Math.floor((currentDate.getTime() - joinDate.getTime()) / (365.25 * 24 * 60 * 60 * 1000));
-                        return years > 0 ? `${years} year${years > 1 ? 's' : ''}` : '< 1 year';
-                      };
-
-                      return (
-                        <TableRow key={driver.id}>
-                          <TableCell className="py-2">
-                            <div className="flex flex-row items-center gap-2">
-                              <Avatar
-                                src={safeImageSrc(driver.profilePhotoUrl)}
-                                name={driver.name || driver.fullName}
-                                size="sm"
-                                className="flex-shrink-0"
-                              />
-                              <div className="flex flex-col min-w-0">
-                                <div className="font-medium text-foreground text-sm">{driver.name || driver.fullName}</div>
-                                <div className="text-xs text-muted-foreground">{driver.email}</div>
-                              </div>
-                            </div>
-                          </TableCell>
-                          <TableCell className="py-2 text-center">
-                            <div className="inline-block text-left space-y-0.5">
-                              <div className="font-semibold text-foreground text-xs">
-                                Ph: {driver.phone || 'N/A'}
-                              </div>
-                              {driver.alternatePhone && (
-                                <div className="text-xs text-muted-foreground">
-                                  Alt: {driver.alternatePhone}
-                                </div>
-                              )}
-                            </div>
-                          </TableCell>
-                          <TableCell className="py-2 text-center">
-                            <div className="font-mono text-xs text-foreground">
-                              {driver.employeeId || driver.empId || driver.driverId || 'N/A'}
-                            </div>
-                          </TableCell>
-                          <TableCell className="py-2 text-center">
-                            {getBusDisplay(driver.assignedBusId || driver.busId) ? (
-                              <span className="text-[10px] whitespace-nowrap">
-                                {getBusDisplay(driver.assignedBusId || driver.busId)}
-                              </span>
-                            ) : (
-                              <span className={cn(
-                                "inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium",
-                                theme === 'dark' ? "bg-green-100 text-green-800" : "bg-green-50 text-green-700"
-                              )}>
-                                Reserved
-                              </span>
-                            )}
-                          </TableCell>
-                          <TableCell className="py-2 text-center">
-                            <div className="inline-block text-left text-xs">
-                              <div className="font-medium text-foreground">
-                                {calculateYearsOfService(driver.joiningDate || driver.joinDate)}
-                              </div>
-                              <div className="text-[10px] text-muted-foreground">
-                                Since {new Date(driver.joiningDate || driver.joinDate).getFullYear() || 'N/A'}
-                              </div>
-                            </div>
-                          </TableCell>
-                          <TableCell className="text-right py-2">
-                            <DropdownMenu>
-                              <DropdownMenuTrigger asChild>
-                                <Button variant="ghost" className={cn(
-                                  "h-8 w-8 p-0 cursor-pointer",
-                                  theme === 'dark' ? "hover:bg-gray-700" : "hover:bg-gray-100"
-                                )}>
-                                  <MoreHorizontal className="h-4 w-4" />
-                                </Button>
-                              </DropdownMenuTrigger>
-                              <DropdownMenuContent align="end" className={cn(
-                                "shadow-xl rounded-lg w-44",
-                                theme === 'dark' ? "bg-gray-900 border-gray-600" : "bg-white border-[#E5E7EB]"
-                              )}>
-                                <DropdownMenuLabel className={cn("font-semibold px-2 py-1.5 text-sm", theme === 'dark' ? "text-white" : "text-[#111827]")}>Actions</DropdownMenuLabel>
-                                <DropdownMenuSeparator className={cn(theme === 'dark' ? "bg-gray-600" : "bg-[#E5E7EB]")} />
-                                <DropdownMenuItem asChild>
-                                  <Link href={`/admin/drivers/view/${driver.id}`} className={cn(
-                                    "px-2 py-1.5 text-sm",
-                                    theme === 'dark' ? "text-white hover:bg-gray-800 focus:bg-gray-800" : "text-[#111827] hover:bg-gray-100 focus:bg-gray-100"
-                                  )}>
-                                    <Eye className="mr-2 h-3.5 w-3.5 text-blue-400" />
-                                    View Details
-                                  </Link>
-                                </DropdownMenuItem>
-                                <DropdownMenuItem asChild>
-                                  <Link href={`/admin/drivers/edit/${driver.id}`} className={cn(
-                                    "px-2 py-1.5 text-sm",
-                                    theme === 'dark' ? "text-white hover:bg-gray-800 focus:bg-gray-800" : "text-[#111827] hover:bg-gray-100 focus:bg-gray-100"
-                                  )}>
-                                    <Edit className="mr-2 h-3.5 w-3.5 text-yellow-400" />
-                                    Edit
-                                  </Link>
-                                </DropdownMenuItem>
-                                <DropdownMenuSeparator className={cn(theme === 'dark' ? "bg-gray-600" : "bg-[#E5E7EB]")} />
-                                <DropdownMenuItem
-                                  className={cn(
-                                    "px-2 py-1.5 text-sm cursor-pointer transition-colors",
-                                    theme === 'dark' ? "text-white hover:!bg-red-600 focus:!bg-red-600" : "text-[#111827] hover:!bg-red-600 focus:!bg-red-600"
-                                  )}
-                                  onClick={() => {
-                                    setDeleteItem({ id: driver.id, name: driver.name || driver.fullName });
-                                    setIsDialogOpen(true);
-                                  }}
-                                >
-                                  <Trash2 className="mr-2 h-3.5 w-3.5" />
-                                  Delete
-                                </DropdownMenuItem>
-                              </DropdownMenuContent>
-                            </DropdownMenu>
-                          </TableCell>
-                        </TableRow>
-                      );
-                    })
+                    filteredDrivers.map((driver) => (
+                      <DriverRow
+                        key={driver.id}
+                        driver={driver}
+                        theme={theme}
+                        busDisplay={getBusDisplay(driver.assignedBusId || driver.busId)}
+                        onDelete={handleDeleteClick}
+                      />
+                    ))
                   )}
                 </TableBody>
               </Table>

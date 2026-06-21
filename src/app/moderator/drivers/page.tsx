@@ -1,7 +1,7 @@
 "use client";
 
 import { useAuth } from '@/contexts/auth-context';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { cn } from "@/lib/utils";
@@ -198,8 +198,9 @@ export default function AdminDrivers() {
     }
   };
 
-  // Filter and sort drivers
-  const filteredDrivers = drivers
+  // Filter and sort drivers — memoized so the full list isn't re-scanned and
+  // re-sorted on every unrelated re-render (only when data/filters change).
+  const filteredDrivers = useMemo(() => drivers
     .filter(driver => {
       // Search filter
       const matchesSearch =
@@ -235,7 +236,7 @@ export default function AdminDrivers() {
       const aBusNum = parseInt(aBusId.replace(/[^0-9]/g, '') || '999');
       const bBusNum = parseInt(bBusId.replace(/[^0-9]/g, '') || '999');
       return aBusNum - bBusNum;
-    });
+    }), [drivers, searchTerm, experienceFilter]);
 
   if (authLoading || isLoading) {
     return (

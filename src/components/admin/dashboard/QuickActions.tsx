@@ -93,10 +93,8 @@ export default function QuickActions({ role = 'admin' }: { role?: 'admin' | 'mod
   };
 
   return (
-    <Card className="relative overflow-hidden bg-slate-900 border-white/5 backdrop-blur-2xl shadow-2xl mb-20 p-6 md:p-10">
-      {/* Decorative Background Glow */}
-      <div className="absolute -top-24 -right-24 w-64 h-64 bg-indigo-500/10 rounded-full blur-[100px] pointer-events-none" />
-      <div className="absolute -bottom-24 -left-24 w-64 h-64 bg-purple-500/10 rounded-full blur-[100px] pointer-events-none" />
+    <Card className="relative overflow-hidden bg-[#0a0b14] border-white/5 shadow-2xl mb-20 p-6 md:p-10 transition-colors duration-300 hover:bg-[#0f101f]">
+
 
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 mb-12 relative z-10">
         <div className="flex items-center gap-5">
@@ -146,10 +144,7 @@ export default function QuickActions({ role = 'admin' }: { role?: 'admin' | 'mod
                 <p className="sr-only sm:not-sr-only text-[9px] font-medium text-slate-500 mt-1 line-clamp-1 group-hover:text-slate-300 transition-colors uppercase tracking-widest px-2">{action.id.split('-').join(' ')}</p>
               </div>
 
-              {/* Interaction Hint */}
-              <div className="absolute bottom-4 opacity-0 group-hover:opacity-100 transition-all duration-300 translate-y-2 group-hover:translate-y-0">
-                 <PlusCircle className="w-4 h-4 text-white/40" />
-              </div>
+
             </button>
           </motion.div>
         ))}

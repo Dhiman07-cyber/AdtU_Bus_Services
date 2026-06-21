@@ -308,7 +308,7 @@ export default function ViewRoutePage({ params }: { params: Promise<{ id: string
 
                   {/* Route Statistics */}
                   <div className="text-center w-full sm:w-auto mt-2 sm:mt-0">
-                    <div className="bg-gradient-to-br from-gray-800/80 to-gray-900/80 backdrop-blur-xl rounded-lg p-3 border border-gray-700/50">
+                    <div className="bg-gradient-to-br from-gray-800 to-gray-900 rounded-lg p-3 border border-gray-700/50">
                       <h3 className="text-sm font-bold text-white mb-1">Route Statistics</h3>
                       <div className="flex items-center justify-center space-x-4">
                         <div className="text-center">

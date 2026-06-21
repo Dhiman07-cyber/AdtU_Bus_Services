@@ -122,8 +122,8 @@ const StatusBadge = ({ status }: { status: string }) => {
   const config = statusConfig[status?.toLowerCase()] || statusConfig.inactive;
 
   return (
-    <div className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border ${config.bg} ${config.text} backdrop-blur-sm`}>
-      <span className={`w-1.5 h-1.5 rounded-full ${config.dot} animate-pulse`}></span>
+    <div className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border ${config.bg} ${config.text}`}>
+      <span className={`w-1.5 h-1.5 rounded-full ${config.dot}`}></span>
       <span className="text-xs font-medium capitalize">{status || 'Unknown'}</span>
     </div>
   );
@@ -183,15 +183,15 @@ export default function ViewDriverPage({ params }: { params: Promise<{ id: strin
       const success = await deleteDriver(id);
 
       if (success) {
-        addToast('Student deleted successfully!', 'success');
+        addToast('Driver deleted successfully!', 'success');
         setIsDialogOpen(false);
         router.push("/admin/drivers");
       } else {
-        addToast('Failed to delete student', 'error');
+        addToast('Failed to delete driver', 'error');
       }
     } catch (error) {
-      console.error('Error deleting student:', error);
-      addToast('Failed to delete student', 'error');
+      console.error('Error deleting driver:', error);
+      addToast('Failed to delete driver', 'error');
     }
   };
 
@@ -229,7 +229,7 @@ export default function ViewDriverPage({ params }: { params: Promise<{ id: strin
   return (
     <div className="min-h-screen pb-12 mt-7 bg-gradient-to-br from-background via-background to-muted/20">
       {/* Header */}
-      <div className="bg-gradient-to-r from-card via-card to-card/95 border-b border-border shadow-sm backdrop-blur-sm">
+      <div className="bg-card border-b border-border shadow-sm">
         <div className="max-w-7xl mx-auto px-4 py-3">
           <div className="flex items-center justify-between gap-3">
             <div className="flex items-center gap-2">
@@ -269,7 +269,6 @@ export default function ViewDriverPage({ params }: { params: Promise<{ id: strin
           <div className="relative w-32 md:w-full md:h-auto mx-auto md:mx-0">
             <div className="md:sticky md:top-6">
               <div className="relative group">
-                <div className="absolute -inset-3 bg-gradient-to-br from-primary/30 via-primary/20 to-primary/10 rounded-full blur-2xl opacity-40 group-hover:opacity-60 transition-opacity"></div>
                 {driver.profilePhotoUrl ? (
                   <div className="relative w-full aspect-square rounded-full overflow-hidden shadow-2xl border-2 border-border bg-gradient-to-br from-card to-card/80">
                     <img
@@ -384,7 +383,7 @@ export default function ViewDriverPage({ params }: { params: Promise<{ id: strin
         <div className="my-4 flex items-center justify-center">
           <div className="relative inline-flex items-center gap-3">
             <div className="w-12 h-[1.5px] bg-gradient-to-r from-transparent to-primary/40"></div>
-            <div className="px-4 py-1.5 rounded-lg bg-gradient-to-r from-blue-500/10 via-purple-500/10 to-pink-500/10 border border-gradient-to-r from-blue-400/30 via-purple-400/30 to-pink-400/30 backdrop-blur-sm shadow-md">
+            <div className="px-4 py-1.5 rounded-lg bg-blue-500/10 border border-blue-500/20 shadow-sm">
               <span className="text-xs font-bold bg-gradient-to-r from-blue-600 via-purple-600 to-pink-600 dark:from-blue-400 dark:via-purple-400 dark:to-pink-400 bg-clip-text text-transparent">Detailed Information</span>
             </div>
             <div className="w-12 h-[1.5px] bg-gradient-to-l from-transparent to-primary/40"></div>

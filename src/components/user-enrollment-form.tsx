@@ -25,7 +25,6 @@ export default function UserEnrollmentForm({ onUserCreated }: UserEnrollmentForm
   const [alternatePhoneNumber, setAlternatePhoneNumber] = useState("");
   const [enrollmentId, setEnrollmentId] = useState("");
   const [gender, setGender] = useState("");
-  const [age, setAge] = useState("");
   const [faculty, setFaculty] = useState("");
   const [department, setDepartment] = useState("");
   const [year, setYear] = useState("");
@@ -64,7 +63,6 @@ export default function UserEnrollmentForm({ onUserCreated }: UserEnrollmentForm
             ...userData,
             enrollmentId,
             gender,
-            age: parseInt(age) || 0,
             faculty,
             department,
             year,
@@ -106,14 +104,12 @@ export default function UserEnrollmentForm({ onUserCreated }: UserEnrollmentForm
         setSuccess(true);
         // Reset form
         setEmail("");
-        setPassword("");
         setName("");
         setProfilePhoto(null);
         setPhoneNumber("");
         setAlternatePhoneNumber("");
         setEnrollmentId("");
         setGender("");
-        setAge("");
         setFaculty("");
         setDepartment("");
         setYear("");
@@ -264,17 +260,7 @@ export default function UserEnrollmentForm({ onUserCreated }: UserEnrollmentForm
                 </Select>
               </div>
               
-              <div className="space-y-2">
-                <Label htmlFor="age">Age</Label>
-                <Input
-                  id="age"
-                  type="number"
-                  value={age}
-                  onChange={(e) => setAge(e.target.value)}
-                  required
-                />
-              </div>
-              
+
               <div className="space-y-2">
                 <Label htmlFor="faculty">Faculty</Label>
                 <Input

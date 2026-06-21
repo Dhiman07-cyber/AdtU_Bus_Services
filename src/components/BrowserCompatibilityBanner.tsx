@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { AlertCircle, X, Chrome } from "lucide-react";
+import { X, Globe } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 export default function BrowserCompatibilityBanner() {
@@ -54,7 +54,7 @@ export default function BrowserCompatibilityBanner() {
   return (
     <Alert className="fixed top-4 left-1/2 transform -translate-x-1/2 z-50 max-w-lg mx-auto bg-yellow-50 dark:bg-yellow-900/20 border-yellow-200 dark:border-yellow-800 shadow-lg">
       <div className="flex items-start gap-2">
-        <Chrome className="h-5 w-5 text-yellow-600 dark:text-yellow-400 mt-0.5 flex-shrink-0" />
+        <Globe className="h-5 w-5 text-yellow-600 dark:text-yellow-400 mt-0.5 flex-shrink-0" />
         <div className="flex-1">
           <AlertDescription className="text-yellow-800 dark:text-yellow-200">
             <strong className="block mb-1">📱 For Best Experience</strong>

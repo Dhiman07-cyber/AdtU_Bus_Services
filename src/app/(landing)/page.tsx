@@ -7,7 +7,7 @@ import { useAuth } from "@/contexts/auth-context";
 import { useSystemConfig } from '@/contexts/SystemConfigContext';
 import {
   MapPin, Bell, Shield, Bus, Clock, GraduationCap, ArrowRight, Check,
-  PlayCircle, Users, CheckCircle2, Navigation, FileText, UserCheck, Settings,
+  PlayCircle, Users, CheckCircle2, Navigation, FileText, UserCheck,
   ChevronLeft, ChevronRight
 } from "lucide-react";
 import Footer from "@/components/Footer";
@@ -111,43 +111,38 @@ function LandingVideo() {
   }, [videoUrl, isLoading, error]);
 
   return (
-    <div className="relative w-full max-w-3xl lg:max-w-none mx-auto group">
-      {/* Outer soft ambient sun glow */}
-      <div 
-        className="absolute -inset-1.5 rounded-[26px] opacity-75 blur-md transition duration-1000 group-hover:opacity-100 group-hover:duration-500"
+    <div className="relative w-full mx-auto">
+      {/* Device wrapper / Card shell with uniform bezel around the video */}
+      <div
+        className="group relative w-full rounded-2xl overflow-hidden border border-white/10 bg-[#070d19] p-5 sm:p-6 transition-all duration-500 hover:scale-[1.002]"
         style={{
-          background: 'radial-gradient(circle at center, rgba(20, 184, 166, 0.15) 0%, rgba(245, 158, 11, 0.03) 70%, transparent 100%)',
-        }}
-      ></div>
-
-      {/* Frame container */}
-      <div 
-        className="relative w-full rounded-2xl border border-white/[0.08] px-3.5 pt-9 pb-9 bg-gradient-to-b from-[#0e1726] to-[#040c1e] shadow-2xl"
-        style={{
-          boxShadow: '0 30px 60px -15px rgba(3, 10, 22, 0.8), inset 0 1px 0 rgba(255,255,255,0.05)'
+          boxShadow: '0 24px 56px -12px rgba(0,0,0,0.85), inset 0 1px 0 rgba(255,255,255,0.05)',
         }}
       >
-        {/* Top Left Badge - Assam down town University */}
-        <div className="absolute top-2 left-3.5 z-20 flex items-center gap-2 px-3 py-0.5 bg-slate-950/80 backdrop-blur-md border border-white/10 rounded-full text-[9px] font-bold text-white tracking-wider uppercase select-none">
-          <span className="relative flex h-1.5 w-1.5">
-            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
-            <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-amber-500"></span>
+        {/* Top Header outside the video frame, inside the bezel padding */}
+        <div className="absolute top-1.5 sm:top-2.5 left-5 sm:left-6 right-5 sm:right-6 flex items-center justify-between text-slate-400 select-none">
+          <div className="flex items-center gap-1.5">
+            <span className="relative flex h-2 w-2">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+            </span>
+            <span className="text-[9px] font-bold text-slate-200 tracking-wider uppercase">Live Feed</span>
+          </div>
+          <span className="text-[9px] font-mono font-bold text-slate-400 tracking-wider bg-slate-900/60 px-2 py-0.5 rounded border border-white/5 shadow-inner">
+            ADTU-SHUTTLE-STREAM
           </span>
-          Assam down town University
         </div>
 
-        {/* Inner bezel wrapper */}
-        <div className="relative w-full aspect-video rounded-xl overflow-hidden bg-[#030a16] border border-black/40">
+        {/* Video Area */}
+        <div className="relative w-full aspect-video bg-black/40 rounded-xl overflow-hidden border border-white/5 shadow-inner my-5 sm:my-4">
           {isLoading || !videoUrl ? (
-            <div className="w-full h-full flex items-center justify-center min-h-[200px]">
-              <div className="w-12 h-12 border-4 border-amber-500/30 border-t-amber-500 rounded-full animate-spin"></div>
+            <div className="w-full h-full flex items-center justify-center min-h-[180px]">
+              <div className="w-10 h-10 border-4 border-amber-500/30 border-t-amber-500 rounded-full animate-spin" />
             </div>
           ) : error ? (
-            <div className="w-full h-full flex flex-col items-center justify-center text-center p-6 min-h-[200px]">
-              <div className="text-red-400 mb-4">
-                <PlayCircle className="w-12 h-12 mx-auto mb-2" />
-                <p className="text-sm">{error}</p>
-              </div>
+            <div className="w-full h-full flex flex-col items-center justify-center text-center p-6 min-h-[180px]">
+              <PlayCircle className="w-10 h-10 text-red-400 mb-2" />
+              <p className="text-sm text-slate-300 mb-4">{error}</p>
               <button
                 onClick={() => fetchVideoUrl()}
                 className="px-4 py-2 bg-amber-500/20 border border-amber-500/30 rounded-lg text-amber-300 hover:bg-amber-500/30 transition-colors text-sm"
@@ -170,21 +165,21 @@ function LandingVideo() {
             />
           )}
 
-          {/* Gradient Overlay for premium feel */}
-          <div className="absolute inset-0 bg-gradient-to-t from-[#030a16]/60 via-transparent to-transparent pointer-events-none"></div>
-          <div className="absolute inset-0 ring-1 ring-inset ring-white/5 rounded-xl pointer-events-none"></div>
+          {/* Bottom fade */}
+          <div className="absolute inset-0 bg-gradient-to-t from-black/20 via-transparent to-transparent pointer-events-none" />
+          <div className="absolute inset-0 ring-1 ring-inset ring-white/[0.04] pointer-events-none" />
         </div>
 
-        {/* Bottom Left Badge 1: Live Shuttle Stream */}
-        <div className="absolute bottom-2.5 left-3.5 z-20 flex items-center gap-1.5 px-2.5 py-0.5 bg-slate-950/80 backdrop-blur-md border border-teal-500/20 rounded-full text-[9px] font-bold text-teal-400 tracking-wider uppercase select-none">
-          <span className="w-1 h-1 rounded-full bg-teal-400"></span>
-          Live Shuttle Stream
-        </div>
-
-        {/* Bottom Left Badge 2: Secured SSL */}
-        <div className="absolute bottom-2.5 left-[138px] z-20 flex items-center gap-1 px-2.5 py-0.5 bg-slate-950/65 backdrop-blur-md border border-white/5 rounded-full text-[9px] font-medium text-slate-300 tracking-wider uppercase select-none">
-          <Shield className="w-2.5 h-2.5 text-slate-400" />
-          Secured SSL
+        {/* Bottom tags bar outside the video frame, inside the bezel padding */}
+        <div className="absolute bottom-1.5 sm:bottom-2.5 left-5 sm:left-6 right-5 sm:right-6 flex items-center justify-between text-[9px] text-slate-400 select-none font-sans">
+          <div className="flex items-center gap-1.5">
+            <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
+            <span className="font-bold text-slate-200 tracking-wide font-sans">Assam down town University</span>
+          </div>
+          <div className="flex items-center gap-1 bg-[#022c22]/30 border border-[#059669]/20 px-1.5 py-0.5 rounded text-teal-400">
+            <Shield className="w-3 h-3" />
+            <span className="font-bold tracking-wider uppercase">SSL Secured</span>
+          </div>
         </div>
       </div>
     </div>
@@ -249,10 +244,10 @@ export default function PremiumLanding() {
       const scrollable = sectionHeight - clientHeight;
       if (scrollable > 0) {
         const p = Math.max(0, Math.min(1, -rect.top / scrollable));
-        
-        // Cube horizontal rotation
+
+        // Cube: vertical roll rotation identical to Cube 2
         if (cube1Ref.current) {
-          cube1Ref.current.style.transform = `rotateX(calc(12deg - ${p} * 24deg)) rotateY(calc(${p} * -90deg))`;
+          cube1Ref.current.style.transform = `rotateY(calc(-12deg + ${p} * 24deg)) rotateX(calc(-90deg + ${p} * 90deg))`;
         }
         // Stage 1 content cross-fade
         if (s1Text1Ref.current) {
@@ -292,7 +287,7 @@ export default function PremiumLanding() {
       const scrollable = sectionHeight - clientHeight;
       if (scrollable > 0) {
         const p = Math.max(0, Math.min(1, -rect.top / scrollable));
-        
+
         // Cube vertical rotation (rotates top face to front face)
         if (cube2Ref.current) {
           cube2Ref.current.style.transform = `rotateY(calc(-12deg + ${p} * 24deg)) rotateX(calc(-90deg + ${p} * 90deg))`;
@@ -427,89 +422,33 @@ export default function PremiumLanding() {
   }
 
   return (
-    <div 
+    <div
       ref={containerRef}
       onScroll={handleScroll}
       className="h-screen overflow-y-auto snap-y snap-mandatory bg-[#030a16] text-white overflow-x-hidden selection:bg-amber-500/30 selection:text-white scroll-smooth scrollbar-none relative"
     >
       {/* FIXED PAGE-WIDE BACKGROUND IMAGE */}
       <div className="fixed inset-0 z-0 pointer-events-none select-none">
-        <Image 
-          src="/landing/hero.jpg" 
-          alt="ADTU Campus background" 
-          fill 
-          priority 
-          className="object-cover opacity-90 pointer-events-none select-none"
+        <Image
+          src="/landing/hero.jpg"
+          alt="ADTU Campus background"
+          fill
+          priority
+          className="object-cover object-center opacity-90 pointer-events-none select-none"
         />
-        {/* Soft atmospheric overlay */}
-        <div className="absolute inset-0 bg-gradient-to-b from-[#030a16]/30 via-[#030a16]/65 to-[#030a16]" />
+        {/* Soft atmospheric overlay — covers full width including right edge */}
+        <div className="absolute inset-0 bg-gradient-to-b from-[#030a16]/40 via-[#030a16]/70 to-[#030a16]" />
+        <div className="absolute inset-0 bg-[#030a16]/20" />
       </div>
 
-      {/* Global CSS overrides and utility declarations */}
-      <style jsx global>{`
-        :root {
-          --cube-z: 80px;
-        }
-        @media (min-width: 640px) {
-          :root {
-            --cube-z: 96px;
-          }
-        }
-        @media (min-width: 768px) {
-          :root {
-            --cube-z: 112px;
-          }
-        }
-
-        .reveal-on-scroll {
-          opacity: 0;
-          transform: translateY(24px);
-          transition: opacity 0.8s cubic-bezier(0.16, 1, 0.3, 1), transform 0.8s cubic-bezier(0.16, 1, 0.3, 1);
-          will-change: transform, opacity;
-        }
-
-        .reveal-active {
-          opacity: 1;
-          transform: translateY(0);
-        }
-
-        .delay-100 { transition-delay: 100ms; }
-        .delay-200 { transition-delay: 200ms; }
-        .delay-300 { transition-delay: 300ms; }
-        .delay-400 { transition-delay: 400ms; }
-
-        @keyframes scroll-x {
-          0% { transform: translateX(0); }
-          100% { transform: translateX(calc(-50% - 12px)); }
-        }
-        .animate-scroll-x {
-          animation: scroll-x 40s linear infinite;
-          width: max-content;
-        }
-        .animate-scroll-x:hover {
-          animation-play-state: paused;
-        }
-        .mask-edges {
-          mask-image: linear-gradient(to right, transparent, black 5%, black 95%, transparent);
-          -webkit-mask-image: linear-gradient(to right, transparent, black 5%, black 95%, transparent);
-        }
-
-        @media (prefers-reduced-motion: reduce) {
-          .reveal-on-scroll {
-            opacity: 1 !important;
-            transform: none !important;
-            transition: none !important;
-          }
-        }
-      `}</style>
 
       {/* 1. HERO SECTION */}
-      <section className="relative h-screen snap-start snap-always flex items-center justify-center px-6 sm:px-12 lg:px-20 z-10 pt-10 pb-8 overflow-hidden bg-transparent">
-        <div className="relative max-w-[94rem] mx-auto w-full flex flex-col lg:grid lg:grid-cols-12 gap-8 lg:gap-12 items-center z-10 h-full justify-center">
+      <section className="relative h-screen snap-start snap-always flex items-center justify-center px-6 sm:px-12 lg:px-20 z-10 pt-14 pb-8 overflow-hidden bg-transparent">
+        <div className="relative max-w-[94rem] mx-auto w-full flex flex-col lg:grid lg:grid-cols-12 gap-6 lg:gap-10 items-center z-10 h-full justify-center lg:-translate-y-8">
           {/* Left Text */}
-          <div className="lg:col-span-5 space-y-4 lg:space-y-6 text-left reveal-on-scroll pr-0 lg:pr-6">
+          <div className="lg:col-span-5 space-y-4 lg:space-y-5 text-left reveal-on-scroll pr-0 lg:pr-6">
             <div className="inline-flex items-center gap-2 px-3 py-1 bg-teal-500/10 border border-teal-500/20 text-teal-300 rounded-full text-[10px] md:text-xs font-bold tracking-wider uppercase">
-              <span className="w-1.5 h-1.5 rounded-full bg-teal-400 animate-pulse"></span>
+              <span className="w-1.5 h-1.5 rounded-full bg-teal-400 animate-pulse" />
               Assam down town University
             </div>
 
@@ -532,6 +471,14 @@ export default function PremiumLanding() {
               >
                 Sign In with Google
               </button>
+              <a
+                href="https://www.adtu.in"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="px-5 py-3 border border-white/15 text-slate-300 hover:text-white hover:border-white/30 font-semibold rounded-xl transition-all duration-300 text-center text-sm"
+              >
+                Know More
+              </a>
             </div>
 
             {/* Trust points */}
@@ -549,8 +496,8 @@ export default function PremiumLanding() {
             </div>
           </div>
 
-          {/* Right Media Panel (made a bit bigger with more padded frame stand) */}
-          <div className="lg:col-span-7 w-full flex items-center justify-center p-2 lg:p-4 xl:p-6 bg-slate-950/20 rounded-3xl border border-white/5 backdrop-blur-[2px] reveal-on-scroll delay-100">
+          {/* Right Media Panel */}
+          <div className="lg:col-span-7 w-full flex items-center justify-center reveal-on-scroll delay-100">
             <div className="w-full">
               <LandingVideo />
             </div>
@@ -559,7 +506,7 @@ export default function PremiumLanding() {
       </section>
 
       {/* 2. INTERACTIVE ROTATING DICE SECTIONS */}
-      <InteractiveDiceSection1 
+      <InteractiveDiceSection1
         sectionRef={section1Ref}
         cubeRef={cube1Ref}
         text1Ref={s1Text1Ref}
@@ -568,8 +515,8 @@ export default function PremiumLanding() {
         dot2Ref={s1Dot2Ref}
         scrollToStage={scrollToStage1}
       />
-      
-      <InteractiveDiceSection2 
+
+      <InteractiveDiceSection2
         sectionRef={section2Ref}
         cubeRef={cube2Ref}
         text1Ref={s2Text1Ref}
@@ -586,35 +533,36 @@ export default function PremiumLanding() {
       <section className="relative h-screen snap-start snap-always flex items-center justify-center px-4 sm:px-6 lg:px-8 z-10 overflow-hidden">
         {/* Background image for final CTA */}
         <div className="absolute inset-0 z-0">
-          <Image 
-            src="/landing/adtusw.jpg" 
-            alt="Portal access background" 
-            fill 
-            className="object-cover object-left opacity-75 select-none pointer-events-none" 
+          <Image
+            src="/landing/adtusw.jpg"
+            alt="Portal access background"
+            fill
+            className="object-cover object-center opacity-80 select-none pointer-events-none"
           />
-          <div className="absolute inset-0 bg-gradient-to-l from-[#030a16] via-[#030a16]/80 to-transparent" />
+          <div className="absolute inset-0 bg-gradient-to-b from-[#030a16]/60 via-[#030a16]/75 to-[#030a16]" />
+          <div className="absolute inset-0 bg-[#030a16]/30" />
         </div>
 
         <div className="relative max-w-3xl mx-auto w-full z-10 reveal-on-scroll px-4">
-          <div className="relative overflow-hidden bg-slate-950/40 backdrop-blur-xl border border-white/10 rounded-3xl p-8 md:p-12 shadow-[0_25px_60px_-15px_rgba(0,0,0,0.8)] text-center group">
-            
+          <div className="relative overflow-hidden bg-slate-950/50 backdrop-blur-xl border border-white/10 rounded-3xl p-8 md:p-12 shadow-[0_25px_60px_-15px_rgba(0,0,0,0.8)] text-center group">
+
             {/* Absolute internal soft glow */}
             <div className="absolute -inset-24 rounded-full opacity-10 bg-radial-gradient from-teal-500 via-transparent to-transparent blur-3xl pointer-events-none group-hover:opacity-20 transition-opacity duration-1000" />
-            
-            <div className="relative z-10 space-y-6 max-w-xl mx-auto">
+
+            <div className="relative z-10 space-y-5 max-w-xl mx-auto">
               <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-teal-500/10 border border-teal-500/20 text-teal-400 rounded-full text-[10px] font-bold uppercase tracking-widest">
-                <Shield className="w-3 h-3" /> Secure SSO Authorization
+                <Shield className="w-3 h-3" /> Student Access Portal
               </span>
-              
+
               <h2 className="text-3xl sm:text-4xl font-extrabold text-white tracking-tight leading-tight">
-                Transit Access Portal
+                Your Campus Transport, All in One Place
               </h2>
-              
+
               <p className="text-slate-300 text-sm sm:text-base leading-relaxed font-medium">
-                Log in using your official Assam down town University credentials to unlock live routing, track bus coordinates, and manage digital student bus passes instantly.
+                Sign in with your AdtU Google account to track your bus live, view your digital pass, manage your annual bus card renewal, and receive official dispatch alerts — all from one dashboard.
               </p>
 
-              <div className="pt-4 flex flex-col items-center justify-center space-y-3">
+              <div className="pt-2 flex flex-col items-center justify-center gap-3">
                 <button
                   onClick={handleSignIn}
                   className="w-full max-w-sm px-6 py-4 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-white font-bold rounded-xl text-base shadow-lg transition-all duration-300 hover:scale-[1.01] hover:shadow-[0_0_30px_rgba(245,158,11,0.4)] cursor-pointer text-center flex items-center justify-center gap-3"
@@ -622,9 +570,14 @@ export default function PremiumLanding() {
                   <span>Sign In with Google</span>
                   <ArrowRight className="w-5 h-5" />
                 </button>
-                <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">
-                  Authorized @adtu.in domains only
-                </p>
+                <a
+                  href="https://www.adtu.in/admissions"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="w-full max-w-sm px-6 py-3 border border-white/15 text-slate-300 hover:text-white hover:border-white/30 font-semibold rounded-xl transition-all duration-300 text-center text-sm"
+                >
+                  Know about Admissions
+                </a>
               </div>
             </div>
           </div>
@@ -643,14 +596,14 @@ export default function PremiumLanding() {
 
         <div className="flex-1 mx-4 relative h-6 flex items-center">
           <div className="absolute left-0 right-0 h-0.5 bg-slate-800/80 rounded-full" />
-          <div 
+          <div
             className="absolute left-0 h-0.5 bg-gradient-to-r from-amber-500 to-teal-400 rounded-full"
             style={{ width: `${scrollProgress * 100}%` }}
           />
-          <div 
+          <div
             ref={busRef}
             className="absolute w-8 h-6 flex items-center justify-center"
-            style={{ 
+            style={{
               left: `calc(${scrollProgress} * (100% - 24px))`,
               transform: `scaleX(${isScrollingDown ? 1 : -1})`,
               transition: 'left 150ms cubic-bezier(0.16, 1, 0.3, 1), transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1)'
@@ -684,6 +637,14 @@ interface InteractiveDiceSectionProps {
   scrollToStage: (stage: number) => void;
 }
 
+const DICE_STOPS = [
+  { name: "Kerakuchi", routeNum: "6" },
+  { name: "Lal Ganesh", routeNum: "5" },
+  { name: "Paltan Bazar", routeNum: "4" },
+  { name: "Guwahati Club", routeNum: "3" },
+  { name: "Boragaon", routeNum: "2" },
+];
+
 function InteractiveDiceSection1({
   sectionRef,
   cubeRef,
@@ -693,18 +654,39 @@ function InteractiveDiceSection1({
   dot2Ref,
   scrollToStage
 }: InteractiveDiceSectionProps) {
+  const [stopIdx, setStopIdx] = useState(0);
+  const [prevStopIdx, setPrevStopIdx] = useState(DICE_STOPS.length - 1);
+  const [isTransitioning, setIsTransitioning] = useState(false);
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setPrevStopIdx(stopIdx);
+      setStopIdx(prev => (prev + 1) % DICE_STOPS.length);
+      setIsTransitioning(true);
+      
+      // Stop transitioning after animation duration (1200ms)
+      setTimeout(() => {
+        setIsTransitioning(false);
+      }, 1200);
+    }, 5000);
+    return () => clearInterval(interval);
+  }, [stopIdx]);
+
   const steps = [
     {
       title: "Real-Time Tracking & Preparation",
       subtitle: "Stage 01 • Start your day with confidence",
-      desc: "Check your assigned bus's active status and map coordinates before leaving home.",
+      desc: [
+        "See your bus moving live on the map — know exactly where it is before you even step out.",
+        "Check the real-time ETA so you reach your stop at just the right time, no guessing.",
+      ],
       badge: "Real-time Fleet",
       badgeColor: "bg-teal-500/10 text-teal-400 border-teal-500/20",
     },
     {
       title: "Digital Integration & Commute Safety",
       subtitle: "Stage 02 • Seamless campus boarding",
-      desc: "Ditch physical passes and cash disputes. Display your verified digital QR bus pass on your device for immediate verification by drivers or coordinators upon boarding.",
+      desc: ["Ditch physical passes and cash disputes. Display your verified digital QR bus pass on your device for immediate verification by drivers or coordinators upon boarding."],
       badge: "Smart Access",
       badgeColor: "bg-amber-500/10 text-amber-300 border-amber-500/20",
     },
@@ -714,22 +696,22 @@ function InteractiveDiceSection1({
     <div ref={sectionRef} className="relative w-full bg-transparent h-[200vh] border-t border-white/5">
       {/* Sticky Content Container */}
       <div className="sticky top-0 h-screen w-full overflow-hidden z-10 flex items-center">
-        {/* Background image (left to right visibility mask: dark on left, image visible on right) */}
-        <div className="absolute inset-0 z-0">
-          <Image 
-            src="/landing/adtu1.jpg" 
-            alt="ADTU real-time coordination background" 
-            fill 
-            className="object-cover object-right opacity-80 pointer-events-none select-none" 
+        {/* Background: solid base + image overlay to prevent edge bleed */}
+        <div className="absolute inset-0 z-0 bg-[#030a16]">
+          <Image
+            src="/landing/adtu1.jpg"
+            alt="ADTU real-time coordination background"
+            fill
+            className="object-cover object-right opacity-80 pointer-events-none select-none"
           />
-          <div className="absolute inset-0 bg-gradient-to-r from-[#030a16] via-[#030a16]/65 to-transparent" />
+          <div className="absolute inset-0 bg-gradient-to-r from-[#030a16] via-[#030a16]/70 to-[#030a16]/20" />
         </div>
 
         <div className="relative max-w-[94rem] mx-auto px-6 sm:px-16 lg:px-24 w-full h-full flex flex-col md:flex-row items-center justify-between z-10">
           {/* Left Text Column */}
           <div className="w-full md:w-1/2 flex flex-col justify-center h-full relative pr-0 md:pr-12">
             <div className="relative h-[450px] w-full flex items-center">
-              
+
               {/* Stage 1 Content */}
               <div ref={text1Ref} className="absolute inset-x-0 space-y-4 md:space-y-6 text-left transition-all duration-75">
                 <span className="text-xs font-bold text-amber-400 tracking-widest uppercase block">
@@ -747,9 +729,14 @@ function InteractiveDiceSection1({
                   </span>
                 </div>
                 <h3 className="text-xl sm:text-2xl font-bold text-white tracking-tight">{steps[0].title}</h3>
-                <p className="text-slate-300 text-sm sm:text-base leading-relaxed font-medium max-w-xl">
-                  {steps[0].desc}
-                </p>
+                <ul className="space-y-2 max-w-xl">
+                  {(steps[0].desc as string[]).map((point, i) => (
+                    <li key={i} className="flex items-start gap-2 text-slate-300 text-sm sm:text-base leading-relaxed font-medium">
+                      <span className="mt-1.5 w-1.5 h-1.5 rounded-full bg-teal-400 flex-shrink-0" />
+                      {point}
+                    </li>
+                  ))}
+                </ul>
                 <p className="text-xs font-bold text-slate-500 tracking-wider uppercase">
                   {steps[0].subtitle}
                 </p>
@@ -773,7 +760,7 @@ function InteractiveDiceSection1({
                 </div>
                 <h3 className="text-xl sm:text-2xl font-bold text-white tracking-tight">{steps[1].title}</h3>
                 <p className="text-slate-300 text-sm sm:text-base leading-relaxed font-medium max-w-xl">
-                  {steps[1].desc}
+                  {(steps[1].desc as string[])[0]}
                 </p>
                 <p className="text-xs font-bold text-slate-500 tracking-wider uppercase">
                   {steps[1].subtitle}
@@ -800,23 +787,23 @@ function InteractiveDiceSection1({
           </div>
 
           {/* Right Cube Column */}
-          <div className="w-full md:w-1/2 flex items-center justify-center p-4 md:p-12">
-            <div className="relative w-48 h-48 sm:w-64 sm:h-64 md:w-80 md:h-80 flex items-center justify-center [perspective:1000px] select-none">
-              
+          <div className="w-full md:w-1/2 flex items-center justify-center p-4 md:p-8">
+            <div className="relative w-56 h-56 sm:w-72 sm:h-72 md:w-[22rem] md:h-[22rem] flex items-center justify-center [perspective:1200px] select-none">
+
               {/* Backlight Glow */}
               <div className="absolute inset-0 rounded-full opacity-20 blur-3xl bg-radial-gradient from-amber-500/50 to-transparent pointer-events-none" />
 
               {/* 3D Cube */}
-              <div 
-                ref={cubeRef} 
-                className="w-40 h-40 sm:w-48 sm:h-48 md:w-56 md:h-56 relative [transform-style:preserve-3d] transition-transform duration-75"
+              <div
+                ref={cubeRef}
+                className="w-48 h-48 sm:w-60 sm:h-60 md:w-72 md:h-72 relative [transform-style:preserve-3d] transition-transform duration-75"
                 style={{
-                  transform: 'rotateX(12deg) rotateY(0deg)',
+                  transform: 'rotateY(-12deg) rotateX(-90deg)',
                 }}
               >
-                {/* Face 1: Live Route Map (Front) */}
-                <div 
-                  className="absolute inset-0 w-full h-full bg-[#040c1e]/95 border border-teal-500/20 rounded-2xl p-4 md:p-5 flex flex-col justify-between shadow-2xl [backface-visibility:hidden] [transform:rotateY(0deg)_translateZ(var(--cube-z,80px))]"
+                {/* Face 1: Live Route Map (Top Face) */}
+                <div
+                  className="absolute inset-0 w-full h-full bg-[#040c1e]/95 border border-teal-500/20 rounded-2xl p-4 md:p-5 flex flex-col justify-between shadow-2xl [backface-visibility:hidden] [transform:rotateX(90deg)_translateZ(var(--cube-z,120px))]"
                   style={{
                     boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.05), 0 20px 40px rgba(0,0,0,0.6)'
                   }}
@@ -828,13 +815,46 @@ function InteractiveDiceSection1({
                   <div className="flex-1 py-3 flex flex-col justify-center gap-2">
                     <div className="relative h-20 bg-slate-950/60 rounded-xl border border-white/5 p-2 flex flex-col justify-between overflow-hidden">
                       <div className="absolute top-1/2 left-4 right-4 h-0.5 bg-gradient-to-r from-teal-500/10 to-teal-500/80 -translate-y-1/2" />
-                      <div className="flex justify-between relative z-10 text-[9px] font-semibold text-slate-400">
-                        <span>Boragaon</span>
-                        <span className="text-teal-300">Panikhaiti</span>
+                      <div className="flex justify-between relative z-10 text-[9px] font-semibold items-center">
+                        {/* Two stops rendered simultaneously during transition */}
+                        <div className="relative h-4 flex-1 overflow-hidden text-left">
+                          {isTransitioning && (
+                            <span
+                              key={`out-name-${prevStopIdx}`}
+                              className="absolute inset-0 text-slate-300 font-semibold animate-stop-slide-out"
+                            >
+                              {DICE_STOPS[prevStopIdx].name}
+                            </span>
+                          )}
+                          <span
+                            key={`in-name-${stopIdx}`}
+                            className="absolute inset-0 text-slate-300 font-semibold animate-stop-slide-in"
+                          >
+                            {DICE_STOPS[stopIdx].name}
+                          </span>
+                        </div>
+                        <span className="text-teal-300 font-semibold flex-shrink-0 ml-2">Campus</span>
                       </div>
                       <div className="flex justify-between items-center text-[9px] z-10 text-slate-300">
-                        <span className="font-mono text-teal-400">Route #4 • Active</span>
-                        <span className="px-1.5 py-0.5 bg-teal-500/10 rounded border border-teal-500/20 text-teal-400">ETA 8m</span>
+                        <div className="relative h-4 flex-1 overflow-hidden text-left">
+                          {isTransitioning && (
+                            <span
+                              key={`out-route-${prevStopIdx}`}
+                              className="absolute inset-0 font-mono text-teal-400 animate-stop-slide-out"
+                            >
+                              Route-{DICE_STOPS[prevStopIdx].routeNum}
+                              <span className="text-teal-400/80"> • Active</span>
+                            </span>
+                          )}
+                          <span
+                            key={`in-route-${stopIdx}`}
+                            className="absolute inset-0 font-mono text-teal-400 animate-stop-slide-in"
+                          >
+                            Route-{DICE_STOPS[stopIdx].routeNum}
+                            <span className="text-teal-400/80"> • Active</span>
+                          </span>
+                        </div>
+                        <span className="px-1.5 py-0.5 bg-teal-500/10 rounded border border-teal-500/20 text-teal-400 flex-shrink-0 ml-2">ETA 8m</span>
                       </div>
                     </div>
                   </div>
@@ -844,9 +864,9 @@ function InteractiveDiceSection1({
                   </div>
                 </div>
 
-                {/* Face 2: Smart Access Pass (Right Face) */}
-                <div 
-                  className="absolute inset-0 w-full h-full bg-[#040c1e]/95 border border-amber-500/20 rounded-2xl p-4 md:p-5 flex flex-col justify-between shadow-2xl [backface-visibility:hidden] [transform:rotateY(90deg)_translateZ(var(--cube-z,80px))]"
+                {/* Face 2: Smart Access Pass (Front Face) */}
+                <div
+                  className="absolute inset-0 w-full h-full bg-[#040c1e]/95 border border-amber-500/20 rounded-2xl p-4 md:p-5 flex flex-col justify-between shadow-2xl [backface-visibility:hidden] [transform:rotateX(0deg)_translateZ(var(--cube-z,120px))]"
                   style={{
                     boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.05), 0 20px 40px rgba(0,0,0,0.6)'
                   }}
@@ -856,10 +876,20 @@ function InteractiveDiceSection1({
                     <span className="px-1.5 py-0.5 bg-amber-500/10 border border-amber-500/20 rounded text-[7px] md:text-[8px] font-bold text-amber-300 uppercase">Verified</span>
                   </div>
                   <div className="flex-1 py-3 flex flex-col items-center justify-center">
-                    <div className="w-16 h-16 bg-slate-950/60 rounded-xl border border-white/5 flex flex-col items-center justify-center p-2 text-slate-500 font-mono">
-                      <div className="w-12 h-12 border border-dashed border-amber-500/40 rounded flex items-center justify-center text-amber-400 font-bold text-[10px]">
-                        QR CODE
-                      </div>
+                    <div className="relative w-20 h-20 bg-slate-950/60 rounded-xl border border-white/5 flex items-center justify-center p-3 overflow-hidden">
+                      {/* Scanning laser line */}
+                      <div className="absolute left-0 right-0 h-0.5 bg-gradient-to-r from-transparent via-amber-400 to-transparent shadow-[0_0_8px_rgba(245,158,11,0.8)] animate-laser z-20" />
+
+                      {/* Mock QR Code SVG */}
+                      <svg className="w-14 h-14 text-amber-400/80 z-10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                        <rect x="3" y="3" width="6" height="6" rx="1" />
+                        <rect x="3" y="15" width="6" height="6" rx="1" />
+                        <rect x="15" y="3" width="6" height="6" rx="1" />
+                        <rect x="5" y="5" width="2" height="2" fill="currentColor" stroke="none" />
+                        <rect x="5" y="17" width="2" height="2" fill="currentColor" stroke="none" />
+                        <rect x="17" y="5" width="2" height="2" fill="currentColor" stroke="none" />
+                        <path d="M12 3h1m3 0h1M12 6h3m1 0h1m2 0h1M12 9h1m2 0h2m-5 3v1m0 2v1m3-3h1m2 0h1m-3 3h2m-6 3h1m2 0h3m-5 3h1m2 0h2" />
+                      </svg>
                     </div>
                   </div>
                   <div className="flex items-center gap-2 text-[10px] md:text-xs text-slate-300 font-medium">
@@ -867,6 +897,27 @@ function InteractiveDiceSection1({
                     <span>Tap to scan and verify boarding</span>
                   </div>
                 </div>
+
+                {/* Decorative Bottom Face */}
+                <div
+                  className="absolute inset-0 w-full h-full bg-[#040c1e]/60 border border-white/5 rounded-2xl [backface-visibility:hidden] [transform:rotateX(-90deg)_translateZ(var(--cube-z,120px))]"
+                  style={{ boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.02)' }}
+                />
+                {/* Decorative Left Face */}
+                <div
+                  className="absolute inset-0 w-full h-full bg-[#040c1e]/60 border border-white/5 rounded-2xl [backface-visibility:hidden] [transform:rotateY(-90deg)_translateZ(var(--cube-z,120px))]"
+                  style={{ boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.02)' }}
+                />
+                {/* Decorative Right Face */}
+                <div
+                  className="absolute inset-0 w-full h-full bg-[#040c1e]/60 border border-white/5 rounded-2xl [backface-visibility:hidden] [transform:rotateY(90deg)_translateZ(var(--cube-z,120px))]"
+                  style={{ boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.02)' }}
+                />
+                {/* Decorative Back Face */}
+                <div
+                  className="absolute inset-0 w-full h-full bg-[#040c1e]/60 border border-white/5 rounded-2xl [backface-visibility:hidden] [transform:rotateY(180deg)_translateZ(var(--cube-z,120px))]"
+                  style={{ boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.02)' }}
+                />
 
               </div>
             </div>
@@ -894,17 +945,23 @@ function InteractiveDiceSection2({
 }: InteractiveDiceSectionProps) {
   const steps = [
     {
-      title: "Verified Receipts & Logs",
-      subtitle: "Stage 03 • Secure management logs",
-      desc: "Review your transport history, verified term payment receipts, and route logs. A transparent record-keeping system designed to support clean administrative transitions.",
-      badge: "Growth & Safety",
+      title: "Bus Card Renewal & Payment Logs",
+      subtitle: "Stage 03 • Annual renewal, zero queues",
+      desc: [
+        "Renew your bus service online for the year — no more standing in long lines at the office.",
+        "Payment is supported both online and offline. Track your renewal status — Approved, Pending, or Rejected — right from your portal.",
+      ],
+      badge: "Annual Renewal",
       badgeColor: "bg-teal-500/10 text-teal-400 border-teal-500/20",
     },
     {
-      title: "Dynamic Swaps & Dispatching",
-      subtitle: "Stage 04 • Scalable coordinate routing",
-      desc: "Monitor dynamic dispatch updates, moderator schedule changes, and active shuttle route assignments. ITMS adapts dynamically to support expanding campus commuting populations.",
-      badge: "Dynamic Networks",
+      title: "Official Dispatch Notifications",
+      subtitle: "Stage 04 • Be first to know, always",
+      desc: [
+        "Get official alerts the moment bus timings change — no confusion, no missed rides.",
+        "Driver swap or route changes? You’re notified instantly through the ITMS platform.",
+      ],
+      badge: "Live Alerts",
       badgeColor: "bg-amber-500/10 text-amber-300 border-amber-500/20",
     },
   ];
@@ -913,95 +970,172 @@ function InteractiveDiceSection2({
     <div ref={sectionRef} className="relative w-full bg-transparent h-[200vh] border-t border-white/5">
       {/* Sticky Content Container */}
       <div className="sticky top-0 h-screen w-full overflow-hidden z-10 flex items-center">
-        {/* Background image (right to left visibility mask: dark on right, image visible on left) */}
-        <div className="absolute inset-0 z-0">
-          <Image 
-            src="/landing/adtusw.jpg" 
-            alt="ADTU verified records background" 
-            fill 
-            className="object-cover object-left opacity-80 pointer-events-none select-none" 
+        {/* Background: solid base + image overlay to prevent edge bleed */}
+        <div className="absolute inset-0 z-0 bg-[#030a16]">
+          <Image
+            src="/landing/adtu2.jpg"
+            alt="ADTU bus card renewal background"
+            fill
+            className="object-cover object-center opacity-75 pointer-events-none select-none"
           />
-          <div className="absolute inset-0 bg-gradient-to-l from-[#030a16] via-[#030a16]/65 to-transparent" />
+          <div className="absolute inset-0 bg-gradient-to-l from-[#030a16] via-[#030a16]/70 to-[#030a16]/20" />
         </div>
 
         <div className="relative max-w-[94rem] mx-auto px-6 sm:px-16 lg:px-24 w-full h-full flex flex-col md:flex-row items-center justify-between z-10">
           {/* Left Cube Column */}
-          <div className="w-full md:w-1/2 flex items-center justify-center p-4 md:p-12 order-2 md:order-1">
-            <div className="relative w-48 h-48 sm:w-64 sm:h-64 md:w-80 md:h-80 flex items-center justify-center [perspective:1000px] select-none">
-              
+          <div className="w-full md:w-1/2 flex items-center justify-center p-4 md:p-8 order-2 md:order-1">
+            <div className="relative w-56 h-56 sm:w-72 sm:h-72 md:w-[22rem] md:h-[22rem] flex items-center justify-center [perspective:1200px] select-none">
+
               {/* Backlight Glow */}
               <div className="absolute inset-0 rounded-full opacity-20 blur-3xl bg-radial-gradient from-teal-500/50 to-transparent pointer-events-none" />
 
               {/* 3D Cube */}
-              <div 
-                ref={cubeRef} 
-                className="w-40 h-40 sm:w-48 sm:h-48 md:w-56 md:h-56 relative [transform-style:preserve-3d] transition-transform duration-75"
+              <div
+                ref={cubeRef}
+                className="w-48 h-48 sm:w-60 sm:h-60 md:w-72 md:h-72 relative [transform-style:preserve-3d] transition-transform duration-75"
                 style={{
-                  transform: 'rotateY(-12deg) rotateX(0deg)',
+                  transform: 'rotateY(-12deg) rotateX(-90deg)',
                 }}
               >
                 {/* Face 3: Commute History (Top Face) */}
-                <div 
-                  className="absolute inset-0 w-full h-full bg-[#040c1e]/95 border border-indigo-500/20 rounded-2xl p-4 md:p-5 flex flex-col justify-between shadow-2xl [backface-visibility:hidden] [transform:rotateX(90deg)_translateZ(var(--cube-z,80px))]"
+                <div
+                  className="absolute inset-0 w-full h-full bg-[#040c1e]/95 border border-indigo-500/20 rounded-2xl p-4 md:p-5 flex flex-col justify-between shadow-2xl [backface-visibility:hidden] [transform:rotateX(90deg)_translateZ(var(--cube-z,120px))]"
                   style={{
                     boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.05), 0 20px 40px rgba(0,0,0,0.6)'
                   }}
                 >
-                  <div className="flex justify-between items-center pb-2 border-b border-white/5">
-                    <span className="text-[9px] md:text-[10px] font-mono text-indigo-400 font-bold uppercase tracking-wider">Commute History</span>
-                    <span className="text-[8px] md:text-[9px] text-slate-400 font-bold">ITMS Log</span>
+                  <div className="flex justify-between items-center pb-1.5 border-b border-white/5">
+                    <span className="text-[9px] md:text-[10px] font-mono text-indigo-400 font-bold uppercase tracking-wider">Bus Card Renewal</span>
+                    <span className="text-[8px] md:text-[9px] text-indigo-400 bg-indigo-500/10 px-1.5 py-0.5 rounded border border-indigo-500/20 font-bold">Annual Pass</span>
                   </div>
-                  <div className="flex-1 py-3 flex flex-col justify-center gap-2 text-[9px] md:text-[10px]">
-                    <div className="p-2 bg-slate-950/60 rounded-xl border border-white/5 flex justify-between items-center text-slate-300 font-medium">
-                      <span>Verified Spring Term</span>
-                      <span className="text-teal-400 font-bold">₹7,500</span>
+                  {/* Mock Bus Pass Card */}
+                  <div className="flex-1 my-2.5 p-3 rounded-xl bg-gradient-to-tr from-indigo-950/80 via-[#0a122c]/90 to-violet-950/60 border border-indigo-500/30 flex flex-col justify-between relative overflow-hidden shadow-[inset_0_1px_1px_rgba(255,255,255,0.1),_0_8px_20px_rgba(0,0,0,0.4)] select-none">
+                    {/* Metallic gold chip & logo */}
+                    <div className="flex justify-between items-start">
+                      <div className="w-8 h-6 rounded bg-gradient-to-br from-amber-300 via-amber-400 to-yellow-600 border border-amber-200/50 p-1 flex flex-wrap gap-0.5 opacity-90 shadow-sm">
+                        <div className="w-[6px] h-[4px] border border-amber-900/30 rounded-xs" />
+                        <div className="w-[6px] h-[4px] border border-amber-900/30 rounded-xs" />
+                        <div className="w-[6px] h-[4px] border border-amber-900/30 rounded-xs" />
+                        <div className="w-[6px] h-[4px] border border-amber-900/30 rounded-xs" />
+                      </div>
+                      <div className="flex flex-col items-end leading-none">
+                        <span className="text-[9px] font-black tracking-wider text-indigo-300">ADTU ITMS</span>
+                        <span className="text-[5px] text-slate-400 font-mono tracking-widest mt-0.5">TRANSIT SMART CARD</span>
+                      </div>
                     </div>
-                    <div className="p-2 bg-slate-950/60 rounded-xl border border-white/5 flex justify-between items-center text-slate-300 font-medium">
-                      <span>Assigned Route #4</span>
-                      <span className="text-indigo-400 font-semibold">Active</span>
+
+                    {/* Card Number & Name */}
+                    <div className="my-1 text-left">
+                      <div className="text-[10px] font-mono text-indigo-200/80 tracking-widest font-semibold">
+                        4902 • 1084 • 3920
+                      </div>
+                      <div className="text-[9px] font-bold text-slate-100 uppercase tracking-wider mt-0.5">
+                        Student-X
+                      </div>
+                    </div>
+
+                    {/* Footer / Valid / Status */}
+                    <div className="flex justify-between items-center border-t border-white/5 pt-1.5 mt-0.5">
+                      <div className="text-left leading-none">
+                        <span className="text-[5px] text-slate-500 block">VALID THRU</span>
+                        <span className="text-[7px] font-mono text-slate-300 font-bold">12 / 2026</span>
+                      </div>
+                      <span className="px-2 py-0.5 rounded-full bg-emerald-500/20 border border-emerald-500/30 text-[7px] font-bold text-emerald-400 uppercase tracking-wider">
+                        Active Pass
+                      </span>
                     </div>
                   </div>
                   <div className="flex items-center gap-2 text-[10px] md:text-xs text-slate-300 font-medium">
                     <UserCheck className="w-3.5 h-3.5 text-indigo-400" />
-                    <span>Review receipt approval log</span>
+                    <span>No queues — renew from your portal</span>
                   </div>
                 </div>
 
                 {/* Face 4: Transit Operations (Front Face) */}
-                <div 
-                  className="absolute inset-0 w-full h-full bg-[#040c1e]/95 border border-orange-500/20 rounded-2xl p-4 md:p-5 flex flex-col justify-between shadow-2xl [backface-visibility:hidden] [transform:rotateX(0deg)_translateZ(var(--cube-z,80px))]"
+                <div
+                  className="absolute inset-0 w-full h-full bg-[#040c1e]/95 border border-orange-500/20 rounded-2xl p-4 md:p-5 flex flex-col justify-between shadow-2xl [backface-visibility:hidden] [transform:rotateX(0deg)_translateZ(var(--cube-z,120px))]"
                   style={{
                     boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.05), 0 20px 40px rgba(0,0,0,0.6)'
                   }}
                 >
-                  <div className="flex justify-between items-center pb-2 border-b border-white/5">
-                    <span className="text-[9px] md:text-[10px] font-mono text-orange-400 font-bold uppercase tracking-wider">Transit Operations</span>
-                    <span className="text-[8px] md:text-[9px] text-slate-400 font-bold">Admin Stat</span>
-                  </div>
-                  <div className="flex-1 py-3 flex flex-col justify-center gap-2 text-[9px] md:text-[10px]">
-                    <div className="p-2 bg-slate-950/60 rounded-xl border border-white/5 flex justify-between items-center text-slate-300 font-medium">
-                      <span>Verified Route Loads</span>
-                      <span className="text-teal-400 font-bold">98.4%</span>
+                  <div className="flex justify-between items-center pb-1.5 border-b border-white/5">
+                    <span className="text-[9px] md:text-[10px] font-mono text-orange-400 font-bold uppercase tracking-wider">Dispatch Alerts</span>
+                    <div className="flex items-center gap-1.5">
+                      <span className="w-1.5 h-1.5 rounded-full bg-orange-400 animate-pulse" />
+                      <span className="text-[8px] text-orange-400 bg-orange-500/10 px-1 rounded font-mono font-bold">Live Feed</span>
                     </div>
-                    <div className="p-2 bg-slate-950/60 rounded-xl border border-white/5 flex justify-between items-center text-slate-300 font-medium">
-                      <span>Active Duty Swaps</span>
-                      <span className="text-amber-400 font-semibold">0 Swaps</span>
+                  </div>
+                  {/* Live Dispatch Stream Board */}
+                  <div className="flex-1 py-2 flex flex-col gap-2 justify-center text-left">
+                    <div className="text-[7px] font-bold text-slate-500 uppercase tracking-widest px-1">ACTIVE FLIGHTS / DISPATCHES</div>
+                    
+                    {/* Dispatch 1 */}
+                    <div className="p-2 bg-[#050d1d] hover:bg-[#071329] rounded-xl border border-white/5 flex items-center justify-between gap-2 shadow-inner transition-colors duration-300">
+                      <div className="flex items-center gap-2">
+                        <div className="w-5 h-5 rounded-md bg-teal-500/10 border border-teal-500/20 flex items-center justify-center text-teal-400 font-black text-[8px] font-mono shadow-sm">
+                          B-04
+                        </div>
+                        <div>
+                          <div className="text-[8.5px] font-bold text-slate-200 leading-none">Route-4 (Paltan Bazar)</div>
+                          <div className="text-[6px] text-slate-400 font-mono mt-0.5">Departed 08:10 • Driver: P. Kalita</div>
+                        </div>
+                      </div>
+                      <span className="px-1.5 py-0.5 rounded bg-teal-500/10 text-teal-400 border border-teal-500/20 text-[6.5px] font-bold tracking-wider uppercase font-mono animate-pulse">
+                        EN ROUTE
+                      </span>
+                    </div>
+
+                    {/* Dispatch 2 */}
+                    <div className="p-2 bg-[#050d1d] hover:bg-[#071329] rounded-xl border border-white/5 flex items-center justify-between gap-2 shadow-inner transition-colors duration-300">
+                      <div className="flex items-center gap-2">
+                        <div className="w-5 h-5 rounded-md bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400 font-black text-[8px] font-mono shadow-sm">
+                          B-09
+                        </div>
+                        <div>
+                          <div className="text-[8.5px] font-bold text-slate-200 leading-none">Route-7 (Lal Ganesh)</div>
+                          <div className="text-[6px] text-slate-400 font-mono mt-0.5">Diverted via Bypass • Traffic Alert</div>
+                        </div>
+                      </div>
+                      <span className="px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20 text-[6.5px] font-bold tracking-wider uppercase font-mono">
+                        DIVERTED
+                      </span>
                     </div>
                   </div>
                   <div className="flex items-center gap-2 text-[10px] md:text-xs text-slate-300 font-medium">
-                    <Settings className="w-3.5 h-3.5 text-orange-400" />
-                    <span>Review route reassignment status</span>
+                    <Bell className="w-3.5 h-3.5 text-orange-400" />
+                    <span>Official dispatches pushed to your portal</span>
                   </div>
                 </div>
+
+                {/* Decorative Bottom Face */}
+                <div
+                  className="absolute inset-0 w-full h-full bg-[#040c1e]/60 border border-white/5 rounded-2xl [backface-visibility:hidden] [transform:rotateX(-90deg)_translateZ(var(--cube-z,120px))]"
+                  style={{ boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.02)' }}
+                />
+                {/* Decorative Left Face */}
+                <div
+                  className="absolute inset-0 w-full h-full bg-[#040c1e]/60 border border-white/5 rounded-2xl [backface-visibility:hidden] [transform:rotateY(-90deg)_translateZ(var(--cube-z,120px))]"
+                  style={{ boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.02)' }}
+                />
+                {/* Decorative Right Face */}
+                <div
+                  className="absolute inset-0 w-full h-full bg-[#040c1e]/60 border border-white/5 rounded-2xl [backface-visibility:hidden] [transform:rotateY(90deg)_translateZ(var(--cube-z,120px))]"
+                  style={{ boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.02)' }}
+                />
+                {/* Decorative Back Face */}
+                <div
+                  className="absolute inset-0 w-full h-full bg-[#040c1e]/60 border border-white/5 rounded-2xl [backface-visibility:hidden] [transform:rotateY(180deg)_translateZ(var(--cube-z,120px))]"
+                  style={{ boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.02)' }}
+                />
 
               </div>
             </div>
           </div>
 
           {/* Right Text Column */}
-          <div className="w-full md:w-1/2 flex flex-col justify-center h-full relative order-1 md:order-2 pl-0 md:pl-12">
+          <div className="w-full md:w-1/2 flex flex-col justify-center h-full relative order-1 md:order-2 pl-0 md:pl-12 md:-translate-y-8">
             <div className="relative h-[450px] w-full flex items-center">
-              
+
               {/* Stage 3 Content */}
               <div ref={text1Ref} className="absolute inset-x-0 space-y-4 md:space-y-6 text-left transition-all duration-75">
                 <span className="text-xs font-bold text-amber-400 tracking-widest uppercase block">
@@ -1019,9 +1153,14 @@ function InteractiveDiceSection2({
                   </span>
                 </div>
                 <h3 className="text-xl sm:text-2xl font-bold text-white tracking-tight">{steps[0].title}</h3>
-                <p className="text-slate-300 text-sm sm:text-base leading-relaxed font-medium max-w-xl">
-                  {steps[0].desc}
-                </p>
+                <ul className="space-y-2 max-w-xl">
+                  {(steps[0].desc as string[]).map((point, i) => (
+                    <li key={i} className="flex items-start gap-2 text-slate-300 text-sm sm:text-base leading-relaxed font-medium">
+                      <span className="mt-1.5 w-1.5 h-1.5 rounded-full bg-teal-400 flex-shrink-0" />
+                      {point}
+                    </li>
+                  ))}
+                </ul>
                 <p className="text-xs font-bold text-slate-500 tracking-wider uppercase">
                   {steps[0].subtitle}
                 </p>
@@ -1044,9 +1183,14 @@ function InteractiveDiceSection2({
                   </span>
                 </div>
                 <h3 className="text-xl sm:text-2xl font-bold text-white tracking-tight">{steps[1].title}</h3>
-                <p className="text-slate-300 text-sm sm:text-base leading-relaxed font-medium max-w-xl">
-                  {steps[1].desc}
-                </p>
+                <ul className="space-y-2 max-w-xl">
+                  {(steps[1].desc as string[]).map((point, i) => (
+                    <li key={i} className="flex items-start gap-2 text-slate-300 text-sm sm:text-base leading-relaxed font-medium">
+                      <span className="mt-1.5 w-1.5 h-1.5 rounded-full bg-amber-400 flex-shrink-0" />
+                      {point}
+                    </li>
+                  ))}
+                </ul>
                 <p className="text-xs font-bold text-slate-500 tracking-wider uppercase">
                   {steps[1].subtitle}
                 </p>
@@ -1085,101 +1229,286 @@ function InteractiveDiceSection2({
 function LearningCarousel() {
   const slides = [
     {
-      title: "1. Integrated Commute Planning",
-      desc: "Aligning daily shuttle dispatch schedules with university lecture timings.",
-      icon: <Clock className="w-6 h-6 text-teal-400" />,
-      tag: "Academics First",
-      colorClass: "border-teal-500/20 bg-gradient-to-br from-[#030d22]/80 to-[#010815]/90 hover:border-teal-400/40 shadow-[0_10px_30px_rgba(0,0,0,0.3)]"
+      title: "Know your bus before you leave",
+      desc: "Check if your bus is running, see where it is on the map, and get the real ETA — all before stepping out.",
+      icon: <Navigation className="w-6 h-6 text-teal-400" />,
+      tag: "Live Tracking",
+      accent: "border-teal-500/25",
     },
     {
-      title: "2. Eco-Friendly Routing",
-      desc: "Optimizing active shuttle pathways across Guwahati checkpoints.",
-      icon: <MapPin className="w-6 h-6 text-amber-400" />,
-      tag: "Sustainability",
-      colorClass: "border-amber-500/20 bg-gradient-to-br from-[#030d22]/80 to-[#010815]/90 hover:border-amber-400/40 shadow-[0_10px_30px_rgba(0,0,0,0.3)]"
+      title: "Your bus pass, always with you",
+      desc: "A digital QR pass on your phone replaces the physical card. Show it to the driver — no paper, no hassle.",
+      icon: <FileText className="w-6 h-6 text-amber-400" />,
+      tag: "Digital Pass",
+      accent: "border-amber-500/25",
     },
     {
-      title: "3. Safe Commuter Trust",
-      desc: "Offering secure, digital receipts and real-time coordinator access.",
-      icon: <Shield className="w-6 h-6 text-indigo-400" />,
-      tag: "Family Comfort",
-      colorClass: "border-indigo-500/20 bg-gradient-to-br from-[#030d22]/80 to-[#010815]/90 hover:border-indigo-400/40 shadow-[0_10px_30px_rgba(0,0,0,0.3)]"
-    },
-    {
-      title: "4. Priority Boarding Access",
-      desc: "Skip manual checks and long queues with instant digital QR code verification.",
+      title: "Renew your bus service online",
+      desc: "No more queues. Renew your annual bus card online, pay your way, and track approval status instantly.",
       icon: <CheckCircle2 className="w-6 h-6 text-emerald-400" />,
-      tag: "Time Saving",
-      colorClass: "border-emerald-500/20 bg-gradient-to-br from-[#030d22]/80 to-[#010815]/90 hover:border-emerald-400/40 shadow-[0_10px_30px_rgba(0,0,0,0.3)]"
+      tag: "Annual Renewal",
+      accent: "border-emerald-500/25",
     },
     {
-      title: "5. Real-Time ETA Alerts",
-      desc: "Get notified before your shuttle arrives so you never miss your ride.",
+      title: "Official alerts for schedule changes",
+      desc: "Timing changed? Driver swapped? Get an official notification instantly — so you're never caught off guard.",
       icon: <Bell className="w-6 h-6 text-orange-400" />,
-      tag: "Smart Alerts",
-      colorClass: "border-orange-500/20 bg-gradient-to-br from-[#030d22]/80 to-[#010815]/90 hover:border-orange-400/40 shadow-[0_10px_30px_rgba(0,0,0,0.3)]"
-    }
+      tag: "Dispatch Alerts",
+      accent: "border-orange-500/25",
+    },
+    {
+      title: "Schedules aligned to your lectures",
+      desc: "Bus dispatch is coordinated with lecture timings so you reach campus on time, every time.",
+      icon: <Clock className="w-6 h-6 text-indigo-400" />,
+      tag: "Academics First",
+      accent: "border-indigo-500/25",
+    },
+    {
+      title: "Safe, trusted, transparent",
+      desc: "Receipts, renewal history, and route logs all in one place. Secure and accessible anytime.",
+      icon: <Shield className="w-6 h-6 text-rose-400" />,
+      tag: "Family Trust",
+      accent: "border-rose-500/25",
+    },
   ];
 
-  // We duplicate slides to make a seamless infinite loop
-  const duplicatedSlides = [...slides, ...slides];
+  const N = slides.length;
+  // 5x slides to guarantee infinite loop on all screen widths
+  const extendedSlides = [...slides, ...slides, ...slides, ...slides, ...slides];
+
+  const [slideIndex, setSlideIndex] = useState(2 * N); // Start at index 12 (Card 1 of 3rd set)
+  const [isTransitioning, setIsTransitioning] = useState(true);
+  const [isMobile, setIsMobile] = useState(false);
+
+  useEffect(() => {
+    const handleResize = () => {
+      setIsMobile(window.innerWidth < 640);
+    };
+    handleResize();
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setIsTransitioning(true);
+      setSlideIndex(prev => prev + 1);
+    }, 5000); // 5 seconds per slide
+    return () => clearInterval(timer);
+  }, [slideIndex]); // Recreate interval on index change to avoid rushing after manual interactions
+
+  // Finds the index in extendedSlides closest to slideIndex representing targetRealIdx
+  const getClosestReplica = (targetRealIdx: number) => {
+    let closestIdx = 2 * N + targetRealIdx;
+    let minDiff = Math.abs(closestIdx - slideIndex);
+    
+    for (let k = 0; k < 5; k++) {
+      const candidate = k * N + targetRealIdx;
+      const diff = Math.abs(candidate - slideIndex);
+      if (diff < minDiff) {
+        minDiff = diff;
+        closestIdx = candidate;
+      }
+    }
+    return closestIdx;
+  };
+
+  const handleTransitionEnd = (e: React.TransitionEvent) => {
+    // Prevent child element transitions (like text/opacity) from bubbling up
+    if (e.target !== e.currentTarget) return;
+
+    if (slideIndex >= 3 * N) {
+      // Instantly jump back by N slides without transition animation
+      setIsTransitioning(false);
+      setSlideIndex(slideIndex - N);
+      
+      // Re-enable transitions in the next frame to support smooth subsequent movements
+      setTimeout(() => {
+        setIsTransitioning(true);
+      }, 50);
+    } else if (slideIndex < 2 * N) {
+      // Instantly jump forward by N slides without transition animation
+      setIsTransitioning(false);
+      setSlideIndex(slideIndex + N);
+      
+      setTimeout(() => {
+        setIsTransitioning(true);
+      }, 50);
+    }
+  };
+
+  const handleDotClick = (idx: number) => {
+    setIsTransitioning(true);
+    setSlideIndex(getClosestReplica(idx));
+  };
+
+  const handleCardClick = (idx: number) => {
+    setIsTransitioning(true);
+    setSlideIndex(getClosestReplica(idx % N));
+  };
+
+  // Card layout calculations
+  const cardStep = isMobile ? 314 : 364;
+  const halfCard = isMobile ? 157 : 182;
+
+  // Shared hardware-accelerated transition styles
+  const containerTransition = isTransitioning 
+    ? 'transform 1500ms cubic-bezier(0.22, 1, 0.36, 1)' 
+    : 'none';
+
+  const cardTransition = isTransitioning 
+    ? 'transform 1500ms cubic-bezier(0.22, 1, 0.36, 1), opacity 1500ms cubic-bezier(0.22, 1, 0.36, 1), border-color 1500ms cubic-bezier(0.22, 1, 0.36, 1), background-color 1500ms cubic-bezier(0.22, 1, 0.36, 1), box-shadow 1500ms cubic-bezier(0.22, 1, 0.36, 1)' 
+    : 'none';
+
+  const textTransition = isTransitioning 
+    ? 'color 1500ms cubic-bezier(0.22, 1, 0.36, 1), transform 1500ms cubic-bezier(0.22, 1, 0.36, 1), opacity 1500ms cubic-bezier(0.22, 1, 0.36, 1)' 
+    : 'none';
+
+  const tagTransition = isTransitioning 
+    ? 'color 1500ms cubic-bezier(0.22, 1, 0.36, 1), background-color 1500ms cubic-bezier(0.22, 1, 0.36, 1), border-color 1500ms cubic-bezier(0.22, 1, 0.36, 1)' 
+    : 'none';
 
   return (
-    <div className="relative w-full bg-transparent h-screen snap-start snap-always flex flex-col justify-center py-12 border-t border-white/5 overflow-hidden">
-      {/* Background image for Carousel */}
-      <div className="absolute inset-0 z-0">
-        <Image 
-          src="/landing/adtu2.jpg" 
-          alt="ADTU journey background" 
-          fill 
-          className="object-cover object-left opacity-70 pointer-events-none select-none" 
-        />
-        <div className="absolute inset-0 bg-gradient-to-l from-[#030a16] via-[#030a16]/65 to-transparent" />
+    <div className="relative w-full bg-transparent h-screen snap-start snap-always flex flex-col justify-start pt-16 sm:pt-24 pb-8 border-t border-white/5 overflow-hidden">
+      {/* Heading */}
+      <div className="max-w-5xl mx-auto px-6 w-full z-10 mb-6 text-center sm:text-left">
+        <span className="text-xs font-bold text-teal-400 tracking-widest uppercase block mb-1">
+          COMMUTER EXPERIENCE
+        </span>
+        <h2 className="text-3xl sm:text-4xl font-extrabold text-white tracking-tight leading-tight">
+          Smart Transit, Crafted for Campus Life
+        </h2>
       </div>
 
-      <div className="max-w-7xl mx-auto px-6 sm:px-12 lg:px-16 w-full z-10 mb-8 sm:mb-12">
-        <div className="space-y-2">
-          <span className="text-xs font-bold text-teal-400 tracking-widest uppercase block">
-            Gradual Progress
-          </span>
-          <h2 className="text-3xl sm:text-4xl font-extrabold text-white tracking-tight leading-tight">
-            Learning & Commuting Journey
-          </h2>
+      {/* Carousel Wrapper */}
+      <div className="w-full max-w-5xl mx-auto overflow-hidden z-10 relative px-4 bg-transparent">
+        <div
+          className="flex flex-row flex-nowrap min-w-max w-max py-8 bg-transparent"
+          style={{
+            transform: `translateX(calc(var(--carousel-center) - ${slideIndex * cardStep + halfCard}px))`,
+            transition: containerTransition
+          }}
+          onTransitionEnd={handleTransitionEnd}
+        >
+          {extendedSlides.map((slide, idx) => {
+            const distance = Math.abs(slideIndex - idx);
+            const isActive = distance === 0;
+            const isNeighbor = distance === 1;
+
+            return (
+              <div
+                key={idx}
+                className="w-[290px] sm:w-[340px] shrink-0 mx-3 rounded-2xl p-6 cursor-pointer select-none relative overflow-hidden"
+                style={{
+                  transform: `scale(${isActive ? 1.05 : isNeighbor ? 0.92 : 0.85})`,
+                  opacity: isActive ? 1 : isNeighbor ? 0.45 : 0.15,
+                  zIndex: 30 - Math.min(distance, 5),
+                  border: '1px solid',
+                  borderColor: isActive ? 'rgba(251, 191, 36, 0.2)' : 'rgba(255, 255, 255, 0.03)',
+                  backgroundColor: isActive ? '#0b1322' : 'rgba(4, 9, 18, 0.65)',
+                  boxShadow: isActive 
+                    ? '0 20px 40px -10px rgba(0, 0, 0, 0.85), inset 0 1px 0 rgba(255, 255, 255, 0.03)' 
+                    : 'inset 0 2px 4px rgba(0, 0, 0, 0.6)',
+                  transition: cardTransition
+                }}
+                onClick={() => handleCardClick(idx)}
+              >
+                {/* Neomorphic accent top border */}
+                <div 
+                  className="absolute top-0 inset-x-0 h-[2px] bg-gradient-to-r from-amber-400/80 to-yellow-500/80"
+                  style={{
+                    opacity: isActive ? 1 : 0,
+                    transition: isTransitioning ? 'opacity 1500ms cubic-bezier(0.22, 1, 0.36, 1)' : 'none'
+                  }}
+                />
+
+                {/* Icon Section (sunken well when inactive, glowing when active) */}
+                <div
+                  className="w-12 h-12 rounded-xl flex items-center justify-center mb-4"
+                  style={{
+                    backgroundColor: isActive ? 'rgba(251, 191, 36, 0.06)' : 'rgba(0, 0, 0, 0.25)',
+                    border: '1px solid',
+                    borderColor: isActive ? 'rgba(251, 191, 36, 0.25)' : 'rgba(255, 255, 255, 0.02)',
+                    boxShadow: isActive 
+                      ? '0 4px 12px rgba(251, 191, 36, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.05)' 
+                      : 'inset 2px 2px 5px rgba(0, 0, 0, 0.5)',
+                    transform: `scale(${isActive ? 1.05 : 0.95})`,
+                    transition: isTransitioning ? 'all 1500ms cubic-bezier(0.22, 1, 0.36, 1)' : 'none'
+                  }}
+                >
+                  {slide.icon}
+                </div>
+
+                {/* Badge Tag */}
+                <span
+                  className="px-2 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider mb-3 inline-block"
+                  style={{
+                    color: isActive ? '#fbbf24' : '#64748b',
+                    backgroundColor: isActive ? 'rgba(251, 191, 36, 0.08)' : 'rgba(255, 255, 255, 0.02)',
+                    border: '1px solid',
+                    borderColor: isActive ? 'rgba(251, 191, 36, 0.15)' : 'rgba(255, 255, 255, 0.05)',
+                    transition: tagTransition
+                  }}
+                >
+                  {slide.tag}
+                </span>
+
+                {/* Title */}
+                <h3
+                  className="text-sm font-bold mb-1.5 leading-snug"
+                  style={{
+                    color: isActive ? '#ffffff' : '#94a3b8',
+                    transform: `translateY(${isActive ? '0px' : '-4px'})`,
+                    opacity: isActive ? 1 : 0.7,
+                    transition: textTransition
+                  }}
+                >
+                  {slide.title}
+                </h3>
+
+                {/* Description */}
+                <p 
+                  className="text-xs leading-relaxed"
+                  style={{
+                    color: isActive ? '#cbd5e1' : '#64748b',
+                    transform: `translateY(${isActive ? '0px' : '-4px'})`,
+                    opacity: isActive ? 1 : 0.5,
+                    transition: textTransition
+                  }}
+                >
+                  {slide.desc}
+                </p>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Navigation Dots */}
+        <div className="flex justify-center gap-2 mt-4 bg-transparent font-sans">
+          {slides.map((_, idx) => {
+            const isActiveDot = (slideIndex % N) === idx;
+            return (
+              <button
+                key={idx}
+                onClick={() => handleDotClick(idx)}
+                className={`h-1.5 rounded-full transition-all duration-700 ease-[cubic-bezier(0.22,1,0.36,1)] relative overflow-hidden ${
+                  isActiveDot ? "w-8 bg-slate-800" : "w-1.5 bg-slate-700 hover:bg-slate-600"
+                }`}
+                aria-label={`Go to slide ${idx + 1}`}
+              >
+                {isActiveDot && (
+                  <span
+                    className="absolute inset-y-0 left-0 h-full bg-amber-400 rounded-full"
+                    style={{
+                      animation: 'progressBar 5000ms linear forwards'
+                    }}
+                  />
+                )}
+              </button>
+            );
+          })}
         </div>
       </div>
-
-      {/* Infinite Carousel Container */}
-      <div className="w-full overflow-hidden z-10 relative">
-        {/* Soft edge masks for blending */}
-        <div className="absolute inset-y-0 left-0 w-8 md:w-32 bg-gradient-to-r from-[#030a16] to-transparent z-20 pointer-events-none" />
-        <div className="absolute inset-y-0 right-0 w-8 md:w-32 bg-gradient-to-l from-[#030a16] to-transparent z-20 pointer-events-none" />
-
-        <div className="flex w-max animate-infinite-scroll hover:[animation-play-state:paused]">
-          {duplicatedSlides.map((slide, idx) => (
-            <div 
-              key={idx} 
-              className={`w-[280px] sm:w-[320px] md:w-[380px] shrink-0 mx-3 md:mx-4 border rounded-2xl p-6 md:p-8 transition-all duration-300 hover:-translate-y-2 ${slide.colorClass}`}
-            >
-              <div className="mb-4">{slide.icon}</div>
-              <span className="px-2 py-0.5 bg-white/5 border border-white/10 rounded text-[9px] font-bold text-slate-300 uppercase tracking-wider mb-3 inline-block">
-                {slide.tag}
-              </span>
-              <h3 className="text-lg md:text-xl font-bold mb-2 text-white">{slide.title}</h3>
-              <p className="text-sm text-slate-300 leading-relaxed">{slide.desc}</p>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      <style jsx global>{`
-        @keyframes infinite-scroll {
-          0% { transform: translateX(0); }
-          100% { transform: translateX(-50%); }
-        }
-        .animate-infinite-scroll {
-          animation: infinite-scroll 40s linear infinite;
-        }
-      `}</style>
     </div>
   );
 }

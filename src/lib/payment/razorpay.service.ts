@@ -43,9 +43,16 @@ let razorpayInstance: any = null;
 async function initializeRazorpay() {
   if (!razorpayInstance) {
     const Razorpay = (await import('razorpay')).default;
+    const keyId = process.env.RAZORPAY_KEY_ID;
+    const keySecret = process.env.RAZORPAY_KEY_SECRET;
+    
+    if (!keyId || !keySecret) {
+      throw new Error('Razorpay credentials are not configured in environment variables');
+    }
+
     razorpayInstance = new Razorpay({
-      key_id: process.env.RAZORPAY_KEY_ID || '',
-      key_secret: process.env.RAZORPAY_KEY_SECRET || '',
+      key_id: keyId,
+      key_secret: keySecret,
     });
   }
   return razorpayInstance;

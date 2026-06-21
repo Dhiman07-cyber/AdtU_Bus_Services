@@ -29,7 +29,13 @@ import * as crypto from 'crypto';
  */
 
 // Environment-based key loading with fallback generation
-const normalizePem = (value?: string): string => (value || '').replace(/\\n/g, '\n').trim();
+const normalizePem = (value?: string): string => {
+  let val = (value || '').trim();
+  if (val.startsWith('"') && val.endsWith('"')) {
+    val = val.slice(1, -1);
+  }
+  return val.replace(/\\n/g, '\n').trim();
+};
 const PRIVATE_KEY_PEM = normalizePem(process.env.DOCUMENT_PRIVATE_KEY);
 const PUBLIC_KEY_PEM = normalizePem(process.env.DOCUMENT_PUBLIC_KEY);
 

@@ -61,6 +61,17 @@ export default function PremiumStudentProfile() {
     return routeId ? routes.find((r: any) => r.routeId === routeId || r.id === routeId) : null;
   }, [student, routes]);
 
+  const calculatedAge = useMemo(() => {
+    if (!student?.dob) return 'N/A';
+    try {
+      const dobDate = typeof student.dob === 'string' ? new Date(student.dob) : (student.dob.toDate ? student.dob.toDate() : new Date(student.dob));
+      if (isNaN(dobDate.getTime())) return 'N/A';
+      return (new Date().getFullYear() - dobDate.getFullYear()).toString();
+    } catch {
+      return 'N/A';
+    }
+  }, [student?.dob]);
+
   useEffect(() => {
     if (userData && userData.role !== "student") {
       router.push(`/${userData.role}`);
@@ -160,7 +171,7 @@ export default function PremiumStudentProfile() {
               <InfoRow icon={<Phone className="h-5 w-5" />} label="Phone" value={student?.phoneNumber || student?.phone || 'N/A'} />
               <InfoRow icon={<Phone className="h-5 w-5" />} label="Alternate Phone" value={student?.alternatePhone || 'N/A'} />
               <InfoRow icon={<Calendar className="h-5 w-5" />} label="Date of Birth" value={formatDate(student?.dob)} />
-              <InfoRow icon={<Hash className="h-5 w-5" />} label="Age" value={student?.age || 'N/A'} />
+              <InfoRow icon={<Hash className="h-5 w-5" />} label="Age" value={calculatedAge} />
               <InfoRow icon={<User className="h-5 w-5" />} label="Gender" value={student?.gender || 'N/A'} />
               <InfoRow icon={<Heart className="h-5 w-5" />} label="Blood Group" value={student?.bloodGroup || 'N/A'} />
               <InfoRow icon={<Home className="h-5 w-5" />} label="Address" value={student?.address || 'N/A'} />

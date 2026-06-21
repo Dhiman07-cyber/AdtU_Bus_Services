@@ -66,7 +66,7 @@ export interface ApplicationFormData {
   enrollmentId: string;
   gender: string;
   dob: string;
-  age: string;
+  age?: string;
   profilePhotoUrl?: string;
 
   // Academic Info

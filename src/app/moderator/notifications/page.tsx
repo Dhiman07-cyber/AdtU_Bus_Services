@@ -1,7 +1,8 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { useRouter } from 'next/navigation';
+import dynamic from 'next/dynamic';
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -24,8 +25,12 @@ import {
 import { useToast } from "@/contexts/toast-context";
 import { useAuth } from "@/contexts/auth-context";
 import { useNotifications } from '@/contexts/NotificationContext';
-import NotificationFormV2 from "@/components/NotificationFormV2";
 import NotificationCardV2 from "@/components/NotificationCardV2";
+
+// Deferred: the heavy (~700-line) create/edit form loads only when opened.
+const NotificationFormV2 = dynamic(() => import("@/components/NotificationFormV2"), {
+  ssr: false,
+});
 
 type TabType = 'all' | 'admin' | 'driver' | 'sent';
 
@@ -52,6 +57,18 @@ export default function ModeratorNotificationsPage() {
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<TabType>('all');
 
+  // Warm the lazy create/edit form chunk during idle time so first open is instant.
+  useEffect(() => {
+    const preload = () => { import("@/components/NotificationFormV2"); };
+    const w = window as any;
+    if (typeof w.requestIdleCallback === 'function') {
+      const id = w.requestIdleCallback(preload, { timeout: 2500 });
+      return () => w.cancelIdleCallback?.(id);
+    }
+    const t = setTimeout(preload, 1500);
+    return () => clearTimeout(t);
+  }, []);
+
   // Automatically mark all received notifications as read when visiting the page or switching tabs
   useEffect(() => {
     if (loading || !currentUser) return;
@@ -77,57 +94,72 @@ export default function ModeratorNotificationsPage() {
     }
   }, [activeTab, loading, notifications, currentUser, markAllAsRead]);
 
-  // Filter notifications based on active tab
-  const getFilteredNotifications = () => {
-    switch (activeTab) {
-      case 'all':
-        return notifications.filter(n => n.sender.userId !== currentUser?.uid);
-      case 'admin':
-        return notifications.filter(n => n.sender.userId !== currentUser?.uid && n.sender.userRole === 'admin');
-      case 'driver':
-        return notifications.filter(n => n.sender.userId !== currentUser?.uid && n.sender.userRole === 'driver');
-      case 'sent':
-        return notifications.filter(n => n.sender.userId === currentUser?.uid);
-      default:
-        return notifications;
+  // Bucket notifications in a SINGLE pass instead of 5 separate array scans
+  // on every render. Recomputes only when notifications or the user change.
+  const { receivedNotifications, adminNotificationsCount, driverNotificationsCount, sentNotifications } = useMemo(() => {
+    const uid = currentUser?.uid;
+    const received: typeof notifications = [];
+    const admin: typeof notifications = [];
+    const driver: typeof notifications = [];
+    const sent: typeof notifications = [];
+
+    for (const n of notifications) {
+      if (n.sender.userId === uid) {
+        sent.push(n);
+        continue;
+      }
+      received.push(n);
+      if (n.sender.userRole === 'admin') admin.push(n);
+      else if (n.sender.userRole === 'driver') driver.push(n);
     }
-  };
 
-  const filteredNotifications = getFilteredNotifications();
+    return {
+      receivedNotifications: received,
+      adminNotificationsCount: admin,
+      driverNotificationsCount: driver,
+      sentNotifications: sent,
+    };
+  }, [notifications, currentUser?.uid]);
 
-  // Count notifications by type
-  const receivedNotifications = notifications.filter(n => n.sender.userId !== currentUser?.uid);
-  const adminNotificationsCount = notifications.filter(n => n.sender.userId !== currentUser?.uid && n.sender.userRole === 'admin');
-  const driverNotificationsCount = notifications.filter(n => n.sender.userId !== currentUser?.uid && n.sender.userRole === 'driver');
-  const sentNotifications = notifications.filter(n => n.sender.userId === currentUser?.uid);
+  // Filtered list for the active tab — picks the precomputed bucket.
+  const filteredNotifications = useMemo(() => {
+    switch (activeTab) {
+      case 'admin': return adminNotificationsCount;
+      case 'driver': return driverNotificationsCount;
+      case 'sent': return sentNotifications;
+      case 'all':
+      default: return receivedNotifications;
+    }
+  }, [activeTab, receivedNotifications, adminNotificationsCount, driverNotificationsCount, sentNotifications]);
 
-  // Handlers
-  const handleMarkAsRead = async (notificationId: string) => {
+  // Handlers — stable identities so memoized NotificationCardV2 instances
+  // don't re-render on every parent update.
+  const handleMarkAsRead = useCallback(async (notificationId: string) => {
     try {
       await markAsRead(notificationId);
       addToast('Marked as read', 'success');
     } catch (error) {
       addToast('Failed to mark as read', 'error');
     }
-  };
+  }, [markAsRead, addToast]);
 
-  const handleEdit = async (notificationId: string, updates: { content: string }) => {
+  const handleEdit = useCallback(async (notificationId: string, updates: { content: string }) => {
     try {
       await editNotification(notificationId, updates);
       addToast('Notification updated successfully', 'success');
     } catch (error) {
       addToast('Failed to update notification', 'error');
     }
-  };
+  }, [editNotification, addToast]);
 
-  const handleDeleteGlobally = async (notificationId: string) => {
+  const handleDeleteGlobally = useCallback(async (notificationId: string) => {
     try {
       await deleteGlobally(notificationId);
       addToast('Notification deleted for everyone', 'success');
     } catch (error) {
       addToast('Failed to delete notification', 'error');
     }
-  };
+  }, [deleteGlobally, addToast]);
 
 
   if (loading) {
@@ -167,6 +199,8 @@ export default function ModeratorNotificationsPage() {
           </div>
           <Button
             onClick={() => setCreateDialogOpen(true)}
+            onMouseEnter={() => { import("@/components/NotificationFormV2"); }}
+            onFocus={() => { import("@/components/NotificationFormV2"); }}
             className="bg-blue-600 hover:bg-blue-700 flex items-center gap-1.5 h-8 text-xs"
           >
             <Plus className="h-3.5 w-3.5" />
@@ -265,15 +299,17 @@ export default function ModeratorNotificationsPage() {
           </TabsContent>
         </Tabs>
 
-        {/* Create Notification Dialog */}
-        <NotificationFormV2
-          open={createDialogOpen}
-          onClose={() => setCreateDialogOpen(false)}
-          onSuccess={() => {
-            refresh();
-            setCreateDialogOpen(false);
-          }}
-        />
+        {/* Create Notification Dialog — mounted only when opened to defer its chunk */}
+        {createDialogOpen && (
+          <NotificationFormV2
+            open={createDialogOpen}
+            onClose={() => setCreateDialogOpen(false)}
+            onSuccess={() => {
+              refresh();
+              setCreateDialogOpen(false);
+            }}
+          />
+        )}
       </div>
     </div>
   );

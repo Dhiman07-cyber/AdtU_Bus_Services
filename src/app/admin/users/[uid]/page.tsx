@@ -204,7 +204,22 @@ export default function AdminViewUserProfile() {
                     <InfoRow label="Gender" value={student.gender} icon={User} />
                   </div>
                   <div className="space-y-3">
-                    <InfoRow label="Age" value={student.age} icon={Hash} />
+                    <InfoRow 
+                      label="Age" 
+                      value={(() => {
+                        if (!student.dob) return 'N/A';
+                        const birthDate = new Date(student.dob);
+                        if (isNaN(birthDate.getTime())) return 'N/A';
+                        const today = new Date();
+                        let age = today.getFullYear() - birthDate.getFullYear();
+                        const monthDiff = today.getMonth() - birthDate.getMonth();
+                        if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birthDate.getDate())) {
+                          age--;
+                        }
+                        return age.toString();
+                      })()} 
+                      icon={Hash} 
+                    />
                     <InfoRow label="Blood Group" value={student.bloodGroup} icon={Heart} />
                     <InfoRow label="Address" value={student.address} icon={Home} />
                   </div>

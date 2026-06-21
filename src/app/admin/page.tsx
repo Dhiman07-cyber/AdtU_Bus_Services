@@ -4,8 +4,6 @@ import { useEffect, useState, useMemo, useCallback } from 'react';
 import { useAuth } from '@/contexts/auth-context';
 import { useRouter } from 'next/navigation';
 import dynamic from 'next/dynamic';
-// SPARK PLAN SAFETY: Migrated to usePaginatedCollection
-import { usePaginatedCollection } from '@/hooks/usePaginatedCollection';
 import { PremiumPageLoader } from '@/components/LoadingSpinner';
 
 import HighLoadAlert from '@/components/HighLoadAlert';
@@ -71,7 +69,9 @@ interface DashboardCache {
   realCounts: {
     totalStudents: number;
     activeStudents: number;
+    expiredStudents: number;
     totalDrivers: number;
+    activeDrivers: number;
     totalBuses: number;
     activeBuses: number;
     enrouteBuses: number;
@@ -147,7 +147,9 @@ export default function EnhancedAdminDashboard() {
   const [realCounts, setRealCounts] = useState(cachedData?.realCounts || {
     totalStudents: 0,
     activeStudents: 0,
+    expiredStudents: 0,
     totalDrivers: 0,
+    activeDrivers: 0,
     totalBuses: 0,
     activeBuses: 0,
     enrouteBuses: 0,
@@ -155,7 +157,6 @@ export default function EnhancedAdminDashboard() {
     morningStudents: 0,
     eveningStudents: 0,
     pendingApplications: 0,
-
     pendingVerifications: 0,
     renewalRequests: 0,
     totalRevenue: 0,
@@ -174,24 +175,6 @@ export default function EnhancedAdminDashboard() {
   const [allBuses, setAllBuses] = useState<any[]>([]);
   const [allRoutes, setAllRoutes] = useState<any[]>([]);
 
-  // Paginated data fetching (on-demand refresh)
-  const { data: students, loading: loadingStudents, refresh: refreshStudents } = usePaginatedCollection('students', {
-    pageSize: 50, orderByField: 'updatedAt', orderDirection: 'desc', autoRefresh: false,
-  });
-  const { data: drivers, loading: loadingDrivers, refresh: refreshDrivers } = usePaginatedCollection('drivers', {
-    pageSize: 50, orderByField: 'updatedAt', orderDirection: 'desc', autoRefresh: false,
-  });
-  const { data: buses, loading: loadingBuses, refresh: refreshBuses } = usePaginatedCollection('buses', {
-    pageSize: 50, orderByField: 'busNumber', orderDirection: 'asc', autoRefresh: false,
-  });
-  const { data: applications, loading: loadingApplications, refresh: refreshApplications } = usePaginatedCollection('applications', {
-    pageSize: 50, orderByField: 'createdAt', orderDirection: 'desc', autoRefresh: false,
-  });
-  const { data: notifications, loading: loadingNotifications, refresh: refreshNotifications } = usePaginatedCollection('notifications', {
-    pageSize: 50, orderByField: 'createdAt', orderDirection: 'desc', autoRefresh: false,
-  });
-
-  // Fetch Accurate Counts - Single API call replaces 12+ individual Firestore queries
   const fetchRealTotalCounts = useCallback(async (modeOverride?: 'days' | 'months') => {
     try {
       if (!currentUser) return;
@@ -220,7 +203,6 @@ export default function EnhancedAdminDashboard() {
       // Payment analytics
       let totalRevenue = 0;
       let newTrends = { days: [] as any[], months: [] as any[] };
-
       if (dataDays.success && dataDays.data) {
         totalRevenue = dataDays.data.totalRevenue;
         newTrends.days = dataDays.data.trend || [];
@@ -242,7 +224,9 @@ export default function EnhancedAdminDashboard() {
       const newRealCounts = {
         totalStudents: d.totalStudents,
         activeStudents: d.activeStudents,
+        expiredStudents: d.expiredStudents,
         totalDrivers: d.totalDrivers,
+        activeDrivers: d.activeDrivers,
         totalBuses: d.totalBuses,
         activeBuses: d.activeBuses,
         enrouteBuses: d.enrouteBuses,
@@ -278,28 +262,7 @@ export default function EnhancedAdminDashboard() {
     fetchRealTotalCounts();
   }, [fetchRealTotalCounts]);
 
-  // Extract routes from buses data (since routes are nested in buses) - memoized
-  const routes = useMemo(() => {
-    return buses.map((bus: any) => {
-      if (bus.route) {
-        return {
-          id: bus.route.routeId,
-          routeId: bus.route.routeId,
-          routeName: bus.route.routeName,
-          totalStops: bus.route.totalStops,
-          estimatedTime: bus.route.estimatedTime,
-          status: bus.route.status || 'active',
-          stops: bus.route.stops || [],
-          assignedBuses: bus.route.assignedBuses || [bus.busId],
-          defaultBusId: bus.route.defaultBusId,
-          currentBusId: bus.route.currentBusId
-        };
-      }
-      return null;
-    }).filter(Boolean);
-  }, [buses]);
-
-  const allDataLoading = authLoading || loadingStudents || loadingDrivers || loadingBuses || loadingApplications || loadingNotifications || configLoading;
+  const allDataLoading = authLoading || configLoading;
 
   const [stats, setStats] = useState({
     totalStudents: 0,
@@ -336,11 +299,6 @@ export default function EnhancedAdminDashboard() {
     setIsRefreshing(true);
     try {
       await Promise.all([
-        refreshStudents(),
-        refreshDrivers(),
-        refreshBuses(),
-        refreshApplications(),
-        refreshNotifications(),
         fetchRealTotalCounts(),
         refreshConfig()
       ]);
@@ -354,99 +312,30 @@ export default function EnhancedAdminDashboard() {
 
   const [busUtilization, setBusUtilization] = useState<any[]>([]);
   const [studentDistribution, setStudentDistribution] = useState<any[]>([]);
-  const [applicationTrend, setApplicationTrend] = useState<any[]>([]);
   const [routeOccupancy, setRouteOccupancy] = useState<any[]>([]);
-  const [verificationTrend, setVerificationTrend] = useState<any[]>([]);
   const [activeTrips, setActiveTrips] = useState<any[]>([]);
-
 
 
   // Memoized calculation functions
   const calculateStats = useCallback(() => {
-    const now = new Date();
-    const thirtyDaysFromNow = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
-    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-
-    const activeStudents = students.filter((s: any) =>
-      s.status === 'active' && new Date(s.validUntil) > now
-    );
-
-    const expiringStudents = activeStudents.filter((s: any) => {
-      const expiry = new Date(s.validUntil);
-      return expiry > now && expiry <= thirtyDaysFromNow;
-    });
-
-    const expiredStudents = students.filter((s: any) =>
-      s.status === 'expired'
-    );
-
-    const unreadNotifs = notifications.filter((n: any) => {
-      // Skip notifications that are drafts or not sent
-      if (n.status === 'draft' || n.status === 'pending') {
-        return false;
-      }
-
-      // Skip application approval notifications (these are for students only)
-      if (n.title?.includes('application has been approved') ||
-        n.message?.includes('application has been approved') ||
-        n.title?.includes('Congratulations') ||
-        n.message?.includes('Welcome aboard')) {
-        return false;
-      }
-
-      // Skip notifications older than 48 hours
-      const createdAt = n.createdAt?.toDate ? n.createdAt.toDate() : new Date(n.createdAt);
-      const hoursOld = (Date.now() - createdAt.getTime()) / (1000 * 60 * 60);
-      if (hoursOld > 48) {
-        return false;
-      }
-
-      // If notification has a 'read' property, use it
-      if (n.read !== undefined) {
-        return !n.read;
-      }
-
-      // If notification has 'readStatus' object, check if current user has read it
-      if (n.readStatus && currentUser) {
-        return !n.readStatus[currentUser.uid];
-      }
-
-      // For moderator notifications, check if they're meant for moderator role
-      if (n.audience && typeof n.audience === 'object' && n.audience.scope) {
-        // This is a system notification, consider it read if it's old
-        const daysOld = (Date.now() - createdAt.getTime()) / (1000 * 60 * 60 * 24);
-        return daysOld < 1; // Consider unread if less than 1 day old
-      }
-
-      // If neither exists, consider it unread only if it's recent
-      return hoursOld < 24; // Consider unread if less than 24 hours old
-    });
-
-    const approvedToday = applications.filter((a: any) =>
-      a.state === 'approved' && new Date(a.approvedAt) >= todayStart
-    );
-    const rejectedToday = applications.filter((a: any) =>
-      a.state === 'rejected' && new Date(a.rejectedAt) >= todayStart
-    );
-
     setStats({
       totalStudents: realCounts.totalStudents,
       activeStudents: realCounts.activeStudents,
-      expiringStudents: expiringStudents.length,
-      expiredStudents: expiredStudents.length,
+      expiringStudents: 0,
+      expiredStudents: realCounts.expiredStudents || 0,
       totalDrivers: realCounts.totalDrivers,
-      activeDrivers: drivers.filter((d: any) => d.assignedBusId || d.busId).length,
+      activeDrivers: realCounts.activeDrivers || 0,
       totalBuses: realCounts.totalBuses,
       activeBuses: realCounts.enrouteBuses, // Repurposed for trips
       enrouteBuses: realCounts.enrouteBuses,
       operationalBuses: realCounts.operationalBuses,
-      totalRoutes: routes.length,
-      totalNotifications: notifications.length,
-      unreadNotifications: unreadNotifs.length,
+      totalRoutes: allRoutes.length,
+      totalNotifications: 0,
+      unreadNotifications: 0,
       pendingVerifications: realCounts.renewalRequests, // Showing Renewal Requests as "Pending Verification" as requested
       pendingApplications: realCounts.pendingApplications,
-      approvedToday: approvedToday.length,
-      rejectedToday: rejectedToday.length,
+      approvedToday: 0,
+      rejectedToday: 0,
       morningStudents: realCounts.morningStudents,
       eveningStudents: realCounts.eveningStudents,
       totalRevenue: realCounts.totalRevenue,
@@ -458,19 +347,16 @@ export default function EnhancedAdminDashboard() {
       systemBusFee: realCounts.configDates.busFee,
       feedbacksCount: realCounts.feedbacksCount
     });
-  }, [students, drivers, buses, routes, applications, notifications, realCounts]);
+  }, [realCounts, allRoutes.length]);
 
   // Memoized calculation functions
   const calculateCharts = useCallback(() => {
     // Bus utilization with enhanced data and sorting
-    // Use allBuses if available, otherwise fall back to paginated buses (though paginated is likely insufficient)
-    const busesToUse = allBuses.length > 0 ? allBuses : buses;
+    const busesToUse = allBuses;
     const busUtilData = busesToUse.map((bus: any) => {
-      // Use currentMembers and totalCapacity from bus document (correct Firestore fields)
       const currentMembers = bus.currentMembers || 0;
       let capacity = 55; // Default
 
-      // Get capacity from totalCapacity field (primary), or parse from capacity field if needed
       if (bus.totalCapacity) {
         capacity = bus.totalCapacity;
       } else if (bus.capacity) {
@@ -495,34 +381,25 @@ export default function EnhancedAdminDashboard() {
         eveningCount
       };
     }).sort((a, b) => {
-      // Sort by bus number in ascending order (Bus 1, Bus 2, etc.)
       const aNum = parseInt(a.name.replace(/\D/g, '')) || 0;
       const bNum = parseInt(b.name.replace(/\D/g, '')) || 0;
       return aNum - bNum;
     });
     setBusUtilization(busUtilData);
 
-    // Student distribution by shift - Use realCounts for total dataset accuracy
-    // Use realCounts directly to avoid stale state issues with 'stats'
+    // Student distribution by shift
     const morningCount = realCounts.morningStudents;
     const eveningCount = realCounts.eveningStudents;
-
 
     setStudentDistribution([
       { name: 'Evening', value: eveningCount || 0, color: '#3b82f6' }, // Blue
       { name: 'Morning', value: morningCount || 0, color: '#f97316' }  // Orange
-    ].filter(i => true)); // Keep both to ensure legend shows even if 0, or logic to handle small values
+    ]);
 
     // Route occupancy data - sorted by occupancy rate (highest first)
-    const routesToUse = allRoutes.length > 0 ? allRoutes : [];
-    // Just in case routes are nested in buses or stored separately.
-    // Assuming 'routes' collection is primary source for route definitions
-
-    // We need to map routes to buses.
-    // If allRoutes is empty, we can try to extract from buses if they have embedded route info, but usually collections are better.
+    const routesToUse = allRoutes;
 
     const routeOccupancyData = routesToUse.map((route: any) => {
-      // Find all buses assigned to this route
       const routeBuses = allBuses.filter((b: any) => b.routeId === route.routeId || b.route?.routeId === route.routeId);
 
       if (routeBuses.length === 0) {
@@ -534,12 +411,10 @@ export default function EnhancedAdminDashboard() {
         };
       }
 
-      // Calculate total capacity and current load across all buses for this route
       let totalCapacity = 0;
       let totalCurrentLoad = 0;
 
       routeBuses.forEach((bus: any) => {
-        // Get bus capacity
         let capacity = 50; // Default
         if (bus.capacity) {
           if (typeof bus.capacity === 'string' && bus.capacity.includes('/')) {
@@ -552,14 +427,7 @@ export default function EnhancedAdminDashboard() {
         }
 
         totalCapacity += capacity;
-        totalCapacity += capacity;
-        // Use currentMembers from bus document for accurate real-time data or calculate from students
-        let busLoad = bus.currentMembers || 0;
-        if (busLoad === 0 && students.length > 0) {
-          // Fallback: calculate from students data if available
-          busLoad = students.filter((s: any) => s.busId === bus.busId && s.status === 'active').length;
-        }
-        totalCurrentLoad += busLoad;
+        totalCurrentLoad += bus.currentMembers || 0;
       });
 
       const occupancy = totalCapacity > 0 ? Math.min(Math.round((totalCurrentLoad / totalCapacity) * 100), 100) : 0;
@@ -571,61 +439,12 @@ export default function EnhancedAdminDashboard() {
         capacity: totalCapacity
       };
     })
-      .filter(r => r.capacity > 0) // Only include routes with buses
-      .sort((a, b) => b.occupancy - a.occupancy) // Sort by occupancy (descending)
-      .slice(0, 8); // Take top 8
+      .filter(r => r.capacity > 0)
+      .sort((a, b) => b.occupancy - a.occupancy)
+      .slice(0, 8);
     setRouteOccupancy(routeOccupancyData);
 
-    // Application trend (last 7 days) with enhanced data
-    const last7Days = Array.from({ length: 7 }, (_, i) => {
-      const date = new Date();
-      date.setDate(date.getDate() - (6 - i));
-      return date;
-    });
-
-    const trendData = last7Days.map(date => {
-      const dateStr = date.toISOString().split('T')[0];
-      const submitted = applications.filter((a: any) =>
-        a.submittedAt?.startsWith(dateStr)
-      ).length;
-      const approved = applications.filter((a: any) =>
-        a.approvedAt?.startsWith(dateStr)
-      ).length;
-      const rejected = applications.filter((a: any) =>
-        a.rejectedAt?.startsWith(dateStr)
-      ).length;
-
-      return {
-        date: date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
-        submitted,
-        approved,
-        rejected
-      };
-    });
-    setApplicationTrend(trendData);
-
-    // Verification trend (last 7 days)
-    const verificationData = last7Days.map(date => {
-      const dateStr = date.toISOString().split('T')[0];
-      const awaitingVerification = applications.filter((a: any) =>
-        a.state === 'awaiting_verification' && a.submittedAt?.startsWith(dateStr)
-      ).length;
-      const verified = applications.filter((a: any) =>
-        a.verifiedAt?.startsWith(dateStr)
-      ).length;
-
-      return {
-        date: date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
-        awaiting: awaitingVerification,
-        verified
-      };
-    });
-    setVerificationTrend(verificationData);
-
-    // Active trips simulation (similar to admin dashboard)
-    // Supabase will handle active trips count and details via fetchRealTotalCounts
-    // No more simulation needed here
-  }, [students, drivers, buses, routes, applications, allBuses, allRoutes, realCounts]);
+  }, [allBuses, allRoutes, realCounts]);
 
   // Helper function for extracting numbers from strings
   const extractNumber = (str: string): string => {
@@ -635,21 +454,19 @@ export default function EnhancedAdminDashboard() {
 
   // Calculate stats when data changes
   useEffect(() => {
-    if (students && drivers && buses && routes && applications && notifications) {
-      calculateStats();
-      calculateCharts();
-    }
-  }, [students, drivers, buses, routes, applications, notifications, calculateStats, calculateCharts]);
+    calculateStats();
+    calculateCharts();
+  }, [calculateStats, calculateCharts]);
 
   // Update timestamp when data changes
   useEffect(() => {
     if (!allDataLoading) {
       setLastUpdated(new Date());
     }
-  }, [allDataLoading, students, drivers, buses, routes, notifications]);
+  }, [allDataLoading]);
 
 
-  if (allDataLoading && students.length === 0 && drivers.length === 0 && buses.length === 0) {
+  if (allDataLoading && realCounts.totalStudents === 0 && realCounts.totalBuses === 0) {
     return <PremiumPageLoader fullScreen message="Curating Dashboard Experience..." subMessage="Fetching system status and analytics..." />;
   }
 
@@ -666,13 +483,7 @@ export default function EnhancedAdminDashboard() {
   };
 
   return (
-    <div className="flex-1 bg-[#05060e] min-h-screen relative overflow-hidden transition-all duration-700">
-      {/* Background Ambience Bloom */}
-      <div className="fixed inset-0 overflow-hidden pointer-events-none">
-        <div className="absolute top-0 left-1/4 w-[800px] h-[800px] bg-blue-600/5 rounded-full blur-[120px] animate-pulse" style={{ animationDuration: '10s' }} />
-        <div className="absolute bottom-0 right-1/4 w-[800px] h-[800px] bg-indigo-600/5 rounded-full blur-[120px] animate-pulse" style={{ animationDuration: '12s', animationDelay: '2s' }} />
-      </div>
-
+    <div className="flex-1 bg-[#05060e] min-h-screen relative overflow-hidden">
       <div className="px-6 md:px-12 pt-17 md:pt-17 pb-20 relative z-10 max-w-screen-2xl mx-auto space-y-4">
         {/* HEADER AREA */}
         <DashboardHeader
@@ -690,7 +501,7 @@ export default function EnhancedAdminDashboard() {
 
         {/* SECTION: CRITICAL ALERT (Preserving unchanged) */}
         <div className="mb-2">
-          <HighLoadAlert role="admin" className="animate-in fade-in slide-in-from-top-4 duration-700 h-auto" />
+          <HighLoadAlert role="admin" className="animate-in fade-in duration-300 h-auto" />
         </div>
 
         {/* SECTION 2: PRIMARY SNAPSHOT (HERO ZONE) */}
@@ -701,11 +512,11 @@ export default function EnhancedAdminDashboard() {
           stats={stats as any as DashboardStats}
           allBuses={allBuses}
           allRoutes={allRoutes}
-          allDrivers={drivers}
+          allDrivers={[]}
         />
 
         {/* SECTION 2.1: PLATFORM ANALYTICS (GA4 INTEGRATION) */}
-        <div className="w-full animate-in fade-in slide-in-from-bottom-8 duration-700 delay-100">
+        <div className="w-full animate-in fade-in duration-300">
           <PlatformAnalytics />
         </div>
 

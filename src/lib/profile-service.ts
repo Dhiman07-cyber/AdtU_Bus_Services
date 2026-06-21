@@ -26,7 +26,6 @@ export interface StudentProfile extends BaseProfile {
   department?: string;
   semester?: string | number;
   dob?: Date | null;
-  age?: number;
   gender?: string;
   bloodGroup?: string;
   parentName?: string;
@@ -315,13 +314,7 @@ async function fetchStudentProfile(uid: string): Promise<StudentProfile | null> 
     // Get session history
     const sessionHistory = await getSessionHistory(uid);
 
-    // Calculate age if DOB provided
     const dob = toDate(data.dob);
-    let age: number | undefined;
-    if (dob) {
-      const ageDiff = Date.now() - dob.getTime();
-      age = Math.floor(ageDiff / (1000 * 60 * 60 * 24 * 365));
-    }
 
     return {
       uid,
@@ -337,7 +330,6 @@ async function fetchStudentProfile(uid: string): Promise<StudentProfile | null> 
       department: data.department,
       semester: data.semester,
       dob,
-      age,
       gender: data.gender,
       bloodGroup: data.bloodGroup,
       parentName: data.parentName,

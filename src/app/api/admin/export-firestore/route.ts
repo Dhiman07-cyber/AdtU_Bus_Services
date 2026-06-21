@@ -21,7 +21,11 @@ function convertTimestamps(obj: any): any {
     if (Array.isArray(obj)) return obj.map(item => convertTimestamps(item));
     if (typeof obj === 'object') {
         const converted: any = {};
-        for (const key in obj) converted[key] = convertTimestamps(obj[key]);
+        for (const key in obj) {
+            if (Object.prototype.hasOwnProperty.call(obj, key)) {
+                converted[key] = convertTimestamps(obj[key]);
+            }
+        }
         return converted;
     }
     return obj;

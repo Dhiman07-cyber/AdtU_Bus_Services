@@ -83,6 +83,26 @@ const formatDate = (dateValue: any) => {
   }
 };
 
+const calculateAgeFromDob = (dobValue: any): string => {
+  if (!dobValue) return 'N/A';
+  try {
+    let date: Date;
+    if (typeof dobValue === 'object' && dobValue !== null && 'seconds' in dobValue) {
+      date = new Date(dobValue.seconds * 1000);
+    } else if (dobValue && dobValue.toDate && typeof dobValue.toDate === 'function') {
+      date = dobValue.toDate();
+    } else {
+      date = new Date(dobValue);
+    }
+    if (isNaN(date.getTime())) return 'N/A';
+    const currentYear = new Date().getFullYear();
+    const birthYear = date.getFullYear();
+    return (currentYear - birthYear).toString();
+  } catch (error) {
+    return 'N/A';
+  }
+};
+
 const formatId = (id: string | undefined) => {
   if (!id) return 'Not Assigned';
   // Convert bus_6 to Bus-6, route_6 to Route-6, etc.
@@ -101,7 +121,7 @@ const StatusBadge = ({ status }: { status: string }) => {
   const config = statusConfig[status?.toLowerCase()] || statusConfig.inactive;
 
   return (
-    <div className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border ${config.bg} ${config.text} backdrop-blur-sm`}>
+    <div className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border ${config.bg} ${config.text}`}>
       <span className={`w-1.5 h-1.5 rounded-full ${config.dot} animate-pulse`}></span>
       <span className="text-xs font-medium capitalize">{status || 'Unknown'}</span>
     </div>
@@ -427,7 +447,7 @@ export default function ViewStudentPage({ params }: { params: Promise<{ id: stri
   return (
     <div className="min-h-screen pb-12 mt-8 bg-gradient-to-br from-background via-background to-muted/20">
       {/* Header */}
-      <div className="bg-gradient-to-r from-card via-card to-card/95 border-b border-border shadow-sm backdrop-blur-sm">
+      <div className="bg-gradient-to-r from-card via-card to-card/95 border-b border-border shadow-sm">
         <div className="max-w-7xl mx-auto px-4 py-3">
           <div className="flex items-center justify-between gap-3">
             <div className="flex items-center gap-2">
@@ -467,7 +487,6 @@ export default function ViewStudentPage({ params }: { params: Promise<{ id: stri
           <div className="relative w-32 md:w-full md:h-auto mx-auto md:mx-0">
             <div className="md:sticky md:top-6">
               <div className="relative group">
-                <div className="absolute -inset-3 bg-gradient-to-br from-primary/30 via-primary/20 to-primary/10 rounded-full blur-2xl opacity-40 group-hover:opacity-60 transition-opacity"></div>
                 {student.profilePhotoUrl ? (
                   <div className="relative w-full aspect-square rounded-full overflow-hidden shadow-2xl border-2 border-border bg-gradient-to-br from-card to-card/80">
                     <img
@@ -560,7 +579,7 @@ export default function ViewStudentPage({ params }: { params: Promise<{ id: stri
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 pt-2">
               <div className="text-center p-2 rounded-3xl border border-purple-200/50 dark:border-purple-800/50 bg-gradient-to-br from-purple-50/50 to-purple-100/30 dark:from-purple-950/20 dark:to-purple-900/30 hover:shadow-md transition-all">
                 <Calendar className="w-3.5 h-3.5 mx-auto mb-1 text-purple-600 dark:text-purple-400" />
-                <p className="text-sm font-bold text-foreground mb-0">{student.age || 'N/A'}</p>
+                <p className="text-sm font-bold text-foreground mb-0">{calculateAgeFromDob(student.dob)}</p>
                 <p className="text-[9px] text-muted-foreground uppercase tracking-wide font-medium">Age</p>
               </div>
               <div className="text-center p-2 rounded-3xl border border-blue-200/50 dark:border-blue-800/50 bg-gradient-to-br from-blue-50/50 to-blue-100/30 dark:from-blue-950/20 dark:to-blue-900/30 hover:shadow-md transition-all">
@@ -585,7 +604,7 @@ export default function ViewStudentPage({ params }: { params: Promise<{ id: stri
           <div className="md:hidden grid grid-cols-2 gap-2 pt-2">
             <div className="text-center p-2 rounded-3xl border border-purple-200/50 dark:border-purple-800/50 bg-gradient-to-br from-purple-50/50 to-purple-100/30 dark:from-purple-950/20 dark:to-purple-900/30 hover:shadow-md transition-all">
               <Calendar className="w-3.5 h-3.5 mx-auto mb-1 text-purple-600 dark:text-purple-400" />
-              <p className="text-sm font-bold text-foreground mb-0">{student.age || 'N/A'}</p>
+              <p className="text-sm font-bold text-foreground mb-0">{calculateAgeFromDob(student.dob)}</p>
               <p className="text-[9px] text-muted-foreground uppercase tracking-wide font-medium">Age</p>
             </div>
             <div className="text-center p-2 rounded-3xl border border-blue-200/50 dark:border-blue-800/50 bg-gradient-to-br from-blue-50/50 to-blue-100/30 dark:from-blue-950/20 dark:to-blue-900/30 hover:shadow-md transition-all">
@@ -600,7 +619,7 @@ export default function ViewStudentPage({ params }: { params: Promise<{ id: stri
         <div className="my-4 flex items-center justify-center">
           <div className="relative inline-flex items-center gap-3">
             <div className="w-12 h-[1.5px] bg-gradient-to-r from-transparent to-primary/40"></div>
-            <div className="px-4 py-1.5 rounded-lg bg-gradient-to-r from-blue-500/10 via-purple-500/10 to-pink-500/10 border border-gradient-to-r from-blue-400/30 via-purple-400/30 to-pink-400/30 backdrop-blur-sm shadow-md">
+            <div className="px-4 py-1.5 rounded-lg bg-blue-500/5 dark:bg-blue-500/10 border border-blue-500/20">
               <span className="text-xs font-bold bg-gradient-to-r from-blue-600 via-purple-600 to-pink-600 dark:from-blue-400 dark:via-purple-400 dark:to-pink-400 bg-clip-text text-transparent">Detailed Information</span>
             </div>
             <div className="w-12 h-[1.5px] bg-gradient-to-l from-transparent to-primary/40"></div>
@@ -766,7 +785,6 @@ export default function ViewStudentPage({ params }: { params: Promise<{ id: stri
             <div className="flex flex-col md:flex-row items-center gap-6">
               {/* QR Code Display */}
               <div className="relative">
-                <div className="absolute -inset-2 bg-gradient-to-br from-blue-500/20 to-purple-500/20 rounded-2xl blur-xl opacity-50"></div>
                 <div ref={qrRef} className="relative bg-white p-4 rounded-xl shadow-lg">
                   <QRCodeCanvas
                     value={id}

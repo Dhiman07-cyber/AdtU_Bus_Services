@@ -1,7 +1,7 @@
 "use client";
 
 import { useAuth } from '@/contexts/auth-context';
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState, useMemo, useCallback, memo } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { exportToExcel } from '@/lib/export-helpers';
@@ -59,6 +59,136 @@ import { useEventDrivenRefresh, signalCollectionRefresh } from '@/hooks/useEvent
 import { useTheme } from '@/components/theme-provider';
 import { cn } from '@/lib/utils';
 
+// Memoized table row — skips re-rendering for students whose data and handlers
+// are unchanged, keeping search/filter typing smooth even with a full page of rows.
+const StudentRow = memo(function StudentRow({
+  student,
+  theme,
+  busDisplay,
+  onDelete,
+}: {
+  student: any;
+  theme: string | undefined;
+  busDisplay: string;
+  onDelete: (item: { id: string; name: string }) => void;
+}) {
+  return (
+    <TableRow className="h-auto">
+      <TableCell className="py-1.5">
+        <div className="flex flex-row items-center gap-2">
+          <Avatar
+            src={safeImageSrc(student.profilePhotoUrl || student.photoURL)}
+            name={student.name || student.fullName}
+            size="xs"
+            className="flex-shrink-0"
+          />
+          <div className="flex flex-col min-w-0">
+            <div className="text-sm font-medium text-foreground truncate max-w-[180px]">{student.name || student.fullName}</div>
+            <div className="text-xs text-muted-foreground">{student.email}</div>
+          </div>
+        </div>
+      </TableCell>
+      <TableCell className="py-2">
+        <div className="space-y-0.5">
+          <div className="text-xs font-medium text-foreground">
+            Ph: {student.phone || student.phoneNumber || 'N/A'}
+          </div>
+          {(student.alternatePhone || student.altPhone) && (
+            <div className="text-xs text-muted-foreground">
+              Alt: {student.alternatePhone || student.altPhone}
+            </div>
+          )}
+        </div>
+      </TableCell>
+      <TableCell className="py-2">
+        <div className="font-mono text-xs text-foreground whitespace-nowrap">
+          {student.enrollmentId || student.studentId || 'N/A'}
+        </div>
+      </TableCell>
+      <TableCell className="py-1.5">
+        <div className="text-[10px] whitespace-nowrap">{busDisplay}</div>
+      </TableCell>
+      <TableCell className="py-1.5">
+        <span className={cn(
+          "inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-medium",
+          student.shift?.toLowerCase() === 'morning'
+            ? theme === 'dark' ? 'bg-blue-100 text-blue-800' : 'bg-blue-50 text-blue-700'
+            : theme === 'dark' ? 'bg-orange-100 text-orange-800' : 'bg-orange-50 text-orange-700'
+        )}>
+          {student.shift || 'N/A'}
+        </span>
+      </TableCell>
+      <TableCell className="py-1.5">
+        <div className="flex flex-col items-center gap-0.5">
+          <span className={cn(
+            "inline-block px-1.5 py-0.5 rounded-full text-[9px] font-medium",
+            student.status === 'active' ? 'bg-green-500 text-white' :
+            student.status === 'expired' ? 'bg-red-500 text-white' :
+            student.status === 'maintenance' ? 'bg-yellow-500 text-white' :
+            theme === 'dark' ? 'bg-gray-100 text-gray-700' : 'bg-gray-200 text-gray-700'
+          )}>
+            {student.status || 'Unknown'}
+          </span>
+          <div className="text-[10px] text-muted-foreground whitespace-nowrap">
+            {student.sessionStartYear && student.sessionEndYear
+              ? `${student.sessionStartYear}-${student.sessionEndYear}`
+              : 'N/A'
+            }
+          </div>
+        </div>
+      </TableCell>
+      <TableCell className="py-1.5 text-right">
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="ghost" className={cn(
+              "h-7 w-7 p-0 cursor-pointer",
+              theme === 'dark' ? "hover:bg-gray-700" : "hover:bg-gray-100"
+            )}>
+              <MoreHorizontal className="h-3.5 w-3.5" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className={cn(
+            "shadow-xl rounded-lg w-40",
+            theme === 'dark' ? "bg-gray-900 border-gray-600" : "bg-white border-[#E5E7EB]"
+          )}>
+            <DropdownMenuLabel className={cn("text-[11px] font-semibold px-2 py-1.5", theme === 'dark' ? "text-white" : "text-[#111827]")}>Actions</DropdownMenuLabel>
+            <DropdownMenuSeparator className={cn(theme === 'dark' ? "bg-gray-600" : "bg-[#E5E7EB]")} />
+            <DropdownMenuItem asChild>
+              <Link href={`/admin/students/view/${student.id}`} className={cn(
+                "px-2 py-1.5 text-[11px]",
+                theme === 'dark' ? "text-white hover:bg-gray-800 focus:bg-gray-800" : "text-[#111827] hover:bg-gray-100 focus:bg-gray-100"
+              )}>
+                <Eye className="mr-1.5 h-3 w-3 text-blue-400" />
+                View Details
+              </Link>
+            </DropdownMenuItem>
+            <DropdownMenuItem asChild>
+              <Link href={`/admin/students/edit/${student.id}`} className={cn(
+                "px-2 py-1.5 text-[11px]",
+                theme === 'dark' ? "text-white hover:bg-gray-800 focus:bg-gray-800" : "text-[#111827] hover:bg-gray-100 focus:bg-gray-100"
+              )}>
+                <Edit className="mr-1.5 h-3 w-3 text-yellow-400" />
+                Edit
+              </Link>
+            </DropdownMenuItem>
+            <DropdownMenuSeparator className={cn(theme === 'dark' ? "bg-gray-600" : "bg-[#E5E7EB]")} />
+            <DropdownMenuItem
+              className={cn(
+                "px-2 py-1.5 text-[11px] cursor-pointer transition-colors",
+                theme === 'dark' ? "text-white hover:!bg-red-600 focus:!bg-red-600" : "text-[#111827] hover:!bg-red-600 focus:!bg-red-600"
+              )}
+              onClick={() => onDelete({ id: student.id, name: student.name })}
+            >
+              <Trash2 className="mr-1.5 h-3 w-3" />
+              Delete
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </TableCell>
+    </TableRow>
+  );
+});
+
 export default function AdminStudents() {
   const { currentUser, userData, loading: authLoading } = useAuth();
   const { addToast } = useToast();
@@ -102,6 +232,12 @@ export default function AdminStudents() {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [deleteItem, setDeleteItem] = useState<{ id: string, name: string } | null>(null);
+
+  // Stable handler so memoized rows don't re-render when unrelated state changes.
+  const handleDeleteClick = useCallback((item: { id: string; name: string }) => {
+    setDeleteItem(item);
+    setIsDialogOpen(true);
+  }, []);
   const [searchTerm, setSearchTerm] = useState("");
   const [shiftFilter, setShiftFilter] = useState<string>("all");
   const [busFilter, setBusFilter] = useState<string>("all");
@@ -211,15 +347,26 @@ export default function AdminStudents() {
 
   // Real-time listeners handle data fetching automatically
 
-  const getBusDisplay = (busId: string) => {
+  // Index buses by both id fields once so per-row lookups are O(1) instead of
+  // scanning the whole bus array for every student row on every render.
+  const busById = useMemo(() => {
+    const map = new Map<string, any>();
+    for (const b of buses) {
+      if (b.busId) map.set(b.busId, b);
+      if (b.id) map.set(b.id, b);
+    }
+    return map;
+  }, [buses]);
+
+  const getBusDisplay = useCallback((busId: string) => {
     if (!busId) return 'Not Assigned';
 
-    const bus = buses.find(b => b.busId === busId || b.id === busId);
+    const bus = busById.get(busId);
     if (!bus) return busId;
 
     const busNum = busId.replace(/[^0-9]/g, '') || '?';
     return `Bus-${busNum} (${bus.busNumber || 'N/A'})`;
-  };
+  }, [busById]);
 
   // Get unique values for filters with proper numeric sorting
   const uniqueBuses = useMemo(() => Array.from(new Set(students.map(s => s.busId).filter(Boolean)))
@@ -505,122 +652,13 @@ export default function AdminStudents() {
                       </TableRow>
                     ) : (
                       uniqueFilteredStudents.map((student) => (
-                        <TableRow key={student.id} className="h-auto">
-                          <TableCell className="py-1.5">
-                            <div className="flex flex-row items-center gap-2">
-                              <Avatar
-                                src={safeImageSrc(student.profilePhotoUrl || student.photoURL)}
-                                name={student.name || student.fullName}
-                                size="xs"
-                                className="flex-shrink-0"
-                              />
-                              <div className="flex flex-col min-w-0">
-                                <div className="text-sm font-medium text-foreground truncate max-w-[180px]">{student.name || student.fullName}</div>
-                                <div className="text-xs text-muted-foreground">{student.email}</div>
-                              </div>
-                            </div>
-                          </TableCell>
-                          <TableCell className="py-2">
-                            <div className="space-y-0.5">
-                              <div className="text-xs font-medium text-foreground">
-                                Ph: {student.phone || student.phoneNumber || 'N/A'}
-                              </div>
-                              {(student.alternatePhone || student.altPhone) && (
-                                <div className="text-xs text-muted-foreground">
-                                  Alt: {student.alternatePhone || student.altPhone}
-                                </div>
-                              )}
-                            </div>
-                          </TableCell>
-                          <TableCell className="py-2">
-                            <div className="font-mono text-xs text-foreground whitespace-nowrap">
-                              {student.enrollmentId || student.studentId || 'N/A'}
-                            </div>
-                          </TableCell>
-                          <TableCell className="py-1.5">
-                            <div className="text-[10px] whitespace-nowrap">{getBusDisplay(student.busId)}</div>
-                          </TableCell>
-                          <TableCell className="py-1.5">
-                            <span className={cn(
-                              "inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-medium",
-                              student.shift?.toLowerCase() === 'morning'
-                                ? theme === 'dark' ? 'bg-blue-100 text-blue-800' : 'bg-blue-50 text-blue-700'
-                                : theme === 'dark' ? 'bg-orange-100 text-orange-800' : 'bg-orange-50 text-orange-700'
-                            )}>
-                              {student.shift || 'N/A'}
-                            </span>
-                          </TableCell>
-                          <TableCell className="py-1.5">
-                            <div className="flex flex-col items-center gap-0.5">
-                              <span className={cn(
-                                "inline-block px-1.5 py-0.5 rounded-full text-[9px] font-medium",
-                                student.status === 'active' ? 'bg-green-500 text-white' :
-                                student.status === 'expired' ? 'bg-red-500 text-white' :
-                                student.status === 'maintenance' ? 'bg-yellow-500 text-white' :
-                                theme === 'dark' ? 'bg-gray-100 text-gray-700' : 'bg-gray-200 text-gray-700'
-                              )}>
-                                {student.status || 'Unknown'}
-                              </span>
-                              <div className="text-[10px] text-muted-foreground whitespace-nowrap">
-                                {student.sessionStartYear && student.sessionEndYear
-                                  ? `${student.sessionStartYear}-${student.sessionEndYear}`
-                                  : 'N/A'
-                                }
-                              </div>
-                            </div>
-                          </TableCell>
-                          <TableCell className="py-1.5 text-right">
-                            <DropdownMenu>
-                              <DropdownMenuTrigger asChild>
-                                <Button variant="ghost" className={cn(
-                                  "h-7 w-7 p-0 cursor-pointer",
-                                  theme === 'dark' ? "hover:bg-gray-700" : "hover:bg-gray-100"
-                                )}>
-                                  <MoreHorizontal className="h-3.5 w-3.5" />
-                                </Button>
-                              </DropdownMenuTrigger>
-                              <DropdownMenuContent align="end" className={cn(
-                                "shadow-xl rounded-lg w-40",
-                                theme === 'dark' ? "bg-gray-900 border-gray-600" : "bg-white border-[#E5E7EB]"
-                              )}>
-                                <DropdownMenuLabel className={cn("text-[11px] font-semibold px-2 py-1.5", theme === 'dark' ? "text-white" : "text-[#111827]")}>Actions</DropdownMenuLabel>
-                                <DropdownMenuSeparator className={cn(theme === 'dark' ? "bg-gray-600" : "bg-[#E5E7EB]")} />
-                                <DropdownMenuItem asChild>
-                                  <Link href={`/admin/students/view/${student.id}`} className={cn(
-                                    "px-2 py-1.5 text-[11px]",
-                                    theme === 'dark' ? "text-white hover:bg-gray-800 focus:bg-gray-800" : "text-[#111827] hover:bg-gray-100 focus:bg-gray-100"
-                                  )}>
-                                    <Eye className="mr-1.5 h-3 w-3 text-blue-400" />
-                                    View Details
-                                  </Link>
-                                </DropdownMenuItem>
-                                <DropdownMenuItem asChild>
-                                  <Link href={`/admin/students/edit/${student.id}`} className={cn(
-                                    "px-2 py-1.5 text-[11px]",
-                                    theme === 'dark' ? "text-white hover:bg-gray-800 focus:bg-gray-800" : "text-[#111827] hover:bg-gray-100 focus:bg-gray-100"
-                                  )}>
-                                    <Edit className="mr-1.5 h-3 w-3 text-yellow-400" />
-                                    Edit
-                                  </Link>
-                                </DropdownMenuItem>
-                                <DropdownMenuSeparator className={cn(theme === 'dark' ? "bg-gray-600" : "bg-[#E5E7EB]")} />
-                                <DropdownMenuItem
-                                  className={cn(
-                                    "px-2 py-1.5 text-[11px] cursor-pointer transition-colors",
-                                    theme === 'dark' ? "text-white hover:!bg-red-600 focus:!bg-red-600" : "text-[#111827] hover:!bg-red-600 focus:!bg-red-600"
-                                  )}
-                                  onClick={() => {
-                                    setDeleteItem({ id: student.id, name: student.name });
-                                    setIsDialogOpen(true);
-                                  }}
-                                >
-                                  <Trash2 className="mr-1.5 h-3 w-3" />
-                                  Delete
-                                </DropdownMenuItem>
-                              </DropdownMenuContent>
-                            </DropdownMenu>
-                          </TableCell>
-                        </TableRow>
+                        <StudentRow
+                          key={student.id}
+                          student={student}
+                          theme={theme}
+                          busDisplay={getBusDisplay(student.busId)}
+                          onDelete={handleDeleteClick}
+                        />
                       ))
                     )}
                   </TableBody>

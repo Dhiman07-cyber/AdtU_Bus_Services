@@ -17,12 +17,12 @@ const formatPrivateKey = (key?: string) => {
 
 const _get = async () => {
   try {
-    const PROPERTY_ID = process.env.GA4_PROPERTY_ID || '507313354';
+    const PROPERTY_ID = process.env.GA4_PROPERTY_ID;
     const clientEmail = process.env.GA_CLIENT_EMAIL;
     const privateKey = formatPrivateKey(process.env.GA_PRIVATE_KEY);
     const projectId = process.env.GA_PROJECT_ID;
 
-    if (!clientEmail || !privateKey || !projectId) {
+    if (!PROPERTY_ID || !clientEmail || !privateKey || !projectId) {
       return NextResponse.json({ 
         error: 'Incomplete analytics configuration.',
         status: 'config_missing' 
@@ -87,6 +87,7 @@ const _get = async () => {
     });
 
   } catch (error: any) {
+    console.error('GA4 Analytics error:', error);
     const isPermissionError = error.message?.includes('permission') || error.code === 7;
     return NextResponse.json({ 
       error: isPermissionError ? 'Unauthorized access to GA4 property.' : 'Analytics sync failed.',

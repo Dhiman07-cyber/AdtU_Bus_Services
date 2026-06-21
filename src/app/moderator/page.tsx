@@ -1,23 +1,42 @@
 "use client";
 
 import { useEffect, useState, useMemo, useCallback } from 'react';
+import dynamic from 'next/dynamic';
 import { useAuth } from '@/contexts/auth-context';
 import { useRouter } from 'next/navigation';
 import { PremiumPageLoader } from '@/components/LoadingSpinner';
 
+// Lightweight, framer-motion-free header/strip/hero stay in the critical bundle.
 import {
   DashboardHeader,
   SystemHealthStrip,
   HeroLiveOperations,
-  KeyMetricsGrid,
-  TransactionalAnalytics,
-  BusUtilization,
-  RouteOccupancy,
-  StudentDistribution,
   SystemLifecycleIntelligence,
   QuickActions,
   DashboardStats
 } from '@/components/admin/dashboard';
+
+// Recharts-heavy widgets are code-split so the ~chart bundle never blocks first paint.
+// They render below/at the fold; a fixed-height skeleton avoids layout shift.
+const ChartSkeleton = ({ className = '' }: { className?: string }) => (
+  <div className={`rounded-2xl border border-white/5 bg-white/[0.02] animate-pulse ${className}`} />
+);
+const KeyMetricsGrid = dynamic(() => import('@/components/admin/dashboard/KeyMetricsGrid'), {
+  ssr: false,
+  loading: () => <ChartSkeleton className="h-40 w-full" />,
+});
+const BusUtilization = dynamic(() => import('@/components/admin/dashboard/BusUtilization'), {
+  ssr: false,
+  loading: () => <ChartSkeleton className="h-80 w-full" />,
+});
+const RouteOccupancy = dynamic(() => import('@/components/admin/dashboard/RouteOccupancy'), {
+  ssr: false,
+  loading: () => <ChartSkeleton className="h-80 w-full" />,
+});
+const StudentDistribution = dynamic(() => import('@/components/admin/dashboard/StudentDistribution'), {
+  ssr: false,
+  loading: () => <ChartSkeleton className="h-80 w-full" />,
+});
 import { useSystemConfig } from '@/contexts/SystemConfigContext';
 import { authApiFetch } from '@/lib/secure-api-client';
 import HighLoadAlert from '@/components/HighLoadAlert';
@@ -264,11 +283,16 @@ export default function EnhancedModeratorDashboard() {
   };
 
   return (
-    <div className="flex-1 bg-[#05060e] min-h-screen relative overflow-hidden transition-all duration-700">
-      <div className="fixed inset-0 overflow-hidden pointer-events-none">
-        <div className="absolute top-0 left-1/4 w-[800px] h-[800px] bg-blue-600/5 rounded-full blur-[120px] animate-pulse" />
-        <div className="absolute bottom-0 right-1/4 w-[800px] h-[800px] bg-indigo-600/5 rounded-full blur-[120px] animate-pulse" />
-      </div>
+    <div className="flex-1 bg-[#05060e] min-h-screen relative overflow-hidden">
+      {/* Static radial accent — no blur filter, no animation. Composited once and
+          cached, so low-end GPUs never repaint a huge blurred surface per frame. */}
+      <div
+        className="fixed inset-0 pointer-events-none"
+        style={{
+          background:
+            'radial-gradient(800px circle at 25% 0%, rgba(37,99,235,0.06), transparent 60%), radial-gradient(800px circle at 75% 100%, rgba(79,70,229,0.06), transparent 60%)',
+        }}
+      />
 
       <div className="px-6 md:px-12 pt-17 pb-20 relative z-10 max-w-screen-2xl mx-auto space-y-4">
         <DashboardHeader

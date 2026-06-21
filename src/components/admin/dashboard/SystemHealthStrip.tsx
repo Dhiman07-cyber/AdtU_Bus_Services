@@ -44,7 +44,7 @@ const HealthMetric = ({ icon: Icon, label, value, subValue, color, delay }: Heal
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.5, delay: delay * 0.1 }}
       className={cn(
-        "flex-1 flex flex-col items-center justify-center text-center gap-1.5 p-2 rounded-xl border backdrop-blur-xl transition-all duration-300 hover:scale-[1.02]",
+        "flex-1 flex flex-col items-center justify-center text-center gap-1.5 p-2 rounded-xl border transition-all duration-300 hover:scale-[1.02]",
         theme === 'dark' ? "hover:bg-white/5" : "hover:bg-gray-50",
         colorVariants[color][theme]
       )}
@@ -80,7 +80,7 @@ export default function SystemHealthStrip({ stats }: { stats: DashboardStats }) 
   const router = useRouter();
 
   return (
-    <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-0 w-full animate-in fade-in slide-in-from-bottom-4 duration-1000 mb-5">
+    <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-0 w-full animate-in fade-in duration-300 mb-5">
       <HealthMetric
         icon={Zap}
         label="Active Trips"

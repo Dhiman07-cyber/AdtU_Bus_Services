@@ -549,6 +549,22 @@ export default function ModeratorApplicationDetailPage() {
                 })()} />
                 <InfoRow label="Phone" value={application.formData?.phoneNumber} />
                 <InfoRow label="DOB" value={application.formData?.dob} />
+                <InfoRow 
+                  label="Age" 
+                  value={(() => {
+                    const dob = application.formData?.dob;
+                    if (!dob) return '—';
+                    const birthDate = new Date(dob);
+                    if (isNaN(birthDate.getTime())) return '—';
+                    const today = new Date();
+                    let age = today.getFullYear() - birthDate.getFullYear();
+                    const monthDiff = today.getMonth() - birthDate.getMonth();
+                    if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birthDate.getDate())) {
+                      age--;
+                    }
+                    return age.toString();
+                  })()} 
+                />
                 <InfoRow label="Blood Group" value={application.formData?.bloodGroup} />
                 <InfoRow label="Parent/Guardian" value={application.formData?.parentName} />
                 <InfoRow label="Emergency Contact" value={application.formData?.parentPhone} />
@@ -560,9 +576,9 @@ export default function ModeratorApplicationDetailPage() {
               {/* Service Details Column */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-5 mt-8 lg:mt-0">
                 <div className="flex flex-col gap-1 min-w-0">
-                  <span className="text-[11px] font-medium text-[#71717A] uppercase tracking-[0.08em]">Route Assignment</span>
+                  <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">Route Assignment</span>
                   <div className="flex items-center gap-2">
-                    <span className="text-[14px] font-medium text-[#F4F4F5]">
+                    <span className="text-[14px] font-bold text-white">
                       {application.formData?.routeId ? `Route ${application.formData.routeId.replace('route_', '')}` : 'Not Assigned'}
                     </span>
                     {routeError && !application.formData?.busId && !application.formData?.assignedBusId && (
@@ -611,37 +627,37 @@ export default function ModeratorApplicationDetailPage() {
             </div>
 
             {/* Payment Strip */}
-            <div className="flex flex-wrap items-center gap-y-8 gap-x-12 py-7 px-10 rounded-[18px] bg-white/[0.02] border border-white/[0.05] relative overflow-hidden group">
+            <div className="flex flex-wrap items-center gap-y-8 gap-x-12 py-10 px-10 rounded-[18px] bg-white/[0.02] border border-white/[0.05] relative overflow-hidden group">
               <div className="absolute top-0 right-0 p-4 opacity-[0.03] group-hover:opacity-[0.05] transition-opacity">
                 <CreditCard className="h-20 w-20 text-white" />
               </div>
 
-              <div className="flex flex-col gap-1.5 min-w-[140px]">
-                <span className="text-[10px] font-medium text-zinc-500 uppercase tracking-[0.1em]">Amount Collected</span>
+              <div className="flex flex-col gap-1.5 min-w-[140px] flex-grow">
+                <span className="text-[10px] font-semibold text-zinc-500 uppercase tracking-wider">Amount Collected</span>
                 <div className="flex items-baseline gap-2">
                   <span className="text-2xl font-black text-white">₹{application.formData?.paymentInfo?.amountPaid?.toLocaleString('en-IN')}</span>
                   <span className="text-[10px] font-bold text-emerald-400 bg-emerald-500/10 px-1.5 py-0.5 rounded uppercase tracking-wider">Paid</span>
                 </div>
               </div>
 
-              <div className="hidden md:block w-[2px] h-10 bg-white/10" />
+              <div className="hidden md:block w-[2px] h-12 bg-white/10 flex-shrink-0" />
 
-              <div className="flex flex-col gap-1.5 min-w-[100px]">
-                <span className="text-[10px] font-medium text-zinc-500 uppercase tracking-[0.1em]">Payment Mode</span>
-                <span className="text-sm font-bold text-zinc-100 capitalize">{application.formData?.paymentInfo?.paymentMode}</span>
+              <div className="flex flex-col gap-1.5 min-w-[100px] flex-grow">
+                <span className="text-[10px] font-semibold text-zinc-500 uppercase tracking-wider">Payment Mode</span>
+                <span className="text-sm font-bold text-white capitalize">{application.formData?.paymentInfo?.paymentMode}</span>
               </div>
 
-              <div className="hidden md:block w-[2px] h-10 bg-white/10" />
+              <div className="hidden md:block w-[2px] h-12 bg-white/10 flex-shrink-0" />
 
-              <div className="flex flex-col gap-1.5 min-w-[100px]">
-                <span className="text-[10px] font-medium text-zinc-500 uppercase tracking-[0.1em]">Subscription</span>
-                <span className="text-sm font-bold text-zinc-100">{application.formData?.sessionInfo?.durationYears || 1} Year Plan</span>
+              <div className="flex flex-col gap-1.5 min-w-[100px] flex-grow">
+                <span className="text-[10px] font-semibold text-zinc-500 uppercase tracking-wider">Subscription</span>
+                <span className="text-sm font-bold text-white">{application.formData?.sessionInfo?.durationYears || 1} Year Plan</span>
               </div>
 
-              <div className="hidden md:block w-[2px] h-10 bg-white/10" />
+              <div className="hidden md:block w-[2px] h-12 bg-white/10 flex-shrink-0" />
 
-              <div className="flex flex-col gap-1.5 min-w-[120px]">
-                <span className="text-[10px] font-medium text-zinc-500 uppercase tracking-[0.1em]">Gateway Status</span>
+              <div className="flex flex-col gap-1.5 min-w-[120px] flex-grow">
+                <span className="text-[10px] font-semibold text-zinc-500 uppercase tracking-wider">Gateway Status</span>
                 <div className="flex items-center gap-2">
                   <div className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse"></div>
                   <span className="text-sm font-bold text-emerald-400 uppercase tracking-tight">Active / Success</span>
@@ -666,22 +682,22 @@ export default function ModeratorApplicationDetailPage() {
             {/* Sub-strip for metadata */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-8 mt-6 px-4">
               <div className="flex flex-col gap-1">
-                <span className="text-[9px] font-bold text-zinc-600 uppercase tracking-widest">Transaction / Reference ID</span>
-                <span className="text-xs font-mono text-zinc-400 truncate tracking-tight" title={application.formData?.paymentInfo?.razorpayPaymentId || application.formData?.paymentInfo?.paymentReference || 'N/A'}>
+                <span className="text-[10px] font-semibold text-zinc-500 uppercase tracking-wider">Transaction / Reference ID</span>
+                <span className="text-[14px] font-bold text-zinc-200 font-mono truncate tracking-tight" title={application.formData?.paymentInfo?.razorpayPaymentId || application.formData?.paymentInfo?.paymentReference || 'N/A'}>
                   {application.formData?.paymentInfo?.razorpayPaymentId || application.formData?.paymentInfo?.paymentReference || 'N/A'}
                 </span>
               </div>
               <div className="flex flex-col gap-1">
-                <span className="text-[9px] font-bold text-zinc-600 uppercase tracking-widest">Payment made on</span>
-                <span className="text-xs text-zinc-400">
+                <span className="text-[10px] font-semibold text-zinc-500 uppercase tracking-wider">Payment made on</span>
+                <span className="text-[14px] font-bold text-zinc-200">
                   {application.formData?.paymentInfo?.paymentTime
                     ? new Date(application.formData.paymentInfo.paymentTime).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })
                     : '—'}
                 </span>
               </div>
               <div className="flex flex-col gap-1">
-                <span className="text-[9px] font-bold text-zinc-600 uppercase tracking-widest">Verified by</span>
-                <span className="text-xs text-zinc-400 font-medium">
+                <span className="text-[10px] font-semibold text-zinc-500 uppercase tracking-wider">Verified by</span>
+                <span className="text-[14px] font-bold text-zinc-200">
                   {application.formData?.paymentInfo?.paymentMode === 'online' ? 'Automated System (ONLINE-PAY)' : 'Manual Auditor Queue'}
                 </span>
               </div>
@@ -715,8 +731,8 @@ export default function ModeratorApplicationDetailPage() {
 
               {/* Authenticator Column */}
               <div className="flex flex-col gap-1">
-                <span className="text-[9px] font-bold text-zinc-600 uppercase tracking-widest">Authenticator</span>
-                <p className="text-xs text-zinc-300 font-medium">
+                <span className="text-[10px] font-semibold text-zinc-500 uppercase tracking-wider">Authenticator</span>
+                <p className="text-[14px] font-bold text-zinc-200">
                   {verifierData?.name && verifierData?.employeeId
                     ? `${verifierData.name} (${verifierData.employeeId})`
                     : verifierData?.name || 'Automated System (SECURE)'
@@ -726,8 +742,8 @@ export default function ModeratorApplicationDetailPage() {
 
               {/* Submitted On Column */}
               <div className="flex flex-col gap-1">
-                <span className="text-[9px] font-bold text-zinc-600 uppercase tracking-widest">Submitted on</span>
-                <p className="text-xs text-zinc-400 font-mono">
+                <span className="text-[10px] font-semibold text-zinc-500 uppercase tracking-wider">Submitted on</span>
+                <p className="text-[14px] font-bold text-zinc-200 font-mono">
                   {(application as any).submittedAt
                     ? new Date((application as any).submittedAt).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })
                     : (application.formData?.paymentInfo?.paymentTime
@@ -871,10 +887,10 @@ export default function ModeratorApplicationDetailPage() {
 function InfoRow({ label, value, isMono = false }: { label: string; value: string | undefined | null; isMono?: boolean }) {
   return (
     <div className="flex flex-col gap-1 min-w-0">
-      <span className="text-[11px] font-medium text-[#71717A] uppercase tracking-[0.08em]">{label}</span>
+      <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">{label}</span>
       <span
         className={cn(
-          "text-[14px] font-medium text-[#F4F4F5] truncate leading-tight",
+          "text-[14px] font-bold text-white truncate leading-tight",
           isMono && "font-mono tracking-tight"
         )}
         title={value || '—'}

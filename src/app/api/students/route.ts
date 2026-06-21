@@ -12,7 +12,6 @@ interface Student {
   enrollmentId?: string;
   gender?: string;
   dob?: string;
-  age?: string;
   faculty: string;
   department: string;
   parentName?: string;

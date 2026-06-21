@@ -70,7 +70,6 @@ export const CreateUserSchema = z.object({
     profilePhotoUrl: z.string().url().optional().or(z.literal('')),
     enrollmentId: z.string().max(50).optional(),
     gender: z.string().max(20).optional(),
-    age: z.union([z.string(), z.number()]).optional(),
     faculty: z.string().max(100).optional(),
     department: z.string().max(100).optional(),
     semester: z.string().max(50).optional(),

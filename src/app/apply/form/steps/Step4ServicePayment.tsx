@@ -26,7 +26,8 @@ export default function Step4ServicePayment({
   setReceiptFile,
   setReceiptPreview,
   showToast,
-  onClear
+  onClear,
+  receiptPreview
 }: PaymentStepProps) {
   return (
     <div className="space-y-6 flex-1 flex flex-col">
@@ -127,7 +128,7 @@ export default function Step4ServicePayment({
           enrollmentId={formData.enrollmentId}
           purpose="new_registration"
           initialPaymentId={formData.paymentInfo.paymentReference}
-          initialReceiptPreview={formData.paymentInfo.paymentEvidenceUrl}
+          initialReceiptPreview={receiptPreview || formData.paymentInfo.paymentEvidenceUrl}
           isReadOnly={applicationState === 'submitted'}
           isVerified={applicationState === 'verified'}
           onPaymentComplete={(details) => {
@@ -160,6 +161,10 @@ export default function Step4ServicePayment({
             setReceiptFile(file);
             const previewUrl = URL.createObjectURL(file);
             setReceiptPreview(previewUrl);
+          }}
+          onReceiptRemove={() => {
+            setReceiptFile(null);
+            setReceiptPreview('');
           }}
         />
       </div>

@@ -22,7 +22,6 @@ export interface Student {
   department?: string;
   gender?: string;
   dob?: string;
-  age?: number;
   enrollmentId?: string;
   bloodGroup?: string;
   address?: string;
@@ -215,7 +214,6 @@ export interface Application {
     department: string;
     gender: string;
     dob: string;
-    age: number;
     phone: string;
     altPhone?: string;
     parentName: string;

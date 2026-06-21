@@ -27,6 +27,10 @@ export async function GET(request: Request) {
     const decodedToken = await auth.verifyIdToken(token);
     const driverUid = decodedToken.uid;
 
+    if (!driverUid || typeof driverUid !== 'string' || !/^[a-zA-Z0-9_-]{1,128}$/.test(driverUid)) {
+      return NextResponse.json({ error: 'Invalid driver UID' }, { status: 400 });
+    }
+
     console.log('📋 Listing swap requests for driver:', driverUid);
 
     const response: any = {

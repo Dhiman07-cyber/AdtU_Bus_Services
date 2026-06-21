@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
+import dynamic from 'next/dynamic';
 import { useAuth } from '@/contexts/auth-context';
 import { useToast } from '@/contexts/toast-context';
 import { Button } from '@/components/ui/button';
@@ -28,7 +29,7 @@ import {
   TargetType,
   NotificationType
 } from '@/lib/notifications/types';
-import { collection, getDocs, query, where } from 'firebase/firestore';
+import { collection, getDocs, query, where, getCountFromServer } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import {
   calculateExpiry
@@ -39,7 +40,10 @@ import {
   insertDropoffSummary,
   type DropoffAssignment
 } from '@/data/notification_templates';
-import DropoffMatrix from './DropoffMatrix';
+// The dropoff matrix is only rendered for the 'dropoff' notification type. Loading it
+// lazily keeps it out of the form's initial parse/mount path so the Create dialog paints
+// immediately on click instead of waiting on this subtree.
+const DropoffMatrix = dynamic(() => import('./DropoffMatrix'), { ssr: false });
 import { getAllRoutes } from '@/lib/dataService';
 import { Route } from '@/lib/types';
 
@@ -51,6 +55,12 @@ interface NotificationFormV2Props {
   initialData?: any;
   onEdit?: (id: string, updates: { title?: string, content: string, metadata?: any }) => Promise<void>;
 }
+
+// NOTIFICATION_TEMPLATES is a static constant — group it once at module load
+// instead of running Object.entries().filter() three times on every render.
+const NOTICE_TEMPLATE_ENTRIES = Object.entries(NOTIFICATION_TEMPLATES).filter(([, t]) => t.type === 'notice');
+const PICKUP_TEMPLATE_ENTRIES = Object.entries(NOTIFICATION_TEMPLATES).filter(([, t]) => t.type === 'pickup');
+const DROPOFF_TEMPLATE_ENTRIES = Object.entries(NOTIFICATION_TEMPLATES).filter(([, t]) => t.type === 'dropoff');
 
 interface RouteOption {
   id: string;
@@ -100,6 +110,31 @@ export default function NotificationFormV2({ open, onClose, onSuccess, mode = 'c
 
   const userRole = userData?.role as UserRole;
 
+  // Stable element arrays for the template dropdown — built once so typing in
+  // the title/message (which re-renders the whole form) doesn't recreate and
+  // reconcile ~30 <SelectItem>s every keystroke.
+  const templateItems = useMemo(() => ({
+    notice: NOTICE_TEMPLATE_ENTRIES.map(([key, t]) => (
+      <SelectItem key={key} value={key} className="py-1.5 text-xs pl-6">{t.title}</SelectItem>
+    )),
+    pickup: PICKUP_TEMPLATE_ENTRIES.map(([key, t]) => (
+      <SelectItem key={key} value={key} className="py-1.5 text-xs pl-6">{t.title}</SelectItem>
+    )),
+    dropoff: DROPOFF_TEMPLATE_ENTRIES.map(([key, t]) => (
+      <SelectItem key={key} value={key} className="py-1.5 text-xs pl-6">{t.title}</SelectItem>
+    )),
+  }), []);
+
+  // Filter the specific-users list only when the list or query changes, not on
+  // every form re-render.
+  const filteredUsers = useMemo(
+    () => users.filter(u =>
+      u.name.toLowerCase().includes(userSearchQuery.toLowerCase()) ||
+      u.enrollmentId?.toLowerCase().includes(userSearchQuery.toLowerCase())
+    ),
+    [users, userSearchQuery]
+  );
+
   useEffect(() => {
     const days = parseInt(expiryDays);
     const expiryConfig = calculateExpiry(days);
@@ -135,6 +170,13 @@ export default function NotificationFormV2({ open, onClose, onSuccess, mode = 'c
   }, [open, mode, initialData]);
 
   useEffect(() => {
+    if (open && currentUser && notificationType === 'dropoff') {
+      if (fullRoutes.length === 0) loadFullRoutes();
+      if (fullBuses.length === 0) loadFullBuses();
+    }
+  }, [open, currentUser, notificationType, fullRoutes.length, fullBuses.length]);
+
+  useEffect(() => {
     if (open && currentUser) {
       if (userRole === 'driver') {
         const driverRoute = userData?.routeId || userData?.assignedRouteId;
@@ -151,8 +193,6 @@ export default function NotificationFormV2({ open, onClose, onSuccess, mode = 'c
       if (targetType === 'bus_based' || targetType === 'route_based' || targetType === 'specific_users') {
         loadOptions();
       }
-      loadFullRoutes();
-      loadFullBuses();
     }
   }, [open, targetType, specificUserRoleFilter, currentUser, userRole, userData]);
 
@@ -189,55 +229,53 @@ export default function NotificationFormV2({ open, onClose, onSuccess, mode = 'c
     try {
       if (targetType === 'bus_based') {
         const snapshot = await getDocs(collection(db, 'buses'));
-        const busData: RouteOption[] = [];
-        for (const doc of snapshot.docs) {
+        const busData = await Promise.all(snapshot.docs.map(async (doc) => {
           const data = doc.data();
           const studentsQuery = query(collection(db, 'students'), where('busId', '==', doc.id));
-          const studentsSnapshot = await getDocs(studentsQuery);
-          busData.push({
+          const countSnapshot = await getCountFromServer(studentsQuery);
+          return {
             id: doc.id,
             name: data.busNumber || data.plateNumber || doc.id,
-            studentCount: studentsSnapshot.size
-          });
-        }
+            studentCount: countSnapshot.data().count
+          };
+        }));
         setBuses(busData.sort((a, b) => a.name.localeCompare(b.name)));
       }
 
       if (targetType === 'route_based') {
         const snapshot = await getDocs(collection(db, 'routes'));
-        const routesData: RouteOption[] = [];
-        for (const doc of snapshot.docs) {
+        const routesData = await Promise.all(snapshot.docs.map(async (doc) => {
           const data = doc.data();
           const studentsQuery = query(collection(db, 'students'), where('routeId', '==', doc.id));
-          const studentsSnapshot = await getDocs(studentsQuery);
-          routesData.push({
+          const countSnapshot = await getCountFromServer(studentsQuery);
+          return {
             id: doc.id,
             name: data.routeName || data.name || doc.id,
-            studentCount: studentsSnapshot.size
-          });
-        }
+            studentCount: countSnapshot.data().count
+          };
+        }));
         setRoutes(routesData.sort((a, b) => a.name.localeCompare(b.name)));
       }
 
       if (targetType === 'specific_users') {
-        const usersData: UserOption[] = [];
         const rolesToLoad = specificUserRoleFilter ? [specificUserRoleFilter] :
           (userRole === 'driver' ? ['student'] : ['moderator', 'driver', 'student']) as UserRole[];
 
-        for (const role of rolesToLoad) {
+        const results = await Promise.all(rolesToLoad.map(async (role) => {
           const colName = role === 'student' ? 'students' : role === 'driver' ? 'drivers' : 'moderators';
           const snapshot = await getDocs(collection(db, colName));
-          snapshot.docs.forEach(doc => {
+          return snapshot.docs.map(doc => {
             const data = doc.data();
-            usersData.push({
+            return {
               id: doc.id,
               name: data.name || data.fullName || 'Unknown',
               role: role,
               email: data.email,
               enrollmentId: data.enrollmentId || data.employeeId || data.driverId || data.staffId
-            });
+            };
           });
-        }
+        }));
+        const usersData = results.flat();
         setUsers(usersData.sort((a, b) => a.name.localeCompare(b.name)));
       }
     } catch (error) {
@@ -376,7 +414,7 @@ export default function NotificationFormV2({ open, onClose, onSuccess, mode = 'c
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
       <DialogContent
         onWheel={(e) => e.stopPropagation()}
-        className="max-w-[95vw] sm:max-w-[550px] lg:max-w-[800px] p-0 mt-5 overflow-hidden rounded-[20px] border border-slate-200/50 dark:border-slate-800/50 shadow-2xl bg-white dark:bg-slate-950 top-[50%] translate-y-[-50%] transition-all duration-500 [&>button[data-slot=dialog-close]]:right-4 [&>button[data-slot=dialog-close]]:top-4 [&>button[data-slot=dialog-close]]:bg-slate-100 dark:[&>button[data-slot=dialog-close]]:bg-slate-800 [&>button[data-slot=dialog-close]]:rounded-full [&>button[data-slot=dialog-close]]:p-1.5 [&>button[data-slot=dialog-close]]:hover:bg-red-500 [&>button[data-slot=dialog-close]]:hover:text-white"
+        className="max-w-[95vw] sm:max-w-[550px] lg:max-w-[800px] p-0 mt-5 overflow-hidden rounded-[20px] border border-slate-200/50 dark:border-slate-800/50 shadow-2xl bg-white dark:bg-slate-950 top-[50%] translate-y-[-50%] [&>button[data-slot=dialog-close]]:right-4 [&>button[data-slot=dialog-close]]:top-4 [&>button[data-slot=dialog-close]]:bg-slate-100 dark:[&>button[data-slot=dialog-close]]:bg-slate-800 [&>button[data-slot=dialog-close]]:rounded-full [&>button[data-slot=dialog-close]]:p-1.5 [&>button[data-slot=dialog-close]]:hover:bg-red-500 [&>button[data-slot=dialog-close]]:hover:text-white"
       >
         <DialogHeader className="p-0">
           <div className="relative px-5 py-4 border-b border-slate-100 dark:border-slate-800/50 bg-slate-50/30 dark:bg-slate-900/10">
@@ -409,7 +447,7 @@ export default function NotificationFormV2({ open, onClose, onSuccess, mode = 'c
               <div className="space-y-1.5">
                 <Label className="text-[10px] font-bold uppercase text-slate-400 tracking-[0.1em] ml-1">Message Template</Label>
                 <Select value={selectedTemplate} onValueChange={applyTemplate}>
-                  <SelectTrigger className="h-9 border-slate-200/60 dark:border-slate-800/50 bg-white dark:bg-slate-900/50 rounded-lg font-medium focus:ring-blue-500/20 transition-all text-xs shadow-sm">
+                  <SelectTrigger className="h-9 border-slate-200/60 dark:border-slate-800/50 bg-white dark:bg-slate-900/50 rounded-lg font-medium focus:ring-blue-500/20 transition-colors text-xs shadow-sm">
                     <SelectValue placeholder="Select Template" />
                   </SelectTrigger>
                   <SelectContent className="rounded-lg border-slate-200 dark:border-slate-800 shadow-xl max-h-[350px] z-[100]">
@@ -417,21 +455,15 @@ export default function NotificationFormV2({ open, onClose, onSuccess, mode = 'c
 
                     {/* Notice Templates */}
                     <div className="px-3 py-1 text-[9px] font-bold text-slate-400 uppercase tracking-widest bg-slate-50/50 dark:bg-slate-800/30">Notices</div>
-                    {Object.entries(NOTIFICATION_TEMPLATES).filter(([_, t]) => t.type === 'notice').map(([key, t]) => (
-                      <SelectItem key={key} value={key} className="py-1.5 text-xs pl-6">{t.title}</SelectItem>
-                    ))}
+                    {templateItems.notice}
 
                     {/* Transit (Pickup) */}
                     <div className="px-3 py-1 text-[9px] font-bold text-slate-400 uppercase tracking-widest bg-slate-50/50 dark:bg-slate-800/30 border-t border-slate-100 dark:border-slate-800">Transit (Pickup)</div>
-                    {Object.entries(NOTIFICATION_TEMPLATES).filter(([_, t]) => t.type === 'pickup').map(([key, t]) => (
-                      <SelectItem key={key} value={key} className="py-1.5 text-xs pl-6">{t.title}</SelectItem>
-                    ))}
+                    {templateItems.pickup}
 
                     {/* Dropoff (Matrix) */}
                     <div className="px-3 py-1 text-[9px] font-bold text-slate-400 uppercase tracking-widest bg-slate-50/50 dark:bg-slate-800/30 border-t border-slate-100 dark:border-slate-800">Dropoff (Matrix)</div>
-                    {Object.entries(NOTIFICATION_TEMPLATES).filter(([_, t]) => t.type === 'dropoff').map(([key, t]) => (
-                      <SelectItem key={key} value={key} className="py-1.5 text-xs pl-6">{t.title}</SelectItem>
-                    ))}
+                    {templateItems.dropoff}
                   </SelectContent>
                 </Select>
               </div>
@@ -444,7 +476,7 @@ export default function NotificationFormV2({ open, onClose, onSuccess, mode = 'c
                     onValueChange={(v) => setTargetType(v as TargetType)}
                     disabled={notificationType === 'dropoff'}
                   >
-                    <SelectTrigger className="h-9 border-slate-200/60 dark:border-slate-800/50 bg-white dark:bg-slate-900/50 rounded-lg font-medium focus:ring-blue-500/20 transition-all text-xs shadow-sm">
+                    <SelectTrigger className="h-9 border-slate-200/60 dark:border-slate-800/50 bg-white dark:bg-slate-900/50 rounded-lg font-medium focus:ring-blue-500/20 transition-colors text-xs shadow-sm">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent className="rounded-lg border-slate-200 dark:border-slate-800 shadow-xl z-[100]">
@@ -469,7 +501,7 @@ export default function NotificationFormV2({ open, onClose, onSuccess, mode = 'c
                   <div className="space-y-1.5">
                     <Label className="text-[10px] font-bold uppercase text-slate-400 tracking-[0.1em] ml-1">Shift</Label>
                     <Select value={targetShift || 'morning'} onValueChange={(v) => setTargetShift(v as any)}>
-                      <SelectTrigger className="h-9 border-slate-200/60 dark:border-slate-800/50 bg-white dark:bg-slate-900/50 rounded-lg font-medium text-xs shadow-sm focus:ring-blue-500/20 transition-all">
+                      <SelectTrigger className="h-9 border-slate-200/60 dark:border-slate-800/50 bg-white dark:bg-slate-900/50 rounded-lg font-medium text-xs shadow-sm focus:ring-blue-500/20 transition-colors">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent className="rounded-lg border-slate-200 dark:border-slate-800 shadow-xl z-[100]">
@@ -486,7 +518,7 @@ export default function NotificationFormV2({ open, onClose, onSuccess, mode = 'c
 
           {/* Dynamic Target Selection */}
           {notificationType !== 'dropoff' && userRole !== 'driver' && (targetType === 'all_role' || targetType === 'shift_based' || targetType === 'bus_based' || targetType === 'route_based' || targetType === 'specific_users') && (
-            <div className="bg-slate-50/50 dark:bg-white/[0.02] border border-slate-200/60 dark:border-white/[0.05] rounded-2xl p-4 shadow-sm animate-in fade-in slide-in-from-top-4 duration-500">
+            <div className="bg-slate-50/50 dark:bg-white/[0.02] border border-slate-200/60 dark:border-white/[0.05] rounded-2xl p-4 shadow-sm animate-in fade-in duration-200">
               <div className="space-y-3">
                 {targetType === 'all_role' && (
                   <div className="space-y-2">
@@ -496,7 +528,7 @@ export default function NotificationFormV2({ open, onClose, onSuccess, mode = 'c
                         <Button
                           key={r} type="button"
                           variant={targetRole === r ? 'default' : 'outline'}
-                          className={`h-9 text-[11px] font-semibold rounded-lg border-slate-200 dark:border-slate-800 transition-all ${targetRole === r ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/25 border-transparent' : 'bg-white dark:bg-slate-950 hover:bg-slate-50 text-slate-600 dark:text-slate-400'}`}
+                          className={`h-9 text-[11px] font-semibold rounded-lg border-slate-200 dark:border-slate-800 transition-colors ${targetRole === r ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/25 border-transparent' : 'bg-white dark:bg-slate-950 hover:bg-slate-50 text-slate-600 dark:text-slate-400'}`}
                           onClick={() => setTargetRole(r as UserRole)}
                         >
                           {r.charAt(0).toUpperCase() + r.slice(1)}s
@@ -518,7 +550,7 @@ export default function NotificationFormV2({ open, onClose, onSuccess, mode = 'c
                         <Button
                           key={s.id} type="button"
                           variant={targetShift === s.id ? 'default' : 'outline'}
-                          className={`h-9 text-[11px] font-semibold rounded-lg border-slate-200 dark:border-slate-800 transition-all ${targetShift === s.id ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/25 border-transparent' : 'bg-white dark:bg-slate-950 hover:bg-slate-50 text-slate-600 dark:text-slate-400'}`}
+                          className={`h-9 text-[11px] font-semibold rounded-lg border-slate-200 dark:border-slate-800 transition-colors ${targetShift === s.id ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/25 border-transparent' : 'bg-white dark:bg-slate-950 hover:bg-slate-50 text-slate-600 dark:text-slate-400'}`}
                           onClick={() => setTargetShift(s.id as any)}
                         >
                           {s.label}
@@ -533,7 +565,7 @@ export default function NotificationFormV2({ open, onClose, onSuccess, mode = 'c
                     <Label className="text-[9px] font-bold uppercase text-slate-400 tracking-widest">Select Bus(es)</Label>
                     <div className="max-h-40 overflow-y-auto space-y-1.5 pr-1 custom-scrollbar">
                       {buses.map(b => (
-                        <div key={b.id} className="flex items-center gap-2 p-2 rounded-lg bg-white dark:bg-slate-950 border border-slate-100 dark:border-slate-800 shadow-sm transition-all hover:border-blue-200 dark:hover:border-blue-900/50">
+                        <div key={b.id} className="flex items-center gap-2 p-2 rounded-lg bg-white dark:bg-slate-950 border border-slate-100 dark:border-slate-800 shadow-sm transition-colors hover:border-blue-200 dark:hover:border-blue-900/50">
                           <Checkbox id={b.id} checked={selectedBuses.includes(b.id)} onCheckedChange={c => c ? setSelectedBuses([...selectedBuses, b.id]) : setSelectedBuses(selectedBuses.filter(id => id !== b.id))} className="rounded-md h-3.5 w-3.5" />
                           <Label htmlFor={b.id} className="text-xs font-semibold flex-1 cursor-pointer text-slate-700 dark:text-slate-300">{b.name}</Label>
                           <Badge variant="secondary" className="bg-slate-50 dark:bg-slate-900 text-[9px] font-bold rounded-md px-1 py-0">{b.studentCount}</Badge>
@@ -548,7 +580,7 @@ export default function NotificationFormV2({ open, onClose, onSuccess, mode = 'c
                     <Label className="text-[9px] font-bold uppercase text-slate-400 tracking-widest">Select Route(s)</Label>
                     <div className="max-h-40 overflow-y-auto space-y-1.5 pr-1 custom-scrollbar">
                       {routes.map(r => (
-                        <div key={r.id} className="flex items-center gap-2 p-2 rounded-lg bg-white dark:bg-slate-950 border border-slate-100 dark:border-slate-800 shadow-sm transition-all hover:border-blue-200 dark:hover:border-blue-900/50">
+                        <div key={r.id} className="flex items-center gap-2 p-2 rounded-lg bg-white dark:bg-slate-950 border border-slate-100 dark:border-slate-800 shadow-sm transition-colors hover:border-blue-200 dark:hover:border-blue-900/50">
                           <Checkbox id={r.id} checked={selectedRoutes.includes(r.id)} onCheckedChange={c => c ? setSelectedRoutes([...selectedRoutes, r.id]) : setSelectedRoutes(selectedRoutes.filter(id => id !== r.id))} className="rounded-md h-3.5 w-3.5" />
                           <Label htmlFor={r.id} className="text-xs font-semibold flex-1 cursor-pointer text-slate-700 dark:text-slate-300">{r.name}</Label>
                           <Badge variant="secondary" className="bg-slate-50 dark:bg-slate-900 text-[9px] font-bold rounded-md px-1 py-0">{r.studentCount}</Badge>
@@ -571,7 +603,7 @@ export default function NotificationFormV2({ open, onClose, onSuccess, mode = 'c
                       </Select>
                     </div>
                     <div className="max-h-40 overflow-y-auto space-y-1.5 pr-1 custom-scrollbar">
-                      {users.filter(u => u.name.toLowerCase().includes(userSearchQuery.toLowerCase()) || u.enrollmentId?.toLowerCase().includes(userSearchQuery.toLowerCase())).map(u => (
+                      {filteredUsers.map(u => (
                         <div key={u.id} className="flex items-center gap-2 p-2 rounded-lg bg-white dark:bg-slate-950 border border-slate-100 dark:border-slate-800 shadow-sm">
                           <Checkbox id={u.id} checked={selectedUsers.includes(u.id)} onCheckedChange={c => c ? setSelectedUsers([...selectedUsers, u.id]) : setSelectedUsers(selectedUsers.filter(sid => sid !== u.id))} className="rounded-md h-3.5 w-3.5" />
                           <div className="flex-1">
@@ -694,7 +726,7 @@ export default function NotificationFormV2({ open, onClose, onSuccess, mode = 'c
 
             {/* Action Buttons */}
             <div className="flex gap-2 flex-1 sm:justify-end">
-              <Button type="button" variant="ghost" onClick={handleDiscard} disabled={sending} className="h-9 px-3 text-[10px] sm:text-[11px] bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 font-bold hover:bg-red-600 hover:text-white transition-all rounded-lg border border-red-200/50 dark:border-red-800/50">
+              <Button type="button" variant="ghost" onClick={handleDiscard} disabled={sending} className="h-9 px-3 text-[10px] sm:text-[11px] bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 font-bold hover:bg-red-600 hover:text-white transition-colors rounded-lg border border-red-200/50 dark:border-red-800/50">
                 Discard
               </Button>
               <Button type="submit" disabled={sending} className="h-9 flex-1 sm:flex-initial sm:px-6 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs sm:text-sm rounded-lg shadow-lg shadow-blue-500/20 transition-all hover:translate-y-[-1px] active:translate-y-[0.5px]">

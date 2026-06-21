@@ -351,7 +351,7 @@ export default function EditModeratorPage({ params }: { params: Promise<{ id: st
           </div>
           <Link
             href="/admin/moderators"
-            className="inline-flex items-center px-3 py-1.5 bg-white/10 hover:bg-white/20 text-white text-sm border border-white/20 hover:border-white/30 rounded-lg transition-all duration-200 hover:shadow-lg backdrop-blur-sm"
+            className="inline-flex items-center px-3 py-1.5 bg-white/10 hover:bg-white/20 text-white text-sm border border-white/20 hover:border-white/30 rounded-lg transition-colors"
           >
             Back
           </Link>
@@ -360,23 +360,20 @@ export default function EditModeratorPage({ params }: { params: Promise<{ id: st
 
       {/* Main Content */}
       <div className="max-w-5xl mx-auto px-3 sm:px-6 lg:px-8 overflow-hidden">
-        <div className="bg-gradient-to-br from-[#0E0F12] to-[#1A1B23] backdrop-blur-sm rounded-2xl shadow-2xl border border-white/10 p-4 sm:p-10 hover:border-white/20 transition-all duration-300">
+        <div className="bg-gradient-to-br from-[#0E0F12] to-[#1A1B23] rounded-2xl shadow-xl border border-white/10 p-4 sm:p-10">
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="flex flex-col items-center mb-8">
               <div
                 className="relative cursor-pointer group"
                 onClick={() => setIsImageModalOpen(true)}
               >
-                {/* Glow Effect */}
-                <div className="absolute -inset-4 bg-gradient-to-br from-blue-600/30 via-indigo-600/20 to-purple-600/10 rounded-full blur-2xl opacity-40 group-hover:opacity-60 transition-all duration-500"></div>
-
                 <div className="relative">
                   {previewUrl && !imageError ? (
-                    <div className="h-36 w-36 rounded-full overflow-hidden border-2 border-white/10 shadow-2xl bg-gradient-to-br from-[#16171d] to-[#0e0f12]">
+                    <div className="h-36 w-36 rounded-full overflow-hidden border-2 border-white/10 shadow-lg bg-gradient-to-br from-[#16171d] to-[#0e0f12]">
                       <img
                         src={previewUrl}
                         alt="Profile Preview"
-                        className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-110"
+                        className="h-full w-full object-cover"
                         onError={(e) => {
                           console.error("Image load error");
                           setImageError(true);
@@ -384,7 +381,7 @@ export default function EditModeratorPage({ params }: { params: Promise<{ id: st
                       />
                     </div>
                   ) : (
-                    <div className="h-36 w-36 rounded-full bg-gradient-to-br from-gray-800/50 to-gray-900/50 flex items-center justify-center border-2 border-dashed border-white/20 shadow-2xl backdrop-blur-sm group-hover:border-white/40 transition-all duration-300">
+                    <div className="h-36 w-36 rounded-full bg-gradient-to-br from-gray-800/50 to-gray-900/50 flex items-center justify-center border-2 border-dashed border-white/20 shadow-lg group-hover:border-white/40 transition-colors">
                       <div className="flex flex-col items-center">
                         {formData.name ? (
                           <span className="text-white font-bold text-4xl">{formData.name.charAt(0).toUpperCase()}</span>
@@ -396,7 +393,7 @@ export default function EditModeratorPage({ params }: { params: Promise<{ id: st
                   )}
 
                   {/* Hover Overlay */}
-                  <div className="absolute inset-0 rounded-full bg-black/40 opacity-0 group-hover:opacity-100 transition-all duration-300 flex items-center justify-center backdrop-blur-[2px]">
+                  <div className="absolute inset-0 rounded-full bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity duration-200 flex items-center justify-center">
                     <div className="flex flex-col items-center">
                       <Camera className="h-8 w-8 text-white mb-1" />
                       <span className="text-[10px] font-bold text-white uppercase tracking-wider">Change Photo</span>

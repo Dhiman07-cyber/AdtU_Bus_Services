@@ -82,9 +82,12 @@ export default function AdminApplicationsPage() {
     }
   }, [userData, router]);
 
-  // Filter submitted applications only (from APPLICATIONS collection)
-  const applicationApplications = pendingApplications.filter((app: any) =>
-    app.state === 'submitted'
+  // Filter submitted applications only (from APPLICATIONS collection).
+  // Memoized so downstream filteredData/cardMeta memos aren't invalidated by a
+  // fresh array reference on every render.
+  const applicationApplications = useMemo(
+    () => pendingApplications.filter((app: any) => app.state === 'submitted'),
+    [pendingApplications]
   );
 
   // Function to get bus display from route information
@@ -258,6 +261,23 @@ export default function AdminApplicationsPage() {
 
     return data;
   }, [applicationApplications, searchQuery, shiftFilter, processedIds]);
+
+  // Precompute the expensive per-card capacity check and bus display ONCE per
+  // data change. getCapacityStatus scans routes (with nested stop loops) and
+  // buses; doing it inline meant re-running it for every card on every render
+  // (e.g. expanding a card or typing). Now it only recomputes when the
+  // underlying data actually changes.
+  const cardMeta = useMemo(() => {
+    const map = new Map<string, { capacity: ReturnType<typeof getCapacityStatus>; busDisplay: string }>();
+    for (const item of filteredData) {
+      map.set(item.applicationId, {
+        capacity: getCapacityStatus(item),
+        busDisplay: item.formData?.busAssigned || getBusDisplayFromRoute(item.formData?.routeId),
+      });
+    }
+    return map;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filteredData, buses, routes, routesLoading, busesLoading]);
 
   // Approve an application
   const handleApprove = async (applicationId: string) => {
@@ -537,9 +557,11 @@ export default function AdminApplicationsPage() {
           ) : (
             <div className="grid grid-cols-1 gap-4">
               {filteredData.map((item: any) => {
-                // Get real-time capacity status for this application
-                const capacityStatus = getCapacityStatus(item);
-                const { needsCapacityReview, reassignmentReason, busNumber, shift } = capacityStatus;
+                // Use precomputed capacity status + bus display (see cardMeta memo)
+                const meta = cardMeta.get(item.applicationId);
+                const { needsCapacityReview, reassignmentReason, busNumber, shift } =
+                  meta?.capacity ?? { needsCapacityReview: false, reassignmentReason: 'no_issue' as const, busNumber: 'Unknown', shift: 'morning' };
+                const busDisplay = meta?.busDisplay ?? '';
 
                 const isExpanded = expandedCards.has(item.applicationId);
                 const toggleExpanded = () => {
@@ -553,10 +575,6 @@ export default function AdminApplicationsPage() {
                     return next;
                   });
                 };
-
-                function handleReject(applicationId: any): void {
-                  throw new Error("Function not implemented.");
-                }
 
                 return (
                   <Card
@@ -618,7 +636,7 @@ export default function AdminApplicationsPage() {
                           <div className="hidden sm:flex flex-wrap items-center gap-2">
                             <Badge variant="outline" className="gap-1.5 text-[10px] py-1 px-2.5 bg-zinc-800/40 border-white/5 text-zinc-300 group-hover:bg-zinc-800/60 transition-colors">
                               <BusIcon className="h-3 w-3 text-indigo-400" />
-                              <span className="font-medium text-white/90">{item.formData?.busAssigned || getBusDisplayFromRoute(item.formData?.routeId)}</span>
+                              <span className="font-medium text-white/90">{busDisplay}</span>
                             </Badge>
 
                             <Badge variant="outline" className="gap-1.5 text-[10px] py-1 px-2.5 bg-zinc-800/40 border-white/5 text-zinc-300 capitalize">
@@ -666,7 +684,7 @@ export default function AdminApplicationsPage() {
                             <div className="grid grid-cols-2 gap-2">
                               <Badge variant="outline" className="justify-center h-9 text-[11px] border-white/10 bg-zinc-800/50 text-zinc-200 rounded-full font-medium">
                                 <BusIcon className="h-3.5 w-3.5 mr-1.5 text-indigo-400 shrink-0" />
-                                <span className="truncate">{item.formData?.busAssigned || getBusDisplayFromRoute(item.formData?.routeId)}</span>
+                                <span className="truncate">{busDisplay}</span>
                               </Badge>
                               <Badge variant="outline" className="justify-center h-9 text-[11px] border-white/10 bg-zinc-800/50 text-zinc-200 rounded-full font-medium capitalize">
                                 <Clock className="h-3.5 w-3.5 mr-1.5 text-indigo-400 shrink-0" />

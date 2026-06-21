@@ -13,11 +13,7 @@ function asString(value: unknown): string {
   return typeof value === 'string' ? value : '';
 }
 
-function withoutAge(formData: JsonRecord): JsonRecord {
-  const next = { ...formData };
-  delete next.age;
-  return next;
-}
+
 
 export async function POST(request: NextRequest) {
   try {
@@ -34,7 +30,10 @@ export async function POST(request: NextRequest) {
     const uid = decodedToken.uid;
     const email = decodedToken.email;
     const body = asRecord(await request.json());
-    const rawFormData = asRecord(body.formData);
+    const rawFormData = { ...asRecord(body.formData) };
+    if ('age' in rawFormData) {
+      delete rawFormData.age;
+    }
     const needsCapacityReview = body.needsCapacityReview === true;
 
     if (Object.keys(rawFormData).length === 0) {
@@ -74,14 +73,13 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    const formDataWithoutAge = withoutAge(rawFormData);
     const applicationData = {
       applicationId: uid,
       applicantUid: uid,
       email: email || asString(rawFormData.email),
       state: 'submitted',
       formData: {
-        ...formDataWithoutAge,
+        ...rawFormData,
         paymentId,
       },
       paymentId,

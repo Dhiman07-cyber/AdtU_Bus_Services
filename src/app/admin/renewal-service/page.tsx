@@ -615,7 +615,7 @@ export default function AdminRenewalServicePage() {
                   {/* KPI Cards */}
                   <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
                     {/* Total Revenue */}
-                    <Card className="bg-gradient-to-br from-emerald-500/10 to-teal-500/15 border border-emerald-500/25 backdrop-blur-sm hover:shadow-lg hover:shadow-emerald-500/10 transition-all duration-300 group">
+                    <Card className="bg-gradient-to-br from-emerald-500/10 to-teal-500/15 border border-emerald-500/25 hover:shadow-lg hover:shadow-emerald-500/10 transition-all duration-300 group">
                       <CardContent className="p-4">
                         <div className="flex items-center justify-between mb-2">
                           <div className="h-8 w-8 rounded-xl bg-emerald-500/20 border border-emerald-500/30 flex items-center justify-center group-hover:scale-110 transition-transform">
@@ -634,7 +634,7 @@ export default function AdminRenewalServicePage() {
                     </Card>
 
                     {/* Completed Payments */}
-                    <Card className="bg-gradient-to-br from-blue-500/10 to-indigo-500/15 border border-blue-500/25 backdrop-blur-sm hover:shadow-lg hover:shadow-blue-500/10 transition-all duration-300 group">
+                    <Card className="bg-gradient-to-br from-blue-500/10 to-indigo-500/15 border border-blue-500/25 hover:shadow-lg hover:shadow-blue-500/10 transition-all duration-300 group">
                       <CardContent className="p-4">
                         <div className="flex items-center justify-between mb-2">
                           <div className="h-8 w-8 rounded-xl bg-blue-500/20 border border-blue-500/30 flex items-center justify-center group-hover:scale-110 transition-transform">
@@ -650,7 +650,7 @@ export default function AdminRenewalServicePage() {
                     </Card>
 
                     {/* Pending Payments */}
-                    <Card className="bg-gradient-to-br from-amber-500/10 to-orange-500/15 border border-amber-500/25 backdrop-blur-sm hover:shadow-lg hover:shadow-amber-500/10 transition-all duration-300 group">
+                    <Card className="bg-gradient-to-br from-amber-500/10 to-orange-500/15 border border-amber-500/25 hover:shadow-lg hover:shadow-amber-500/10 transition-all duration-300 group">
                       <CardContent className="p-4">
                         <div className="flex items-center justify-between mb-2">
                           <div className="h-8 w-8 rounded-xl bg-amber-500/20 border border-amber-500/30 flex items-center justify-center group-hover:scale-110 transition-transform">
@@ -666,7 +666,7 @@ export default function AdminRenewalServicePage() {
                     </Card>
 
                     {/* Avg Payment */}
-                    <Card className="bg-gradient-to-br from-purple-500/10 to-fuchsia-500/15 border border-purple-500/25 backdrop-blur-sm hover:shadow-lg hover:shadow-purple-500/10 transition-all duration-300 group">
+                    <Card className="bg-gradient-to-br from-purple-500/10 to-fuchsia-500/15 border border-purple-500/25 hover:shadow-lg hover:shadow-purple-500/10 transition-all duration-300 group">
                       <CardContent className="p-4">
                         <div className="flex items-center justify-between mb-2">
                           <div className="h-8 w-8 rounded-xl bg-purple-500/20 border border-purple-500/30 flex items-center justify-center group-hover:scale-110 transition-transform">
@@ -688,7 +688,7 @@ export default function AdminRenewalServicePage() {
                   {/* Charts Row */}
                   <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
                     {/* Monthly Revenue Trend */}
-                    <Card className="lg:col-span-2 border border-zinc-800/50 shadow-xl bg-zinc-900/50 backdrop-blur-sm">
+                    <Card className="lg:col-span-2 border border-zinc-800/50 shadow-xl bg-zinc-900/50">
                       <CardHeader className="pb-2">
                         <div className="flex items-center justify-between">
                           <div>
@@ -748,7 +748,7 @@ export default function AdminRenewalServicePage() {
                     </Card>
 
                     {/* Payment Method Breakdown */}
-                    <Card className="border border-zinc-800/50 shadow-xl bg-zinc-900/50 backdrop-blur-sm">
+                    <Card className="border border-zinc-800/50 shadow-xl bg-zinc-900/50">
                       <CardHeader className="pb-2">
                         <CardTitle className="text-sm text-white flex items-center gap-2">
                           <CreditCard className="h-4 w-4 text-pink-400" />
@@ -821,7 +821,7 @@ export default function AdminRenewalServicePage() {
 
                   {/* Monthly Detail Table */}
                   {dashboardStats?.monthlyData && dashboardStats.monthlyData.some(d => d.amount > 0) && (
-                    <Card className="border border-zinc-800/50 shadow-xl bg-zinc-900/50 backdrop-blur-sm">
+                    <Card className="border border-zinc-800/50 shadow-xl bg-zinc-900/50">
                       <CardHeader className="pb-2">
                         <CardTitle className="text-sm text-white flex items-center gap-2">
                           <Calendar className="h-4 w-4 text-indigo-400" />
@@ -856,7 +856,7 @@ export default function AdminRenewalServicePage() {
 
           {/* Payment Approval Tab */}
           <TabsContent value="approval" className="mt-0 px-0 py-4">
-            <Card className="border border-zinc-800/50 shadow-xl bg-zinc-900/50 backdrop-blur-sm overflow-hidden p-0 max-w-[90vw] sm:max-w-full mx-auto">
+            <Card className="border border-zinc-800/50 shadow-xl bg-zinc-900/50 overflow-hidden p-0 max-w-[90vw] sm:max-w-full mx-auto">
               <CardHeader className="bg-gradient-to-br from-green-50 to-emerald-50 dark:from-green-950/50 dark:to-emerald-950/50 border-t-2 border-t-green-500 pb-3 pt-3 m-0 rounded-t-lg">
                 <CardTitle className="text-base text-gray-900 dark:text-gray-100">Pending Renewal Requests</CardTitle>
                 <CardDescription className="text-xs text-gray-600 dark:text-gray-400">
@@ -1252,7 +1252,7 @@ export default function AdminRenewalServicePage() {
         </Tabs>
 
         <Dialog open={showViewDialog} onOpenChange={setShowViewDialog}>
-          <DialogContent className="w-[90%] sm:w-full max-w-3xl max-h-[90vh] overflow-y-auto border-zinc-800 bg-zinc-950/95 backdrop-blur-xl p-0 top-[8%] translate-y-0 shadow-2xl shadow-black/50 rounded-2xl gap-0 z-[150] mt-2">
+          <DialogContent className="w-[90%] sm:w-full max-w-3xl max-h-[90vh] overflow-y-auto border-zinc-800 bg-zinc-950/95 p-0 top-[8%] translate-y-0 shadow-2xl shadow-black/50 rounded-2xl gap-0 z-[150] mt-2">
             <DialogTitle className="sr-only">Renewal Request Details</DialogTitle>
             <DialogDescription className="sr-only">Review details for this renewal request.</DialogDescription>
 
@@ -1270,7 +1270,7 @@ export default function AdminRenewalServicePage() {
                     className="relative h-16 w-16 sm:h-20 sm:w-20 ring-4 ring-black/50 shadow-xl"
                   />
                   <div className="absolute -bottom-2 left-1/2 -translate-x-1/2">
-                    <Badge className="bg-amber-500/90 hover:bg-amber-600 text-white border-0 shadow-lg backdrop-blur-sm px-2 py-0.5 text-[10px] sm:text-xs font-bold uppercase tracking-wider whitespace-nowrap">
+                    <Badge className="bg-amber-500/90 hover:bg-amber-600 text-white border-0 shadow-lg px-2 py-0.5 text-[10px] sm:text-xs font-bold uppercase tracking-wider whitespace-nowrap">
                       Pending
                     </Badge>
                   </div>
@@ -1411,7 +1411,7 @@ export default function AdminRenewalServicePage() {
             </div>
 
             {/* Action Footer */}
-            <div className="p-4 bg-zinc-950/50 backdrop-blur border-t border-white/5 flex gap-3 justify-end sticky bottom-0 z-10">
+            <div className="p-4 bg-zinc-950/80 border-t border-white/5 flex gap-3 justify-end sticky bottom-0 z-10">
               <Button
                 variant="outline"
                 onClick={() => {
@@ -1444,7 +1444,7 @@ export default function AdminRenewalServicePage() {
         </Dialog>
 
         <Dialog open={showRejectDialog} onOpenChange={setShowRejectDialog}>
-          <DialogContent className="w-[90%] sm:w-full max-w-md bg-zinc-950/95 border-zinc-800 backdrop-blur-xl shadow-2xl p-0 gap-0 rounded-2xl overflow-hidden">
+          <DialogContent className="w-[90%] sm:w-full max-w-md bg-zinc-950/95 border-zinc-800 shadow-2xl p-0 gap-0 rounded-2xl overflow-hidden">
             <DialogTitle className="sr-only">Reject Renewal Request</DialogTitle>
             <DialogDescription className="sr-only">Provide a reason for rejecting this renewal request.</DialogDescription>
 

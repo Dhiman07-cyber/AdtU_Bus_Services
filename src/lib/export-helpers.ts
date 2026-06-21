@@ -147,7 +147,6 @@ export function formatStudentsForExport(students: any[], buses: any[] = []): any
       'Enrollment ID': student.enrollmentId || 'N/A',
       'Gender': student.gender || 'N/A',
       'Date of Birth': student.dob ? new Date(student.dob).toLocaleDateString() : 'N/A',
-      'Age': student.age || 'N/A',
       'Faculty': student.faculty || 'N/A',
       'Department': student.department || 'N/A',
       'Parent Name': student.parentName || 'N/A',

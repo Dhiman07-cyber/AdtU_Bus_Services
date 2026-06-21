@@ -54,6 +54,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   // Determine if we're on apply pages
   const isApplyPage = pathname?.startsWith('/apply');
   const isApplyFormPage = pathname === '/apply/form';
+  const isApplyLandingPage = pathname === '/apply';
   const isContactPage = pathname === '/contact';
 
   // Determine if we're on terms and conditions page (has custom layout)
@@ -66,7 +67,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   // Update: Only hide footer on /apply/form, but hide global navbar on all /apply and /contact routes
   const showNavAndFooter = !authLoading && !isLandingPage && !isLoginPage && !isApplyPage && !isContactPage && !isTermsPage && !isPrivacyPage && currentUser;
   const showGlobalNavbar = showNavAndFooter; // Follow the existing logic for navbar
-  const showGlobalFooter = !authLoading && !isLandingPage && !isLoginPage && !isApplyFormPage && !isTermsPage && !isPrivacyPage && currentUser;
+  const showGlobalFooter = !authLoading && !isLandingPage && !isLoginPage && !isApplyFormPage && !isApplyLandingPage && !isContactPage && !isTermsPage && !isPrivacyPage && currentUser;
 
   // Show sidebar for admin/moderator only after auth is ready
   const showSidebar = !authLoading && (isAdminArea || isModeratorArea) && currentUser && userData;

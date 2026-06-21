@@ -38,7 +38,11 @@ function DialogOverlay({
     <DialogPrimitive.Overlay
       data-slot="dialog-overlay"
       className={cn(
-        "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 fixed inset-0 z-50 bg-black/60 backdrop-blur-sm",
+        // No backdrop-blur: blurring the entire viewport behind every dialog forces a
+        // full-screen GPU re-rasterization each frame of the open/close animation and
+        // while the dialog stays open — the single biggest cause of laggy/delayed dialog
+        // opens on low-end devices. A plain dim scrim reads the same and is effectively free.
+        "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 fixed inset-0 z-50 bg-black/60",
         className
       )}
       {...props}

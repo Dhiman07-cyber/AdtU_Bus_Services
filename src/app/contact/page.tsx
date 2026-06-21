@@ -5,6 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Mail, Phone, Clock, MapPin, Headphones, MessageCircle, Sparkles, Loader2 } from 'lucide-react';
 import ApplyFormNavbar from '@/components/ApplyFormNavbar';
 import { safeMailtoHref, safeTelHref } from '@/lib/security/url-sanitizer';
+import Footer from '@/components/Footer';
 
 export default function ContactPage() {
   const [config, setConfig] = useState<any>(null);
@@ -52,14 +53,16 @@ export default function ContactPage() {
   const supportPhoneHref = safeTelHref(contactData.content.phone);
 
   return (
-    <div className="min-h-screen bg-[#05060e] dark:bg-[#05060e] overflow-x-hidden relative ">
+    <div
+      className="min-h-screen bg-[#05060e] dark:bg-[#05060e] overflow-x-hidden relative"
+      style={{
+        backgroundImage: 'linear-gradient(to bottom, #05060e 0%, rgba(5, 6, 14, 0.75) 15%, rgba(5, 6, 14, 0.85) 85%, #05060e 100%), url(/landing/hero.jpg)',
+        backgroundSize: 'cover',
+        backgroundPosition: 'center',
+        backgroundRepeat: 'no-repeat'
+      }}
+    >
       <ApplyFormNavbar />
-      {/* Animated Background Decorations */}
-      <div className="fixed inset-0 overflow-hidden pointer-events-none">
-        <div className="absolute top-20 left-20 w-72 h-72 bg-blue-400/10 rounded-full blur-3xl animate-float"></div>
-        <div className="absolute top-60 right-20 w-96 h-96 bg-purple-400/10 rounded-full blur-3xl animate-float" style={{ animationDelay: '1s' }}></div>
-        <div className="absolute bottom-40 left-1/3 w-80 h-80 bg-indigo-400/10 rounded-full blur-3xl animate-float" style={{ animationDelay: '2s' }}></div>
-      </div>
 
       <div className="max-w-[70rem] mx-auto px-4 sm:px-6 pt-28 sm:pt-32 pb-6 relative z-10">
         {/* Premium Hero Section */}
@@ -83,7 +86,7 @@ export default function ContactPage() {
         {/* Premium Cards Grid - Now 4 columns for maximum visibility */}
         <div className="grid grid-cols-2 md:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 animate-slide-in-up" style={{ animationDelay: '0.3s' }}>
           {/* Email Support Card */}
-          <Card className="group relative overflow-hidden border-2 border-white/5 hover:border-blue-500/50 transition-all duration-500 animate-fade-in hover-lift shadow-xl bg-[#0c0e1a]/40 backdrop-blur-xl flex flex-col items-center justify-center p-7">
+          <Card className="group relative overflow-hidden border-2 border-white/5 hover:border-blue-500/50 transition-all duration-500 animate-fade-in hover-lift shadow-xl bg-[#0c0e1a] flex flex-col items-center justify-center p-7">
             <div className="absolute inset-0 bg-gradient-to-br from-blue-500/5 to-cyan-500/5 opacity-0 group-hover:opacity-100 transition-opacity duration-500"></div>
             <div className="relative z-10 flex flex-col items-center text-center gap-1.5 px-4">
               <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-blue-500 to-cyan-500 flex items-center justify-center shadow-lg group-hover:scale-110 transition-all duration-500 mb-1">
@@ -105,7 +108,7 @@ export default function ContactPage() {
           </Card>
 
           {/* Phone Support Card */}
-          <Card className="group relative overflow-hidden border-2 border-white/5 hover:border-green-500/50 transition-all duration-500 animate-fade-in hover-lift shadow-xl bg-[#0c0e1a]/40 backdrop-blur-xl flex flex-col items-center justify-center p-5" style={{ animationDelay: '0.1s' }}>
+          <Card className="group relative overflow-hidden border-2 border-white/5 hover:border-green-500/50 transition-all duration-500 animate-fade-in hover-lift shadow-xl bg-[#0c0e1a] flex flex-col items-center justify-center p-5" style={{ animationDelay: '0.1s' }}>
             <div className="absolute inset-0 bg-gradient-to-br from-green-500/5 to-emerald-500/5 opacity-0 group-hover:opacity-100 transition-opacity duration-500"></div>
             <div className="relative z-10 flex flex-col items-center text-center gap-1.5 px-4">
               <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-green-500 to-emerald-500 flex items-center justify-center shadow-lg group-hover:scale-110 transition-all duration-500 mb-1">
@@ -127,7 +130,7 @@ export default function ContactPage() {
           </Card>
 
           {/* Office Hours Card */}
-          <Card className="group relative overflow-hidden border-2 border-white/5 hover:border-orange-500/50 transition-all duration-500 animate-fade-in hover-lift shadow-xl bg-[#0c0e1a]/40 backdrop-blur-xl flex flex-col items-center justify-center p-5" style={{ animationDelay: '0.2s' }}>
+          <Card className="group relative overflow-hidden border-2 border-white/5 hover:border-orange-500/50 transition-all duration-500 animate-fade-in hover-lift shadow-xl bg-[#0c0e1a] flex flex-col items-center justify-center p-5" style={{ animationDelay: '0.2s' }}>
             <div className="absolute inset-0 bg-gradient-to-br from-orange-500/5 to-amber-500/5 opacity-0 group-hover:opacity-100 transition-opacity duration-500"></div>
             <div className="relative z-10 flex flex-col items-center text-center gap-1.5 px-4">
               <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-orange-500 to-amber-500 flex items-center justify-center shadow-lg group-hover:scale-110 transition-all duration-500 mb-1">
@@ -146,7 +149,7 @@ export default function ContactPage() {
           </Card>
 
           {/* Visit Us Card */}
-          <Card className="group relative overflow-hidden border-2 border-white/5 hover:border-red-500/50 transition-all duration-500 animate-fade-in hover-lift shadow-xl bg-[#0c0e1a]/40 backdrop-blur-xl flex flex-col items-center justify-center p-5" style={{ animationDelay: '0.3s' }}>
+          <Card className="group relative overflow-hidden border-2 border-white/5 hover:border-red-500/50 transition-all duration-500 animate-fade-in hover-lift shadow-xl bg-[#0c0e1a] flex flex-col items-center justify-center p-5" style={{ animationDelay: '0.3s' }}>
             <div className="absolute inset-0 bg-gradient-to-br from-red-500/5 to-rose-500/5 opacity-0 group-hover:opacity-100 transition-opacity duration-500"></div>
             <div className="relative z-10 flex flex-col items-center text-center gap-1.5 px-4">
               <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-red-500 to-rose-500 flex items-center justify-center shadow-lg group-hover:scale-110 transition-all duration-500 mb-1">
@@ -165,16 +168,27 @@ export default function ContactPage() {
           </Card>
         </div>
 
+        {/* Map Location Section */}
+        <div className="mt-8 sm:mt-12 md:mt-16 animate-slide-in-up" style={{ animationDelay: '0.35s' }}>
+          <div className="relative overflow-hidden border-2 border-white/5 rounded-2xl sm:rounded-3xl shadow-2xl bg-[#0c0e1a] p-2 w-full h-[350px] sm:h-[450px]">
+            <iframe
+              src="https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d7159.685260480084!2d91.85270905494689!3d26.201797052099195!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x375af77400000001%3A0xfa44ca580f29ec15!2sAssam%20down%20town%20University!5e0!3m2!1sen!2sin!4v1782052683498!5m2!1sen!2sin"
+              width="100%"
+              height="100%"
+              style={{ border: 0 }}
+              allowFullScreen
+              loading="lazy"
+              referrerPolicy="no-referrer-when-downgrade"
+              className="w-full h-full rounded-xl sm:rounded-2xl"
+            />
+          </div>
+        </div>
+
         {/* Premium Help Section */}
         <div className="mt-8 sm:mt-12 md:mt-16 animate-slide-in-up" style={{ animationDelay: '0.4s' }}>
           <Card className="bg-gradient-to-br from-blue-600 via-purple-600 to-pink-600 p-6 sm:p-8 md:p-10 lg:p-12 rounded-2xl sm:rounded-3xl shadow-2xl relative overflow-hidden">
-            <div className="absolute inset-0 bg-black/10"></div>
-            <div className="absolute top-0 left-0 w-full h-full opacity-20">
-              <div className="absolute top-10 left-10 w-72 h-72 bg-white rounded-full blur-3xl"></div>
-              <div className="absolute bottom-10 right-10 w-96 h-96 bg-white rounded-full blur-3xl"></div>
-            </div>
             <div className="relative z-10 text-center">
-              <div className="inline-flex items-center justify-center w-12 h-12 sm:w-16 sm:h-16 md:w-20 md:h-20 rounded-full bg-white/20 backdrop-blur-sm mb-3 sm:mb-4 md:mb-6 shadow-xl animate-pulse">
+              <div className="inline-flex items-center justify-center w-12 h-12 sm:w-16 sm:h-16 md:w-20 md:h-20 rounded-full bg-white/15 mb-3 sm:mb-4 md:mb-6 shadow-xl animate-pulse">
                 <Headphones className="h-6 w-6 sm:h-8 sm:w-8 md:h-10 md:w-10 text-white" />
               </div>
               <h2 className="text-xl sm:text-2xl md:text-3xl lg:text-4xl font-bold text-white mb-2 sm:mb-3 md:mb-4">
@@ -201,6 +215,7 @@ export default function ContactPage() {
           </Card>
         </div>
       </div>
+      <Footer className="border-white/5 !bg-[#05060e]" />
     </div>
   );
 }

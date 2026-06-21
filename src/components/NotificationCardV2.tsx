@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from 'react';
+import { useState, memo } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -66,7 +66,7 @@ interface NotificationCardV2Props {
   onRefresh?: () => void;
 }
 
-export default function NotificationCardV2({
+function NotificationCardV2({
   notification,
   onMarkAsRead,
   onEdit,
@@ -290,7 +290,7 @@ export default function NotificationCardV2({
       <Card
         className={`group relative flex flex-col overflow-hidden transition-all duration-500 border-l-[6px] cursor-pointer ${!isEffectiveRead
           ? `bg-gradient-to-br from-white to-${roleTheme.color}-50/40 dark:from-slate-800/60 dark:to-${roleTheme.color}-900/20 ${roleTheme.glow} scale-[1.01] z-10 border-r border-t border-b border-${roleTheme.color}-200/50 dark:border-${roleTheme.color}-800/30`
-          : `bg-white dark:bg-slate-900/80 backdrop-blur-sm shadow-sm hover:shadow-xl hover:dark:bg-slate-900 transition-all shadow-black/5`} rounded-[24px] border ${roleTheme.border} dark:border-slate-800 hover:shadow-2xl hover:shadow-${roleTheme.color}-500/10 transition-all duration-300`}
+          : `bg-white dark:bg-[#0a0b14] shadow-sm hover:shadow-xl hover:dark:bg-slate-900 transition-all shadow-black/5`} rounded-[24px] border ${roleTheme.border} dark:border-slate-800 hover:shadow-2xl hover:shadow-${roleTheme.color}-500/10 transition-all duration-300`}
         style={{ borderLeftColor: `var(--role-${targetRole})` }}
         onClick={() => {
           setIsViewDialogOpen(true);
@@ -298,11 +298,6 @@ export default function NotificationCardV2({
           if (!isEffectiveRead) handleMarkAsRead(true);
         }}
       >
-        {/* Unread Animation */}
-        {!isEffectiveRead && (
-          <div className={`absolute top-0 right-0 w-24 h-24 bg-${roleTheme.color}-500/10 blur-3xl -mr-12 -mt-12 animate-pulse`} />
-        )}
-
         <CardContent className="p-0">
           <div className="p-5 space-y-4 pt-0">
             {/* Header: Type & Metadata */}
@@ -339,7 +334,7 @@ export default function NotificationCardV2({
                         <MoreVertical className="h-4 w-4" />
                       </Button>
                     </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end" className="w-56 rounded-[20px] border-slate-200/50 dark:border-slate-800/50 shadow-2xl backdrop-blur-xl bg-white/90 dark:bg-slate-950/90 p-1.5">
+                    <DropdownMenuContent align="end" className="w-56 rounded-[20px] border-slate-200/50 dark:border-slate-800/50 shadow-2xl bg-white dark:bg-slate-950 p-1.5">
                       <DropdownMenuItem className="py-2.5 rounded-xl font-bold text-xs cursor-pointer focus:bg-slate-100 dark:focus:bg-slate-900 transition-all" onClick={() => {
                         setIsViewDialogOpen(true);
                         // Skip refresh here too to prevent closing
@@ -476,7 +471,7 @@ export default function NotificationCardV2({
               {/* Close Button - Single Instance, Top Right */}
               <button
                 onClick={() => setIsViewDialogOpen(false)}
-                className="absolute top-3 right-3 sm:top-5 sm:right-5 p-2 bg-black/5 hover:bg-black/10 dark:bg-white/10 dark:hover:bg-white/20 backdrop-blur-md rounded-full text-slate-500 dark:text-slate-400 transition-all duration-300 hover:rotate-90 hover:scale-110 active:scale-95 z-[60] group/close shadow-sm border border-black/5 dark:border-white/5"
+                className="absolute top-3 right-3 sm:top-5 sm:right-5 p-2 bg-black/5 hover:bg-black/10 dark:bg-white/10 dark:hover:bg-white/20 rounded-full text-slate-500 dark:text-slate-400 transition-all duration-300 hover:rotate-90 hover:scale-110 active:scale-95 z-[60] group/close shadow-sm border border-black/5 dark:border-white/5"
               >
                 <X className="h-4 w-4 sm:h-5 sm:w-5 group-hover/close:text-red-500 transition-colors" />
               </button>
@@ -505,7 +500,7 @@ export default function NotificationCardV2({
                 </div>
 
                 {/* Right: Sender Info - Hidden on mobile in the MODAL as requested */}
-                <div className={`hidden sm:flex items-center gap-2 bg-white/40 dark:bg-slate-900/40 backdrop-blur-md px-2 sm:px-3.5 py-1.5 sm:py-2 rounded-lg sm:rounded-xl border border-slate-200/40 dark:border-slate-800/40 shadow-sm`}>
+                <div className={`hidden sm:flex items-center gap-2 bg-white dark:bg-slate-900 px-2 sm:px-3.5 py-1.5 sm:py-2 rounded-lg sm:rounded-xl border border-slate-200/40 dark:border-slate-800/40 shadow-sm`}>
                   <div className={`h-6 w-6 sm:h-8 sm:w-8 rounded-md sm:rounded-lg bg-gradient-to-br ${roleTheme.accent} flex items-center justify-center font-black text-white shadow-md text-[10px] sm:text-xs ring-1 sm:ring-2 ring-white dark:ring-slate-900`}>
                     {notification.sender.userName.charAt(0)}
                   </div>
@@ -541,8 +536,7 @@ export default function NotificationCardV2({
                     <div className="space-y-5">
                       {/* Premium Sender & Bus Cards */}
                       <div className="grid grid-cols-2 gap-3 sm:gap-4">
-                        <div className="relative group overflow-hidden rounded-[20px] bg-slate-50 dark:bg-slate-900/40 border border-slate-200/50 dark:border-slate-800/50 p-3.5 transition-all hover:shadow-lg hover:shadow-blue-500/5">
-                          <div className="absolute top-0 right-0 w-16 h-16 bg-blue-500/5 blur-2xl rounded-full translate-x-1/2 -translate-y-1/2" />
+                        <div className="relative group overflow-hidden rounded-[20px] bg-slate-50 dark:bg-slate-900/40 border border-slate-200/50 dark:border-slate-800/50 p-3.5 transition-shadow hover:shadow-lg hover:shadow-blue-500/5">
                           <div className="flex items-center gap-3">
                             <div className="p-2 rounded-xl bg-blue-500/10 text-blue-600 dark:text-blue-400">
                               <User className="h-4 w-4" />
@@ -554,8 +548,7 @@ export default function NotificationCardV2({
                           </div>
                         </div>
 
-                        <div className="relative group overflow-hidden rounded-[20px] bg-slate-50 dark:bg-slate-900/40 border border-slate-200/50 dark:border-slate-800/50 p-3.5 transition-all hover:shadow-lg hover:shadow-amber-500/5">
-                          <div className="absolute top-0 right-0 w-16 h-16 bg-amber-500/5 blur-2xl rounded-full translate-x-1/2 -translate-y-1/2" />
+                        <div className="relative group overflow-hidden rounded-[20px] bg-slate-50 dark:bg-slate-900/40 border border-slate-200/50 dark:border-slate-800/50 p-3.5 transition-shadow hover:shadow-lg hover:shadow-amber-500/5">
                           <div className="flex items-center gap-3">
                             <div className="p-2 rounded-xl bg-amber-500/10 text-amber-600 dark:text-amber-400">
                               <Bus className="h-4 w-4" />
@@ -631,7 +624,7 @@ export default function NotificationCardV2({
                   if (!matrixData || matrixData.length === 0) return null;
 
                   return (
-                    <div className="mt-4 sm:mt-8 mb-4 sm:mb-6 overflow-hidden rounded-xl sm:rounded-2xl border border-slate-200/60 dark:border-slate-800/60 shadow-lg sm:shadow-xl bg-white/50 dark:bg-slate-900/50 backdrop-blur-sm animate-in fade-in slide-in-from-bottom-4 duration-700">
+                    <div className="mt-4 sm:mt-8 mb-4 sm:mb-6 overflow-hidden rounded-xl sm:rounded-2xl border border-slate-200/60 dark:border-slate-800/60 shadow-lg sm:shadow-xl bg-white dark:bg-slate-900 animate-in fade-in slide-in-from-bottom-4 duration-700">
                       <div className={`px-2.5 sm:px-4 py-2 sm:py-3 bg-gradient-to-r ${roleTheme.accent} text-white flex items-center justify-between`}>
                         <div className="flex items-center gap-1.5 sm:gap-2">
                           <MapPin className="h-3 w-3 sm:h-4 sm:w-4" />
@@ -727,7 +720,7 @@ export default function NotificationCardV2({
                   <div className="mt-6">
                     <Link href="/driver/swap-request?tab=incoming" className={`group flex items-center justify-between p-4 rounded-xl bg-gradient-to-r ${roleTheme.accent} text-white hover:scale-[1.01] active:scale-95 transition-all shadow-lg ${roleTheme.glow}`}>
                       <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 bg-white/15 rounded-lg flex items-center justify-center backdrop-blur-md">
+                        <div className="w-10 h-10 bg-white/15 rounded-lg flex items-center justify-center">
                           <AlertCircle className="h-5 w-5 text-white" />
                         </div>
                         <div>
@@ -742,7 +735,7 @@ export default function NotificationCardV2({
                   </div>
                 )}
 
-              <div className={`absolute bottom-0 right-0 w-40 h-40 bg-${roleTheme.color}-500/5 blur-[80px] pointer-events-none -z-10`} />
+
             </div>
 
             {/* Modal Footer */}
@@ -812,3 +805,7 @@ export default function NotificationCardV2({
     </>
   );
 }
+
+// Memoized: cards only re-render when their own notification or handlers change,
+// keeping tab switches and mark-as-read updates smooth even with long lists.
+export default memo(NotificationCardV2);

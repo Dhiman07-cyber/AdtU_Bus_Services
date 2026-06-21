@@ -2,7 +2,6 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { motion, AnimatePresence } from "framer-motion";
 import { auth } from "@/lib/firebase";
 import { useAuth } from "@/contexts/auth-context";
 import { useToast } from "@/contexts/toast-context";
@@ -304,17 +303,13 @@ export default function ModConfigPage() {
     if (loading) {
         return (
             <div className="min-h-screen bg-[#0a0a0f] flex items-center justify-center">
-                <motion.div
-                    initial={{ opacity: 0, scale: 0.9 }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    className="flex flex-col items-center gap-4"
-                >
+                <div className="flex flex-col items-center gap-4 animate-in fade-in zoom-in-95 duration-200">
                     <div className="relative">
                         <Loader2 className="w-10 h-10 text-blue-400 animate-spin" />
                         <Shield className="w-5 h-5 text-blue-400/50 absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2" />
                     </div>
                     <p className="text-slate-400 text-sm">Loading Permissions...</p>
-                </motion.div>
+                </div>
             </div>
         );
     }
@@ -367,11 +362,7 @@ export default function ModConfigPage() {
                 <div className="bg-[#0a0a0f] rounded-2xl border border-white/5 p-4 sm:p-8 space-y-6">
                     {/* ── MODERATOR INFO CARD ── */}
                     {moderator && (
-                        <motion.div
-                            initial={{ opacity: 0, y: 10 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            className="rounded-xl bg-white/[0.02] border border-white/5 p-5"
-                        >
+                        <div className="rounded-xl bg-white/[0.02] border border-white/5 p-5 animate-in fade-in slide-in-from-bottom-2 duration-300">
                             <div className="flex items-center gap-4">
                                 <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-blue-500/20 to-purple-500/20 flex items-center justify-center border border-white/10">
                                     <span className="text-lg font-bold text-white">
@@ -397,16 +388,11 @@ export default function ModConfigPage() {
                                     {moderator.status}
                                 </div>
                             </div>
-                        </motion.div>
+                        </div>
                     )}
 
                     {/* ── PRESET BUTTONS ── */}
-                    <motion.div
-                        initial={{ opacity: 0, y: 10 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        transition={{ delay: 0.05 }}
-                        className="flex flex-wrap items-center gap-3"
-                    >
+                    <div className="flex flex-wrap items-center gap-3 animate-in fade-in slide-in-from-bottom-2 duration-300">
                         <span className="text-xs text-slate-500 font-medium uppercase tracking-wider">Presets:</span>
                         <button
                             onClick={() => applyPreset("default")}
@@ -424,16 +410,12 @@ export default function ModConfigPage() {
                         </button>
 
                         {hasChanges && (
-                            <motion.div
-                                initial={{ opacity: 0, x: -10 }}
-                                animate={{ opacity: 1, x: 0 }}
-                                className="flex items-center gap-1.5 ml-auto"
-                            >
+                            <div className="flex items-center gap-1.5 ml-auto animate-in fade-in slide-in-from-left-2 duration-200">
                                 <AlertTriangle className="w-3.5 h-3.5 text-amber-400" />
                                 <span className="text-xs text-amber-400">Unsaved changes</span>
-                            </motion.div>
+                            </div>
                         )}
-                    </motion.div>
+                    </div>
 
                     {/* ── PERMISSION CATEGORIES ── */}
                     <div className="space-y-4">
@@ -449,12 +431,9 @@ export default function ModConfigPage() {
                             const noneEnabled = enabledCount === 0;
 
                             return (
-                                <motion.div
+                                <div
                                     key={categoryKey}
-                                    initial={{ opacity: 0, y: 10 }}
-                                    animate={{ opacity: 1, y: 0 }}
-                                    transition={{ delay: 0.05 * (index + 2) }}
-                                    className={`rounded-xl border ${colors.border} overflow-hidden transition-all`}
+                                    className={`rounded-xl border ${colors.border} overflow-hidden animate-in fade-in slide-in-from-bottom-2 duration-300`}
                                 >
                                     {/* Category Header */}
                                     <button
@@ -487,10 +466,8 @@ export default function ModConfigPage() {
                                                         : "bg-gradient-to-r from-amber-500 to-orange-400 shadow-[0_0_12px_rgba(245,158,11,0.3)]"
                                                     }`}
                                             >
-                                                <motion.div
-                                                    layout
-                                                    transition={{ type: "spring", stiffness: 700, damping: 30 }}
-                                                    className={`w-[18px] h-[18px] rounded-full shadow-md flex items-center justify-center ${allEnabled
+                                                <div
+                                                    className={`w-[18px] h-[18px] rounded-full shadow-md flex items-center justify-center transition-transform duration-200 ${allEnabled
                                                         ? "bg-white translate-x-[24px]"
                                                         : noneEnabled
                                                             ? "bg-slate-400 translate-x-[3px]"
@@ -499,7 +476,7 @@ export default function ModConfigPage() {
                                                 >
                                                     {allEnabled && <Check className="w-3 h-3 text-emerald-600" />}
                                                     {!allEnabled && !noneEnabled && <div className="w-2.5 h-0.5 rounded-full bg-amber-600" />}
-                                                </motion.div>
+                                                </div>
                                             </div>
 
                                             {isExpanded ? (
@@ -511,15 +488,8 @@ export default function ModConfigPage() {
                                     </button>
 
                                     {/* Permission Items */}
-                                    <AnimatePresence>
-                                        {isExpanded && (
-                                            <motion.div
-                                                initial={{ height: 0, opacity: 0 }}
-                                                animate={{ height: "auto", opacity: 1 }}
-                                                exit={{ height: 0, opacity: 0 }}
-                                                transition={{ duration: 0.2 }}
-                                                className="overflow-hidden"
-                                            >
+                                    {isExpanded && (
+                                            <div className="overflow-hidden animate-in fade-in slide-in-from-top-1 duration-200">
                                                 <div className="border-t border-white/5 p-3 space-y-1">
                                                     {permEntries.map(([permKey, permLabel]) => {
                                                         const isEnabled = categoryPermissions[permKey];
@@ -554,36 +524,28 @@ export default function ModConfigPage() {
                                                                         : "bg-slate-800/80 border border-slate-700/50"
                                                                         }`}
                                                                 >
-                                                                    <motion.div
-                                                                        layout
-                                                                        transition={{ type: "spring", stiffness: 700, damping: 30 }}
-                                                                        className={`w-[16px] h-[16px] rounded-full shadow-md flex items-center justify-center ${isEnabled
+                                                                    <div
+                                                                        className={`w-[16px] h-[16px] rounded-full shadow-md flex items-center justify-center transition-transform duration-200 ${isEnabled
                                                                             ? "bg-white translate-x-[22px]"
                                                                             : "bg-slate-400 translate-x-[3px]"
                                                                             }`}
                                                                     >
                                                                         {isEnabled && <span className="w-1.5 h-1.5 rounded-full bg-blue-500" />}
-                                                                    </motion.div>
+                                                                    </div>
                                                                 </div>
                                                             </div>
                                                         );
                                                     })}
                                                 </div>
-                                            </motion.div>
+                                            </div>
                                         )}
-                                    </AnimatePresence>
-                                </motion.div>
+                                </div>
                             );
                         })}
                     </div>
 
                     {/* ── SECURITY NOTE ── */}
-                    <motion.div
-                        initial={{ opacity: 0, y: 10 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        transition={{ delay: 0.4 }}
-                        className="rounded-xl bg-amber-500/5 border border-amber-500/10 p-4 flex items-start gap-3"
-                    >
+                    <div className="rounded-xl bg-amber-500/5 border border-amber-500/10 p-4 flex items-start gap-3 animate-in fade-in slide-in-from-bottom-2 duration-300">
                         <Info className="w-4 h-4 text-amber-400 mt-0.5 flex-shrink-0" />
                         <div className="space-y-1">
                             <p className="text-xs text-amber-400 font-medium">Security Note</p>
@@ -593,18 +555,13 @@ export default function ModConfigPage() {
                                 Actions beyond their permissions will be blocked both visually and at the API level.
                             </p>
                         </div>
-                    </motion.div>
+                    </div>
 
                     {/* Bottom spacer for save button visibility */}
                     <div className="h-6" />
 
                     {/* ── BOTTOM SAVE BAR SECTION ── */}
-                    <motion.div
-                        initial={{ opacity: 0, y: 20 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        transition={{ delay: 0.5 }}
-                        className="flex flex-col sm:flex-row items-center justify-end gap-4 bg-transparent"
-                    >
+                    <div className="flex flex-col sm:flex-row items-center justify-end gap-4 bg-transparent animate-in fade-in slide-in-from-bottom-2 duration-300">
                         {hasChanges && (
                             <span className="text-sm text-amber-400 font-medium flex items-center gap-2 mr-auto sm:mr-4">
                                 <AlertTriangle className="w-4 h-4" />
@@ -614,23 +571,19 @@ export default function ModConfigPage() {
 
                         <div className="flex items-center gap-3 w-full sm:w-auto">
                             {hasChanges && (
-                                <motion.button
-                                    whileHover={{ scale: 1.02 }}
-                                    whileTap={{ scale: 0.98 }}
+                                <button
                                     onClick={resetChanges}
-                                    className="flex-1 sm:flex-none px-5 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-slate-300 hover:text-white transition-all text-sm font-semibold flex items-center justify-center gap-2"
+                                    className="flex-1 sm:flex-none px-5 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-slate-300 hover:text-white transition-all hover:scale-[1.02] active:scale-[0.98] text-sm font-semibold flex items-center justify-center gap-2"
                                 >
                                     <RotateCcw className="w-4 h-4" />
                                     Reset
-                                </motion.button>
+                                </button>
                             )}
 
-                            <motion.button
-                                whileHover={{ scale: 1.02 }}
-                                whileTap={{ scale: 0.98 }}
+                            <button
                                 onClick={savePermissions}
                                 disabled={!hasChanges || saving}
-                                className={`flex-1 sm:flex-none flex items-center justify-center gap-2 px-8 py-2.5 rounded-xl text-sm font-bold transition-all ${hasChanges
+                                className={`flex-1 sm:flex-none flex items-center justify-center gap-2 px-8 py-2.5 rounded-xl text-sm font-bold transition-all hover:scale-[1.02] active:scale-[0.98] ${hasChanges
                                     ? "bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white shadow-[0_0_20px_rgba(59,130,246,0.4)] border border-blue-400/30"
                                     : "bg-white/5 text-slate-500 border border-white/5 cursor-not-allowed"
                                     }`}
@@ -641,9 +594,9 @@ export default function ModConfigPage() {
                                     <Save className="w-4 h-4" />
                                 )}
                                 {saving ? "Saving Changes..." : "Save Configuration"}
-                            </motion.button>
+                            </button>
                         </div>
-                    </motion.div>
+                    </div>
 
                     {/* Visual indicator of the bottom of the page */}
                     <div className="h-4" />

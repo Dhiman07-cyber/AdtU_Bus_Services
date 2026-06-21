@@ -149,7 +149,7 @@ export default function Step1Personal({
           <Input
             type="text"
             id="age"
-            value={formData.age}
+            value={formData.age || ''}
             readOnly
             placeholder="Choose DOB first"
             className="bg-slate-900 border-slate-800 text-slate-500 cursor-not-allowed h-10 text-xs"

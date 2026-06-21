@@ -43,7 +43,7 @@ function LoginContent() {
     setIsVisible(true);
     const timer = setTimeout(() => {
       setIsExpanded(true);
-    }, 400); // Start widening 400ms after fade-in starts to connect the transitions
+    }, 100); // Start widening 100ms after fade-in starts to connect the transitions
     return () => clearTimeout(timer);
   }, []);
 
@@ -161,60 +161,27 @@ function LoginContent() {
         backgroundImage: 'radial-gradient(circle at 15% 25%, rgba(92, 89, 165, 0.22) 0%, rgba(92, 89, 165, 0) 55%), radial-gradient(circle at 85% 75%, rgba(92, 89, 165, 0.26) 0%, rgba(92, 89, 165, 0) 55%)'
       }}
     >
-      {/* Butter-Smooth Card Container using Framer Motion clipPath */}
+      {/* Butter-Smooth Card Container using GPU-accelerated Clip-Path */}
       <motion.div
         initial={{ 
-          opacity: 0, 
-          y: 20, 
-          scale: 0.98,
-          clipPath: "inset(0% 49.8% 0% 49.8%)"
+          opacity: 0,
+          clipPath: "inset(0% 50% 0% 50% round 28px)"
         }}
         animate={{ 
-          opacity: isVisible ? 1 : 0, 
-          y: isVisible ? 0 : 20, 
-          scale: isVisible ? 1 : 0.98,
-          clipPath: isExpanded ? "inset(0% 0% 0% 0%)" : "inset(0% 49.8% 0% 49.8%)"
+          opacity: isVisible ? 1 : 0,
+          clipPath: isExpanded ? "inset(0% 0% 0% 0% round 28px)" : "inset(0% 50% 0% 50% round 28px)"
         }}
         transition={{
-          clipPath: { duration: 1.1, ease: [0.16, 1, 0.3, 1] }, // Smooth easeOut clipPath transition
           opacity: { duration: 0.4, ease: "easeOut" },
-          y: { duration: 0.4, ease: "easeOut" },
-          scale: { duration: 0.4, ease: "easeOut" }
+          clipPath: { duration: 0.9, ease: [0.16, 1, 0.3, 1] }
         }}
         className="w-full relative z-10 border-t border-b border-white/[0.08] flex flex-row overflow-hidden items-center rounded-[28px] max-w-[370px] sm:max-w-[850px] min-h-[440px] sm:min-h-[460px] shrink-0 justify-center login-card-container-motion"
         style={{
           background: 'radial-gradient(circle at bottom right, rgba(92, 89, 165, 0.08) 0%, rgba(92, 89, 165, 0) 50%), linear-gradient(135deg, #111115 0%, #0A0A0D 100%)'
         }}
       >
-        {/* Left Border Line (translates horizontally outwards on GPU, preventing layout reflow) */}
-        <motion.div
-          initial={{ x: 0 }}
-          animate={{ x: isExpanded ? (isMobile ? -185 : -425) : 0 }}
-          transition={{ duration: 1.1, ease: [0.16, 1, 0.3, 1] }}
-          className="absolute left-1/2 top-0 bottom-0 w-px bg-white/[0.08] z-20 pointer-events-none"
-        />
-
-        {/* Right Border Line (translates horizontally outwards on GPU, preventing layout reflow) */}
-        <motion.div
-          initial={{ x: 0 }}
-          animate={{ x: isExpanded ? (isMobile ? 185 : 425) : 0 }}
-          transition={{ duration: 1.1, ease: [0.16, 1, 0.3, 1] }}
-          className="absolute left-1/2 top-0 bottom-0 w-px bg-white/[0.08] z-20 pointer-events-none"
-        />
-
         {/* Inner Content Wrapper - maintains static dimensions to prevent text reflow */}
         <div className="w-[370px] sm:w-[850px] min-h-[440px] sm:min-h-[460px] flex flex-row items-center shrink-0 relative">
-          
-          {/* Glowing Center Line - visible initially and fades out as card expands */}
-          <motion.div
-            initial={{ opacity: 1 }}
-            animate={{ opacity: isExpanded ? 0 : 1 }}
-            transition={{ duration: 0.7, ease: "easeOut", delay: 0.1 }}
-            className="absolute left-1/2 top-0 bottom-0 w-[2px] -translate-x-1/2 pointer-events-none z-20"
-            style={{
-              background: 'linear-gradient(to bottom, transparent, rgba(255, 255, 255, 0.08), transparent)',
-            }}
-          />
 
           {/* Left Section - AdtU Logo Panel (hidden on mobile, shown on desktop) */}
           <motion.div 

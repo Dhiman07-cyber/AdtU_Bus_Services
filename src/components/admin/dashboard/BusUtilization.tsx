@@ -46,7 +46,7 @@ export default function BusUtilization({ busUtilization }: BusUtilizationProps) 
   };
 
   return (
-    <Card className="relative overflow-hidden bg-slate-900/40 border-slate-700/50 backdrop-blur-2xl shadow-2xl">
+    <Card className="relative overflow-hidden bg-[#0a0b14] border-white/5 shadow-2xl transition-colors duration-300 hover:bg-[#0f101f]">
       <CardHeader className="flex flex-col md:flex-row md:items-center justify-between p-6 pb-0 pt-2 gap-3">
         <div className="space-y-1">
           <div className="flex items-center gap-3">
@@ -59,7 +59,7 @@ export default function BusUtilization({ busUtilization }: BusUtilizationProps) 
         </div>
 
         <div className="flex items-center gap-3">
-          <div className="flex items-center gap-4 bg-slate-950/50 p-3 rounded-2xl border border-white/5 backdrop-blur-md">
+          <div className="flex items-center gap-4 bg-[#0c0d1b] p-3 rounded-2xl border border-white/5">
             <div className="flex items-center gap-2">
               <div className="w-2 h-2 rounded-full bg-emerald-500" />
               <span className="text-[10px] font-bold text-emerald-400 uppercase tracking-widest">Optimal</span>

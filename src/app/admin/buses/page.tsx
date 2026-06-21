@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useMemo, useCallback } from "react";
 import { useRouter } from 'next/navigation';
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -182,23 +182,51 @@ export default function BusesPage() {
     return match ? match[0] : '0';
   };
 
-  // Real-time listeners handle data fetching automatically
+  // O(1) lookup tables built once per data change. Previously every table row called
+  // drivers.find()/routes.find() — O(buses × drivers) and O(buses × routes) work on
+  // every keystroke/render. Indexing once turns each row lookup into a Map.get().
+  const driverIndex = useMemo(() => {
+    const byId = new Map<string, any>();
+    const byBusId = new Map<string, any>();
+    for (const d of drivers as any[]) {
+      if (d.id) byId.set(d.id, d);
+      if (d.assignedBusId) byBusId.set(d.assignedBusId, d);
+      if (d.busId) byBusId.set(d.busId, d);
+    }
+    return { byId, byBusId };
+  }, [drivers]);
 
-  const filteredBuses = buses.filter(bus => {
-    const matchesSearch =
-      (bus.busNumber && bus.busNumber.toLowerCase().includes(searchTerm.toLowerCase())) ||
-      (bus.routeName && bus.routeName.toLowerCase().includes(searchTerm.toLowerCase())) ||
-      (bus.busId && bus.busId.toLowerCase().includes(searchTerm.toLowerCase()));
+  const routeIndex = useMemo(() => {
+    const byId = new Map<string, any>();
+    for (const r of routes as any[]) {
+      if (r.id) byId.set(r.id, r);
+      if ((r as any).routeId) byId.set((r as any).routeId, r);
+    }
+    return byId;
+  }, [routes]);
 
-    const matchesColor = colorFilter === "all" || (bus.color && bus.color.toLowerCase() === colorFilter.toLowerCase());
-    const matchesStatus = statusFilter === "all" || (bus.status && bus.status.toLowerCase() === statusFilter.toLowerCase());
+  // Filtered + sorted list recomputed only when inputs actually change, not on every
+  // unrelated re-render (e.g. opening the delete dialog or hovering a row).
+  const filteredBuses = useMemo(() => {
+    const q = searchTerm.toLowerCase();
+    const color = colorFilter.toLowerCase();
+    const status = statusFilter.toLowerCase();
+    return buses.filter(bus => {
+      const matchesSearch =
+        (bus.busNumber && bus.busNumber.toLowerCase().includes(q)) ||
+        (bus.routeName && bus.routeName.toLowerCase().includes(q)) ||
+        (bus.busId && bus.busId.toLowerCase().includes(q));
 
-    return matchesSearch && matchesColor && matchesStatus;
-  }).sort((a, b) => {
-    const numA = extractNumber(a.busId || a.id || '');
-    const numB = extractNumber(b.busId || b.id || '');
-    return parseInt(numA) - parseInt(numB);
-  });
+      const matchesColor = colorFilter === "all" || (bus.color && bus.color.toLowerCase() === color);
+      const matchesStatus = statusFilter === "all" || (bus.status && bus.status.toLowerCase() === status);
+
+      return matchesSearch && matchesColor && matchesStatus;
+    }).sort((a, b) => {
+      const numA = extractNumber(a.busId || a.id || '');
+      const numB = extractNumber(b.busId || b.id || '');
+      return parseInt(numA) - parseInt(numB);
+    });
+  }, [buses, searchTerm, colorFilter, statusFilter]);
 
   // Export buses data
   const handleExportBuses = async () => {
@@ -286,37 +314,34 @@ export default function BusesPage() {
     }
   };
 
-  // Function to get driver name for a specific bus
-  const getDriverNameForBus = (bus: any) => {
+  // Function to get driver name for a specific bus — O(1) via prebuilt indexes.
+  const getDriverNameForBus = useCallback((bus: any) => {
     // Method 1: Check bus activeDriverId or assignedDriverId (CORRECT Firestore fields)
     const driverIdToFind = bus.activeDriverId || bus.assignedDriverId;
     if (driverIdToFind) {
-      const driver = drivers.find(d => d.id === driverIdToFind);
+      const driver = driverIndex.byId.get(driverIdToFind);
       if (driver) {
         return driver.fullName || driver.name || 'Unknown Driver';
       }
     }
 
     // Method 2: Reverse lookup - find driver with this busId assigned
-    let driver = drivers.find(d => d.assignedBusId === bus.id || d.busId === bus.id);
+    const driver = driverIndex.byBusId.get(bus.id);
     if (driver) {
       return driver.fullName || driver.name || 'Unknown Driver';
     }
 
     return 'No Driver Assigned';
-  };
+  }, [driverIndex]);
 
 
-  // Function to get route name for a specific bus
-  const getRouteNameForBus = (bus: any) => {
+  // Function to get route name for a specific bus — O(1) via prebuilt index.
+  const getRouteNameForBus = useCallback((bus: any) => {
     // 1. Try finding in routes collection first (Canonical source)
     const routeIdToCheck = bus.routeId || bus.assignedRouteId;
-    if (routes && routes.length > 0 && routeIdToCheck) {
-      const foundRoute = routes.find(r =>
-        r.id === routeIdToCheck ||
-        r.routeId === routeIdToCheck
-      );
-      if (foundRoute) return foundRoute.routeName || foundRoute.route || `Route ${routeIdToCheck}`;
+    if (routeIdToCheck) {
+      const foundRoute = routeIndex.get(routeIdToCheck);
+      if (foundRoute) return foundRoute.routeName || (foundRoute as any).route || `Route ${routeIdToCheck}`;
     }
 
     // 2. Fallback to embedded data (Legacy)
@@ -325,7 +350,7 @@ export default function BusesPage() {
     }
 
     return 'No Route Assigned';
-  };
+  }, [routeIndex]);
 
   const handleDelete = (id: string, name: string) => {
     setDeleteItem({ id, name });

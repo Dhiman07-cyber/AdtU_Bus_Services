@@ -252,7 +252,7 @@ export default function EditRoutePage({ params }: { params: Promise<{ id: string
           </div>
           <Link
             href="/admin/routes"
-            className="inline-flex items-center px-3 py-1.5 bg-white/10 hover:bg-white/20 text-white text-sm border border-white/20 hover:border-white/30 rounded-lg transition-all duration-200 hover:shadow-lg backdrop-blur-sm"
+            className="inline-flex items-center px-3 py-1.5 bg-white/10 hover:bg-white/20 text-white text-sm border border-white/20 hover:border-white/30 rounded-lg transition-all duration-200 hover:shadow-lg"
           >
             Back
           </Link>
@@ -261,7 +261,7 @@ export default function EditRoutePage({ params }: { params: Promise<{ id: string
 
       {/* Main Content */}
       <div className="max-w-5xl mx-auto px-3 sm:px-6 lg:px-8 overflow-hidden">
-        <div className="bg-gradient-to-br from-[#0E0F12] to-[#1A1B23] backdrop-blur-sm rounded-2xl shadow-2xl border border-white/10 p-4 sm:p-10 hover:border-white/20 transition-all duration-300">
+        <div className="bg-gradient-to-br from-[#0E0F12] to-[#1A1B23] rounded-2xl shadow-2xl border border-white/10 p-4 sm:p-10 hover:border-white/20 transition-all duration-300">
           <form onSubmit={handleSubmit} className="space-y-8">
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
               <div>
@@ -317,7 +317,7 @@ export default function EditRoutePage({ params }: { params: Promise<{ id: string
                       className="border-2 border-gray-300 dark:border-white/10 focus:border-blue-500 dark:focus:border-blue-400 bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
                     />
                     {showSuggestions && filteredSuggestions.length > 0 && (
-                      <div className="absolute z-50 w-full mt-1 bg-[#1A1B23] border border-white/10 rounded-xl shadow-2xl max-h-60 overflow-y-auto backdrop-blur-xl">
+                      <div className="absolute z-50 w-full mt-1 bg-[#1A1B23] border border-white/10 rounded-xl shadow-2xl max-h-60 overflow-y-auto">
                         {filteredSuggestions.map((stop, i) => (
                           <div
                             key={i}

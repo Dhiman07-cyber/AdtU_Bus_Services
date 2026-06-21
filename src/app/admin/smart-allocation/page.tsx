@@ -752,7 +752,7 @@ export default function SmartAllocationPage() {
                 Threshold:
               </Label>
               <div className="w-24 relative">
-                <div className="absolute inset-0 bg-purple-500/10 blur-lg opacity-0 group-hover:opacity-100 transition-opacity duration-300 rounded-lg" />
+                <div className="absolute inset-0 bg-purple-500/10 blur-md opacity-0 group-hover:opacity-100 transition-opacity duration-300 rounded-lg" />
                 <Slider
                   value={[overloadThreshold]}
                   onValueChange={([value]) => setOverloadThreshold(value)}

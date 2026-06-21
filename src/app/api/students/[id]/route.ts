@@ -16,7 +16,6 @@ interface Student {
   enrollmentId?: string;
   gender?: string;
   dob?: string;
-  age?: string;
   faculty: string;
   department: string;
   parentName?: string;
@@ -118,7 +117,6 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
             enrollmentId: data.enrollmentId || '',
             gender: data.gender || '',
             dob: formattedDob,
-            age: data.age?.toString() || '',
             faculty: data.faculty || '',
             department: data.department || '',
             parentName: data.parentName || '',

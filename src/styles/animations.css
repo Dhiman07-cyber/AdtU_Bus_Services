@@ -591,8 +591,8 @@
   background-clip: text;
 }
 
-/* Smooth transitions for all interactive elements */
-button, a, .card, .hover-effect {
+/* Smooth transitions for card elements */
+.card, .hover-effect {
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
@@ -746,11 +746,107 @@ button, a, .card, .hover-effect {
   animation: breathingGlow 3s infinite;
 }
 
-/* Responsive animations */
+/* Responsive animations — only reduce duration, do NOT kill iteration count */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     animation-duration: 0.01ms !important;
-    animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
   }
+  /* Explicitly keep infinite loops for functional animations */
+  .stop-label,
+  .route-label,
+  .landing-carousel-track {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: infinite !important;
+  }
 }
+
+/* ============================================================
+   LANDING PAGE — custom animations & utilities
+   ============================================================ */
+
+/* Cube face z-depth & Carousel center offset (responsive via CSS variables) */
+:root {
+  --cube-z: 96px;
+  --carousel-center: 50vw;
+}
+@media (min-width: 640px) {
+  :root { --cube-z: 114px; }
+}
+@media (min-width: 768px) {
+  :root { --cube-z: 136px; }
+}
+@media (min-width: 1024px) {
+  :root {
+    --carousel-center: 512px;
+  }
+}
+
+/* Scroll-reveal utility */
+.reveal-on-scroll {
+  opacity: 0;
+  transform: translateY(24px);
+  transition: opacity 0.8s cubic-bezier(0.16, 1, 0.3, 1),
+              transform 0.8s cubic-bezier(0.16, 1, 0.3, 1);
+  will-change: transform, opacity;
+}
+.reveal-active {
+  opacity: 1;
+  transform: translateY(0);
+}
+.delay-100 { transition-delay: 100ms; }
+.delay-200 { transition-delay: 200ms; }
+.delay-300 { transition-delay: 300ms; }
+.delay-400 { transition-delay: 400ms; }
+
+/* Stop / route cycling labels on the dice face */
+@keyframes stop-cycle {
+  0%, 18%  { opacity: 1; transform: translateY(0); }
+  22%, 98% { opacity: 0; transform: translateY(-8px); }
+  100%     { opacity: 0; transform: translateY(-8px); }
+}
+
+.stop-label {
+  position: absolute;
+  left: 0;
+  white-space: nowrap;
+  animation: stop-cycle 10s linear infinite;
+  opacity: 0;
+}
+.stop-label:nth-child(1) { animation-delay: 0s;  opacity: 1; }
+.stop-label:nth-child(2) { animation-delay: 2s; }
+.stop-label:nth-child(3) { animation-delay: 4s; }
+.stop-label:nth-child(4) { animation-delay: 6s; }
+.stop-label:nth-child(5) { animation-delay: 8s; }
+
+.route-label {
+  position: absolute;
+  left: 0;
+  white-space: nowrap;
+  animation: stop-cycle 10s linear infinite;
+  opacity: 0;
+}
+.route-label:nth-child(1) { animation-delay: 0s;  opacity: 1; }
+.route-label:nth-child(2) { animation-delay: 2s; }
+.route-label:nth-child(3) { animation-delay: 4s; }
+.route-label:nth-child(4) { animation-delay: 6s; }
+.route-label:nth-child(5) { animation-delay: 8s; }
+
+/* Infinite horizontal carousel */
+@keyframes landing-carousel-anim {
+  0%   { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
+}
+.landing-carousel-track {
+  animation: landing-carousel-anim 90s linear infinite;
+}
+
+@keyframes active-dot-progress {
+  0% {
+    transform: scaleX(0);
+  }
+  100% {
+    transform: scaleX(1);
+  }
+}
+

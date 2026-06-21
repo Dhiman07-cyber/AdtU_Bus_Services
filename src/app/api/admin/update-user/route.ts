@@ -78,7 +78,9 @@ export const POST = withSecurity(
 
                 // Clean update data
                 const cleanedUpdateData = Object.entries(updateData).reduce((acc, [key, value]) => {
-                    if (value !== undefined) acc[key] = value;
+                    if (value !== undefined && key !== '__proto__' && key !== 'constructor' && key !== 'prototype') {
+                        acc[key] = value;
+                    }
                     return acc;
                 }, { updatedAt: new Date().toISOString() } as any);
 

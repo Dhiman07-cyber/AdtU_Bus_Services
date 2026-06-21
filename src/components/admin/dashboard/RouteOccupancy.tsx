@@ -86,7 +86,7 @@ export default function RouteOccupancy({ routeOccupancy, busUtilization = [] }: 
    const hasNextSection = startIndex + (isExpanded ? 7 : 5) < sortedRoutes.length;
 
    return (
-      <Card className="relative overflow-hidden bg-slate-900/40 border-slate-700/50 backdrop-blur-2xl shadow-2xl mb-8">
+      <Card className="relative overflow-hidden bg-[#0a0b14] border-white/5 shadow-2xl mb-8 transition-colors duration-300 hover:bg-[#0f101f]">
          <CardHeader className="p-6 pb-0 pt-2">
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                <div className="space-y-1">
@@ -99,7 +99,7 @@ export default function RouteOccupancy({ routeOccupancy, busUtilization = [] }: 
                   <CardDescription className="text-slate-400 text-[11px] pl-1.5 border-l-2 border-orange-500/30 ml-1.5 h-auto">Pressure analysis and occupancy ranking by transit paths</CardDescription>
                </div>
 
-               <div className="relative flex bg-slate-950/80 p-1 rounded-xl border border-white/5 backdrop-blur-2xl shadow-inner shrink-0 overflow-hidden h-10 w-64">
+               <div className="relative flex bg-[#0c0d1b] p-1 rounded-xl border border-white/5 shadow-inner shrink-0 overflow-hidden h-10 w-64">
                   {/* Sliding Background Indicator */}
                   <motion.div
                      initial={false}
@@ -262,7 +262,7 @@ export default function RouteOccupancy({ routeOccupancy, busUtilization = [] }: 
 
                {/* Metrics and Insights Column */}
                <div className="lg:col-span-2">
-                  <div className="p-4 rounded-2xl bg-slate-950/40 border border-white/10 backdrop-blur-xl group hover:border-red-500/20 transition-all duration-500 h-full flex flex-col">
+                  <div className="p-4 rounded-2xl bg-[#0a0b14] border border-white/10 group hover:border-red-500/20 transition-all duration-500 h-full flex flex-col">
                      <div className="flex items-center gap-4 mb-4 pb-2 border-b border-white/5">
                         <div className="w-10 h-10 rounded-2xl bg-red-500/10 flex items-center justify-center text-red-500 group-hover:bg-red-500 group-hover:text-white transition-all duration-500 shadow-xl shadow-red-500/10">
                            <AlertTriangle className="w-5 h-5 animate-pulse" />

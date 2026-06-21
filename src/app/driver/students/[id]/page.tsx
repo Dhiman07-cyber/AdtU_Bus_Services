@@ -65,6 +65,26 @@ const formatDate = (dateValue: any) => {
   }
 };
 
+const calculateAgeFromDob = (dobValue: any): string => {
+  if (!dobValue) return 'N/A';
+  try {
+    let date: Date;
+    if (typeof dobValue === 'object' && dobValue !== null && 'seconds' in dobValue) {
+      date = new Date(dobValue.seconds * 1000);
+    } else if (dobValue && dobValue.toDate && typeof dobValue.toDate === 'function') {
+      date = dobValue.toDate();
+    } else {
+      date = new Date(dobValue);
+    }
+    if (isNaN(date.getTime())) return 'N/A';
+    const currentYear = new Date().getFullYear();
+    const birthYear = date.getFullYear();
+    return (currentYear - birthYear).toString();
+  } catch (error) {
+    return 'N/A';
+  }
+};
+
 const formatId = (id: string | undefined) => {
   if (!id) return 'Not Assigned';
   return id.replace(/^(\w+)_(\d+)$/i, (match, prefix, number) => {
@@ -263,7 +283,7 @@ export default function DriverStudentDetailPage({ params }: { params: Promise<{ 
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
               <div className="text-center p-3 rounded-xl border-2 border-purple-200/50 dark:border-purple-800/50 bg-gradient-to-br from-purple-50/50 to-purple-100/30 dark:from-purple-950/20 dark:to-purple-900/30 hover:shadow-lg transition-all shadow-md">
                 <Calendar className="w-5 h-5 mx-auto mb-2 text-purple-600 dark:text-purple-400" />
-                <p className="text-base font-bold text-foreground mb-1">{student.age || (student.dob ? formatDate(student.dob) : 'N/A')}</p>
+                <p className="text-base font-bold text-foreground mb-1">{calculateAgeFromDob(student.dob)}</p>
                 <p className="text-[10px] text-muted-foreground uppercase tracking-wide font-semibold">Age</p>
               </div>
               <div className="text-center p-3 rounded-xl border-2 border-blue-200/50 dark:border-blue-800/50 bg-gradient-to-br from-blue-50/50 to-blue-100/30 dark:from-blue-950/20 dark:to-blue-900/30 hover:shadow-lg transition-all shadow-md">

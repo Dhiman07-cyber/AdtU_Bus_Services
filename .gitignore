@@ -46,7 +46,6 @@ secrets/
 # Debug
 *.log
 logs/
-public/landing_video/
 
 # Firestore data dump - NEVER commit data exports
 firestore_data.json
@@ -61,3 +60,6 @@ public/maps/guwahati.pmtiles
 
 # Agent metadata
 .agents/
+.agent/
+SKILL.md
+skills-lock.json

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useMemo } from 'react';
 import { useAuth } from '@/contexts/auth-context';
 import { useRouter } from 'next/navigation';
 import { cn } from "@/lib/utils";
@@ -226,21 +226,25 @@ export default function AdminFeedbackPage() {
         }
     }, [currentUser]);
 
-    // Filtering Logic
-    const filteredFeedback = feedback.filter(item => {
-        const matchesSearch =
-            item.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-            item.email.toLowerCase().includes(searchQuery.toLowerCase()) ||
-            item.message.toLowerCase().includes(searchQuery.toLowerCase()) ||
-            item.user_id.toLowerCase().includes(searchQuery.toLowerCase());
-
-        const matchesRole = roleFilter === 'all' || item.role === roleFilter;
-
-        return matchesSearch && matchesRole;
-    });
+    // Filtering Logic — memoized so it only recomputes when the data, search
+    // term, or role filter changes (not when modals/forms toggle other state).
+    const filteredFeedback = useMemo(() => {
+        const q = searchQuery.trim().toLowerCase();
+        return feedback.filter(item => {
+            const matchesRole = roleFilter === 'all' || item.role === roleFilter;
+            if (!matchesRole) return false;
+            if (!q) return true;
+            return (
+                item.name.toLowerCase().includes(q) ||
+                item.email.toLowerCase().includes(q) ||
+                item.message.toLowerCase().includes(q) ||
+                item.user_id.toLowerCase().includes(q)
+            );
+        });
+    }, [feedback, searchQuery, roleFilter]);
 
     // Count unread feedback
-    const unreadCount = feedback.filter(item => !item.read).length;
+    const unreadCount = useMemo(() => feedback.filter(item => !item.read).length, [feedback]);
 
     const formatDate = (dateString: string) => {
         const date = new Date(dateString);
@@ -441,7 +445,7 @@ export default function AdminFeedbackPage() {
                         <div className="flex gap-1.5 bg-[#161b22] p-1 rounded-lg border border-gray-700 md:ml-auto">
                             <button
                                 onClick={() => setRoleFilter('all')}
-                                className={`px-4 py-2 rounded-md text-xs font-medium transition-all ${roleFilter === 'all'
+                                className={`px-4 py-2 rounded-md text-xs font-medium transition-colors ${roleFilter === 'all'
                                     ? 'bg-indigo-600 text-white shadow-sm'
                                     : 'text-gray-400 hover:text-white hover:bg-gray-700'
                                     }`}
@@ -450,7 +454,7 @@ export default function AdminFeedbackPage() {
                             </button>
                             <button
                                 onClick={() => setRoleFilter('student')}
-                                className={`px-4 py-2 rounded-md text-xs font-medium transition-all flex items-center gap-1.5 ${roleFilter === 'student'
+                                className={`px-4 py-2 rounded-md text-xs font-medium transition-colors flex items-center gap-1.5 ${roleFilter === 'student'
                                     ? 'bg-emerald-600 text-white shadow-sm'
                                     : 'text-gray-400 hover:text-white hover:bg-gray-700'
                                     }`}
@@ -460,7 +464,7 @@ export default function AdminFeedbackPage() {
                             </button>
                             <button
                                 onClick={() => setRoleFilter('driver')}
-                                className={`px-4 py-2 rounded-md text-xs font-medium transition-all flex items-center gap-1.5 ${roleFilter === 'driver'
+                                className={`px-4 py-2 rounded-md text-xs font-medium transition-colors flex items-center gap-1.5 ${roleFilter === 'driver'
                                     ? 'bg-amber-600 text-white shadow-sm'
                                     : 'text-gray-400 hover:text-white hover:bg-gray-700'
                                     }`}
@@ -804,7 +808,7 @@ export default function AdminFeedbackPage() {
                                     </Button>
                                 </PopoverTrigger>
                                 <PopoverContent
-                                    className="w-[var(--radix-popover-trigger-width)] p-1.5 bg-[#05070a]/95 backdrop-blur-2xl border-slate-800 shadow-2xl rounded-2xl z-[9999] ring-1 ring-white/10"
+                                    className="w-[var(--radix-popover-trigger-width)] p-1.5 bg-[#05070a] border-slate-800 shadow-2xl rounded-2xl z-[9999] ring-1 ring-white/10"
                                     side="bottom"
                                     align="start"
                                     sideOffset={8}

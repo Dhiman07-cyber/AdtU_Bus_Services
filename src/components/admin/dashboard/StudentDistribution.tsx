@@ -43,7 +43,7 @@ export default function StudentDistribution({ distribution, totalStudents }: Stu
   };
 
   return (
-    <Card className="relative overflow-hidden bg-slate-900/40 border-slate-700/50 backdrop-blur-2xl shadow-2xl h-full transition-all duration-500 hover:bg-slate-900/60 flex flex-col">
+    <Card className="relative overflow-hidden bg-[#0a0b14] border-white/5 shadow-2xl h-full transition-colors duration-300 hover:bg-[#0f101f] flex flex-col">
       <CardContent className="p-4 md:p-6 pt-2 md:pt-2 flex-1 flex flex-col">
         {/* Compact Header */}
         <div className="flex items-center justify-between mb-2">
@@ -66,7 +66,7 @@ export default function StudentDistribution({ distribution, totalStudents }: Stu
           {/* Smaller Chart */}
           <div className="relative w-44 h-44 flex-shrink-0 group">
             {/* Elegant Inner Decorative Rings */}
-            <div className="absolute inset-[15%] rounded-full border border-white/5 bg-slate-900/40 backdrop-blur-md shadow-inner flex flex-col items-center justify-center z-20 transition-all duration-700">
+            <div className="absolute inset-[15%] rounded-full border border-white/5 bg-[#0a0b14] shadow-inner flex flex-col items-center justify-center z-20 transition-all duration-700">
               <span className={cn(
                 "text-4xl font-extrabold tracking-tighter drop-shadow-lg transition-all duration-500",
                 activeData?.name === 'Morning' ? "text-amber-400" : activeData?.name === 'Evening' ? "text-indigo-400" : "text-white"

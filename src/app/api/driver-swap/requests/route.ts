@@ -67,6 +67,15 @@ export async function POST(request: Request) {
       );
     }
 
+    const idPattern = /^[a-zA-Z0-9_-]{1,128}$/;
+    if (!idPattern.test(fromDriverUID) || !idPattern.test(toDriverUID) || !idPattern.test(busId) || !idPattern.test(routeId)) {
+      console.error('❌ Invalid ID formats in swap request:', { fromDriverUID, toDriverUID, busId, routeId });
+      return NextResponse.json(
+        { error: 'Invalid format for driver, bus, or route identifiers' },
+        { status: 400 }
+      );
+    }
+
     // Validate time period
     if (!timePeriod || !timePeriod.type) {
       console.error('❌ Invalid time period:', timePeriod);

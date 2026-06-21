@@ -24,7 +24,7 @@ export async function POST(
     const decodedToken = await auth.verifyIdToken(token);
     const userUID = decodedToken.uid;
 
-    console.log(`📥 Cancel swap request: ${requestId} by ${userUID.substring(0, 8)}`);
+    console.log('📥 Cancel swap request: %s by %s', requestId, userUID.substring(0, 8));
 
     // Cancel the swap request using Supabase
     const result = await DriverSwapSupabaseService.cancelSwapRequest(requestId, userUID);

@@ -104,7 +104,7 @@ export default function TransactionalAnalytics({
     if (active && payload && payload.length) {
       const isRevenue = role === 'admin' && metricType === 'revenue';
       return (
-        <div className="bg-slate-900/90 backdrop-blur-xl border border-white/10 p-4 rounded-xl shadow-2xl">
+        <div className="bg-[#0f101f] border border-white/10 p-4 rounded-xl shadow-2xl">
           <p className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-2 border-b border-white/5 pb-2">
             {label}
           </p>
@@ -129,7 +129,7 @@ export default function TransactionalAnalytics({
   };
 
   return (
-    <Card className="relative overflow-hidden bg-slate-900/40 border-slate-700/50 backdrop-blur-2xl shadow-2xl mb-8">
+    <Card className="relative overflow-hidden bg-[#0a0b14] border-white/5 shadow-2xl mb-8 transition-colors duration-300 hover:bg-[#0f101f]">
       <CardHeader className="flex flex-col md:flex-row md:items-center justify-between p-4 pb-1 gap-3 pt-0 pb-0">
         <div className="space-y-1.5">
           <div className="flex items-center gap-3">
@@ -145,7 +145,7 @@ export default function TransactionalAnalytics({
           </p>
         </div>
 
-        <div className="flex flex-wrap items-center gap-3 bg-slate-900/60 p-1.5 rounded-2xl border border-white/5 backdrop-blur-xl">
+        <div className="flex flex-wrap items-center gap-3 bg-[#161726] p-1.5 rounded-2xl border border-white/5">
           <div className="flex bg-slate-800 rounded-xl p-1">
             <Button
               size="sm"

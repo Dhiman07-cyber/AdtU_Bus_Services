@@ -1,6 +1,5 @@
 "use client";
 
-import { motion } from 'framer-motion';
 import {
   Users,
   Bus,
@@ -57,8 +56,8 @@ const MetricCard = ({
 
   return (
     <Card className={cn(
-      "relative overflow-hidden group backdrop-blur-xl transition-all duration-500",
-      theme === 'dark' ? "border-slate-800 bg-slate-900/40 hover:bg-slate-900/60" : "border-[#E5E7EB] bg-white hover:bg-gray-50",
+      "relative overflow-hidden group transition-all duration-500",
+      theme === 'dark' ? "border-white/5 bg-[#0a0b14] hover:bg-[#0f101f]" : "border-[#E5E7EB] bg-white hover:bg-gray-50",
       className
     )}>
       <CardContent className="p-2 md:p-2.5 flex flex-col items-center justify-center text-center">
@@ -92,8 +91,8 @@ export default function KeyMetricsGrid({ stats, role = 'admin' }: { stats: Dashb
     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-9 gap-3 mb-8">
       {/* Primary Revenue/Payment Card - Spans 5/9 columns (~55%) and 2 rows on large screens */}
       <Card className={cn(
-        "md:col-span-2 lg:col-span-5 lg:row-span-2 relative overflow-hidden group backdrop-blur-2xl shadow-2xl transition-all duration-500",
-        theme === 'dark' ? "border-slate-700/50 bg-slate-900/40 hover:bg-slate-900/60" : "border-[#E5E7EB] bg-white hover:bg-gray-50"
+        "md:col-span-2 lg:col-span-5 lg:row-span-2 relative overflow-hidden group shadow-2xl transition-all duration-500",
+        theme === 'dark' ? "border-white/5 bg-[#0a0b14] hover:bg-[#0f101f]" : "border-[#E5E7EB] bg-white hover:bg-gray-50"
       )}>
         <div className="absolute top-16 right-0 p-8 opacity-10 group-hover:opacity-20 transition-opacity">
           {role === 'admin' ? (

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useMemo } from "react";
 import { useRouter } from 'next/navigation';
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -101,15 +101,42 @@ export default function RoutesPage() {
     }
   });
 
-  // Process and combine data
-  const routes = routesData.map((route: any) => {
-    // Find buses assigned to this route
-    // Check both routeId match and routeRef match for backward compatibility/robustness
-    const assignedBusesList = buses.filter((bus: any) =>
-      bus.routeId === route.routeId ||
-      bus.routeRef === `routes/${route.id}` ||
-      bus.routeRef === `routes/${route.routeId}`
-    );
+  // Index buses by their route key ONCE per data change. The previous code ran
+  // buses.filter() inside routes.map() — O(routes × buses) on every render/keystroke.
+  // Grouping into a Map turns the per-route lookup into a single Map.get().
+  const busesByRouteKey = useMemo(() => {
+    const map = new Map<string, any[]>();
+    const add = (key: string | undefined, bus: any) => {
+      if (!key) return;
+      const list = map.get(key);
+      if (list) list.push(bus);
+      else map.set(key, [bus]);
+    };
+    for (const bus of buses as any[]) {
+      add(bus.routeId, bus);
+      // routeRef is stored as `routes/<id>` — strip the prefix so it lines up with
+      // a route's id/routeId key.
+      if (typeof bus.routeRef === 'string' && bus.routeRef.startsWith('routes/')) {
+        add(bus.routeRef.slice('routes/'.length), bus);
+      }
+    }
+    return map;
+  }, [buses]);
+
+  // Process and combine data — memoized so it only rebuilds when routes/buses change.
+  const routes = useMemo(() => routesData.map((route: any) => {
+    // Gather buses matching either the route's routeId or its document id, deduped.
+    const seen = new Set<string>();
+    const assignedBusesList: any[] = [];
+    for (const key of [route.routeId, route.id]) {
+      const list = key && busesByRouteKey.get(key);
+      if (!list) continue;
+      for (const bus of list) {
+        if (seen.has(bus.id)) continue;
+        seen.add(bus.id);
+        assignedBusesList.push(bus);
+      }
+    }
 
     return {
       id: route.id,
@@ -120,7 +147,7 @@ export default function RoutesPage() {
       stops: route.stops || [],
       assignedBuses: assignedBusesList
     };
-  });
+  }), [routesData, busesByRouteKey]);
 
   const [searchTerm, setSearchTerm] = useState("");
   const [shiftFilter, setShiftFilter] = useState("all");
@@ -136,21 +163,25 @@ export default function RoutesPage() {
     return match ? parseInt(match[1]) : 999;
   };
 
-  const filteredRoutes = routes.filter((route: any) => {
-    const matchesSearch =
-      (route.routeName && route.routeName.toLowerCase().includes(searchTerm.toLowerCase())) ||
-      (route.assignedBuses && route.assignedBuses.some((bus: any) =>
-        (bus.busNumber && bus.busNumber.toLowerCase().includes(searchTerm.toLowerCase()))
-      ));
+  const filteredRoutes = useMemo(() => {
+    const q = searchTerm.toLowerCase();
+    const shift = shiftFilter.toLowerCase();
+    return routes.filter((route: any) => {
+      const matchesSearch =
+        (route.routeName && route.routeName.toLowerCase().includes(q)) ||
+        (route.assignedBuses && route.assignedBuses.some((bus: any) =>
+          (bus.busNumber && bus.busNumber.toLowerCase().includes(q))
+        ));
 
-    const matchesShift = shiftFilter === "all" || (route.status && route.status.toLowerCase() === shiftFilter.toLowerCase());
+      const matchesShift = shiftFilter === "all" || (route.status && route.status.toLowerCase() === shift);
 
-    return matchesSearch && matchesShift;
-  }).sort((a: any, b: any) => {
-    const numA = extractRouteNumber(a.routeName || a.routeId || '');
-    const numB = extractRouteNumber(b.routeName || b.routeId || '');
-    return numA - numB;
-  });
+      return matchesSearch && matchesShift;
+    }).sort((a: any, b: any) => {
+      const numA = extractRouteNumber(a.routeName || a.routeId || '');
+      const numB = extractRouteNumber(b.routeName || b.routeId || '');
+      return numA - numB;
+    });
+  }, [routes, searchTerm, shiftFilter]);
 
   // Export routes data
   const handleExportRoutes = async () => {

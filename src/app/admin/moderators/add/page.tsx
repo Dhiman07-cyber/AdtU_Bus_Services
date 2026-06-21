@@ -399,7 +399,7 @@ export default function AddModeratorPage() {
           </div>
           <Link
             href="/admin/moderators"
-            className="inline-flex items-center px-3 py-1.5 bg-white/10 hover:bg-white/20 text-white text-sm border border-white/20 hover:border-white/30 rounded-lg transition-all duration-200 hover:shadow-lg backdrop-blur-sm"
+            className="inline-flex items-center px-3 py-1.5 bg-white/10 hover:bg-white/20 text-white text-sm border border-white/20 hover:border-white/30 rounded-lg transition-colors"
           >
             <span className="mr-1.5 text-sm">←</span>
             Back
@@ -409,7 +409,7 @@ export default function AddModeratorPage() {
 
       {/* Main Content - Enhanced spacing and premium styling */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="bg-gradient-to-br from-[#0E0F12] to-[#1A1B23] backdrop-blur-sm rounded-2xl shadow-2xl border border-white/10 p-4 sm:p-10 hover:border-white/20 transition-all duration-300">
+        <div className="bg-gradient-to-br from-[#0E0F12] to-[#1A1B23] rounded-2xl shadow-xl border border-white/10 p-4 sm:p-10">
           <form onSubmit={handleSubmit} className="space-y-4">
             {/* Profile Photo Section - Modal Position Picker */}
             <div className="flex flex-col items-center mb-8">
@@ -425,12 +425,12 @@ export default function AddModeratorPage() {
                   </div>
                 ) : (
                   <div className="h-24 w-24 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center border-4 border-white dark:border-gray-800 shadow-xl ring-2 ring-slate-100 dark:ring-slate-800 group-hover:bg-slate-200 dark:group-hover:bg-slate-700 transition-colors">
-                    <Camera className="h-8 w-8 text-slate-400 group-hover:scale-110 transition-transform duration-300" />
+                    <Camera className="h-8 w-8 text-slate-400" />
                   </div>
                 )}
 
-                <div className="absolute inset-0 rounded-full bg-black/40 opacity-0 group-hover:opacity-100 transition-all duration-300 flex items-center justify-center backdrop-blur-[2px]">
-                  <Camera className="h-6 w-6 text-white drop-shadow-md transform scale-90 group-hover:scale-100 transition-transform" />
+                <div className="absolute inset-0 rounded-full bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity duration-200 flex items-center justify-center">
+                  <Camera className="h-6 w-6 text-white" />
                 </div>
 
                 {finalImageUrl && (

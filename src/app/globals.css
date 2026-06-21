@@ -1299,9 +1299,6 @@ html.lenis body {
    ======================================== */
 .login-card-container-motion {
   opacity: 0;
-  transform: translateY(20px) scale(0.98);
-  clip-path: inset(0% 49.8% 0% 49.8%);
-  -webkit-clip-path: inset(0% 49.8% 0% 49.8%);
 }
 
 .login-child-left {
@@ -1564,4 +1561,79 @@ html.lenis body {
   [class*="Card"] {
     border-radius: 12px !important;
   }
+}
+
+/* Scrollbar hiding utilities */
+.scrollbar-none::-webkit-scrollbar {
+  display: none !important;
+}
+.scrollbar-none {
+  -ms-overflow-style: none !important;  /* IE and Edge */
+  scrollbar-width: none !important;  /* Firefox */
+}
+
+/* QR Laser Scan Animation */
+@keyframes laserScan {
+  0%, 100% {
+    top: 0%;
+    opacity: 0.3;
+  }
+  15%, 85% {
+    opacity: 1;
+  }
+  50% {
+    top: calc(100% - 2px);
+    opacity: 0.3;
+  }
+}
+.animate-laser {
+  position: absolute;
+  animation: laserScan 3.5s ease-in-out infinite;
+}
+
+/* 3D Cube Depth Z-translation based on size */
+:root {
+  --cube-z: 96px;
+}
+@media (min-width: 640px) {
+  :root {
+    --cube-z: 120px;
+  }
+}
+@media (min-width: 768px) {
+  :root {
+    --cube-z: 144px;
+  }
+}
+
+/* Rolling Text Slide Animations */
+@keyframes stopSlideIn {
+  0% {
+    opacity: 0;
+    transform: translateY(-50%);
+    clip-path: inset(0 0 100% 0);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+    clip-path: inset(0 0 0 0);
+  }
+}
+@keyframes stopSlideOut {
+  0% {
+    opacity: 1;
+    transform: translateY(0);
+    clip-path: inset(0 0 0 0);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(50%);
+    clip-path: inset(100% 0 0 0);
+  }
+}
+.animate-stop-slide-in {
+  animation: stopSlideIn 1.2s cubic-bezier(0.25, 1, 0.5, 1) forwards;
+}
+.animate-stop-slide-out {
+  animation: stopSlideOut 1.2s cubic-bezier(0.25, 1, 0.5, 1) forwards;
 }

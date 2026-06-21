@@ -28,7 +28,6 @@ type StudentFormData = {
   enrollmentId: string;
   gender: string;
   dob: string;
-  age: string;
   faculty: string;
   department: string;
   semester: string;
@@ -76,7 +75,6 @@ export default function EditStudentPage({ params }: { params: Promise<{ id: stri
     enrollmentId: '',
     gender: '',
     dob: '',
-    age: '',
     faculty: '',
     department: '',
     semester: '',
@@ -147,17 +145,7 @@ export default function EditStudentPage({ params }: { params: Promise<{ id: stri
   }, [buses, formData.busId]);
 
 
-  const calculateAge = (dobString: string) => {
-    if (!dobString) return '';
-    const birthDate = new Date(dobString);
-    const today = new Date();
-    let age = today.getFullYear() - birthDate.getFullYear();
-    const monthDiff = today.getMonth() - birthDate.getMonth();
-    if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birthDate.getDate())) {
-      age--;
-    }
-    return age.toString();
-  };
+
 
   const fetchStudentData = async () => {
     try {
@@ -173,7 +161,6 @@ export default function EditStudentPage({ params }: { params: Promise<{ id: stri
           enrollmentId: studentData.enrollmentId || '',
           gender: studentData.gender || '',
           dob: studentData.dob || '',
-          age: calculateAge(studentData.dob || ''),
           faculty: studentData.faculty || '',
           department: studentData.department || '',
           semester: studentData.semester || '',
@@ -266,19 +253,6 @@ export default function EditStudentPage({ params }: { params: Promise<{ id: stri
   const handleDateChange = (name: string, value: string) => {
     setFormData(prev => ({ ...prev, [name]: value }));
 
-    if (name === 'dob' && value) {
-      const birthDate = new Date(value);
-      const today = new Date();
-      let age = today.getFullYear() - birthDate.getFullYear();
-      const monthDiff = today.getMonth() - birthDate.getMonth();
-
-      if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birthDate.getDate())) {
-        age--;
-      }
-
-      setFormData(prev => ({ ...prev, age: age.toString() }));
-    }
-
     if (errors[name]) {
       setErrors(prev => {
         const newErrors = { ...prev };
@@ -316,9 +290,7 @@ export default function EditStudentPage({ params }: { params: Promise<{ id: stri
       newErrors.alternatePhone = "Alternate phone number must be at least 10 digits";
     }
 
-    if (!formData.age) {
-      newErrors.age = "Age is required";
-    }
+
 
     if (!formData.gender) {
       newErrors.gender = "Gender is required";
@@ -503,7 +475,7 @@ export default function EditStudentPage({ params }: { params: Promise<{ id: stri
           </div>
           <Link
             href="/moderator/students"
-            className="inline-flex items-center px-3 py-1.5 bg-white/10 hover:bg-white/20 text-white text-sm border border-white/20 hover:border-white/30 rounded-lg transition-all duration-200 hover:shadow-lg backdrop-blur-sm"
+            className="inline-flex items-center px-3 py-1.5 bg-white/10 hover:bg-white/20 text-white text-sm border border-white/20 hover:border-white/30 rounded-lg transition-all duration-200 hover:shadow-lg"
           >
             Back
           </Link>
@@ -512,7 +484,7 @@ export default function EditStudentPage({ params }: { params: Promise<{ id: stri
 
       {/* Main Content */}
       <div className="max-w-5xl mx-auto px-3 sm:px-6 lg:px-8 pb-10 overflow-hidden">
-        <div className="bg-gradient-to-br from-[#0E0F12] to-[#1A1B23] backdrop-blur-sm rounded-2xl shadow-2xl border border-white/10 p-4 sm:p-10 hover:border-white/20 transition-all duration-300">
+        <div className="bg-gradient-to-br from-[#0E0F12] to-[#1A1B23] rounded-2xl shadow-2xl border border-white/10 p-4 sm:p-10 hover:border-white/20 transition-all duration-300">
           <form onSubmit={handleSubmit} className="space-y-3">
             {/* Profile Photo Section */}
             <div className="flex flex-col items-center mb-8">
@@ -530,7 +502,7 @@ export default function EditStudentPage({ params }: { params: Promise<{ id: stri
                       <Camera className="h-8 w-8 text-white/20 group-hover:text-white/40 group-hover:scale-110 transition-all duration-300" />
                     </div>
                   )}
-                  <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-all duration-300 flex items-center justify-center backdrop-blur-[2px]">
+                  <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-all duration-300 flex items-center justify-center">
                     <Camera className="h-6 w-6 text-white" />
                   </div>
                 </div>
@@ -589,30 +561,17 @@ export default function EditStudentPage({ params }: { params: Promise<{ id: stri
                   {errors.gender && <p className="text-red-500 text-[10px] mt-1">{errors.gender}</p>}
                 </div>
 
-                <div className="flex flex-col sm:flex-row gap-4">
-                  <div className="flex-1 min-w-0">
-                    <EnhancedDatePicker
-                      id="dob"
-                      label="Date of Birth"
-                      value={formData.dob}
-                      onChange={(value) => handleDateChange('dob', value)}
-                      required
-                      validationType="dob-student"
-                      className="h-9 w-full bg-white/5 border-white/10 text-white"
-                    />
-                    {errors.dob && <p className="text-red-500 text-[10px] mt-1">{errors.dob}</p>}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <Label htmlFor="age" className="block text-xs font-medium text-gray-400 mb-1">Age</Label>
-                    <Input
-                      type="number"
-                      id="age"
-                      name="age"
-                      value={formData.age}
-                      readOnly
-                      className="bg-white/5 border-white/10 text-white/50 cursor-not-allowed h-9 w-full"
-                    />
-                  </div>
+                <div>
+                  <EnhancedDatePicker
+                    id="dob"
+                    label="Date of Birth"
+                    value={formData.dob}
+                    onChange={(value) => handleDateChange('dob', value)}
+                    required
+                    validationType="dob-student"
+                    className="h-9 w-full bg-white/5 border-white/10 text-white"
+                  />
+                  {errors.dob && <p className="text-red-500 text-[10px] mt-1">{errors.dob}</p>}
                 </div>
 
                 <div>

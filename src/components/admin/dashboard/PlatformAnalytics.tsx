@@ -71,7 +71,7 @@ export default function PlatformAnalytics() {
 
   if (loading && !data) {
     return (
-      <div className="w-full h-[280px] bg-white/5 backdrop-blur-xl border border-white/10 rounded-3xl flex items-center justify-center">
+      <div className="w-full h-[280px] bg-[#0a0b14] border border-white/5 rounded-3xl flex items-center justify-center">
         <div className="flex flex-col items-center gap-4">
           <div className="w-8 h-8 border-4 border-blue-500/30 border-t-blue-500 rounded-full animate-spin" />
           <p className="text-blue-400 text-xs font-medium animate-pulse">Synchronizing Platform Intelligence...</p>
@@ -86,7 +86,7 @@ export default function PlatformAnalytics() {
 
     if (isNotConfigured) {
       return (
-        <div className="w-full h-[280px] bg-[#0c0e1a]/80 backdrop-blur-3xl border border-white/5 rounded-3xl flex items-center justify-center text-center px-10">
+        <div className="w-full h-[280px] bg-[#0a0b14] border border-white/5 rounded-3xl flex items-center justify-center text-center px-10">
           <div className="space-y-4">
             <div className="mx-auto w-12 h-12 rounded-2xl bg-amber-500/10 flex items-center justify-center border border-amber-500/20">
               <BarChart3 className="w-6 h-6 text-amber-500/60" />
@@ -105,7 +105,7 @@ export default function PlatformAnalytics() {
 
     if (isNoData) {
       return (
-        <div className="w-full h-[280px] bg-[#0c0e1a]/80 backdrop-blur-3xl border border-white/5 rounded-3xl flex items-center justify-center text-center px-10">
+        <div className="w-full h-[280px] bg-[#0a0b14] border border-white/5 rounded-3xl flex items-center justify-center text-center px-10">
           <div className="space-y-4">
             <div className="mx-auto w-12 h-12 rounded-2xl bg-blue-500/10 flex items-center justify-center border border-blue-500/20">
               <TrendingUp className="w-6 h-6 text-blue-500/60" />
@@ -146,7 +146,7 @@ export default function PlatformAnalytics() {
 
   if (!hasData) {
     return (
-      <div className="w-full h-[280px] bg-[#0c0e1a]/80 backdrop-blur-3xl border border-white/5 rounded-3xl flex items-center justify-center text-center px-10">
+      <div className="w-full h-[280px] bg-[#0a0b14] border border-white/5 rounded-3xl flex items-center justify-center text-center px-10">
         <div className="space-y-3">
           <div className="mx-auto w-10 h-10 rounded-xl bg-white/5 flex items-center justify-center">
             <BarChart3 className="w-5 h-5 text-slate-600" />
@@ -161,7 +161,7 @@ export default function PlatformAnalytics() {
   }
 
   return (
-    <Card className="bg-[#0c0e1a]/80 backdrop-blur-3xl border border-white/5 rounded-3xl overflow-hidden shadow-2xl relative group">
+    <Card className="bg-[#0a0b14] border border-white/5 rounded-3xl overflow-hidden shadow-2xl relative group transition-colors duration-300 hover:bg-[#0f101f]">
       <div className="absolute inset-0 bg-gradient-to-br from-blue-600/5 via-transparent to-purple-600/5 opacity-50 pointer-events-none" />
       
       <CardHeader className="relative z-10 flex flex-row items-center justify-between py-3 px-6">
@@ -238,11 +238,10 @@ export default function PlatformAnalytics() {
               <YAxis hide domain={['auto', 'auto']} />
               <Tooltip 
                 contentStyle={{ 
-                  backgroundColor: 'rgba(12, 14, 26, 0.9)', 
+                  backgroundColor: '#0c0e1a', 
                   border: '1px solid rgba(255,255,255,0.1)', 
                   borderRadius: '12px', 
                   fontSize: '10px',
-                  backdropFilter: 'blur(10px)',
                   boxShadow: '0 10px 15px -3px rgba(0,0,0,0.5)'
                 }}
                 itemStyle={{ padding: '0px' }}

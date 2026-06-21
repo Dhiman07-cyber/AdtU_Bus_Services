@@ -1,48 +1,44 @@
 "use client";
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { useAuth } from '@/contexts/auth-context';
 import { useRouter } from 'next/navigation';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import {
-  FileText,
-  CheckCircle,
   Shield,
   CreditCard,
-  UserCheck,
   Clock,
-  Loader2,
   ArrowRight,
+  Info,
+  FileText,
   MapPin,
-  Users,
-  TrendingUp,
-  Award,
-  Sparkles,
-  Timer,
-  Calendar,
-  Phone,
-  Mail,
-  HelpCircle,
-  Check,
-  Zap,
-  Star,
-  Rocket,
-  AlertCircle,
-  Info
+  GraduationCap,
+  CheckCircle,
+  Bus
 } from 'lucide-react';
 import Link from 'next/link';
-import { cn } from '@/lib/utils';
-import { Badge } from '@/components/ui/badge';
 import ApplyFormNavbar from '@/components/ApplyFormNavbar';
 import { PremiumPageLoader } from '@/components/LoadingSpinner';
+import Footer from '@/components/Footer';
 
 export default function ApplyLandingPage() {
-  const { currentUser, userData, loading, needsApplication } = useAuth();
+  const { currentUser, userData, loading } = useAuth();
   const router = useRouter();
-  const [checkingApplication, setCheckingApplication] = useState(false);
   const [config, setConfig] = useState<any>(null);
-  const [existingApplication, setExistingApplication] = useState<any>(null);
+  const [activeStep, setActiveStep] = useState(0);
+  const mobileScrollRef = useRef<HTMLDivElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  // Ref and state for Journey section scroll tracking
+  const journeySectionRef = useRef<HTMLDivElement>(null);
+  const [journeyProgress, setJourneyProgress] = useState(0);
+
+  // Scroll visibility states
+  const [whyVisible, setWhyVisible] = useState(false);
+  const whyRef = useRef<HTMLDivElement>(null);
+
+  const [thingsVisible, setThingsVisible] = useState(false);
+  const thingsRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     async function fetchConfig() {
@@ -61,473 +57,674 @@ export default function ApplyLandingPage() {
 
   useEffect(() => {
     if (!loading) {
-      // If user already has a profile, redirect to dashboard
       if (userData && userData.role) {
         router.push(`/${userData.role}`);
-        return;
       }
-
-      /* 
-      // Check if there's a pending application
-      if (currentUser) {
-        checkPendingApplication();
-      }
-      */
     }
-  }, [loading, userData, currentUser, router]);
+  }, [loading, userData, router]);
 
-  const checkPendingApplication = async () => {
-    try {
-      // Check if user has a pending application
-      const response = await fetch('/api/applications/check', {
-        headers: {
-          'Authorization': `Bearer ${await currentUser?.getIdToken()}`
-        }
-      });
+  // Combined scroll handler for the custom scrollable container
+  const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
+    const target = e.currentTarget;
+    const scrollTop = target.scrollTop;
+    const clientHeight = target.clientHeight;
 
-      if (response.ok) {
-        const data = await response.json();
-        if (data.hasApplication) {
-          setExistingApplication(data.application || { status: 'submitted' });
-          setCheckingApplication(false);
-          return;
-        }
+    // Calculate scroll progress for the Journey section
+    if (journeySectionRef.current) {
+      const section = journeySectionRef.current;
+      const sectionTop = section.offsetTop;
+      const sectionHeight = section.offsetHeight;
+      const relativeScrollTop = scrollTop - sectionTop;
+      const scrollable = sectionHeight - clientHeight;
+
+      if (scrollable > 0 && relativeScrollTop >= 0) {
+        const pct = Math.max(0, Math.min(1, relativeScrollTop / scrollable));
+        setJourneyProgress(pct * 4); // Map to 0 - 4 range
+
+        const stepIndex = Math.max(0, Math.min(4, Math.round(pct * 4)));
+        setActiveStep(stepIndex);
       }
-    } catch (error) {
-      console.error('Error checking application:', error);
-    } finally {
-      setCheckingApplication(false);
+    }
+
+    // Trigger reveal for Why Choose Us
+    if (whyRef.current) {
+      const rect = whyRef.current.getBoundingClientRect();
+      if (rect.top < clientHeight * 0.9) {
+        setWhyVisible(true);
+      }
+    }
+
+    // Trigger reveal for Things You Should Know
+    if (thingsRef.current) {
+      const rect = thingsRef.current.getBoundingClientRect();
+      if (rect.top < clientHeight * 0.9) {
+        setThingsVisible(true);
+      }
     }
   };
 
-  if (loading || checkingApplication) {
+  const handleMobileScroll = (e: React.UIEvent<HTMLDivElement>) => {
+    const container = e.currentTarget;
+    const width = container.offsetWidth;
+    const scrollLeft = container.scrollLeft;
+    const index = Math.round(scrollLeft / width);
+    if (index >= 0 && index < 5 && index !== activeStep) {
+      setActiveStep(index);
+    }
+  };
+
+  const selectMobileStep = (index: number) => {
+    setActiveStep(index);
+    const container = mobileScrollRef.current;
+    if (container) {
+      container.scrollTo({
+        left: index * container.offsetWidth,
+        behavior: 'smooth'
+      });
+    }
+  };
+
+  if (loading) {
     return <PremiumPageLoader fullScreen message="Loading your dashboard..." subMessage="Fetching your application status and account details..." />;
-  }
-
-  // Case: Application Under Review
-  if (false && existingApplication) {
-    return (
-      <div className="min-h-screen flex items-center justify-center p-4 bg-gradient-to-br from-blue-50 via-slate-50 to-indigo-50 dark:from-gray-950 dark:via-blue-950/20 dark:to-slate-900/20">
-        <Card className="w-full max-w-lg shadow-2xl border-indigo-100 dark:border-indigo-900/50 overflow-hidden relative">
-          <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-blue-500 via-indigo-500 to-cyan-500"></div>
-
-          <CardHeader className="text-center pt-8 pb-2">
-            <div className="mx-auto mb-4 relative">
-              <div className="absolute inset-0 bg-blue-500/10 blur-xl rounded-full"></div>
-              <div className="w-16 h-16 bg-gradient-to-br from-blue-100 to-indigo-100 dark:from-blue-900/30 dark:to-indigo-900/30 rounded-full flex items-center justify-center relative z-10 mx-auto">
-                <CheckCircle className="w-8 h-8 text-green-600 dark:text-green-400 animate-pulse" />
-              </div>
-            </div>
-            <CardTitle className="text-2xl font-bold bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent">
-              Your application is successfully submitted
-            </CardTitle>
-            <CardDescription className="text-base mt-2 max-w-sm mx-auto">
-              Your application is currently under review by our administration team.
-            </CardDescription>
-          </CardHeader>
-
-          <CardContent className="space-y-6 pt-4">
-            <div className="bg-blue-50/50 dark:bg-blue-900/10 border border-blue-100 dark:border-blue-800 rounded-xl p-4 flex items-start gap-3">
-              <Info className="w-5 h-5 text-blue-600 dark:text-blue-400 flex-shrink-0 mt-0.5" />
-              <div className="text-sm text-blue-800 dark:text-blue-200 leading-relaxed">
-                <p className="font-semibold mb-1">What's Next?</p>
-                <p>As soon as it is approved, you can directly access your dashboard. This process typically takes <span className="font-bold">2-3 business days</span>.</p>
-              </div>
-            </div>
-
-            <div className="space-y-3">
-              <div className="flex items-center justify-between text-sm p-3 rounded-lg bg-gray-50 dark:bg-gray-800/50">
-                <span className="text-gray-500 dark:text-gray-400">Application ID</span>
-                <span className="font-mono font-medium text-gray-900 dark:text-gray-100">
-                  {existingApplication.id || existingApplication.applicationId || 'PENDING'}
-                </span>
-              </div>
-              <div className="flex items-center justify-between text-sm p-3 rounded-lg bg-gray-50 dark:bg-gray-800/50">
-                <span className="text-gray-500 dark:text-gray-400">Status</span>
-                <Badge variant="outline" className="bg-yellow-100 text-yellow-800 border-yellow-200 dark:bg-yellow-900/30 dark:text-yellow-400 dark:border-yellow-800">
-                  Pending Review
-                </Badge>
-              </div>
-            </div>
-
-            <Button
-              className="w-full bg-slate-900 hover:bg-slate-800 text-white dark:bg-slate-800 dark:hover:bg-slate-700"
-              onClick={() => window.location.reload()}
-            >
-              <Loader2 className="w-4 h-4 mr-2" />
-              Check Status
-            </Button>
-          </CardContent>
-        </Card>
-      </div>
-    );
   }
 
   if (!currentUser) {
     return (
-      <div className="min-h-screen flex items-center justify-center p-4 bg-gradient-to-br from-blue-50 via-slate-50 to-indigo-50 dark:from-gray-950 dark:via-blue-950/20 dark:to-slate-900/20">
-        <Card className="w-full max-w-md animate-fade-in shadow-2xl border-2 border-blue-200 dark:border-blue-800">
-          <CardHeader className="text-center pb-4">
-            <div className="w-14 h-14 sm:w-16 sm:h-16 md:w-20 md:h-20 mx-auto mb-3 sm:mb-4 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center animate-bounce-in">
-              <Shield className="h-7 w-7 sm:h-8 sm:w-8 md:h-10 md:w-10 text-white" />
-            </div>
-            <CardTitle className="text-lg sm:text-xl md:text-2xl">Sign In Required</CardTitle>
-            <CardDescription className="text-xs sm:text-sm md:text-base mt-2">
+      <div className="min-h-screen flex items-center justify-center p-4 bg-[#0F1117] text-slate-100 font-sans">
+        <div className="w-full max-w-md border border-white/[0.08] bg-[#141824] p-8 text-center space-y-6 rounded-3xl shadow-[inset_0_2px_4px_rgba(255,255,255,0.06),_inset_0_-2px_4px_rgba(0,0,0,0.4),_0_8px_30px_rgba(0,0,0,0.25)]">
+          <div className="w-16 h-16 mx-auto rounded-2xl bg-[#1B2132] border border-white/[0.08] flex items-center justify-center shadow-inner">
+            <Shield className="h-8 w-8 text-[#6E7BFF]" />
+          </div>
+          <div className="space-y-2">
+            <h2 className="text-2xl font-bold text-white tracking-tight">Sign In Required</h2>
+            <p className="text-slate-400 text-sm max-w-sm mx-auto leading-relaxed">
               Please sign in with your institutional Google account to apply for bus services.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <Link href="/login">
-              <Button className="w-full bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 h-12 text-lg font-semibold shadow-lg hover:shadow-xl transition-all duration-300 transform hover:scale-105">
-                Sign In with Google
-              </Button>
-            </Link>
-          </CardContent>
-        </Card>
+            </p>
+          </div>
+          <Link href="/login" className="block pt-2">
+            <Button className="w-full bg-gradient-to-r from-[#3B82F6] to-[#4F46E5] hover:from-[#2563EB] hover:to-[#4338CA] text-white font-bold h-12 text-sm rounded-xl transition-all duration-300 ease-out hover:scale-[1.02] active:scale-[0.98] shadow-[0_4px_15px_rgba(59,130,246,0.2)] hover:shadow-[0_4px_20px_rgba(79,70,229,0.3)] whitespace-nowrap">
+              Sign In with Google
+            </Button>
+          </Link>
+        </div>
       </div>
     );
   }
 
+  const stepsData = [
+    {
+      num: "01",
+      title: "Digital Registration",
+      desc: "Submit your details and preferred route through our streamlined student portal.",
+      icon: FileText,
+      detailTitle: "Seamless Online Portal",
+      detailDesc: "Register from anywhere in minutes. Simply select your route, specify your boarding point, and upload your payment details to start.",
+      actions: ["Enter student enrollment details", "Select preferred bus route", "Specify closest boarding stop"],
+      helpfulInfo: "Have your enrollment number and payment receipt details ready."
+    },
+    {
+      num: "02",
+      title: "Academic Verification",
+      desc: "The system automatically verifies your enrollment status with the university registrar.",
+      icon: Shield,
+      detailTitle: "Automated Student Registry Match",
+      detailDesc: "We instantly cross-reference your registration details with the official university student directory to confirm active enrollment status and department information.",
+      actions: ["Validate student ID", "Verify active course registration", "Confirm department eligibility"],
+      helpfulInfo: "Ensure your name and enrollment number match official records."
+    },
+    {
+      num: "03",
+      title: "Flexible Payments",
+      desc: "Pay your bus fees online or offline without waiting in long queue counters.",
+      icon: CreditCard,
+      detailTitle: "Clearance of Dues",
+      detailDesc: "Pay at your convenience using online bank transfers or offline deposits. Moderators review payment receipts within 24 to 48 hours for immediate clearance.",
+      actions: ["Choose online or offline mode", "Submit payment transaction ID", "Get automatic fee clearance log"],
+      helpfulInfo: "Verification is typically cleared within 24 to 48 hours."
+    },
+    {
+      num: "04",
+      title: "Route & Timing Setup",
+      desc: "Live coordinate matching to align bus schedules with your lecture timings.",
+      icon: Clock,
+      detailTitle: "Intelligent Transit Assignment",
+      detailDesc: "To ensure that you never miss your ride and get a guaranteed seat, the system maps your timetable to schedule alerts and optimize bus shifts.",
+      actions: ["Verify seat allocation", "Check shuttle shift times", "Establish route coordinates"],
+      helpfulInfo: "Routes are aligned with university timing and shifts."
+    },
+    {
+      num: "05",
+      title: "Digital Pass Activation",
+      desc: "Your phone acts as your secure QR bus pass. Just scan and board instantly.",
+      icon: CheckCircle,
+      detailTitle: "Smart QR Boarding Pass",
+      detailDesc: "No more worries about losing physical cards. Simply display the digital bus pass generated on your phone to scan and board smoothly.",
+      actions: ["Generate secure QR code", "Activate pass on dashboard", "Ready for terminal scanning"],
+      helpfulInfo: "Your digital pass is valid for the entire academic session."
+    }
+  ];
+
+  const thingsData = [
+    {
+      title: "Pass Validity",
+      desc: "Your digital pass remains active for your entire academic tenure. It is securely stored on your phone, so there is no danger of losing it.",
+      svg: (
+        <svg viewBox="0 0 100 100" className="w-12 h-12 text-[#3B82F6] transition-all duration-300">
+          <rect x="15" y="25" width="70" height="60" rx="8" stroke="currentColor" strokeWidth="4" className="fill-none" />
+          <line x1="15" y1="42" x2="85" y2="42" stroke="currentColor" strokeWidth="4" />
+          <line x1="32" y1="18" x2="32" y2="30" stroke="currentColor" strokeWidth="4" strokeLinecap="round" />
+          <line x1="68" y1="18" x2="68" y2="30" stroke="currentColor" strokeWidth="4" strokeLinecap="round" />
+          <circle cx="35" cy="55" r="4" className="fill-[#3B82F6]" />
+          <circle cx="50" cy="55" r="4" className="fill-[#3B82F6]" />
+          <circle cx="65" cy="55" r="4" className="fill-[#3B82F6]" />
+          <circle cx="35" cy="70" r="4" className="fill-[#3B82F6]" />
+          <circle cx="50" cy="70" r="4" className="fill-[#3B82F6]/30" />
+          <circle cx="65" cy="70" r="4" className="fill-[#3B82F6]/30" />
+        </svg>
+      )
+    },
+    {
+      title: "Fast Verification",
+      desc: "Once you submit your application, our moderators verify your online transactions or offline slips within 24 to 48 hours.",
+      svg: (
+        <svg viewBox="0 0 100 100" className="w-12 h-12 text-[#3B82F6] transition-all duration-300">
+          <circle cx="50" cy="50" r="38" stroke="currentColor" strokeWidth="4" className="fill-none" />
+          <path d="M 50 20 L 50 50 L 72 50" stroke="currentColor" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" />
+          <circle cx="50" cy="50" r="4" className="fill-[#171C2B] stroke-[#3B82F6] stroke-[3]" />
+        </svg>
+      )
+    },
+    {
+      title: "Easy Boarding",
+      desc: "No physical cards needed. Simply display the digital pass QR code on your mobile screen when boarding the shuttle.",
+      svg: (
+        <svg viewBox="0 0 100 100" className="w-12 h-12 text-[#3DDC97] transition-all duration-300">
+          <rect x="22" y="16" width="56" height="68" rx="6" stroke="currentColor" strokeWidth="4" className="fill-none" />
+          <line x1="34" y1="32" x2="66" y2="32" stroke="currentColor" strokeWidth="4" strokeLinecap="round" />
+          <line x1="34" y1="46" x2="56" y2="46" stroke="currentColor" strokeWidth="4" strokeLinecap="round" />
+          <path d="M 34 65 L 44 72 L 66 52" stroke="currentColor" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" className="stroke-[#3DDC97]" />
+        </svg>
+      )
+    },
+    {
+      title: "Annual Renewal",
+      desc: "Skip the counters. When a new semester or academic year starts, easily renew your pass directly through your online dashboard.",
+      svg: (
+        <svg viewBox="0 0 100 100" className="w-12 h-12 text-[#3B82F6] transition-all duration-300">
+          <path d="M 50 18 A 32 32 0 0 1 80 58 L 88 58" stroke="currentColor" strokeWidth="4" strokeLinecap="round" className="fill-none" />
+          <path d="M 80 44 L 80 58 L 66 58" stroke="currentColor" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" />
+          <path d="M 50 82 A 32 32 0 0 1 20 42 L 12 42" stroke="currentColor" strokeWidth="4" strokeLinecap="round" className="fill-none" />
+          <path d="M 20 56 L 20 42 L 34 42" stroke="currentColor" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      )
+    }
+  ];
+
+  const ActiveIcon = stepsData[activeStep]?.icon || FileText;
+
   return (
-    <div className="min-h-screen bg-[#05060e] dark:bg-[#05060e] overflow-x-hidden relative ">
+    <div
+      ref={containerRef}
+      onScroll={handleScroll}
+      className="h-screen overflow-y-auto snap-y snap-mandatory bg-[#0F1117] text-slate-200 font-sans selection:bg-[#6E7BFF]/20 selection:text-[#7F8CFF] overflow-x-hidden scroll-smooth scrollbar-none relative"
+    >
+      <style dangerouslySetInnerHTML={{
+        __html: `
+        @keyframes fadeInSlide {
+          from {
+            opacity: 0;
+            transform: translateY(8px);
+          }
+          to {
+            opacity: 1;
+            transform: translateY(0);
+          }
+        }
+        .animate-step-change {
+          animation: fadeInSlide 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+        }
+        .no-scrollbar::-webkit-scrollbar {
+          display: none;
+        }
+        .no-scrollbar {
+          -ms-overflow-style: none;
+          scrollbar-width: none;
+        }
+      `}} />
+
       <ApplyFormNavbar />
-      {/* Premium Animated Background with Grid */}
-      <div className="fixed inset-0 overflow-hidden pointer-events-none">
-        {/* Gradient Orbs */}
-        <div className="absolute top-20 -left-20 w-96 h-96 bg-gradient-to-br from-blue-500/20 to-indigo-500/20 rounded-full blur-3xl animate-float"></div>
-        <div className="absolute top-1/3 -right-20 w-[600px] h-[600px] bg-gradient-to-bl from-blue-500/20 to-cyan-500/20 rounded-full blur-3xl animate-float" style={{ animationDelay: '1s' }}></div>
-        <div className="absolute bottom-20 left-1/4 w-80 h-80 bg-gradient-to-tr from-indigo-500/20 to-blue-500/20 rounded-full blur-3xl animate-float" style={{ animationDelay: '2s' }}></div>
 
-        {/* Grid Pattern */}
-        <div className="absolute inset-0 bg-[linear-gradient(to_right,#80808012_1px,transparent_1px),linear-gradient(to_bottom,#80808012_1px,transparent_1px)] bg-[size:24px_24px]"></div>
-      </div>
+      {/* 1. HERO SECTION */}
+      <section
+        className="relative h-screen snap-start snap-always flex items-center justify-center px-6 lg:px-8"
+        style={{
+          backgroundImage: 'linear-gradient(to bottom, #0F1117 0%, rgba(15, 17, 23, 0.3) 15%, rgba(15, 17, 23, 0.3) 85%, #0F1117 100%), url(/apply/hero1.png)',
+          backgroundSize: 'cover',
+          backgroundPosition: 'center',
+          backgroundRepeat: 'no-repeat'
+        }}
+      >
+        <div className="max-w-7xl mx-auto flex flex-col items-center justify-center text-center">
+          <div className="max-w-3xl space-y-8 flex flex-col items-center">
+            <div className="inline-flex items-center space-x-2 px-3 py-1.5 rounded-full bg-[#3B82F6]/10 border border-[#3B82F6]/20 text-[#3B82F6] text-xs font-semibold shadow-sm w-fit transition-all duration-300 hover:border-[#3B82F6]/40">
+              <span className="w-1.5 h-1.5 rounded-full bg-[#3B82F6] animate-pulse"></span>
+              <span>Official Transit Portal</span>
+            </div>
 
-      <div className="relative z-10 pt-12 sm:pt-20 pb-6 sm:pb-8 md:pb-12 px-3 sm:px-4 md:px-6 lg:px-8 space-y-4 sm:space-y-6 md:space-y-8">
-        {/* Premium Hero Section */}
-        <div className="text-center space-y-2 sm:space-y-3 md:space-y-4 animate-fade-in max-w-6xl mx-auto mt-4 sm:mt-6">
-          {/* Premium Badge */}
-          <div className="inline-flex items-center gap-1 sm:gap-1.5 px-2.5 sm:px-3 md:px-4 py-1 sm:py-1.5 bg-white/80 dark:bg-gray-800/80 backdrop-blur-xl border border-blue-200/50 dark:border-blue-700/50 rounded-full shadow-lg animate-slide-in-up">
-            <div className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse"></div>
-            <Rocket className="h-3 w-3 text-blue-600 dark:text-blue-400" />
-            <span className="text-[10px] sm:text-xs font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
-              Official ADTU Transportation Platform
-            </span>
-            <Star className="h-3 w-3 text-yellow-500 fill-yellow-500" />
-          </div>
-
-          {/* Main Heading with Premium Typography */}
-          <div className="space-y-2 sm:space-y-3">
-            <h1 className="text-xl sm:text-2xl md:text-3xl lg:text-[2.5rem] font-black animate-slide-in-up tracking-tight" style={{ animationDelay: '0.1s' }}>
-              <span className="block bg-gradient-to-r from-blue-600 via-indigo-600 to-cyan-600 bg-clip-text text-transparent leading-[1.1]">
-                {config?.landingPage?.heroTitle ? config.landingPage.heroTitle.split(' ').slice(0, 2).join(' ') : "Welcome to"}
-              </span>
-              <span className="block bg-gradient-to-r from-indigo-600 via-blue-600 to-cyan-600 bg-clip-text text-transparent leading-[1.1]">
-                {config?.landingPage?.heroTitle ? config.landingPage.heroTitle.split(' ').slice(2).join(' ') : "ADTU Bus Services"}
+            <h1 className="text-4xl sm:text-5xl md:text-6xl font-black text-white leading-[1.1] tracking-tight">
+              Campus Transportation <br />
+              <span className="bg-gradient-to-r from-[#3B82F6] via-[#A855F7] to-[#EC4899] bg-clip-text text-transparent inline-block">
+                Made Simpler
               </span>
             </h1>
 
-            <p className="text-xs sm:text-sm md:text-base text-gray-700 dark:text-gray-300 max-w-2xl mx-auto leading-snug font-medium animate-slide-in-up px-2" style={{ animationDelay: '0.2s' }}>
-              {config?.landingPage?.heroSubtitle || (
-                <>Experience <span className="text-blue-600 dark:text-blue-400 font-bold">reliable</span>, <span className="text-purple-600 dark:text-purple-400 font-bold">safe</span>, and <span className="text-indigo-600 dark:text-indigo-400 font-bold">convenient</span> transportation</>
-              )}
+            <p className="text-slate-300 text-base md:text-lg leading-relaxed max-w-xl font-medium">
+              Experience a smarter, more organized campus commute. Access your digital bus pass, track bus activity in real-time, and manage your transport records from one student-friendly portal.
             </p>
 
-            <p className="text-[10px] sm:text-xs md:text-sm text-gray-600 dark:text-gray-400 max-w-xl mx-auto animate-slide-in-up px-2" style={{ animationDelay: '0.25s' }}>
-              Your journey to seamless campus connectivity starts here ✨
-            </p>
-          </div>
-
-          {/* Premium CTA Buttons */}
-          <div className="flex flex-col sm:flex-row justify-center gap-3 pt-3 animate-slide-in-up" style={{ animationDelay: '0.3s' }}>
-            <Link href="/apply/form">
-              <Button size="default" className="group relative px-4 sm:px-6 md:px-8 py-2.5 sm:py-3 md:py-4 text-xs sm:text-sm md:text-base font-bold bg-gradient-to-r from-blue-600 via-indigo-600 to-blue-700 hover:from-blue-700 hover:via-indigo-700 hover:to-blue-800 shadow-xl hover:shadow-blue-500/50 transition-all duration-300 transform hover:scale-105 overflow-hidden w-full sm:w-auto">
-                {/* Shine effect */}
-                <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent transform translate-x-[-100%] group-hover:translate-x-[100%] transition-transform duration-1000"></div>
-
-                <span className="relative z-10 flex items-center gap-1.5 sm:gap-2">
-                  <Rocket className="h-3.5 w-3.5 sm:h-4 sm:w-4 group-hover:rotate-12 transition-transform" />
-                  Start Your Application
-                  <ArrowRight className="h-3.5 w-3.5 sm:h-4 sm:w-4 group-hover:translate-x-2 transition-transform" />
-                </span>
-              </Button>
-            </Link>
-
-            <Link href="/contact">
-              <Button size="default" variant="outline" className="group px-4 sm:px-6 md:px-8 py-2.5 sm:py-3 md:py-4 text-xs sm:text-sm md:text-base font-semibold border-2 border-gray-300 dark:border-gray-700 hover:border-blue-500 dark:hover:border-blue-500 bg-white/50 dark:bg-gray-100 text-black backdrop-blur-sm hover:bg-white dark:hover:bg-gray-800 transition-all duration-300 w-full sm:w-auto">
-                <Phone className="h-3.5 w-3.5 sm:h-4 sm:w-4 mr-1.5 group-hover:rotate-12 transition-transform" />
-                Contact Support
-              </Button>
-            </Link>
-          </div>
-
-          {/* Trust Indicators */}
-          <div className="flex flex-wrap items-center justify-center gap-3 sm:gap-4 pt-2 text-[10px] sm:text-xs text-gray-600 dark:text-gray-400 animate-slide-in-up" style={{ animationDelay: '0.35s' }}>
-            <div className="flex items-center gap-1">
-              <Check className="h-3 w-3 text-green-500" />
-              <span>Verified Platform</span>
-            </div>
-            <div className="flex items-center gap-1">
-              <Check className="h-3 w-3 text-green-500" />
-              <span>Secure Application</span>
-            </div>
-            <div className="flex items-center gap-1">
-              <Check className="h-3 w-3 text-green-500" />
-              <span>24/7 Support</span>
+            <div className="flex flex-wrap items-center justify-center gap-4 pt-2">
+              <Link href="/apply/form">
+                <Button className="bg-gradient-to-r from-[#3B82F6] to-[#4F46E5] hover:from-[#2563EB] hover:to-[#4338CA] text-white font-bold px-8 py-4 h-auto text-sm rounded-xl transition-all duration-300 ease-out hover:scale-[1.03] hover:-translate-y-0.5 active:scale-[0.98] active:translate-y-0 shadow-[0_4px_20px_rgba(59,130,246,0.3)] hover:shadow-[0_4px_25px_rgba(79,70,229,0.4)] whitespace-nowrap inline-flex items-center justify-center">
+                  Start Application
+                </Button>
+              </Link>
+              <Link href="/contact">
+                <Button variant="outline" className="border-white/10 text-slate-300 hover:text-white hover:border-[#3B82F6]/50 hover:bg-gradient-to-r hover:from-[#3B82F6]/10 hover:to-[#4F46E5]/10 bg-transparent px-8 py-4 h-auto text-sm rounded-xl transition-all duration-300 ease-out hover:scale-[1.03] hover:-translate-y-0.5 active:scale-[0.98] active:translate-y-0 whitespace-nowrap inline-flex items-center justify-center">
+                  Contact Support
+                </Button>
+              </Link>
             </div>
           </div>
         </div>
+      </section>
 
-        {/* Premium Statistics Section with Glassmorphism */}
-        <div className="max-w-7xl mx-auto">
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4 animate-slide-in-up" style={{ animationDelay: '0.4s' }}>
-            {(config?.statistics?.items || [
-              { icon: "Users", value: "200+", label: "Active Students", color: "blue", gradient: "from-blue-500 to-cyan-500" },
-              { icon: "MapPin", value: "50+", label: "Routes Covered", color: "purple", gradient: "from-purple-500 to-pink-500" },
-              { icon: "Award", value: "98%", label: "Satisfaction Rate", color: "green", gradient: "from-green-500 to-emerald-500" },
-              { icon: "Zap", value: "24/7", label: "Real-time Tracking", color: "orange", gradient: "from-orange-500 to-yellow-500" }
-            ]).map((stat: any, index: number) => {
-              const StatIcon = ({
-                Users,
-                MapPin,
-                Award,
-                Zap,
-                TrendingUp
-              } as any)[stat.icon] || Sparkles;
-
-              return (
-                <Card key={index} className="group relative overflow-hidden bg-white/60 dark:bg-gray-800/60 backdrop-blur-xl border border-gray-200/50 dark:border-gray-700/50 hover:border-blue-400/50 dark:hover:border-blue-500/50 transition-all duration-300 hover:scale-105 hover:shadow-lg">
-                  {/* Gradient Background on Hover */}
-                  <div className={`absolute inset-0 bg-gradient-to-br ${stat.gradient} opacity-0 group-hover:opacity-10 transition-opacity duration-300`}></div>
-
-                  <CardContent className="p-2 sm:p-3 md:p-4 relative z-10 text-center">
-                    {/* Icon with Gradient Ring */}
-                    <div className="relative w-8 h-8 sm:w-10 sm:h-10 mx-auto mb-1.5">
-                      <div className={`absolute inset-0 bg-gradient-to-br ${stat.gradient} rounded-xl blur-lg opacity-50 group-hover:opacity-100 transition-opacity duration-300`}></div>
-                      <div className={`relative w-8 h-8 sm:w-10 sm:h-10 rounded-xl bg-gradient-to-br ${stat.gradient} flex items-center justify-center shadow-lg group-hover:scale-110 transition-all duration-300`}>
-                        <StatIcon className="h-4 w-4 sm:h-5 sm:w-5 text-white" />
-                      </div>
-                    </div>
-
-                    {/* Value with Premium Gradient */}
-                    <div className={`text-xl sm:text-2xl md:text-3xl font-black bg-gradient-to-br ${stat.gradient} bg-clip-text text-transparent mb-0.5 group-hover:scale-110 transition-transform duration-300`}>
-                      {stat.value}
-                    </div>
-
-                    {/* Label */}
-                    <div className="text-[10px] sm:text-xs text-gray-700 dark:text-gray-300 font-semibold uppercase tracking-wide leading-tight">
-                      {stat.label}
-                    </div>
-                  </CardContent>
-                </Card>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* Premium Features Grid */}
-        <div className="space-y-4 sm:space-y-6 animate-slide-in-up" style={{ animationDelay: '0.5s' }}>
-          <div className="text-center">
-            <h2 className="text-xl sm:text-2xl md:text-3xl font-bold mb-2">
-              <span className="bg-gradient-to-r from-blue-600 to-cyan-600 bg-clip-text text-transparent">
-                Why Choose Our Service?
-              </span>
-            </h2>
-            <p className="text-xs sm:text-sm md:text-base text-gray-600 dark:text-gray-400 max-w-2xl mx-auto px-2">
-              Experience the most reliable and secure bus transportation service on campus
+      {/* 2. WHY CHOOSE US SECTION */}
+      <section
+        className="relative h-screen snap-start snap-always flex items-center justify-center px-6 lg:px-8"
+        style={{
+          backgroundImage: 'linear-gradient(to bottom, #0F1117 0%, rgba(15, 17, 23, 0.3) 15%, rgba(15, 17, 23, 0.3) 85%, #0F1117 100%), url(/apply/image3.png)',
+          backgroundSize: 'cover',
+          backgroundPosition: 'center',
+          backgroundRepeat: 'no-repeat'
+        }}
+      >
+        <div className="max-w-7xl mx-auto w-full space-y-16">
+          <div className="max-w-xl space-y-4">
+            <span className="text-[10px] font-bold text-[#3B82F6] uppercase tracking-widest block font-mono">Perks & Assurance</span>
+            <h2 className="text-3xl md:text-4xl font-extrabold text-white tracking-tight">Why Students Choose AdtU Bus Services</h2>
+            <p className="text-slate-300 text-sm md:text-base leading-relaxed font-medium">
+              Our Integrated Transit Management System is designed to make your daily university commute stress-free, modern, and reliable.
             </p>
           </div>
 
-          <div className="grid md:grid-cols-3 gap-4 sm:gap-5">
+          <div
+            ref={whyRef}
+            className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-6"
+          >
             {[
               {
-                icon: Shield,
-                title: "Secure Review",
-                description: "Thorough digital verification by the bus office staff ensures maximum security and validity of your application documents.",
-                gradient: "from-blue-500 to-cyan-500",
-                bgGradient: "from-blue-50 to-cyan-50 dark:from-blue-950/30 dark:to-cyan-950/30",
-                badge: "Verified"
+                num: "01",
+                title: "Live GPS Tracking",
+                desc: "Track your exact bus location in real-time from the comfort of your home. No more rushing, and never miss your bus again."
               },
               {
-                icon: CreditCard,
-                title: "Flexible Payment",
-                description: "Choose from 1-4 year plans with multiple payment options. Pay offline at the bus office or online via UPI/bank transfer.",
-                gradient: "from-purple-500 to-pink-500",
-                bgGradient: "from-purple-50 to-pink-50 dark:from-purple-950/30 dark:to-pink-950/30",
-                badge: "Flexible"
+                num: "02",
+                title: "Digital QR Pass",
+                desc: "No need to carry physical cards all day. Your phone acts as a digital bus pass — just show your screen while boarding."
               },
               {
-                icon: Clock,
-                title: "Direct Submission",
-                description: "Apply online and submit your application directly. No intermediate verification codes required for final submission.",
-                gradient: "from-green-500 to-teal-500",
-                bgGradient: "from-green-50 to-teal-50 dark:from-green-950/30 dark:to-teal-950/30",
-                badge: "Fast"
+                num: "03",
+                title: "Easy Payments",
+                desc: "Pay your bus fee seamlessly online or offline. Skip the long lines and avoid waiting in queue counters."
+              },
+              {
+                num: "04",
+                title: "Instant Alerts",
+                desc: "Get real-time push notifications the moment your bus starts its route and right when it is about to arrive at your stop."
               }
-            ].map((feature, index) => (
-              <Card key={index} className={`group relative overflow-hidden border border-gray-200 dark:border-gray-800 hover:border-transparent transition-all duration-300 animate-fade-in bg-gradient-to-br ${feature.bgGradient}`} style={{ animationDelay: `${0.6 + index * 0.1}s` }}>
-                {/* Stronger gradient on hover */}
-                <div className={`absolute inset-0 bg-gradient-to-br ${feature.bgGradient} opacity-0 group-hover:opacity-80 transition-opacity duration-300`}></div>
-                {/* Glossy shine effect */}
-                <div className="absolute inset-0 bg-gradient-to-br from-white/10 to-transparent opacity-50"></div>
-                <CardContent className="p-4 sm:p-5 relative z-10">
-                  <div className="flex items-start justify-between mb-3">
-                    <div className={`w-10 h-10 sm:w-12 sm:h-12 rounded-xl bg-gradient-to-br ${feature.gradient} flex items-center justify-center shadow-lg group-hover:scale-110 group-hover:rotate-3 transition-all duration-300`}>
-                      <feature.icon className="h-5 w-5 sm:h-6 sm:w-6 text-white" />
-                    </div>
-                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold bg-gradient-to-r ${feature.gradient} text-white shadow-md`}>
-                      {feature.badge}
-                    </span>
-                  </div>
-                  <h3 className="text-base sm:text-lg font-bold mb-2 text-gray-900 dark:text-white group-hover:scale-105 transition-transform duration-300">{feature.title}</h3>
-                  <p className="text-xs sm:text-sm text-gray-600 dark:text-gray-400 leading-snug">{feature.description}</p>
-                </CardContent>
-              </Card>
+            ].map((feat, idx) => (
+              <div
+                key={idx}
+                className={`p-8 rounded-2xl bg-[#141824] border border-white/[0.08] shadow-[inset_0_2px_4px_rgba(255,255,255,0.06),_inset_0_-2px_4px_rgba(0,0,0,0.4),_0_8px_30px_rgba(0,0,0,0.3)] space-y-4 transition-all duration-300 hover:border-[#3B82F6]/40 hover:-translate-y-1 hover:shadow-[inset_0_2px_4px_rgba(255,255,255,0.06),_inset_0_-2px_4px_rgba(0,0,0,0.4),_0_12px_30px_rgba(59,130,246,0.12)] group cursor-default ${whyVisible
+                  ? 'opacity-100 translate-y-0'
+                  : 'opacity-0 translate-y-4'
+                  }`}
+                style={{ transitionDelay: `${idx * 150}ms` }}
+              >
+                <div className="flex justify-between items-center">
+                  <span className="text-xs font-black text-[#3B82F6] font-mono tracking-wider">{feat.num}</span>
+                </div>
+                <div className="space-y-2">
+                  <h4 className="text-base font-bold text-white transition-colors duration-300 group-hover:text-[#3B82F6]">{feat.title}</h4>
+                  <p className="text-xs text-slate-400 leading-relaxed">{feat.desc}</p>
+                </div>
+              </div>
             ))}
           </div>
         </div>
+      </section>
 
-        {/* Ultra-Compact Vertical Application Journey */}
-        <div className="animate-slide-in-up space-y-4 pt-4 max-w-4xl mx-auto" style={{ animationDelay: '0.7s' }}>
-          <div className="text-center mb-6">
-            <h2 className="text-xl sm:text-2xl font-black bg-gradient-to-r from-blue-400 to-cyan-400 bg-clip-text text-transparent">
-              Application Journey
-            </h2>
-            <p className="text-[10px] sm:text-xs text-zinc-500 uppercase tracking-widest font-bold">5 Quick Steps</p>
-          </div>
+      {/* 3. SIGNATURE PROCESS JOURNEY SECTION */}
+      <section
+        ref={journeySectionRef}
+        className="relative h-[500vh] bg-[#0F1117]"
+      >
+        <div className="sticky top-0 h-screen w-full flex items-center overflow-hidden z-10">
+          {/* Background image that stays intact and moves slightly on scroll */}
+          <div
+            className="absolute inset-0 z-0 bg-[#0F1117] transition-transform duration-500 ease-out"
+            style={{
+              backgroundImage: 'linear-gradient(to bottom, #0F1117 0%, rgba(15, 17, 23, 0.4) 15%, rgba(15, 17, 23, 0.4) 85%, #0F1117 100%), url(/apply/image2.png)',
+              backgroundSize: 'cover',
+              backgroundPosition: 'center',
+              backgroundRepeat: 'no-repeat',
+              transform: `scale(1.05) translateY(${-(journeyProgress / 4) * 20}px)`
+            }}
+          />
 
-          <div className="relative px-2 sm:px-6">
-            {/* Elegant Vertical Connector Line */}
-            <div className="absolute left-[23px] sm:left-[39px] top-6 bottom-6 w-[1.5px] bg-gradient-to-b from-blue-500/40 via-indigo-500/20 to-transparent z-0"></div>
+          <div className="max-w-7xl mx-auto px-6 lg:px-8 w-full z-10 transform translate-y-8">
+            {/* Desktop Two-Column Layout */}
+            <div className="hidden md:grid grid-cols-12 gap-12 items-center relative">
+              {/* Left Column (Details of active step) */}
+              <div className="col-span-6 pr-4">
+                <div className="max-w-xl space-y-4 mb-8">
+                  <span className="text-[10px] font-bold text-[#3B82F6] uppercase tracking-widest block font-mono">Operational Workflow</span>
+                  <h2 className="text-3xl md:text-4xl font-extrabold text-white tracking-tight">The Application Journey</h2>
+                  <p className="text-slate-350 text-sm leading-relaxed font-medium">
+                    Step-by-step review process from digital registration to final bus pass generation.
+                  </p>
+                </div>
 
-            <div className="space-y-4 relative z-10">
-              {(config?.applicationProcess?.steps || [
-                { num: 1, title: "Online Application", desc: "Submit your personal, academic and payment details through the portal.", icon: "FileText" },
-                { num: 2, title: "Document Processing", desc: "Our system prepares your application for staff review and verification.", icon: "Timer" },
-                { num: 3, title: "Staff Moderation", desc: "Bus office staff verifies your payment receipt and academic documents.", icon: "Shield" },
-                { num: 4, title: "Capacity Check", desc: "System validates seat availability on your requested route and bus.", icon: "Users" },
-                { num: 5, title: "Final Approval", desc: "Administrator grants final approval and issues your digital bus pass.", icon: "CheckCircle" }
-              ]).map((step: any, index: number) => {
-                const StepIcon = ({
-                  FileText,
-                  CreditCard,
-                  UserCheck,
-                  Shield,
-                  CheckCircle
-                } as any)[step.icon] || Sparkles;
+                <div key={activeStep} className="animate-step-change space-y-5 bg-[#141824] border border-white/[0.08] p-6 rounded-3xl shadow-[inset_0_2px_4px_rgba(255,255,255,0.06),_inset_0_-2px_4px_rgba(0,0,0,0.4),_0_10px_40px_rgba(0,0,0,0.3)]">
+                  <div className="flex items-center justify-between">
+                    <span className="text-5xl font-black text-[#3B82F6]/15 font-mono">{stepsData[activeStep].num}</span>
+                    <div className="w-12 h-12 rounded-2xl bg-gradient-to-r from-[#3B82F6]/10 to-[#4F46E5]/10 border border-[#3B82F6]/20 flex items-center justify-center text-[#3B82F6] shadow-sm">
+                      <ActiveIcon className="h-6 w-6" />
+                    </div>
+                  </div>
 
-                return (
-                  <div key={index} className="flex gap-4 sm:gap-6 group items-start transition-all duration-300 hover:translate-x-1">
-                    {/* Compact Step Indicator */}
-                    <div className="relative flex-shrink-0 mt-0.5">
-                      <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-lg bg-[#0c0e1a] border border-white/5 flex items-center justify-center shadow-lg group-hover:border-blue-500/50 group-hover:bg-[#1A1B23] transition-all duration-500">
-                        <span className="text-xs sm:text-sm font-black text-blue-400 group-hover:text-white transition-colors">
-                          {index + 1}
-                        </span>
+                  <div className="space-y-2">
+                    <span className="text-[10px] font-bold text-[#3B82F6] font-mono tracking-widest uppercase">Step Details</span>
+                    <h3 className="text-xl font-black text-white">{stepsData[activeStep].title}</h3>
+                    <p className="text-xs text-slate-400 leading-relaxed">{stepsData[activeStep].detailDesc}</p>
+                  </div>
+
+                  <div className="space-y-3 pt-2">
+                    <span className="text-[10px] font-bold text-slate-500 font-mono tracking-widest uppercase block">Verification Checkpoints</span>
+                    <div className="space-y-1.5">
+                      {stepsData[activeStep].actions.map((act, i) => (
+                        <div key={i} className="flex items-center space-x-2 text-xs text-slate-300 font-medium">
+                          <div className="w-1.5 h-1.5 rounded-full bg-[#3B82F6]"></div>
+                          <span>{act}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Progress indicator nodes */}
+                <div className="flex items-center space-x-2 pt-6 mt-6 border-t border-white/6">
+                  {stepsData.map((_, idx) => (
+                    <button
+                      key={idx}
+                      onClick={() => {
+                        if (containerRef.current && journeySectionRef.current) {
+                          const sectionTop = journeySectionRef.current.offsetTop;
+                          const stepScrollTop = sectionTop + idx * containerRef.current.clientHeight;
+                          containerRef.current.scrollTo({
+                            top: stepScrollTop,
+                            behavior: 'smooth'
+                          });
+                        }
+                      }}
+                      className={`h-1.5 rounded-full transition-all duration-300 ${activeStep === idx ? 'bg-gradient-to-r from-[#3B82F6] to-[#4F46E5] w-8' : 'bg-white/10 hover:bg-white/20 w-2.5'
+                        }`}
+                      aria-label={`Go to step ${idx + 1}`}
+                    />
+                  ))}
+                </div>
+              </div>
+
+              {/* Right Column (Stacked Cards) */}
+              <div className="col-span-6 relative h-[400px] flex items-center justify-center">
+                {stepsData.map((step, idx) => {
+                  const Icon = step.icon;
+                  const isActive = activeStep === idx;
+
+                  // Calculate dynamic transforms based on journeyProgress
+                  const diff = idx - journeyProgress;
+                  let transformStyle = '';
+                  let opacityStyle = 0;
+                  let zIndexStyle = 0;
+
+                  if (diff <= -1) {
+                    transformStyle = 'translateY(-120%) scale(0.9) rotate(-4deg)';
+                    opacityStyle = 0;
+                    zIndexStyle = 10;
+                  } else if (diff < 0) {
+                    const pct = -diff; // 0 to 1
+                    transformStyle = `translateY(${-pct * 120}%) scale(${1 - pct * 0.1}) rotate(${-pct * 4}deg)`;
+                    opacityStyle = 1 - pct;
+                    zIndexStyle = 30;
+                  } else if (diff >= 0 && diff < 1) {
+                    const pct = diff; // 0 to 1
+                    transformStyle = `translateY(${pct * 24}px) scale(${1 - pct * 0.05})`;
+                    opacityStyle = 1;
+                    zIndexStyle = 20;
+                  } else if (diff >= 1 && diff < 2) {
+                    const pct = diff - 1; // 0 to 1
+                    transformStyle = `translateY(${24 + pct * 24}px) scale(${0.95 - pct * 0.05})`;
+                    opacityStyle = 1;
+                    zIndexStyle = 15;
+                  } else {
+                    transformStyle = 'translateY(48px) scale(0.9)';
+                    opacityStyle = 0;
+                    zIndexStyle = 5;
+                  }
+
+                  return (
+                    <div
+                      key={idx}
+                      className="absolute w-full p-8 rounded-2xl border bg-[#171C2B] border-white/[0.08] shadow-[inset_0_2px_4px_rgba(255,255,255,0.06),_inset_0_-2px_4px_rgba(0,0,0,0.4),_0_15px_35px_rgba(0,0,0,0.3)] transition-all duration-300 ease-out"
+                      style={{
+                        transform: transformStyle,
+                        opacity: opacityStyle,
+                        zIndex: zIndexStyle,
+                        pointerEvents: isActive ? 'auto' : 'none'
+                      }}
+                    >
+                      <div className="space-y-4">
+                        <div className="flex justify-between items-center">
+                          <span className="text-[10px] font-bold text-slate-500 font-mono">STAGE 0{idx + 1} OF 05</span>
+                          <div className={`p-2 rounded-xl border ${isActive ? 'bg-gradient-to-r from-[#3B82F6]/10 to-[#4F46E5]/10 border-[#3B82F6]/20 text-[#3B82F6]' : 'bg-[#1B2132] border-white/6 text-slate-400'}`}>
+                            <Icon className="w-5 h-5" />
+                          </div>
+                        </div>
+                        <h4 className="text-xl font-bold text-white">{step.title}</h4>
+                        <p className="text-sm text-slate-400 leading-relaxed">{step.desc}</p>
+
+                        <div className="pt-4 border-t border-white/6 flex items-center justify-between text-xs text-[#3B82F6] font-medium font-mono">
+                          <span>{step.helpfulInfo}</span>
+                          {isActive && (
+                            <span className="flex h-2 w-2 relative">
+                              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#3B82F6] opacity-75"></span>
+                              <span className="relative inline-flex rounded-full h-2 w-2 bg-[#3B82F6]"></span>
+                            </span>
+                          )}
+                        </div>
                       </div>
                     </div>
+                  );
+                })}
+              </div>
+            </div>
 
-                    {/* Compact Content */}
-                    <Card className="flex-1 bg-white/5 backdrop-blur-md border-white/5 group-hover:bg-white/[0.08] transition-all duration-500 border-none shadow-none">
-                      <CardContent className="p-3 sm:p-4 py-2 sm:py-3">
-                        <div className="flex items-center gap-2 mb-0.5">
-                          <StepIcon className="h-3.5 w-3.5 text-blue-500/70" />
-                          <h3 className="text-xs sm:text-sm md:text-base font-bold text-white leading-tight">
-                            {step.title}
-                          </h3>
+            {/* Dedicated Mobile Stepper Carousel */}
+            <div className="block md:hidden space-y-6">
+              <div className="max-w-xl space-y-4 text-center px-4 mb-6">
+                <span className="text-[10px] font-bold text-[#3B82F6] uppercase tracking-widest block font-mono">Operational Workflow</span>
+                <h2 className="text-2xl font-extrabold text-white tracking-tight">The Application Journey</h2>
+                <p className="text-slate-350 text-xs leading-relaxed">
+                  Step-by-step review process from digital registration to final bus pass generation.
+                </p>
+              </div>
+
+              {/* Step navigation nodes at top */}
+              <div className="relative flex items-center justify-between px-4 max-w-sm mx-auto">
+                <div className="absolute left-6 right-6 h-[2px] bg-white/10 top-1/2 -translate-y-1/2 z-0"></div>
+                {stepsData.map((step, idx) => (
+                  <button
+                    key={idx}
+                    onClick={() => selectMobileStep(idx)}
+                    className={`w-9 h-9 rounded-full border flex items-center justify-center font-mono text-xs font-bold relative z-10 transition-all duration-300 ease-out active:scale-95 ${activeStep === idx
+                      ? 'bg-gradient-to-r from-[#3B82F6] to-[#4F46E5] border-transparent text-white shadow-lg scale-110'
+                      : 'bg-[#171C2B] border-white/6 text-slate-400 hover:border-white/20 hover:scale-105'
+                      }`}
+                  >
+                    {idx + 1}
+                  </button>
+                ))}
+              </div>
+
+              {/* Horizontal Snap Scroll Container */}
+              <div
+                ref={mobileScrollRef}
+                onScroll={handleMobileScroll}
+                className="flex overflow-x-auto snap-x snap-mandatory no-scrollbar w-full py-4"
+              >
+                {stepsData.map((step, idx) => {
+                  const Icon = step.icon;
+                  return (
+                    <div key={idx} className="w-full flex-shrink-0 snap-center px-4">
+                      <div className="bg-[#171C2B] border border-white/[0.08] p-6 rounded-2xl shadow-[inset_0_2px_4px_rgba(255,255,255,0.06),_inset_0_-2px_4px_rgba(0,0,0,0.4),_0_10px_20px_rgba(0,0,0,0.3)] space-y-6">
+                        <div className="flex justify-between items-center">
+                          <div className="w-10 h-10 rounded-xl bg-[#1B2132] border border-white/6 flex items-center justify-center text-[#3B82F6]">
+                            <Icon className="h-5 w-5" />
+                          </div>
+                          <span className="text-[10px] font-bold text-slate-500 font-mono">STEP 0{idx + 1} OF 05</span>
                         </div>
-                        <p className="text-[10px] sm:text-xs text-zinc-500 leading-normal max-w-2xl px-5 sm:px-5">
-                          {step.desc}
-                        </p>
-                      </CardContent>
-                    </Card>
-                  </div>
-                );
-              })}
+
+                        <div className="space-y-2">
+                          <h4 className="text-lg font-black text-white">{step.title}</h4>
+                          <p className="text-xs text-slate-400 leading-relaxed">{step.desc}</p>
+                        </div>
+
+                        <div className="pt-4 border-t border-white/6 space-y-3">
+                          <span className="text-[9px] font-bold text-[#3B82F6] font-mono tracking-widest uppercase block">Verification Checkpoints</span>
+                          <div className="space-y-1.5">
+                            {step.actions.map((act, i) => (
+                              <div key={i} className="flex items-center space-x-2 text-[11px] text-slate-300">
+                                <div className="w-1 h-1 rounded-full bg-[#3B82F6]"></div>
+                                <span>{act}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+
+                        <div className="bg-[#1B2132] p-3 rounded-lg border border-white/6 text-[10px] text-slate-400 font-medium leading-relaxed">
+                          {step.helpfulInfo}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
           </div>
         </div>
 
-        {/* Important Notes with Enhanced Design */}
-        <Card className="bg-gradient-to-br from-amber-50 via-orange-50 to-yellow-50 dark:from-amber-950/30 dark:via-orange-950/30 dark:to-yellow-950/30 border border-amber-300 dark:border-amber-700 shadow-lg animate-slide-in-up" style={{ animationDelay: '1.4s' }}>
-          <CardHeader className="pb-3">
-            <div className="flex items-center gap-2 sm:gap-3">
-              <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-full bg-gradient-to-br from-amber-500 to-orange-500 flex items-center justify-center shadow-lg animate-pulse flex-shrink-0">
-                <HelpCircle className="h-4 w-4 sm:h-5 sm:w-5 text-white" />
-              </div>
-              <CardTitle className="text-base sm:text-lg md:text-xl font-bold text-amber-900 dark:text-amber-100">Important Information</CardTitle>
-            </div>
-            <CardDescription className="text-xs sm:text-sm text-amber-800 dark:text-amber-200 px-2">
-              Please read these important details before starting your application
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-2 sm:space-y-3 text-amber-900 dark:text-amber-200">
-            {(config?.applicationProcess?.importantNotes || [
-              { icon: "CreditCard", text: "Direct Submission: Submit your application directly after uploading your receipt." },
-              { icon: "Shield", text: "Document Verification: All submissions are manually verified by the bus office staff." },
-              { icon: "Calendar", text: "Session Validity: Bus passes are valid for full academic years (July to July)." },
-              { icon: "CheckCircle", text: "Renewal Reminders: You'll receive automatic reminders in June before your pass expires." },
-              { icon: "Clock", text: "Processing Time: Applications are typically processed within 2-3 business days after submission." }
-            ]).map((note: any, index: number) => {
-              const NoteIcon = ({
-                CreditCard,
-                Shield,
-                Calendar,
-                CheckCircle,
-                Clock,
-                AlertCircle
-              } as any)[note.icon] || Info;
-
-              const officeName = config?.contactInfo?.officeName || 'Bus Office';
-              const displayText = note.text.replace('{officeName}', officeName);
-
-              return (
-                <div key={index} className="flex items-start gap-2 sm:gap-3 p-2.5 sm:p-3 bg-white/50 dark:bg-amber-900/20 rounded-lg border border-amber-200 dark:border-amber-800 hover:bg-white/70 dark:hover:bg-amber-900/40 transition-all duration-300">
-                  <NoteIcon className="h-3.5 w-3.5 sm:h-4 sm:w-4 text-amber-700 dark:text-amber-300 mt-0.5 flex-shrink-0" />
-                  <p className="text-[10px] sm:text-xs font-medium leading-snug">{displayText}</p>
-                </div>
-              );
-            })}
-          </CardContent>
-        </Card>
-
-        {/* Premium CTA Section */}
-        <div className="text-center space-y-4 animate-slide-in-up" style={{ animationDelay: '1.5s' }}>
-          <Card className="bg-gradient-to-br from-blue-600 via-purple-600 to-pink-600 p-6 sm:p-8 md:p-10 rounded-2xl shadow-xl relative overflow-hidden">
-            <div className="absolute inset-0 bg-black/10"></div>
-            <div className="absolute top-0 left-0 w-full h-full opacity-10">
-              <div className="absolute top-10 left-10 w-48 h-48 bg-white rounded-full blur-3xl"></div>
-              <div className="absolute bottom-10 right-10 w-64 h-64 bg-white rounded-full blur-3xl"></div>
-            </div>
-            <div className="relative z-10">
-              <h2 className="text-xl sm:text-2xl md:text-3xl font-bold text-white mb-3">
-                {config?.landingPage?.ctaTitle || "Ready to Start Your Journey?"}
-              </h2>
-              <p className="text-sm sm:text-base text-white/90 mb-5 max-w-xl mx-auto px-2">
-                {config?.landingPage?.ctaSubtitle || "Join thousands of students who trust our reliable transportation service. Apply now and experience seamless connectivity!"}
-              </p>
-              <div className="flex flex-col sm:flex-row gap-3 justify-center items-center">
-                <Link href="/apply/form">
-                  <Button size="default" className="px-6 sm:px-8 py-3 sm:py-4 text-sm sm:text-base font-bold bg-white text-blue-600 hover:bg-gray-100 shadow-xl transform hover:scale-105 transition-all duration-300 w-full sm:w-auto">
-                    <FileText className="h-4 w-4 mr-2" />
-                    Start Application Now
-                    <ArrowRight className="h-4 w-4 ml-2" />
-                  </Button>
-                </Link>
-                <Link href="/contact">
-                  <Button size="default" variant="outline" className="px-6 sm:px-8 py-3 sm:py-4 text-sm sm:text-base font-semibold bg-transparent border-2 border-white text-white hover:bg-white/10 w-full sm:w-auto">
-                    <Mail className="h-4 w-4 mr-2" />
-                    Contact Support
-                  </Button>
-                </Link>
-              </div>
-              <p className="text-white/70 text-[10px] sm:text-xs mt-4 flex items-center justify-center gap-1.5">
-                <Clock className="h-3 w-3" />
-                Average completion time: 10-15 minutes
-              </p>
-            </div>
-          </Card>
+        {/* Snap Targets for Section Scroll Snapping */}
+        <div className="absolute inset-0 pointer-events-none z-0">
+          <div className="h-screen snap-start snap-always" />
+          <div className="h-screen snap-start snap-always" />
+          <div className="h-screen snap-start snap-always" />
+          <div className="h-screen snap-start snap-always" />
+          <div className="h-screen snap-start snap-always" />
         </div>
-      </div>
+      </section>
+
+      {/* 4. THINGS YOU SHOULD KNOW */}
+      <section
+        className="relative h-screen snap-start snap-always flex items-center justify-center px-6 lg:px-8"
+        style={{
+          backgroundImage: 'linear-gradient(to bottom, #0F1117 0%, rgba(15, 17, 23, 0.3) 15%, rgba(15, 17, 23, 0.3) 85%, #0F1117 100%), url(/apply/image3.png)',
+          backgroundSize: 'cover',
+          backgroundPosition: 'center',
+          backgroundRepeat: 'no-repeat'
+        }}
+      >
+        <div className="max-w-7xl mx-auto w-full space-y-12">
+          <div className="text-center space-y-4 max-w-xl mx-auto">
+            <span className="text-[10px] font-bold text-[#3B82F6] uppercase tracking-widest block font-mono">Terms & Policies</span>
+            <h2 className="text-3xl md:text-4xl font-extrabold text-white tracking-tight">Things You Should Know</h2>
+            <p className="text-slate-330 text-sm leading-relaxed font-medium">
+              Familiarize yourself with transit rules and schedules before starting your application.
+            </p>
+          </div>
+
+          <div
+            ref={thingsRef}
+            className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6"
+          >
+            {thingsData.map((topic, idx) => (
+              <div
+                key={idx}
+                className={`p-6 rounded-2xl bg-[#141824] border border-white/[0.08] shadow-[inset_0_2px_4px_rgba(255,255,255,0.06),_inset_0_-2px_4px_rgba(0,0,0,0.4),_0_8px_30px_rgba(0,0,0,0.3)] space-y-4 transition-all duration-700 hover:border-[#3B82F6]/40 hover:-translate-y-1 hover:shadow-[inset_0_2px_4px_rgba(255,255,255,0.06),_inset_0_-2px_4px_rgba(0,0,0,0.4),_0_12px_30px_rgba(59,130,246,0.12)] group cursor-default ${thingsVisible
+                  ? 'opacity-100 translate-y-0 scale-100'
+                  : 'opacity-0 translate-y-8 scale-95'
+                  }`}
+                style={{ transitionDelay: `${idx * 150}ms` }}
+              >
+                <div className="w-12 h-12 rounded-xl bg-[#1B2132]/90 border border-white/6 flex items-center justify-center group-hover:scale-105 transition-transform duration-300">
+                  {topic.svg}
+                </div>
+                <div className="space-y-2">
+                  <h3 className="text-base font-bold text-white transition-colors duration-300 group-hover:text-[#3B82F6]">{topic.title}</h3>
+                  <p className="text-xs text-slate-400 leading-relaxed">{topic.desc}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* 5. FINAL CTA */}
+      <section
+        className="relative h-screen snap-start snap-always flex items-center justify-center px-6 lg:px-8 bg-[#0F1117]"
+        style={{
+          backgroundImage: 'linear-gradient(to bottom, #0F1117 0%, rgba(15, 17, 23, 0.45) 15%, rgba(15, 17, 23, 0.45) 85%, #0F1117 100%), url(/apply/image2.png)',
+          backgroundSize: 'cover',
+          backgroundPosition: 'center',
+          backgroundRepeat: 'no-repeat'
+        }}
+      >
+        <div
+          className="max-w-5xl mx-auto w-full py-20 px-8 text-center rounded-3xl border border-white/[0.08] shadow-[inset_0_2px_4px_rgba(255,255,255,0.06),_inset_0_-2px_4px_rgba(0,0,0,0.4),_0_15px_35px_rgba(0,0,0,0.3)] relative overflow-hidden"
+          style={{
+            backgroundImage: 'linear-gradient(rgba(20, 24, 36, 0.9), rgba(20, 24, 36, 0.95)), url(/landing/hero.jpg)',
+            backgroundSize: 'cover',
+            backgroundPosition: 'center',
+            backgroundRepeat: 'no-repeat'
+          }}
+        >
+          <div className="relative z-10 space-y-8 max-w-xl mx-auto">
+            <h2 className="text-3xl sm:text-4xl font-extrabold text-white tracking-tight">Ready to Simplify Your Commute?</h2>
+            <p className="text-slate-350 text-sm leading-relaxed max-w-md mx-auto">
+              Applications take less than 10 minutes to complete. Submit your details online and claim your smart boarding pass today.
+            </p>
+            <div className="pt-4 flex justify-center">
+              <Link href="/apply/form">
+                <Button size="lg" className="bg-gradient-to-r from-[#3B82F6] to-[#4F46E5] hover:from-[#2563EB] hover:to-[#4338CA] text-white font-bold px-10 py-5 h-auto text-sm rounded-xl shadow-lg transition-all duration-300 ease-out hover:scale-[1.03] hover:-translate-y-0.5 active:scale-[0.98] active:translate-y-0 hover:shadow-[0_4px_30px_rgba(59,130,246,0.3)] whitespace-nowrap">
+                  Start Application
+                </Button>
+              </Link>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* 6. FOOTER */}
+      <Footer className="relative z-10 snap-start snap-always !border-white/5 !bg-[#0F1117]" />
     </div>
   );
 }

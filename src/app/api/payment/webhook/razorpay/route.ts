@@ -26,7 +26,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Verify webhook signature
-    const secret = process.env.RAZORPAY_WEBHOOK_SECRET || '';
+    const secret = process.env.RAZORPAY_WEBHOOK_SECRET;
     if (!secret) {
       return NextResponse.json({ error: 'Webhook secret not configured' }, { status: 500 });
     }

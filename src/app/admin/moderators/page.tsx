@@ -1,7 +1,7 @@
 "use client";
 
 import { useAuth } from '@/contexts/auth-context';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo, useCallback, memo } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { exportToExcel } from '@/lib/export-helpers';
@@ -54,6 +54,122 @@ import { usePaginatedCollection, invalidateCollectionCache } from '@/hooks/usePa
 import { safeImageSrc } from "@/lib/security/url-sanitizer";
 import { useEventDrivenRefresh } from '@/hooks/useEventDrivenRefresh';
 import Avatar from '@/components/Avatar';
+
+// Memoized table row — skips re-rendering for moderators whose data/handlers
+// are unchanged, keeping search/filter typing smooth with a full page of rows.
+const ModeratorRow = memo(function ModeratorRow({
+  moderator,
+  onDelete,
+}: {
+  moderator: any;
+  onDelete: (id: string, name: string) => void;
+}) {
+  const joining = moderator.joiningDate || moderator.joinDate;
+  const yearsLabel = (() => {
+    if (!joining) return 'N/A';
+    const joinDate = new Date(joining);
+    const years = Math.floor((Date.now() - joinDate.getTime()) / (365.25 * 24 * 60 * 60 * 1000));
+    return years > 0 ? `${years} year${years > 1 ? 's' : ''}` : '< 1 year';
+  })();
+  const sinceLabel = (() => {
+    if (!joining) return 'N/A';
+    const d = new Date(joining);
+    return d.toLocaleDateString('en-GB', { year: 'numeric', month: '2-digit', day: '2-digit' }).split('/').join('-');
+  })();
+  const status = moderator.status || 'active';
+  const isActive = status.toLowerCase() === 'active';
+
+  return (
+    <TableRow className="h-auto">
+      <TableCell className="py-1.5">
+        <div className="flex flex-row items-center gap-2">
+          <Avatar
+            src={safeImageSrc(moderator.profilePhotoUrl)}
+            name={moderator.name || moderator.fullName}
+            size="xs"
+            className="flex-shrink-0"
+          />
+          <div className="flex flex-col min-w-0">
+            <div className="text-sm font-medium text-foreground truncate">{moderator.name || moderator.fullName || 'N/A'}</div>
+            <div className="text-xs text-muted-foreground">{moderator.email}</div>
+          </div>
+        </div>
+      </TableCell>
+      <TableCell className="py-2">
+        <div className="space-y-0.5">
+          <div className="text-xs font-medium text-foreground">
+            Ph: {moderator.phone || moderator.phoneNumber || 'N/A'}
+          </div>
+          {(moderator.alternatePhone || moderator.altPhone || moderator.alternativePhone) && (
+            <div className="text-xs text-muted-foreground">
+              Alt: {moderator.alternatePhone || moderator.altPhone || moderator.alternativePhone}
+            </div>
+          )}
+        </div>
+      </TableCell>
+      <TableCell className="py-1.5">
+        <div className="font-mono text-[10px] text-foreground whitespace-nowrap">
+          {moderator.employeeId || 'N/A'}
+        </div>
+      </TableCell>
+      <TableCell className="py-1.5">
+        <div className="space-y-0.5">
+          <div className="text-[10px] font-medium text-foreground">{yearsLabel}</div>
+          <div className="text-[9px] text-muted-foreground">Since {sinceLabel}</div>
+        </div>
+      </TableCell>
+      <TableCell className="py-1.5">
+        <div className="text-[10px] text-foreground truncate max-w-[150px]">
+          {moderator.approvedBy || 'N/A'}
+        </div>
+      </TableCell>
+      <TableCell className="py-1.5">
+        <span className={`inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-medium ${isActive ? 'bg-green-500 text-white' : 'bg-red-500 text-white'}`}>
+          {status.charAt(0).toUpperCase() + status.slice(1).toLowerCase()}
+        </span>
+      </TableCell>
+      <TableCell className="py-1.5 text-right">
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="ghost" className="h-7 w-7 p-0 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700">
+              <MoreHorizontal className="h-3.5 w-3.5" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="bg-gray-800 dark:bg-gray-900 border-gray-700 dark:border-gray-600 shadow-xl rounded-lg w-40">
+            <DropdownMenuLabel className="text-white text-[11px] font-semibold px-2 py-1.5">Actions</DropdownMenuLabel>
+            <DropdownMenuSeparator className="bg-gray-600" />
+            <DropdownMenuItem asChild>
+              <Link href={`/admin/moderators/view/${moderator.id}`} className="text-white hover:bg-gray-700 dark:hover:bg-gray-800 focus:bg-gray-700 dark:focus:bg-gray-800 px-2 py-1.5 !text-white text-[11px]">
+                <Eye className="mr-1.5 h-3 w-3 text-blue-400" />
+                View Details
+              </Link>
+            </DropdownMenuItem>
+            <DropdownMenuItem asChild>
+              <Link href={`/admin/moderators/edit/${moderator.id}`} className="text-white hover:bg-gray-700 dark:hover:bg-gray-800 focus:bg-gray-700 dark:focus:bg-gray-800 px-2 py-1.5 !text-white text-[11px]">
+                <Edit className="mr-1.5 h-3 w-3 text-yellow-400" />
+                Edit
+              </Link>
+            </DropdownMenuItem>
+            <DropdownMenuItem asChild>
+              <Link href={`/admin/moderators/config/${moderator.id}`} className="text-white hover:bg-gray-700 dark:hover:bg-gray-800 focus:bg-gray-700 dark:focus:bg-gray-800 px-2 py-1.5 !text-white text-[11px]">
+                <Shield className="mr-1.5 h-3 w-3 text-emerald-400" />
+                Mod Config
+              </Link>
+            </DropdownMenuItem>
+            <DropdownMenuSeparator className="bg-gray-600" />
+            <DropdownMenuItem
+              className="text-white hover:!bg-red-600 focus:!bg-red-600 px-2 py-1.5 !text-white text-[11px] cursor-pointer transition-colors"
+              onClick={() => onDelete(moderator.id, moderator.name)}
+            >
+              <Trash2 className="mr-1.5 h-3 w-3" />
+              Delete
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </TableCell>
+    </TableRow>
+  );
+});
 
 export default function AdminModerators() {
   const { currentUser, userData, loading: authLoading } = useAuth();
@@ -109,39 +225,48 @@ export default function AdminModerators() {
 
   // Real-time listeners handle data fetching automatically
 
-  const filteredModerators = moderators.filter(moderator => {
-    const matchesSearch =
-      (moderator.name && moderator.name.toLowerCase().includes(searchTerm.toLowerCase())) ||
-      (moderator.email && moderator.email.toLowerCase().includes(searchTerm.toLowerCase())) ||
-      (moderator.fullName && moderator.fullName.toLowerCase().includes(searchTerm.toLowerCase())) ||
-      (moderator.phone && moderator.phone.includes(searchTerm)) ||
-      (moderator.phoneNumber && moderator.phoneNumber.includes(searchTerm)) ||
-      (moderator.employeeId && moderator.employeeId.toLowerCase().includes(searchTerm.toLowerCase())) ||
-      (moderator.staffId && moderator.staffId.toLowerCase().includes(searchTerm.toLowerCase()));
+  // Stable delete handler so memoized rows don't re-render on unrelated updates.
+  const handleDeleteClick = useCallback((id: string, name: string) => {
+    setDeleteItem({ id, name });
+    setIsDialogOpen(true);
+  }, []);
 
-    // Default to 'active' if status is missing
-    const currentStatus = (moderator.status || 'active').toLowerCase();
-    const matchesStatus = statusFilter === "all" || currentStatus === statusFilter.toLowerCase();
+  // Memoized so it only recomputes when the data, search term, or filters change.
+  const filteredModerators = useMemo(() => {
+    const term = searchTerm.toLowerCase();
+    return moderators.filter(moderator => {
+      const matchesSearch = !searchTerm ||
+        (moderator.name && moderator.name.toLowerCase().includes(term)) ||
+        (moderator.email && moderator.email.toLowerCase().includes(term)) ||
+        (moderator.fullName && moderator.fullName.toLowerCase().includes(term)) ||
+        (moderator.phone && moderator.phone.includes(searchTerm)) ||
+        (moderator.phoneNumber && moderator.phoneNumber.includes(searchTerm)) ||
+        (moderator.employeeId && moderator.employeeId.toLowerCase().includes(term)) ||
+        (moderator.staffId && moderator.staffId.toLowerCase().includes(term));
 
-    let matchesExperience = true;
-    if (experienceFilter !== "all") {
-      const joinDateStr = moderator.joiningDate || moderator.joinDate;
-      if (joinDateStr) {
-        const joinDate = new Date(joinDateStr);
-        const currentDate = new Date();
-        const years = Math.floor((currentDate.getTime() - joinDate.getTime()) / (365.25 * 24 * 60 * 60 * 1000));
+      // Default to 'active' if status is missing
+      const currentStatus = (moderator.status || 'active').toLowerCase();
+      const matchesStatus = statusFilter === "all" || currentStatus === statusFilter.toLowerCase();
 
-        if (experienceFilter === "0-2") matchesExperience = years >= 0 && years <= 2;
-        else if (experienceFilter === "3-5") matchesExperience = years >= 3 && years <= 5;
-        else if (experienceFilter === "6-10") matchesExperience = years >= 6 && years <= 10;
-        else if (experienceFilter === "10+") matchesExperience = years > 10;
-      } else {
-        matchesExperience = false;
+      let matchesExperience = true;
+      if (experienceFilter !== "all") {
+        const joinDateStr = moderator.joiningDate || moderator.joinDate;
+        if (joinDateStr) {
+          const joinDate = new Date(joinDateStr);
+          const years = Math.floor((Date.now() - joinDate.getTime()) / (365.25 * 24 * 60 * 60 * 1000));
+
+          if (experienceFilter === "0-2") matchesExperience = years >= 0 && years <= 2;
+          else if (experienceFilter === "3-5") matchesExperience = years >= 3 && years <= 5;
+          else if (experienceFilter === "6-10") matchesExperience = years >= 6 && years <= 10;
+          else if (experienceFilter === "10+") matchesExperience = years > 10;
+        } else {
+          matchesExperience = false;
+        }
       }
-    }
 
-    return matchesSearch && matchesStatus && matchesExperience;
-  });
+      return matchesSearch && matchesStatus && matchesExperience;
+    });
+  }, [moderators, searchTerm, statusFilter, experienceFilter]);
 
   // Export moderators data
   const handleExportModerators = async () => {
@@ -209,11 +334,6 @@ export default function AdminModerators() {
   if (!currentUser || !userData || userData.role !== 'admin') {
     return null;
   }
-
-  const handleDelete = (id: string, name: string) => {
-    setDeleteItem({ id, name });
-    setIsDialogOpen(true);
-  };
 
   const confirmDelete = async () => {
     if (!deleteItem) return;
@@ -363,115 +483,11 @@ export default function AdminModerators() {
                     </TableRow>
                   ) : (
                     filteredModerators.map((moderator) => (
-                      <TableRow key={moderator.id} className="h-auto">
-                        <TableCell className="py-1.5">
-                          <div className="flex flex-row items-center gap-2">
-                            <Avatar
-                              src={safeImageSrc(moderator.profilePhotoUrl)}
-                              name={moderator.name || moderator.fullName}
-                              size="xs"
-                              className="flex-shrink-0"
-                            />
-                            <div className="flex flex-col min-w-0">
-                              <div className="text-sm font-medium text-foreground truncate">{moderator.name || moderator.fullName || 'N/A'}</div>
-                              <div className="text-xs text-muted-foreground">{moderator.email}</div>
-                            </div>
-                          </div>
-                        </TableCell>
-                        <TableCell className="py-2">
-                          <div className="space-y-0.5">
-                            <div className="text-xs font-medium text-foreground">
-                              Ph: {moderator.phone || moderator.phoneNumber || 'N/A'}
-                            </div>
-                            {(moderator.alternatePhone || moderator.altPhone || moderator.alternativePhone) && (
-                              <div className="text-xs text-muted-foreground">
-                                Alt: {moderator.alternatePhone || moderator.altPhone || moderator.alternativePhone}
-                              </div>
-                            )}
-                          </div>
-                        </TableCell>
-                        <TableCell className="py-1.5">
-                          <div className="font-mono text-[10px] text-foreground whitespace-nowrap">
-                            {moderator.employeeId || 'N/A'}
-                          </div>
-                        </TableCell>
-                        <TableCell className="py-1.5">
-                          <div className="space-y-0.5">
-                            <div className="text-[10px] font-medium text-foreground">
-                              {(() => {
-                                if (!moderator.joiningDate && !moderator.joinDate) return 'N/A';
-                                const joinDate = new Date(moderator.joiningDate || moderator.joinDate);
-                                const currentDate = new Date();
-                                const years = Math.floor((currentDate.getTime() - joinDate.getTime()) / (365.25 * 24 * 60 * 60 * 1000));
-                                return years > 0 ? `${years} year${years > 1 ? 's' : ''}` : '< 1 year';
-                              })()}
-                            </div>
-                            <div className="text-[9px] text-muted-foreground">
-                              Since {(() => {
-                                const date = moderator.joiningDate || moderator.joinDate;
-                                if (!date) return 'N/A';
-                                const d = new Date(date);
-                                return d.toLocaleDateString('en-GB', { year: 'numeric', month: '2-digit', day: '2-digit' }).split('/').join('-');
-                              })()}
-                            </div>
-                          </div>
-                        </TableCell>
-                        <TableCell className="py-1.5">
-                          <div className="text-[10px] text-foreground truncate max-w-[150px]">
-                            {moderator.approvedBy || 'N/A'}
-                          </div>
-                        </TableCell>
-                        <TableCell className="py-1.5">
-                          <span className={`inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-medium ${(moderator.status || 'active').toLowerCase() === 'active'
-                            ? 'bg-green-500 text-white'
-                            : 'bg-red-500 text-white'
-                            }`}>
-                            {(() => {
-                              const status = moderator.status || 'active';
-                              return status.charAt(0).toUpperCase() + status.slice(1).toLowerCase();
-                            })()}
-                          </span>
-                        </TableCell>
-                        <TableCell className="py-1.5 text-right">
-                          <DropdownMenu>
-                            <DropdownMenuTrigger asChild>
-                              <Button variant="ghost" className="h-7 w-7 p-0 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700">
-                                <MoreHorizontal className="h-3.5 w-3.5" />
-                              </Button>
-                            </DropdownMenuTrigger>
-                            <DropdownMenuContent align="end" className="bg-gray-800 dark:bg-gray-900 border-gray-700 dark:border-gray-600 shadow-xl rounded-lg w-40">
-                              <DropdownMenuLabel className="text-white text-[11px] font-semibold px-2 py-1.5">Actions</DropdownMenuLabel>
-                              <DropdownMenuSeparator className="bg-gray-600" />
-                              <DropdownMenuItem asChild>
-                                <Link href={`/admin/moderators/view/${moderator.id}`} className="text-white hover:bg-gray-700 dark:hover:bg-gray-800 focus:bg-gray-700 dark:focus:bg-gray-800 px-2 py-1.5 !text-white text-[11px]">
-                                  <Eye className="mr-1.5 h-3 w-3 text-blue-400" />
-                                  View Details
-                                </Link>
-                              </DropdownMenuItem>
-                              <DropdownMenuItem asChild>
-                                <Link href={`/admin/moderators/edit/${moderator.id}`} className="text-white hover:bg-gray-700 dark:hover:bg-gray-800 focus:bg-gray-700 dark:focus:bg-gray-800 px-2 py-1.5 !text-white text-[11px]">
-                                  <Edit className="mr-1.5 h-3 w-3 text-yellow-400" />
-                                  Edit
-                                </Link>
-                              </DropdownMenuItem>
-                              <DropdownMenuItem asChild>
-                                <Link href={`/admin/moderators/config/${moderator.id}`} className="text-white hover:bg-gray-700 dark:hover:bg-gray-800 focus:bg-gray-700 dark:focus:bg-gray-800 px-2 py-1.5 !text-white text-[11px]">
-                                  <Shield className="mr-1.5 h-3 w-3 text-emerald-400" />
-                                  Mod Config
-                                </Link>
-                              </DropdownMenuItem>
-                              <DropdownMenuSeparator className="bg-gray-600" />
-                              <DropdownMenuItem
-                                className="text-white hover:!bg-red-600 focus:!bg-red-600 px-2 py-1.5 !text-white text-[11px] cursor-pointer transition-colors"
-                                onClick={() => handleDelete(moderator.id, moderator.name)}
-                              >
-                                <Trash2 className="mr-1.5 h-3 w-3" />
-                                Delete
-                              </DropdownMenuItem>
-                            </DropdownMenuContent>
-                          </DropdownMenu>
-                        </TableCell>
-                      </TableRow>
+                      <ModeratorRow
+                        key={moderator.id}
+                        moderator={moderator}
+                        onDelete={handleDeleteClick}
+                      />
                     ))
                   )}
                 </TableBody>

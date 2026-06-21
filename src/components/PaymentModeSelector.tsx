@@ -64,6 +64,7 @@ interface PaymentModeSelectorProps {
   onPaymentComplete?: (paymentDetails: any) => void;
   onOfflineSelected?: (data: { paymentId?: string; receiptUrl?: string }) => void;
   onReceiptFileSelect?: (file: File) => void;
+  onReceiptRemove?: () => void;
   onBack?: () => void;
   isFormComplete?: boolean;
   isReadOnly?: boolean;
@@ -88,6 +89,7 @@ export default function PaymentModeSelector({
   onPaymentComplete,
   onOfflineSelected,
   onReceiptFileSelect,
+  onReceiptRemove,
   onBack,
   isFormComplete = true,
   isReadOnly = false,
@@ -122,6 +124,8 @@ export default function PaymentModeSelector({
       if (initialReceiptPreview && !paymentCompleted) {
         setPaymentMode('offline');
       }
+    } else {
+      setReceiptPreview('');
     }
   }, [initialReceiptPreview, paymentCompleted]);
 
@@ -769,6 +773,9 @@ export default function PaymentModeSelector({
                                 }
                                 setReceiptPreview('');
                                 setReceiptFile(null);
+                                if (onReceiptRemove) {
+                                  onReceiptRemove();
+                                }
                               }}
                             >
                               <X className="h-3.5 w-3.5 sm:h-4 sm:w-4" />

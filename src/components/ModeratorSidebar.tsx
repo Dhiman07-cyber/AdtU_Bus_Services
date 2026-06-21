@@ -4,7 +4,6 @@ import { useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { cn } from '@/lib/utils';
-import { motion, AnimatePresence } from 'framer-motion';
 import {
   LayoutDashboard,
   GraduationCap,
@@ -84,6 +83,10 @@ const moderatorNavGroups: NavGroup[] = [
   }
 ];
 
+// Precompute once at module scope — avoids rebuilding this array for every
+// nav item on every render (was O(items²) work per render).
+const moderatorAllHrefs = moderatorNavGroups.flatMap(group => group.items.map(i => i.href));
+
 export default function ModeratorSidebar() {
   const pathname = usePathname();
   const { collapsed, setCollapsed, mobileOpen } = useSidebar();
@@ -130,7 +133,7 @@ export default function ModeratorSidebar() {
         {!collapsed && (
           <div className="flex items-center gap-2.5">
             <div className="relative group">
-              <div className="absolute inset-0 bg-purple-500/20 rounded-lg blur opacity-0 group-hover:opacity-100 transition-opacity" />
+              <div className="absolute inset-0 bg-purple-500/10 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity" />
               <div className="relative p-1.5 rounded-lg bg-gradient-to-br from-purple-500/10 to-pink-500/10 border border-purple-500/20">
                 <Sparkles className="h-3.5 w-3.5 text-purple-400" />
               </div>
@@ -147,7 +150,7 @@ export default function ModeratorSidebar() {
           variant="ghost"
           size="icon"
           onClick={() => setCollapsed(!collapsed)}
-          className={cn("h-6 w-6 rounded-md transition-all", theme === 'dark' ? "hover:bg-white/5 text-zinc-500 hover:text-zinc-200" : "hover:bg-admin-hover text-admin-text-secondary hover:text-admin-text")}
+          className={cn("h-6 w-6 rounded-md transition-colors", theme === 'dark' ? "hover:bg-white/5 text-zinc-500 hover:text-zinc-200" : "hover:bg-admin-hover text-admin-text-secondary hover:text-admin-text")}
           title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
         >
           {collapsed ? (
@@ -182,11 +185,10 @@ export default function ModeratorSidebar() {
             )}>
               {group.items.map((item) => {
                 const Icon = item.icon;
-                const allHrefs = moderatorNavGroups.flatMap(group => group.items.map(i => i.href));
                 const isActive = pathname === item.href || (
                   item.href !== '/moderator' &&
                   pathname?.startsWith(item.href) &&
-                  !allHrefs.some(h => h !== item.href && h.startsWith(item.href) && pathname?.startsWith(h))
+                  !moderatorAllHrefs.some(h => h !== item.href && h.startsWith(item.href) && pathname?.startsWith(h))
                 );
 
                 return (
@@ -204,10 +206,8 @@ export default function ModeratorSidebar() {
                         )}
                       >
                         {isActive && (
-                          <motion.div
-                            layoutId="activeTabModerator"
+                          <div
                             className="absolute left-0 top-1.5 bottom-1.5 w-[2px] bg-blue-500 rounded-r-full shadow-[0_0_8px_rgba(59,130,246,0.6)]"
-                            transition={{ type: "spring", stiffness: 300, damping: 30 }}
                           />
                         )}
 
@@ -217,7 +217,7 @@ export default function ModeratorSidebar() {
                         )}>
                           <Icon className={cn("h-4 w-4", isActive ? "text-blue-400" : item.color)} />
                           {isActive && (
-                            <div className="absolute inset-0 bg-blue-400/20 blur-[6px] rounded-full" />
+                            <div className="absolute inset-0 bg-blue-400/10 rounded-full" />
                           )}
                         </div>
 
@@ -232,7 +232,7 @@ export default function ModeratorSidebar() {
                       <TooltipContent
                         side="right"
                         sideOffset={10}
-                        className={cn("backdrop-blur-md border text-xs font-medium px-3 py-2 rounded-lg shadow-xl", theme === 'dark' ? "bg-slate-900/90 border-slate-700/50 text-slate-100" : "bg-admin-card border-admin-border text-admin-text")}
+                        className={cn("border text-xs font-medium px-3 py-2 rounded-lg shadow-xl", theme === 'dark' ? "bg-[#090a10] border-slate-700/50 text-slate-100" : "bg-admin-card border-admin-border text-admin-text")}
                       >
                         <div className="flex items-center gap-2">
                           <Icon className={cn("h-3.5 w-3.5", item.color)} />

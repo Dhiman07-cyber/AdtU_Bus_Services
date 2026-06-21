@@ -10,48 +10,31 @@ import Step5Review from './steps/Step5Review';
 import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import { useAuth } from '@/contexts/auth-context';
 import { useRouter, usePathname } from 'next/navigation';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Textarea } from '@/components/ui/textarea';
-import { Select, SelectContent, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Checkbox } from '@/components/ui/checkbox';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { Badge } from '@/components/ui/badge';
 import {
   Loader2,
-  Save,
-  Send,
   CheckCircle,
-  AlertCircle,
-  X,
-  Shield,
-  FileText,
   Info,
   RotateCcw,
   Camera,
-  ArrowRight
+  Building2,
+  Calendar,
+  MapPin,
+  CreditCard
 } from 'lucide-react';
 import { trackEvent } from '@/components/Analytics';
 import ProfileImageAddModal from '@/components/ProfileImageAddModal';
-import { ApplicationFormData, ApplicationState, ModeratorProfile } from '@/lib/types/application';
+import { ApplicationFormData, ApplicationState } from '@/lib/types/application';
 import Image from 'next/image';
-import FacultyDepartmentSelector from '@/components/faculty-department-selector';
-import EnhancedDatePicker from '@/components/enhanced-date-picker';
 import { getAllRoutes, getAllBuses } from '@/lib/dataService';
 import { Route } from '@/lib/types';
-import RouteSelectionSection from '@/components/RouteSelectionSection';
 import ApplyFormNavbar from '@/components/ApplyFormNavbar';
-import PaymentModeSelector from '@/components/PaymentModeSelector';
 import ErrorBoundary from '@/components/ErrorBoundary';
 import {
-  calculateSessionDates,
   hasCompletedPayment,
   getCurrentPaymentSession,
-  clearPaymentSession,
-  updatePaymentSessionStatus,
-  savePaymentSession
+  clearPaymentSession
 } from '@/lib/payment/application-payment.service';
 import {
   type CapacityCheckResult
@@ -61,9 +44,6 @@ import { uploadImage } from '@/lib/upload';
 import { PremiumPageLoader } from '@/components/LoadingSpinner';
 import { isMobileDevice, compressImageForMobile } from '@/lib/mobile-utils';
 import { useDebouncedStorage } from '@/hooks/useDebouncedStorage';
-import { OptimizedInput } from '@/components/forms/OptimizedInput';
-import { OptimizedSelect } from '@/components/forms/OptimizedSelect';
-import { SelectItem } from '@/components/ui/select';
 
 const STEP_LABELS = [
   { num: 1, title: "Personal Information" },
@@ -231,23 +211,6 @@ function ApplicationFormContent() {
   const [assignedBusInfo, setAssignedBusInfo] = useState<any>(null);
   const [deadlineConfig, setDeadlineConfig] = useState<any>(null);
 
-  // Fetch deadline config
-  useEffect(() => {
-    const fetchDeadlineConfig = async () => {
-      try {
-        const response = await fetch('/api/settings/deadline-config');
-        if (response.ok) {
-          const data = await response.json();
-          setDeadlineConfig(data.config || data);
-          console.log("ðŸ“… [Apply Form] Fetched deadline config:", data.config || data);
-        }
-      } catch (error) {
-        console.error("Error fetching deadline config:", error);
-      }
-    };
-    fetchDeadlineConfig();
-  }, []);
-
   // UI state
   const [saving, setSaving] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -326,7 +289,33 @@ function ApplicationFormContent() {
   const [maxCodesReached, setMaxCodesReached] = useState(false);
 
   const [isSubmitted, setIsSubmitted] = useState(false);
+  const [existingApplication, setExistingApplication] = useState<any>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
+
+  const handleRefreshStatus = async () => {
+    if (!currentUser) return;
+    setIsRefreshing(true);
+    try {
+      const response = await fetch('/api/applications/check', {
+        headers: {
+          'Authorization': `Bearer ${await currentUser.getIdToken()}`
+        }
+      });
+      if (response.ok) {
+        const data = await response.json();
+        if (data.hasApplication) {
+          setApplicationState(data.state);
+          if (data.state === 'approved') {
+            router.push('/student');
+          }
+        }
+      }
+    } catch (error) {
+      console.error('Error refreshing status:', error);
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
 
   // Persistence for application state and verification state
   useEffect(() => {
@@ -430,8 +419,8 @@ function ApplicationFormContent() {
         if (response.ok) {
           const data = await response.json();
           // If application exists and is not rejected/draft (so submitted, approved, verified), show status card
-          if (data.hasApplication && data.application?.state !== 'rejected' && data.application?.state !== 'draft' && data.application?.state !== 'noDoc') {
-            console.log('✅ User has existing application in state:', data.application?.state);
+          if (data.hasApplication && data.state !== 'rejected' && data.state !== 'draft' && data.state !== 'noDoc') {
+            console.log('✅ User has existing application in state:', data.state);
 
             // Show toast only once
             if (!toastShownRef.current) {
@@ -439,7 +428,10 @@ function ApplicationFormContent() {
               toastShownRef.current = true;
             }
 
+            setApplicationId(data.applicationId);
+            setApplicationState(data.state);
             setIsSubmitted(true);
+            setLoadingResources(false);
             return;
           }
         }
@@ -459,15 +451,30 @@ function ApplicationFormContent() {
 
   const loadResources = async () => {
     try {
-      // Load routes and buses
-      const [routesData, busesData] = await Promise.all([
+      // Load routes, buses, fees and deadline config in parallel
+      const [routesData, busesData, feesRes, deadlineRes] = await Promise.all([
         getAllRoutes(),
-        getAllBuses()
+        getAllBuses(),
+        fetch(`/api/settings/bus-fees?t=${Date.now()}`, { cache: 'no-store' }),
+        fetch('/api/settings/deadline-config')
       ]);
 
       console.log('🛣️ Loaded routes:', routesData);
       setRoutes(routesData);
       setBuses(busesData);
+
+      if (feesRes.ok) {
+        const feesData = await feesRes.json();
+        const fee = feesData.fees || feesData.amount || 0;
+        console.log('💰 Loaded bus fee from API:', fee);
+        setBusFees(fee);
+      }
+
+      if (deadlineRes.ok) {
+        const deadlineData = await deadlineRes.json();
+        setDeadlineConfig(deadlineData.config || deadlineData);
+        console.log("📅 [Apply Form] Fetched deadline config:", deadlineData.config || deadlineData);
+      }
 
     } catch (error) {
       console.error('Error loading resources:', error);
@@ -651,26 +658,6 @@ function ApplicationFormContent() {
       paymentInfo: { ...prev.paymentInfo, amountPaid: newFee }
     }));
   };
-
-  // Load bus fees from Firestore
-  useEffect(() => {
-    const loadBusFees = async () => {
-      try {
-        const response = await fetch(`/api/settings/bus-fees?t=${Date.now()}`, { cache: 'no-store' });
-        if (response.ok) {
-          const data = await response.json();
-          const fee = data.fees || data.amount || 0;
-          console.log('ðŸ’° Loaded bus fee from API:', fee);
-          setBusFees(fee);
-        }
-      } catch (error) {
-        console.error('Error loading bus fees:', error);
-      }
-    };
-    if (currentUser) {
-      loadBusFees();
-    }
-  }, [currentUser]);
 
   const calculateTotalFee = (duration?: number, shift?: string) => {
     const dur = duration || formData.sessionInfo.durationYears;
@@ -1221,7 +1208,6 @@ function ApplicationFormContent() {
       const applicationData = {
         ...formData,
         profilePhotoUrl: finalProfilePhotoUrl, // Use the uploaded URL, not the blob
-        age: formData.age.toString(), // Ensure age is string
         paymentInfo: {
           ...formData.paymentInfo,
           // Ensure payment status matches mode
@@ -1242,10 +1228,10 @@ function ApplicationFormContent() {
       }
 
       if (!token) {
-        console.error('â Œ Failed to get auth token');
+        console.error('Failed to get auth token');
         throw new Error('Authentication session expired. Please refresh the page and sign in again.');
       }
-      console.log('âœ… Auth token retrieved successfully');
+      console.log('Auth token retrieved successfully');
 
       // Upload receipt file if there's one (using same /api/upload as profile photo)
       let receiptUrl = formData.paymentInfo.paymentEvidenceUrl || '';
@@ -1534,10 +1520,10 @@ function ApplicationFormContent() {
         console.log('â„¹ï¸  No completed payment found');
       }
     } else {
-      console.log('âš ï¸  No current user found');
+      console.log('⚠️ No current user found');
     }
 
-    console.log('ðŸ”  VERIFICATION STATE CHECK COMPLETED');
+    console.log('🔄 VERIFICATION STATE CHECK COMPLETED');
   }, [currentUser]);
 
   if (loading || (currentUser && loadingResources)) {
@@ -1546,98 +1532,95 @@ function ApplicationFormContent() {
 
   if (isSubmitted) {
     return (
-      <div className="min-h-screen bg-[#05060e] py-12 px-4 sm:px-6 lg:px-8 relative overflow-hidden">
-
-
-        <div className="max-w-4xl mx-auto relative z-10">
-          <div className="bg-[#0c0e1a] border border-slate-800/50 rounded-[2.5rem] shadow-2xl shadow-black/50 overflow-hidden">
-            <div className="p-8 sm:p-12 md:p-16">
-              <div className="flex flex-col items-center">
-                {/* Success Icon */}
-                <div className="relative mb-10">
-                  <div className="absolute inset-0 bg-emerald-500 rounded-full blur-2xl opacity-20 animate-pulse"></div>
-                  <div className="relative h-24 w-24 sm:h-28 sm:w-28 bg-gradient-to-br from-emerald-400 to-green-600 rounded-3xl flex items-center justify-center shadow-2xl shadow-emerald-500/20 rotate-3 transition-transform hover:rotate-6 duration-500">
-                    <CheckCircle className="h-12 w-12 sm:h-14 sm:w-14 text-white drop-shadow-lg" />
-                  </div>
-                  <div className="absolute -bottom-3 left-1/2 -translate-x-1/2 bg-slate-900 border border-indigo-500/30 py-1 px-3 rounded-full shadow-lg flex items-center gap-1.5 whitespace-nowrap">
-                    <div className="w-1.5 h-1.5 rounded-full bg-emerald-500"></div>
-                    <span className="text-[10px] font-bold tracking-wider uppercase text-slate-300">Success</span>
+      <div className="min-h-screen bg-[#05060e] dark:bg-[#05060e] overflow-x-hidden">
+        <ApplyFormNavbar />
+        <div className="relative z-10 pt-20 sm:pt-28 pb-16 min-h-[calc(100vh-80px)] flex items-center justify-center px-4">
+          
+          <div className="w-full max-w-[420px] relative z-10">
+            {/* Clean Card: larger sizing, solid styling, no heavy shadows or blurs */}
+            <div className="bg-[#0c0e1a] border border-slate-805 rounded-[2rem] p-8 sm:p-10 shadow-2xl min-h-[560px] flex flex-col justify-between overflow-hidden">
+              
+              {/* Header Container */}
+              <div className="flex flex-col items-center text-center pt-2">
+                {/* Icon Container */}
+                <div className="mb-6">
+                  <div className="h-16 w-16 bg-[#161a30] border border-emerald-500/20 rounded-2xl flex items-center justify-center shadow-md">
+                    <CheckCircle className="h-8 w-8 text-emerald-400" />
                   </div>
                 </div>
 
-                <h1 className="text-4xl sm:text-5xl font-bold text-transparent bg-clip-text bg-gradient-to-br from-white via-indigo-100 to-slate-400 text-center tracking-tight mb-4 drop-shadow-sm">
+                <h1 className="text-xl sm:text-2xl font-bold text-white tracking-tight mb-2">
                   Application Received
                 </h1>
 
-                <p className="text-lg text-slate-400 text-center max-w-md font-light leading-relaxed">
-                  Your application has been securely submitted to the <span className="text-indigo-300 font-medium">AdtU Bus Services</span> portal.
+                <p className="text-xs sm:text-sm text-slate-400 leading-relaxed max-w-sm px-2">
+                  Your registration has been securely submitted to the <span className="text-indigo-400 font-medium">AdtU Bus Services</span> team.
                 </p>
               </div>
 
-              {/* Progress Timeline */}
-              <div className="mb-10 bg-slate-800/50 rounded-2xl p-6 border border-slate-700/50 backdrop-blur-sm mt-10">
-                <div className="flex items-center justify-between relative">
+              {/* Status Progress Timeline */}
+              <div className="w-full bg-[#080a13] border border-slate-900 rounded-2xl p-5 shadow-inner my-5">
+                <div className="flex items-center justify-between relative px-2">
                   {/* Connecting Line */}
-                  <div className="absolute top-1/3 left-4 right-4 h-0.5 bg-slate-700/50 -translate-y-1/2 z-0"></div>
-                  <div className="absolute top-1/3 left-4 right-1/2 h-0.5 bg-gradient-to-r from-indigo-500 to-blue-500 -translate-y-1/2 z-0"></div>
+                  <div className="absolute top-[15px] left-8 right-8 h-[2px] bg-slate-800 z-0"></div>
+                  <div className="absolute top-[15px] left-8 right-1/2 h-[2px] bg-gradient-to-r from-emerald-500 to-indigo-500 z-0"></div>
 
-                  {/* Step 1 */}
-                  <div className="relative z-10 flex flex-col items-start gap-2 sm:gap-3">
-                    <div className="w-8 h-8 rounded-full bg-indigo-900/80 border-2 border-indigo-500 flex items-center justify-center shadow-[0_0_15px_-3px_rgba(99,102,241,0.4)]">
-                      <CheckCircle className="w-4 h-4 text-indigo-200" />
+                  {/* Step 1: Submitted */}
+                  <div className="relative z-10 flex flex-col items-start gap-1.5">
+                    <div className="w-8 h-8 rounded-full bg-emerald-950/80 border-2 border-emerald-500 flex items-center justify-center">
+                      <CheckCircle className="w-4 h-4 text-emerald-400" />
                     </div>
-                    <span className="text-[9px] sm:text-xs font-semibold text-indigo-200 tracking-wide uppercase">Submitted</span>
+                    <span className="text-[10px] font-bold text-emerald-400 tracking-wider uppercase">Submitted</span>
                   </div>
 
-                  {/* Step 2 */}
-                  <div className="relative z-10 flex flex-col items-center gap-2 sm:gap-3">
-                    <div className="w-8 h-8 rounded-full bg-slate-800 border-2 border-blue-500/50 flex items-center justify-center shadow-[0_0_15px_-3px_rgba(59,130,246,0.3)]">
-                      <FileText className="w-4 h-4 text-blue-400" />
+                  {/* Step 2: Under Review - slow blink dot (animate-pulse) */}
+                  <div className="relative z-10 flex flex-col items-center gap-1.5">
+                    <div className="w-8 h-8 rounded-full bg-indigo-950/80 border-2 border-indigo-500/80 flex items-center justify-center animate-pulse">
+                      <div className="w-2.5 h-2.5 rounded-full bg-indigo-400"></div>
                     </div>
-                    <span className="text-[9px] sm:text-xs font-semibold text-blue-200 tracking-wide uppercase text-center">Under Review</span>
+                    <span className="text-[10px] font-bold text-indigo-300 tracking-wider uppercase">Review</span>
                   </div>
 
-                  {/* Step 3 */}
-                  <div className="relative z-10 flex flex-col items-end gap-2 sm:gap-3">
-                    <div className="w-8 h-8 rounded-full bg-slate-800 border-2 border-slate-600 flex items-center justify-center">
-                      <div className="w-2 h-2 rounded-full bg-slate-600"></div>
+                  {/* Step 3: Approved */}
+                  <div className="relative z-10 flex flex-col items-end gap-1.5">
+                    <div className="w-8 h-8 rounded-full bg-[#111322] border-2 border-slate-800 flex items-center justify-center">
+                      <div className="w-2 h-2 rounded-full bg-slate-700"></div>
                     </div>
-                    <span className="text-[9px] sm:text-xs font-semibold text-slate-500 tracking-wide uppercase">Approved</span>
+                    <span className="text-[10px] font-bold text-slate-500 tracking-wider uppercase">Approved</span>
                   </div>
                 </div>
               </div>
 
-              {/* Info Box */}
-              <div className="bg-indigo-500/5 border border-indigo-500/10 rounded-xl p-5 mb-8 flex gap-4 items-start">
-                <div className="p-2 bg-indigo-500/10 rounded-lg shrink-0">
-                  <Info className="w-5 h-5 text-indigo-400" />
+              {/* Next Steps Section */}
+              <div className="w-full bg-[#101326]/30 border border-slate-900 rounded-xl p-5 flex gap-3.5 items-start mb-5">
+                <div className="p-2 bg-indigo-500/10 rounded-xl shrink-0 border border-indigo-500/20 shadow-inner mt-0.5">
+                  <Info className="w-4 h-4 text-indigo-400" />
                 </div>
-                <div>
-                  <h4 className="text-sm font-semibold text-indigo-200 mb-1">What happens next?</h4>
-                  <p className="text-sm text-indigo-200/70 leading-relaxed">
-                    Our administrative team will review your application details. This process typically takes 24-48 hours. Once verified, you will receive full access to your student dashboard.
+                <div className="text-left">
+                  <h4 className="text-[10px] font-bold text-indigo-300 tracking-wider uppercase mb-1">Next Steps</h4>
+                  <p className="text-xs sm:text-[13px] text-slate-400 leading-relaxed font-light">
+                    Our team has received your application, and will review and verify it in the next <span className="text-indigo-200 font-semibold">2-3 business working days</span>. Once approved, you will get access to your student dashboard.
                   </p>
                 </div>
               </div>
 
-              {/* Footer / ID */}
-              <div className="flex flex-col items-center justify-center border-t border-slate-700/50 pt-8">
-                <div className="flex items-center gap-3 text-sm text-slate-500 font-medium bg-slate-800/50 px-4 py-2 rounded-full border border-slate-700/30">
-                  <span className="flex h-2 w-2 relative">
-                    <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+              {/* Clickable Refresh Footer */}
+              <div className="flex justify-center pb-1">
+                <button
+                  type="button"
+                  onClick={handleRefreshStatus}
+                  disabled={isRefreshing}
+                  className="flex items-center gap-2 px-5 py-2.5 text-xs text-slate-400 hover:text-slate-200 font-medium bg-[#080a13] hover:bg-[#121528] active:scale-[0.98] transition-all rounded-full border border-slate-900 shadow-inner cursor-pointer"
+                >
+                  <span className="relative flex h-2 w-2">
+                    <span className="relative inline-flex rounded-full h-2 w-2 bg-indigo-500"></span>
                   </span>
-                  <span>Refreshed just now</span>
-                  <span className="w-1 h-1 bg-slate-600 rounded-full"></span>
-                  <span>ID: <span className="font-mono text-indigo-300 font-bold tracking-wider">{applicationId || 'PENDING'}</span></span>
-                </div>
+                  <span>{isRefreshing ? 'Refreshing...' : 'Refreshed just now'}</span>
+                </button>
               </div>
+
             </div>
           </div>
-
-          {/* Help Text */}
-          <p className="text-center text-slate-500 text-xs mt-6">
-            Need help? <a href="/contact" className="underline hover:text-indigo-400">Contact support</a> or visit the bus office.
-          </p>
         </div>
       </div>
     );
@@ -1744,6 +1727,7 @@ function ApplicationFormContent() {
                     setReceiptPreview={setReceiptPreview}
                     showToast={showToast}
                     onClear={() => handleClearStep(4)}
+                    receiptPreview={receiptPreview}
                   />
                 )}
 

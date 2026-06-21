@@ -21,8 +21,17 @@ import crypto from 'crypto';
 // ============================================================================
 
 // These should be environment variables in production
-const ENCRYPTION_KEY = process.env.ENCRYPTION_SECRET_KEY || process.env.NEXTAUTH_SECRET || crypto.randomBytes(32).toString('hex');
-const SIGNING_KEY = process.env.SIGNING_SECRET_KEY || process.env.NEXTAUTH_SECRET || crypto.randomBytes(32).toString('hex');
+let encryptionKeySource = process.env.ENCRYPTION_SECRET_KEY || process.env.NEXTAUTH_SECRET;
+if (!encryptionKeySource) {
+    encryptionKeySource = crypto.randomBytes(32).toString('hex');
+}
+const ENCRYPTION_KEY = encryptionKeySource;
+
+let signingKeySource = process.env.SIGNING_SECRET_KEY || process.env.NEXTAUTH_SECRET;
+if (!signingKeySource) {
+    signingKeySource = crypto.randomBytes(32).toString('hex');
+}
+const SIGNING_KEY = signingKeySource;
 
 // Algorithm configurations
 const ALGORITHM = 'aes-256-gcm';

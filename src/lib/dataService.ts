@@ -196,7 +196,6 @@ const formatStudentData = async (docId: string, data: any) => {
     gender: data.gender || '',
     bloodGroup: data.bloodGroup || '',
     dob: data.dob || '',
-    age: data.age || '',
     parentName: data.parentName || '',
     parentPhone: data.parentPhone || '',
     sessionStartYear: data.sessionStartYear || '',

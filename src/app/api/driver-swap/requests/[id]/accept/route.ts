@@ -13,7 +13,7 @@ export async function POST(
 
     // Validate requestId
     if (!requestId || typeof requestId !== 'string' || requestId.trim() === '') {
-      console.error('❌ Invalid requestId from route params:', requestId);
+      console.error('❌ Invalid requestId from route params: %s', requestId);
       return NextResponse.json(
         { error: 'Invalid request ID' },
         { status: 400 }
@@ -33,7 +33,7 @@ export async function POST(
     const decodedToken = await auth.verifyIdToken(token);
     const acceptorUID = decodedToken.uid;
 
-    console.log(`📥 Accept swap request: ${requestId} by ${acceptorUID.substring(0, 8)}`);
+    console.log('📥 Accept swap request: %s by %s', requestId, acceptorUID.substring(0, 8));
 
     // Accept the swap request using Supabase
     const result = await DriverSwapSupabaseService.acceptSwapRequest(requestId, acceptorUID);

@@ -53,8 +53,8 @@ export async function POST(request: NextRequest) {
     // SECURITY: Strip blocked fields to prevent privilege escalation
     const sanitizedData: Record<string, any> = {};
     for (const [key, value] of Object.entries(updateData)) {
-      if (BLOCKED_FIELDS.includes(key)) {
-        console.warn(`⚠️ [SECURITY] Blocked field "${key}" stripped from update request by ${auth.uid}`);
+      if (BLOCKED_FIELDS.includes(key) || key === '__proto__' || key === 'constructor' || key === 'prototype') {
+        console.warn(`⚠️ [SECURITY] Blocked or prototype field "${key}" stripped from update request by ${auth.uid}`);
         continue;
       }
       sanitizedData[key] = value;

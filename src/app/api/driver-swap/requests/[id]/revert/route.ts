@@ -36,7 +36,7 @@ export async function POST(
     }
 
     const userRole = adminDoc.exists ? 'admin' : 'moderator';
-    console.log(`📥 Revert swap request: ${requestId} by ${userRole} ${adminUID.substring(0, 8)}`);
+    console.log('📥 Revert swap request: %s by %s %s', requestId, userRole, adminUID.substring(0, 8));
 
     // Revert the swap using 'system' to allow trip check bypass for admin actions
     // Using 'system' ensures the endSwap function doesn't reject based on driver UID check
@@ -51,7 +51,7 @@ export async function POST(
 
     // Handle pending revert case (trip in progress)
     if (result.pendingTripEnd) {
-      console.log(`⏳ Swap ${requestId} marked for pending revert by ${userRole} (trip in progress)`);
+      console.log('⏳ Swap %s marked for pending revert by %s (trip in progress)', requestId, userRole);
       return NextResponse.json({
         success: true,
         pendingTripEnd: true,

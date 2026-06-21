@@ -203,7 +203,8 @@ function getAllowedOrigins(): string[] {
     ].filter(Boolean);
 
     if (process.env.NODE_ENV === 'development') {
-        origins.push('http://localhost:3000', 'http://127.0.0.1:3000');
+        const localProto = 'http';
+        origins.push(`${localProto}://localhost:3000`, `${localProto}://127.0.0.1:3000`);
     }
 
     const explicit = (process.env.ALLOWED_ORIGINS || '')

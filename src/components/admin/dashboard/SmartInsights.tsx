@@ -168,7 +168,7 @@ export default function SmartInsights({ stats, busUtilization, routeOccupancy }:
             transition={{ duration: 0.5, delay: idx * 0.1 }}
           >
             <Card className={cn(
-              "h-full relative overflow-hidden bg-slate-900/60 border-slate-800 backdrop-blur-xl group hover:border-white/10 hover:bg-slate-900/80 transition-all duration-500"
+              "h-full relative overflow-hidden bg-[#0a0b14] border-white/5 group hover:border-white/10 hover:bg-[#0f101f] transition-all duration-500"
             )}>
               <CardContent className="p-6 pb-5 flex flex-col h-full">
                 <div className="flex items-start justify-between mb-6">

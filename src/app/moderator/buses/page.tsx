@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useRouter } from 'next/navigation';
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -176,7 +176,9 @@ export default function BusesPage() {
 
   // Real-time listeners handle data fetching automatically
 
-  const filteredBuses = buses.filter(bus => {
+  // Memoized so the bus list isn't re-filtered/re-sorted on every unrelated
+  // re-render — only when the data or active filters actually change.
+  const filteredBuses = useMemo(() => buses.filter(bus => {
     const matchesSearch =
       (bus.busNumber && bus.busNumber.toLowerCase().includes(searchTerm.toLowerCase())) ||
       (bus.routeName && bus.routeName.toLowerCase().includes(searchTerm.toLowerCase())) ||
@@ -190,7 +192,7 @@ export default function BusesPage() {
     const numA = extractNumber(a.busId || a.id || '');
     const numB = extractNumber(b.busId || b.id || '');
     return parseInt(numA) - parseInt(numB);
-  });
+  }), [buses, searchTerm, colorFilter, statusFilter]);
 
   // Export buses data
   const handleExportBuses = async () => {

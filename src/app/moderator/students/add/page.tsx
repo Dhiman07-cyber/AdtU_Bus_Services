@@ -38,7 +38,6 @@ type StudentFormData = {
   enrollmentId: string;
   gender: string;
   dob: string; // Add date of birth field
-  age: string; // Keep age field but it will be auto-calculated
   faculty: string;
   department: string;
   semester: string;
@@ -79,7 +78,6 @@ export default function AddStudentForm() {
       enrollmentId: '',
       gender: '',
       dob: '',
-      age: '',
       faculty: '',
       department: '',
       semester: '',
@@ -481,21 +479,6 @@ export default function AddStudentForm() {
   const handleDateChange = (name: string, value: string) => {
     setFormData(prev => ({ ...prev, [name]: value }));
 
-    // Calculate age when date of birth changes
-    if (name === 'dob' && value) {
-      const birthDate = new Date(value);
-      const today = new Date();
-      let age = today.getFullYear() - birthDate.getFullYear();
-      const monthDiff = today.getMonth() - birthDate.getMonth();
-
-      // Adjust age if birthday hasn't occurred yet this year
-      if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birthDate.getDate())) {
-        age--;
-      }
-
-      setFormData(prev => ({ ...prev, age: age.toString() }));
-    }
-
     // Clear error when user makes a selection
     if (errors[name]) {
       setErrors(prev => {
@@ -570,13 +553,6 @@ export default function AddStudentForm() {
     // Alternate phone validation - if provided, only numbers and minimum 10 digits
     if (formData.alternatePhone && !/^\d{10,}$/.test(formData.alternatePhone)) {
       newErrors.alternatePhone = "Alternate phone number must be at least 10 digits";
-    }
-
-    // Age validation - only positive numbers (auto-calculated, so just check if it's valid)
-    if (!formData.age) {
-      newErrors.age = "Age is required";
-    } else if (!/^\d+$/.test(formData.age) || parseInt(formData.age) <= 0) {
-      newErrors.age = "Age must be a positive number";
     }
 
     // Gender validation
@@ -692,7 +668,6 @@ export default function AddStudentForm() {
             profilePhotoUrl: profilePhotoUrl,
             enrollmentId: formData.enrollmentId,
             gender: formData.gender,
-            age: parseInt(formData.age) || 0, // Ensure number
             faculty: formData.faculty,
             department: formData.department,
             semester: formData.semester,
@@ -767,7 +742,6 @@ export default function AddStudentForm() {
       enrollmentId: '',
       gender: '',
       dob: '',
-      age: '',
       faculty: '',
       department: '',
       semester: '',
@@ -811,7 +785,7 @@ export default function AddStudentForm() {
           </div>
           <Link
             href="/moderator/students"
-            className="inline-flex items-center px-3 py-1.5 bg-white/10 hover:bg-white/20 text-white text-sm border border-white/20 hover:border-white/30 rounded-lg transition-all duration-200 hover:shadow-lg backdrop-blur-sm"
+            className="inline-flex items-center px-3 py-1.5 bg-white/10 hover:bg-white/20 text-white text-sm border border-white/20 hover:border-white/30 rounded-lg transition-all duration-200 hover:shadow-lg"
           >
             Back
           </Link>
@@ -820,7 +794,7 @@ export default function AddStudentForm() {
 
       {/* Main Content */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="bg-gradient-to-br from-[#0E0F12] to-[#1A1B23] backdrop-blur-sm rounded-2xl shadow-2xl border border-white/10 p-10 hover:border-white/20 transition-all duration-300">
+        <div className="bg-gradient-to-br from-[#0E0F12] to-[#1A1B23] rounded-2xl shadow-2xl border border-white/10 p-10 hover:border-white/20 transition-all duration-300">
           <div>
             <form onSubmit={handleSubmit} className="space-y-4">
               {/* Profile Photo Section - Moved to top center */}
@@ -841,7 +815,7 @@ export default function AddStudentForm() {
                     </div>
                   )}
 
-                  <div className="absolute inset-0 rounded-full bg-black/40 opacity-0 group-hover:opacity-100 transition-all duration-300 flex items-center justify-center backdrop-blur-[2px]">
+                  <div className="absolute inset-0 rounded-full bg-black/40 opacity-0 group-hover:opacity-100 transition-all duration-300 flex items-center justify-center">
                     <Camera className="h-6 w-6 text-white drop-shadow-md transform scale-90 group-hover:scale-100 transition-transform" />
                   </div>
 
@@ -902,34 +876,17 @@ export default function AddStudentForm() {
                     {errors.gender && <p className="text-red-500 text-[10px]">{errors.gender}</p>}
                   </div>
 
-                  <div className="grid grid-cols-5 gap-2">
-                    <div className="col-span-4">
-                      <EnhancedDatePicker
-                        id="dob"
-                        label="Date of Birth"
-                        value={formData.dob}
-                        onChange={(value) => handleDateChange('dob', value)}
-                        required
-                        validationType="dob-student"
-                        className="h-9"
-                      />
-                      {errors.dob && <p className="text-red-500 text-[10px]">{errors.dob}</p>}
-                    </div>
-
-                    <div className="col-span-1">
-                      <Label htmlFor="age" className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
-                        Age
-                      </Label>
-                      <Input
-                        type="number"
-                        id="age"
-                        name="age"
-                        value={formData.age}
-                        readOnly
-                        className="bg-gray-100 dark:bg-gray-700 cursor-not-allowed h-9 w-full"
-                      />
-                      {errors.age && <p className="text-red-500 text-[10px]">{errors.age}</p>}
-                    </div>
+                  <div>
+                    <EnhancedDatePicker
+                      id="dob"
+                      label="Date of Birth"
+                      value={formData.dob}
+                      onChange={(value) => handleDateChange('dob', value)}
+                      required
+                      validationType="dob-student"
+                      className="h-9"
+                    />
+                    {errors.dob && <p className="text-red-500 text-[10px]">{errors.dob}</p>}
                   </div>
 
                   <div>

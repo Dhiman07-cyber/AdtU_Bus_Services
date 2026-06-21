@@ -155,6 +155,11 @@ export class TripLockService {
             return { success: false, reason: 'Firebase Admin not initialized', errorCode: 'FIRESTORE_ERROR' };
         }
 
+        const idPattern = /^[a-zA-Z0-9_-]{1,128}$/;
+        if (!idPattern.test(driverId) || !idPattern.test(busId) || !idPattern.test(routeId) || !idPattern.test(tripId)) {
+            return { success: false, reason: 'Invalid ID formats provided', errorCode: 'VALIDATION_ERROR' };
+        }
+
         try {
             // STEP 1: Acquire Firestore lock via transaction
             const busRef = adminDb.collection('buses').doc(busId) as FirebaseFirestore.DocumentReference<FirebaseFirestore.DocumentData>;

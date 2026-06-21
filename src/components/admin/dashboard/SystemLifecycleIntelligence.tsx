@@ -40,7 +40,7 @@ export default function SystemLifecycleIntelligence({ stats }: SystemLifecycleIn
    const expiredCount = stats.expiredStudents;
 
    return (
-      <Card className="relative overflow-hidden bg-slate-900/40 border-slate-700/50 backdrop-blur-2xl shadow-2xl h-full transition-all duration-500 hover:bg-slate-900/60 font-sans">
+      <Card className="relative overflow-hidden bg-[#0a0b14] border-white/5 shadow-2xl h-full transition-colors duration-300 hover:bg-[#0f101f] font-sans">
          <CardContent className="p-4 pt-2 md:p-6 md:pt-2 h-full flex flex-col">
             {/* Header Row */}
             <div className="flex items-center justify-between mb-5">

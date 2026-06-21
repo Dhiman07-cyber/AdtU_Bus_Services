@@ -45,6 +45,7 @@ export interface PaymentStepProps extends StepProps {
   setReceiptFile: (file: File | null) => void;
   setReceiptPreview: (url: string) => void;
   showToast: (msg: string, type: 'success' | 'error' | 'info') => void;
+  receiptPreview: string;
 }
 
 export interface ReviewStepProps extends StepProps {

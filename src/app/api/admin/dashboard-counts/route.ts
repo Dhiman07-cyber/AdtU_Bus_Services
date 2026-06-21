@@ -32,6 +32,7 @@ export const GET = withSecurity(
         activeStudentsSnap,
         morningStudentsSnap,
         eveningStudentsSnap,
+        expiredStudentsSnap,
         driversSnap,
         busesSnap,
         routesSnap,
@@ -48,6 +49,7 @@ export const GET = withSecurity(
         adminDb.collection('students').where('status', '==', 'active').count().get(),
         adminDb.collection('students').where('status', '==', 'active').where('shift', '==', 'Morning').count().get(),
         adminDb.collection('students').where('status', '==', 'active').where('shift', '==', 'Evening').count().get(),
+        adminDb.collection('students').where('status', '==', 'expired').count().get(),
         adminDb.collection('drivers').count().get(),
         adminDb.collection('buses').get(),
         adminDb.collection('routes').get(),
@@ -66,9 +68,13 @@ export const GET = withSecurity(
       const allBuses: any[] = [];
       let operationalBuses = 0;
       let highLoadBusCount = 0;
+      let activeDrivers = 0;
 
       busesSnap.forEach(doc => {
         const d = doc.data();
+        if (d.driverUID || d.assignedDriverId || d.activeDriverId) {
+          activeDrivers++;
+        }
         const currentMembers = d.currentMembers || 0;
         let capacity = 55;
         if (d.totalCapacity) capacity = d.totalCapacity;
@@ -88,6 +94,7 @@ export const GET = withSecurity(
       const activeStudents = activeStudentsSnap.data().count;
       const morningStudents = morningStudentsSnap.data().count;
       const eveningStudents = eveningStudentsSnap.data().count;
+      const expiredStudents = expiredStudentsSnap.data().count;
 
       // ── 4. Process Active Trips (Supabase) ──
       const activeTripData = (statusSnap.data || []).map(status => {
@@ -121,8 +128,8 @@ export const GET = withSecurity(
       };
 
       const payload = {
-        totalStudents, activeStudents, morningStudents, eveningStudents,
-        totalDrivers: driversSnap.data().count, totalBuses: busesSnap.size,
+        totalStudents, activeStudents, morningStudents, eveningStudents, expiredStudents,
+        totalDrivers: driversSnap.data().count, activeDrivers, totalBuses: busesSnap.size,
         operationalBuses, activeBuses: statusSnap.data?.length || 0,
         enrouteBuses: statusSnap.data?.length || 0,
         pendingApplications: pendingAppsSnap.data().count,

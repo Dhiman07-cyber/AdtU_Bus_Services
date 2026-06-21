@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useRouter } from 'next/navigation';
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -138,8 +138,9 @@ export default function RoutesPage() {
     }
   });
 
-  // Process and combine data
-  const routes = routesData.map((route: any) => {
+  // Process and combine data — memoized so the per-route bus matching (an
+  // O(routes×buses) scan) only runs when routes or buses actually change.
+  const routes = useMemo(() => routesData.map((route: any) => {
     // Find buses assigned to this route
     const assignedBusesList = buses.filter((bus: any) =>
       bus.routeId === route.id ||
@@ -157,7 +158,7 @@ export default function RoutesPage() {
       stops: route.stops || [],
       assignedBuses: assignedBusesList
     };
-  });
+  }), [routesData, buses]);
 
   const [searchTerm, setSearchTerm] = useState("");
   const [shiftFilter, setShiftFilter] = useState("all");
@@ -173,7 +174,7 @@ export default function RoutesPage() {
     return match ? parseInt(match[1]) : 999;
   };
 
-  const filteredRoutes = routes.filter((route: any) => {
+  const filteredRoutes = useMemo(() => routes.filter((route: any) => {
     const matchesSearch =
       (route.routeName && route.routeName.toLowerCase().includes(searchTerm.toLowerCase())) ||
       (route.assignedBuses && route.assignedBuses.some((bus: any) =>
@@ -187,7 +188,7 @@ export default function RoutesPage() {
     const numA = extractRouteNumber(a.routeName || '');
     const numB = extractRouteNumber(b.routeName || '');
     return numA - numB;
-  });
+  }), [routes, searchTerm, shiftFilter]);
 
   // Export routes data
   const handleExportRoutes = async () => {

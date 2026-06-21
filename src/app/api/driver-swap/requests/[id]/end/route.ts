@@ -36,7 +36,7 @@ export async function POST(
     const actorUID = decodedToken.uid;
     console.log('✅ Token verified, actor:', actorUID.substring(0, 8) + '...');
 
-    console.log(`📥 End swap request received:`, {
+    console.log('📥 End swap request received:', {
       requestId,
       actor: actorUID.substring(0, 8) + '...'
     });

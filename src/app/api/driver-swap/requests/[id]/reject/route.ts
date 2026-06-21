@@ -24,7 +24,7 @@ export async function POST(
     const decodedToken = await auth.verifyIdToken(token);
     const rejectorUID = decodedToken.uid;
 
-    console.log(`📥 Reject swap request: ${requestId} by ${rejectorUID.substring(0, 8)}`);
+    console.log('📥 Reject swap request: %s by %s', requestId, rejectorUID.substring(0, 8));
 
     // Reject the swap request using Supabase
     const result = await DriverSwapSupabaseService.rejectSwapRequest(requestId, rejectorUID);

@@ -445,7 +445,7 @@ export default function AdminVerificationPage() {
                             className="w-full"
                         >
                             {/* Ready / Scanner Card */}
-                            <div className="relative w-full aspect-[3/4.8] sm:aspect-[3/3.9] bg-white/5 backdrop-blur-xl border border-white/10 rounded-[40px] overflow-hidden flex flex-col shadow-2xl">
+                            <div className="relative w-full aspect-[3/4.8] sm:aspect-[3/3.9] bg-white/5 backdrop-blur-md border border-white/10 rounded-[40px] overflow-hidden flex flex-col shadow-2xl">
                                 <div className="absolute inset-0 opacity-5 pointer-events-none">
                                     <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/carbon-fibre.png')] mix-blend-overlay" />
                                 </div>
@@ -473,7 +473,7 @@ export default function AdminVerificationPage() {
                                                     animate={{ top: ['18%', '72%'] }}
                                                     transition={{ duration: 2.5, repeat: Infinity, repeatType: 'reverse', ease: 'easeInOut' }}
                                                 />
-                                                <motion.div className="absolute bottom-24 left-1/2 -translate-x-1/2 px-5 py-2.5 bg-black/70 backdrop-blur-xl border border-white/20 rounded-full shadow-xl">
+                                                <motion.div className="absolute bottom-24 left-1/2 -translate-x-1/2 px-5 py-2.5 bg-black/70 backdrop-blur-md border border-white/20 rounded-full shadow-xl">
                                                     <div className="text-white text-[11px] font-bold uppercase tracking-wider flex items-center gap-2">
                                                         <Scan className="w-4 h-4 text-blue-400" />
                                                         Align QR Code
@@ -483,7 +483,7 @@ export default function AdminVerificationPage() {
 
                                             <motion.button
                                                 onClick={stopScanning}
-                                                className="absolute bottom-6 left-1/2 -translate-x-1/2 px-6 py-2.5 bg-red-600/90 hover:bg-red-500 border border-red-400/30 text-white rounded-full text-xs font-black transition-all backdrop-blur-md shadow-lg"
+                                                className="absolute bottom-6 left-1/2 -translate-x-1/2 px-6 py-2.5 bg-red-600/90 hover:bg-red-500 border border-red-400/30 text-white rounded-full text-xs font-black transition-colors shadow-lg"
                                                 whileTap={{ scale: 0.95 }}
                                             >
                                                 STOP SCANNER
@@ -527,7 +527,7 @@ export default function AdminVerificationPage() {
                                     )}
 
                                     {cameraError && (
-                                        <div className="absolute inset-0 bg-[#020617]/95 flex flex-col items-center justify-center p-8 text-center backdrop-blur-md">
+                                        <div className="absolute inset-0 bg-[#020617]/95 flex flex-col items-center justify-center p-8 text-center">
                                             <div className="w-16 h-16 bg-red-500/10 rounded-2xl flex items-center justify-center mb-6 border border-red-500/20">
                                                 <AlertCircle className="h-8 w-8 text-red-500" />
                                             </div>
@@ -538,7 +538,7 @@ export default function AdminVerificationPage() {
                                     )}
 
                                     {error && !isVerifying && (
-                                        <div className="absolute inset-0 bg-[#020617]/95 flex flex-col items-center justify-center p-8 text-center backdrop-blur-md">
+                                        <div className="absolute inset-0 bg-[#020617]/95 flex flex-col items-center justify-center p-8 text-center">
                                             <div className="w-16 h-16 bg-red-500/10 rounded-2xl flex items-center justify-center mb-6 border border-red-500/20">
                                                 <XCircle className="h-8 w-8 text-red-500" />
                                             </div>
@@ -562,7 +562,7 @@ export default function AdminVerificationPage() {
                             className="w-full flex flex-col items-center gap-5 pb-8"
                         >
                             {/* Orientation OSwitch (Matching Driver's Sticky Layout) */}
-                            <div className="flex bg-[#1a1b2e] p-1 rounded-2xl border border-white/10 backdrop-blur-md sticky top-0 z-20">
+                            <div className="flex bg-[#1a1b2e] p-1 rounded-2xl border border-white/10 sticky top-0 z-20">
                                 <button
                                     onClick={() => setIsVertical(false)}
                                     className={`flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs font-bold transition-all ${!isVertical ? 'bg-blue-600 text-white' : 'text-white/50 hover:text-white/70'}`}
@@ -867,11 +867,11 @@ export default function AdminVerificationPage() {
                         initial={{ opacity: 0 }}
                         animate={{ opacity: 1 }}
                         exit={{ opacity: 0 }}
-                        className="fixed inset-0 z-[9999] bg-[#020617]/95 backdrop-blur-md flex flex-col items-center justify-center p-4"
+                        className="fixed inset-0 z-[9999] bg-[#020617]/95 flex flex-col items-center justify-center p-4"
                     >
                         <div className="w-full max-w-[400px]">
                             {/* Scanner Card */}
-                            <div className="relative w-full aspect-[3/4.2] bg-white/5 backdrop-blur-xl border border-white/10 rounded-[40px] overflow-hidden flex flex-col shadow-2xl">
+                            <div className="relative w-full aspect-[3/4.2] bg-white/5 backdrop-blur-md border border-white/10 rounded-[40px] overflow-hidden flex flex-col shadow-2xl">
                                 <div className="flex-1 flex flex-col items-center justify-center p-8 relative">
                                     {isScanning && !cameraError ? (
                                         <div className="absolute inset-0">
