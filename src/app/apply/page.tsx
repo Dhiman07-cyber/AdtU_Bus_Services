@@ -298,7 +298,7 @@ export default function ApplyLandingPage() {
       <section
         className="relative h-screen snap-start snap-always flex items-center justify-center px-6 lg:px-8"
         style={{
-          backgroundImage: 'linear-gradient(to bottom, #0F1117 0%, rgba(15, 17, 23, 0.3) 15%, rgba(15, 17, 23, 0.3) 85%, #0F1117 100%), url(/apply/hero1.png)',
+          backgroundImage: 'linear-gradient(to bottom, #0F1117 0%, rgba(15, 17, 23, 0.3) 15%, rgba(15, 17, 23, 0.3) 85%, #0F1117 100%), url(/apply/hero1.webp)',
           backgroundSize: 'cover',
           backgroundPosition: 'center',
           backgroundRepeat: 'no-repeat'
@@ -342,7 +342,7 @@ export default function ApplyLandingPage() {
       <section
         className="relative h-screen snap-start snap-always flex items-center justify-center px-6 lg:px-8"
         style={{
-          backgroundImage: 'linear-gradient(to bottom, #0F1117 0%, rgba(15, 17, 23, 0.3) 15%, rgba(15, 17, 23, 0.3) 85%, #0F1117 100%), url(/apply/image3.png)',
+          backgroundImage: 'linear-gradient(to bottom, #0F1117 0%, rgba(15, 17, 23, 0.3) 15%, rgba(15, 17, 23, 0.3) 85%, #0F1117 100%), url(/apply/image3.webp)',
           backgroundSize: 'cover',
           backgroundPosition: 'center',
           backgroundRepeat: 'no-repeat'
@@ -414,7 +414,7 @@ export default function ApplyLandingPage() {
           <div
             className="absolute inset-0 z-0 bg-[#0F1117] transition-transform duration-500 ease-out"
             style={{
-              backgroundImage: 'linear-gradient(to bottom, #0F1117 0%, rgba(15, 17, 23, 0.4) 15%, rgba(15, 17, 23, 0.4) 85%, #0F1117 100%), url(/apply/image2.png)',
+              backgroundImage: 'linear-gradient(to bottom, #0F1117 0%, rgba(15, 17, 23, 0.4) 15%, rgba(15, 17, 23, 0.4) 85%, #0F1117 100%), url(/apply/image2.webp)',
               backgroundSize: 'cover',
               backgroundPosition: 'center',
               backgroundRepeat: 'no-repeat',
@@ -647,7 +647,7 @@ export default function ApplyLandingPage() {
       <section
         className="relative h-screen snap-start snap-always flex items-center justify-center px-6 lg:px-8"
         style={{
-          backgroundImage: 'linear-gradient(to bottom, #0F1117 0%, rgba(15, 17, 23, 0.3) 15%, rgba(15, 17, 23, 0.3) 85%, #0F1117 100%), url(/apply/image3.png)',
+          backgroundImage: 'linear-gradient(to bottom, #0F1117 0%, rgba(15, 17, 23, 0.3) 15%, rgba(15, 17, 23, 0.3) 85%, #0F1117 100%), url(/apply/image3.webp)',
           backgroundSize: 'cover',
           backgroundPosition: 'center',
           backgroundRepeat: 'no-repeat'
@@ -692,7 +692,7 @@ export default function ApplyLandingPage() {
       <section
         className="relative h-screen snap-start snap-always flex items-center justify-center px-6 lg:px-8 bg-[#0F1117]"
         style={{
-          backgroundImage: 'linear-gradient(to bottom, #0F1117 0%, rgba(15, 17, 23, 0.45) 15%, rgba(15, 17, 23, 0.45) 85%, #0F1117 100%), url(/apply/image2.png)',
+          backgroundImage: 'linear-gradient(to bottom, #0F1117 0%, rgba(15, 17, 23, 0.45) 15%, rgba(15, 17, 23, 0.45) 85%, #0F1117 100%), url(/apply/image2.webp)',
           backgroundSize: 'cover',
           backgroundPosition: 'center',
           backgroundRepeat: 'no-repeat'

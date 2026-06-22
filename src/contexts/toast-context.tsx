@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, useState, ReactNode } from 'react';
+import { createContext, useContext, useState, useCallback, useMemo, ReactNode } from 'react';
 import Toast from '@/components/toast';
 import { createRandomId } from '@/lib/security/random-id';
 
@@ -22,17 +22,27 @@ const ToastContext = createContext<ToastContextType | undefined>(undefined);
 export const ToastProvider = ({ children }: { children: ReactNode }) => {
   const [toasts, setToasts] = useState<Toast[]>([]);
 
-  const addToast = (message: string, type: ToastType) => {
+  // Stable identities: addToast is referenced in the dependency arrays of many effects
+  // (e.g. the student tracking page's realtime trip-status subscriptions). Without
+  // memoization, every toast caused ToastProvider to re-render and hand out a NEW
+  // addToast, which tore down + recreated those Supabase channels — risking a brief
+  // gap in bus visibility / trip updates. useCallback + useMemo keep the value stable.
+  const addToast = useCallback((message: string, type: ToastType) => {
     const id = createRandomId();
     setToasts((prev) => [...prev, { id, message, type }]);
-  };
+  }, []);
 
-  const removeToast = (id: string) => {
+  const removeToast = useCallback((id: string) => {
     setToasts((prev) => prev.filter((toast) => toast.id !== id));
-  };
+  }, []);
+
+  const contextValue = useMemo(
+    () => ({ addToast, showToast: addToast }),
+    [addToast]
+  );
 
   return (
-    <ToastContext.Provider value={{ addToast, showToast: addToast }}>
+    <ToastContext.Provider value={contextValue}>
       {children}
       {toasts.map((toast) => (
         <Toast

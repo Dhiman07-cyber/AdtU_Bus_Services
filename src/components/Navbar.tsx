@@ -12,7 +12,6 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { SignOutButton } from "@/components/signout-button";
-import { CompactConnectionStatus } from '@/components/ConnectionStatusIndicator';
 import { CompactPingIndicator } from '@/components/PingIndicator';
 import { useSystemConfig } from '@/contexts/SystemConfigContext';
 import { useNotifications } from '@/contexts/NotificationContext';
@@ -42,6 +41,11 @@ interface MobileRoute {
 
 const Navbar = React.memo(function Navbar({ onMenuToggle, isSidebarOpen = false }: NavbarProps) {
   const { currentUser, userData, needsApplication } = useAuth();
+  const googleProvider = currentUser?.providerData?.find(p => p.providerId === 'google.com');
+  const rawGoogleName = googleProvider?.displayName || currentUser?.displayName;
+  const googleName = (rawGoogleName && !rawGoogleName.includes('@'))
+    ? rawGoogleName
+    : (userData?.fullName || userData?.name || "User");
   const router = useRouter();
   const pathname = usePathname();
   const { appName } = useSystemConfig();
@@ -235,7 +239,7 @@ const Navbar = React.memo(function Navbar({ onMenuToggle, isSidebarOpen = false 
                       </div>
                       <div className="flex-1 min-w-0 space-y-0.5">
                         <p className="text-sm font-semibold text-theme-text truncate leading-none">
-                          {userData?.fullName || userData?.name || currentUser?.displayName || "User"}
+                          {googleName}
                         </p>
                         <p className="text-[10px] text-theme-text-secondary truncate font-medium">
                           {userData?.email || currentUser?.email}
@@ -317,7 +321,7 @@ const Navbar = React.memo(function Navbar({ onMenuToggle, isSidebarOpen = false 
                 </div>
                 <div className="flex-1 min-w-0 flex flex-col gap-0.5">
                   <h2 className="text-lg font-bold text-white tracking-tight leading-snug truncate">
-                    {userData?.fullName || userData?.name || currentUser?.displayName || "User"}
+                    {googleName}
                   </h2>
                   <p className="text-xs text-gray-400 font-medium truncate">
                     {userData?.email || currentUser?.email}

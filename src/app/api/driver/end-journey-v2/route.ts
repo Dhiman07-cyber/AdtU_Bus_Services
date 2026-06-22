@@ -193,8 +193,17 @@ async function broadcastTripEnd(
 
   for (const channelName of channels) {
     try {
+      // NOTE: channel.httpSend(...) was used here previously but is NOT a method on
+      // RealtimeChannel — it threw every time and was swallowed by this catch, so the
+      // SERVER never actually notified students of trip end (it only worked because the
+      // driver's browser also broadcasts trip_ended + students poll trip-status every 30s).
+      // Use the same subscribe → send → removeChannel pattern that start-journey-v2 uses so
+      // trip end propagates reliably from the server even if the driver's device drops off
+      // immediately after the API call.
       const channel = supabase.channel(channelName);
-      await channel.httpSend('trip_ended', payload);
+      await channel.subscribe();
+      await channel.send({ type: 'broadcast', event: 'trip_ended', payload });
+      await supabase.removeChannel(channel);
       console.log(`✅ Broadcast sent to ${channelName}`);
     } catch (broadcastErr) {
       console.warn(`⚠️ Broadcast to ${channelName} failed (non-critical):`, broadcastErr);

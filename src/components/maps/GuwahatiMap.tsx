@@ -2,6 +2,7 @@
 
 import React, { useEffect, useMemo, useRef, useState, useImperativeHandle, forwardRef } from "react";
 import maplibregl, { type Map as MapLibreMap, Marker as MapLibreMarker, LngLatLike } from "maplibre-gl";
+import "maplibre-gl/dist/maplibre-gl.css";
 import { ensurePmtilesProtocolRegistered } from "@/lib/maps/pmtiles-protocol";
 import { getGuwahatiPmtilesUrl, isNonEmptyHttpUrl } from "@/lib/maps/guwahati-pmtiles";
 
@@ -155,15 +156,26 @@ function makeMarkerEl(kind: MapPoint["kind"], theme: MapTheme, label?: string) {
   return container;
 }
 
-function animateMarkerTo(marker: MapLibreMarker, from: { lat: number; lng: number }, to: { lat: number; lng: number }) {
+function animateMarkerTo(
+  marker: MapLibreMarker,
+  from: { lat: number; lng: number },
+  to: { lat: number; lng: number },
+  rafRef: React.MutableRefObject<number | null>
+) {
+  // Cancel any in-flight animation so overlapping updates don't fight each other
+  if (rafRef.current != null) cancelAnimationFrame(rafRef.current);
   const start = performance.now();
   const step = (t: number) => {
     const p = Math.min(1, (t - start) / 1000);
     const e = 1 - Math.pow(1 - p, 4);
     marker.setLngLat([from.lng + (to.lng - from.lng) * e, from.lat + (to.lat - from.lat) * e]);
-    if (p < 1) requestAnimationFrame(step);
+    if (p < 1) {
+      rafRef.current = requestAnimationFrame(step);
+    } else {
+      rafRef.current = null;
+    }
   };
-  requestAnimationFrame(step);
+  rafRef.current = requestAnimationFrame(step);
 }
 
 type Props = {
@@ -192,6 +204,7 @@ const GuwahatiMap = forwardRef<GuwahatiMapHandles, Props>(({
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
   const busMarkerRef = useRef<MapLibreMarker | null>(null);
+  const busAnimationRef = useRef<number | null>(null);
   const markersRef = useRef<Map<string, MapLibreMarker>>(new Map());
 
   const [fatal, setFatal] = useState<string | null>(null);
@@ -261,6 +274,10 @@ const GuwahatiMap = forwardRef<GuwahatiMapHandles, Props>(({
     
     return () => {
       isMounted = false;
+      if (busAnimationRef.current != null) {
+        cancelAnimationFrame(busAnimationRef.current);
+        busAnimationRef.current = null;
+      }
       if (mapRef.current) {
         mapRef.current.remove();
         mapRef.current = null;
@@ -279,6 +296,7 @@ const GuwahatiMap = forwardRef<GuwahatiMapHandles, Props>(({
 
   useEffect(() => {
     if (!mapRef.current || !mapLoaded || !busPosition) {
+      if (busAnimationRef.current != null) { cancelAnimationFrame(busAnimationRef.current); busAnimationRef.current = null; }
       if (busMarkerRef.current) { busMarkerRef.current.remove(); busMarkerRef.current = null; }
       return;
     }
@@ -288,6 +306,7 @@ const GuwahatiMap = forwardRef<GuwahatiMapHandles, Props>(({
     const kindChanged = lastKindRef.current !== primaryKind;
 
     if (themeChanged || kindChanged || !busMarkerRef.current) {
+      if (busAnimationRef.current != null) { cancelAnimationFrame(busAnimationRef.current); busAnimationRef.current = null; }
       if (busMarkerRef.current) busMarkerRef.current.remove();
       busMarkerRef.current = new maplibregl.Marker({ element: makeMarkerEl(primaryKind, theme) })
         .setLngLat([pos.lng, pos.lat])
@@ -295,7 +314,7 @@ const GuwahatiMap = forwardRef<GuwahatiMapHandles, Props>(({
       lastThemeRef.current = theme;
       lastKindRef.current = primaryKind;
     } else {
-      animateMarkerTo(busMarkerRef.current, busMarkerRef.current.getLngLat() as any, pos);
+      animateMarkerTo(busMarkerRef.current, busMarkerRef.current.getLngLat() as any, pos, busAnimationRef);
     }
   }, [busPosition?.lat, busPosition?.lng, theme, primaryKind, mapLoaded]);
 

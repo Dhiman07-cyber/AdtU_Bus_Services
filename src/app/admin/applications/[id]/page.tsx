@@ -9,6 +9,8 @@ import { Badge } from '@/components/ui/badge';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+
 import { useToast } from '@/contexts/toast-context';
 import {
   Loader2, CheckCircle, XCircle, ArrowLeft, User as UserIcon, Phone,
@@ -51,6 +53,18 @@ export default function AdminApplicationDetailPage() {
   const [routeError, setRouteError] = useState(false);
   const [paymentData, setPaymentData] = useState<any>(null);
   const [fetchingPayment, setFetchingPayment] = useState(false);
+
+  const [sessionStartYear, setSessionStartYear] = useState<number>(0);
+  const [sessionEndYear, setSessionEndYear] = useState<number>(0);
+  const [approveConfirmOpen, setApproveConfirmOpen] = useState(false);
+
+  const originalStartYear = application?.formData?.sessionInfo?.sessionStartYear || 0;
+  const originalEndYear = application?.formData?.sessionInfo?.sessionEndYear || 0;
+  const hasUnsavedChanges = application ? (
+    (sessionStartYear !== 0 && sessionStartYear !== Number(originalStartYear)) ||
+    (sessionEndYear !== 0 && sessionEndYear !== Number(originalEndYear))
+  ) : false;
+
 
   const copyToClipboard = async (text: string) => {
     await navigator.clipboard.writeText(text);
@@ -174,6 +188,11 @@ export default function AdminApplicationDetailPage() {
       if (response.ok) {
         const data = await response.json();
         setApplication(data.application);
+        if (data.application?.formData?.sessionInfo) {
+          setSessionStartYear(Number(data.application.formData.sessionInfo.sessionStartYear) || new Date().getFullYear());
+          setSessionEndYear(Number(data.application.formData.sessionInfo.sessionEndYear) || (Number(data.application.formData.sessionInfo.sessionStartYear) || new Date().getFullYear()) + 1);
+        }
+
 
         // Fetch bus, route, and verifier data in parallel
         const promises = [];
@@ -310,7 +329,7 @@ export default function AdminApplicationDetailPage() {
     }
   };
 
-  const handleApprove = async () => {
+  const handleApprove = async (useModified = false) => {
     if (!userData) return;
 
     // If we have bus data but routeError is true, it's a minor inconsistency
@@ -324,6 +343,15 @@ export default function AdminApplicationDetailPage() {
     try {
       const token = await currentUser?.getIdToken();
 
+      const body: any = {
+        studentUid: applicationId
+      };
+
+      if (useModified) {
+        body.sessionStartYear = sessionStartYear;
+        body.sessionEndYear = sessionEndYear;
+      }
+
       // Use the standard approve endpoint that includes email notification
       const response = await fetch('/api/applications/approve-unauth', {
         method: 'POST',
@@ -331,9 +359,7 @@ export default function AdminApplicationDetailPage() {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
         },
-        body: JSON.stringify({
-          studentUid: applicationId
-        })
+        body: JSON.stringify(body)
       });
 
       if (response.ok) {
@@ -551,7 +577,13 @@ export default function AdminApplicationDetailPage() {
                       ) : (
                         // Normal approval flow
                         <Button
-                          onClick={handleApprove}
+                          onClick={() => {
+                            if (hasUnsavedChanges) {
+                              setApproveConfirmOpen(true);
+                            } else {
+                              handleApprove(false);
+                            }
+                          }}
                           disabled={processing}
                           className="flex-1 md:flex-none bg-emerald-600 hover:bg-emerald-700 text-white shadow-xl shadow-emerald-900/10 gap-2 h-11 px-6 md:min-w-[120px]"
                         >
@@ -628,10 +660,18 @@ export default function AdminApplicationDetailPage() {
               {/* Column 2: Service Configuration */}
               <div className="flex flex-col gap-8">
                 {/* Title */}
-                <div className="flex items-center gap-2">
-                  <div className="h-5 w-1 bg-emerald-500 rounded-full"></div>
-                  <h3 className="text-[11px] font-bold text-zinc-500 uppercase tracking-[0.2em]">Service Configuration</h3>
+                <div className="flex items-center gap-2 justify-between w-full">
+                  <div className="flex items-center gap-2">
+                    <div className="h-5 w-1 bg-emerald-500 rounded-full"></div>
+                    <h3 className="text-[11px] font-bold text-zinc-500 uppercase tracking-[0.2em]">Service Configuration</h3>
+                  </div>
+                  {hasUnsavedChanges && (
+                    <Badge variant="outline" className="bg-amber-500/10 text-amber-400 border-amber-500/20 text-[10px] py-0.5 px-2 font-medium animate-pulse">
+                      Modified
+                    </Badge>
+                  )}
                 </div>
+
 
                 {/* Content */}
                 <div className="grid grid-cols-2 gap-x-8 gap-y-5">
@@ -651,11 +691,55 @@ export default function AdminApplicationDetailPage() {
                   </div>
                   <InfoRow label="Bus Number" value={busData?.busNumber || 'PENDING'} isMono />
                   <InfoRow label="Operating Shift" value={application.formData?.shift || 'Flexible'} />
-                  <InfoRow label="Valid Until" value={(() => {
-                    const startYear = application.formData?.sessionInfo?.sessionStartYear || new Date().getFullYear();
-                    const duration = application.formData?.sessionInfo?.durationYears || 1;
-                    return `31 July ${startYear + duration}`;
-                  })()} />
+                  <div className="flex flex-col gap-1.5 min-w-0">
+                    <Label className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">Start Year</Label>
+                    <Select
+                      value={sessionStartYear.toString()}
+                      onValueChange={(value) => {
+                        const start = parseInt(value);
+                        setSessionStartYear(start);
+                        if (sessionEndYear <= start) {
+                          setSessionEndYear(start + 1);
+                        }
+                      }}
+                      disabled={application.state !== 'submitted'}
+                    >
+                      <SelectTrigger className="h-9 bg-white/5 border-white/10 hover:bg-white/10 text-white text-xs rounded-lg transition-colors focus:ring-1 focus:ring-indigo-500">
+                        <SelectValue placeholder="Start Year" />
+                      </SelectTrigger>
+                      <SelectContent className="bg-[#12131A] border-slate-800 text-white">
+                        <SelectItem value={new Date().getFullYear().toString()}>{new Date().getFullYear()}</SelectItem>
+                        <SelectItem value={(new Date().getFullYear() + 1).toString()}>{new Date().getFullYear() + 1}</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="flex flex-col gap-1.5 min-w-0">
+                    <Label className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">End Year</Label>
+                    <Select
+                      value={sessionEndYear.toString()}
+                      onValueChange={(value) => {
+                        setSessionEndYear(parseInt(value));
+                      }}
+                      disabled={application.state !== 'submitted'}
+                    >
+                      <SelectTrigger className="h-9 bg-white/5 border-white/10 hover:bg-white/10 text-white text-xs rounded-lg transition-colors focus:ring-1 focus:ring-indigo-500">
+                        <SelectValue placeholder="End Year" />
+                      </SelectTrigger>
+                      <SelectContent className="bg-[#12131A] border-slate-800 text-white">
+                        <SelectItem value={(sessionStartYear + 1).toString()}>{sessionStartYear + 1}</SelectItem>
+                        <SelectItem value={(sessionStartYear + 2).toString()}>{sessionStartYear + 2}</SelectItem>
+                        <SelectItem value={(sessionStartYear + 3).toString()}>{sessionStartYear + 3}</SelectItem>
+                        <SelectItem value={(sessionStartYear + 4).toString()}>{sessionStartYear + 4}</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <InfoRow 
+                    label="Valid Until" 
+                    value={sessionStartYear && sessionEndYear ? `31 July ${sessionEndYear}` : '—'} 
+                  />
+
                   <InfoRow
                     label="Assigned Pilot / Driver"
                     value={driverData?.name || driverData?.fullName || busData?.driverName || 'Allocating Pilot...'}
@@ -911,6 +995,73 @@ export default function AdminApplicationDetailPage() {
             </DialogContent>
           </Dialog>
         )}
+
+      {/* Approval Confirmation Dialog for Session Changes */}
+      <Dialog open={approveConfirmOpen} onOpenChange={setApproveConfirmOpen}>
+        <DialogContent className="max-w-md bg-[#12131A] text-white border-white/10 shadow-2xl sm:rounded-2xl">
+          <DialogHeader className="flex flex-col items-center text-center">
+            <div className="h-12 w-12 rounded-full bg-indigo-500/10 flex items-center justify-center border border-indigo-500/20 mb-3">
+              <CalendarDays className="h-6 w-6 text-indigo-400" />
+            </div>
+            <DialogTitle className="text-xl font-bold tracking-tight text-white">
+              Confirm Academic Year Update
+            </DialogTitle>
+            <DialogDescription className="text-zinc-400 text-sm mt-3 text-justify leading-relaxed">
+              You have updated the academic session details for this application. Please choose whether you want to save these modifications with the approval or proceed with the student's original session details.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="bg-white/5 border border-white/10 rounded-xl p-4 my-3 text-xs space-y-2">
+            <div className="flex justify-between">
+              <span className="text-slate-400">Original Start Year:</span>
+              <span className="font-semibold text-white">{originalStartYear}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-indigo-400">Modified Start Year:</span>
+              <span className="font-bold text-indigo-400">{sessionStartYear}</span>
+            </div>
+            <div className="h-px bg-white/10 my-2" />
+            <div className="flex justify-between">
+              <span className="text-slate-400">Original End Year:</span>
+              <span className="font-semibold text-white">{originalEndYear}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-emerald-400">Modified End Year:</span>
+              <span className="font-bold text-emerald-400">{sessionEndYear}</span>
+            </div>
+          </div>
+          <DialogFooter className="flex flex-col sm:flex-col gap-2 mt-4">
+            <Button
+              onClick={async () => {
+                setApproveConfirmOpen(false);
+                await handleApprove(true);
+              }}
+              disabled={processing}
+              className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-semibold h-10 rounded-lg shadow-lg shadow-indigo-600/20 transition-all duration-200"
+            >
+              Update & Approve
+            </Button>
+            <Button
+              variant="outline"
+              onClick={async () => {
+                setApproveConfirmOpen(false);
+                await handleApprove(false);
+              }}
+              disabled={processing}
+              className="w-full border-white/10 text-white hover:bg-white/5 h-10 rounded-lg transition-colors"
+            >
+              Approve Without Changes
+            </Button>
+            <Button
+              variant="ghost"
+              onClick={() => setApproveConfirmOpen(false)}
+              disabled={processing}
+              className="w-full text-zinc-400 hover:text-white hover:bg-white/5 h-10 rounded-lg transition-colors"
+            >
+              Cancel
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
         {/* Rejection Dialog */}
         <Dialog open={rejectDialogOpen} onOpenChange={(open) => {

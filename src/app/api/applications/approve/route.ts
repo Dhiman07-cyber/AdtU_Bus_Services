@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { adminAuth, adminDb } from '@/lib/firebase-admin';
+import { adminAuth, adminDb, FieldValue } from '@/lib/firebase-admin';
 import { Application, AuditLogEntry } from '@/lib/types/application';
 import { validateAndSuggestBus, incrementBusCapacity } from '@/lib/busCapacityService';
 import { calculateRenewalDate } from '@/lib/utils/renewal-utils';
@@ -100,23 +100,38 @@ export async function POST(request: NextRequest) {
     const approverName = approverData?.fullName || approverData?.name || 'Admin';
     const approverEmpId = approverData?.employeeId || approverData?.staffId || (adminSnap.exists ? 'ADMIN' : 'MOD');
     const approvedByDisplay = `${approverName} (${adminSnap.exists ? 'Admin' : approverEmpId})`;
+    const approverRole = adminSnap.exists ? 'admin' : 'moderator';
 
-    const { newValidUntil } = calculateRenewalDate(null, formData.sessionInfo.durationYears, deadlineConfig);
-    const blockDates = computeBlockDatesFromValidUntil(newValidUntil, deadlineConfig);
+    // Check for overridden session start/end years (Part 2 & 3)
+    const overrideStartYear = body.sessionStartYear ? Number(body.sessionStartYear) : null;
+    const overrideEndYear = body.sessionEndYear ? Number(body.sessionEndYear) : null;
+
+    // Compute final start year, duration, and end year based on overrides
+    const finalStartYear = overrideStartYear !== null ? overrideStartYear : Number(formData.sessionInfo?.sessionStartYear || new Date().getFullYear());
+    const finalEndYear = overrideEndYear !== null ? overrideEndYear : (Number(formData.sessionInfo?.sessionEndYear) || (finalStartYear + 1));
+    const finalDurationYears = overrideStartYear !== null && overrideEndYear !== null ? (overrideEndYear - overrideStartYear) : Number(formData.sessionInfo?.durationYears || 1);
+
+    const anchorMonth = deadlineConfig.academicYear.anchorMonth;
+    const anchorDay = deadlineConfig.academicYear.anchorDay;
+    const validUntilDate = new Date(finalEndYear, anchorMonth, anchorDay, 23, 59, 59, 999);
+    const validUntil = validUntilDate.toISOString();
+    const sessionEndYear = finalEndYear;
+
+    const blockDates = computeBlockDatesFromValidUntil(validUntil, deadlineConfig);
 
     const studentDoc = {
       address: formData.address, alternatePhone: formData.alternatePhone || '',
       approvedAt, approvedBy: approvedByDisplay, bloodGroup: formData.bloodGroup,
       busId, createdAt: approvedAt, department: formData.department, dob: formData.dob,
-      durationYears: formData.sessionInfo.durationYears, email: (appData as any).email || formData.email,
+      durationYears: finalDurationYears, email: (appData as any).email || formData.email,
       enrollmentId: formData.enrollmentId, faculty: formData.faculty, fullName: formData.fullName,
       gender: formData.gender, parentName: formData.parentName, parentPhone: formData.parentPhone,
       phoneNumber: formData.phoneNumber, profilePhotoUrl: formData.profilePhotoUrl || '',
       role: 'student', routeId: formData.routeId || '', semester: formData.semester,
-      sessionEndYear: new Date(newValidUntil).getFullYear(),
-      sessionStartYear: formData.sessionInfo.sessionStartYear, shift: normalizeShift(formData.shift),
+      sessionEndYear: sessionEndYear,
+      sessionStartYear: finalStartYear, shift: normalizeShift(formData.shift),
       status: 'active', stopId: finalStopId, uid: appData.applicantUid, updatedAt: approvedAt,
-      validUntil: newValidUntil, softBlock: blockDates.softBlock, hardBlock: blockDates.hardBlock,
+      validUntil: validUntil, softBlock: blockDates.softBlock, hardBlock: blockDates.hardBlock,
       paymentAmount: formData.paymentInfo?.amountPaid || 0, paid_on: approvedAt,
     };
 
@@ -145,10 +160,10 @@ export async function POST(request: NextRequest) {
           amount: onlinePayment.amount,
           method: 'Online',
           status: 'Completed',
-          sessionStartYear: onlinePayment.session_start_year,
-          sessionEndYear: studentDoc.sessionEndYear,
-          durationYears: onlinePayment.duration_years,
-          validUntil: new Date(newValidUntil),
+          sessionStartYear: finalStartYear,
+          sessionEndYear: sessionEndYear,
+          durationYears: finalDurationYears,
+          validUntil: new Date(validUntil),
           stopId: finalStopId,
           razorpayPaymentId: onlinePayment.razorpay_payment_id,
           razorpayOrderId: onlinePayment.razorpay_order_id,
@@ -167,17 +182,17 @@ export async function POST(request: NextRequest) {
           amount,
           paymentMethod: 'offline',
           status: 'completed',
-          sessionStartYear: formData.sessionInfo.sessionStartYear,
-          sessionEndYear: studentDoc.sessionEndYear,
-          durationYears: formData.sessionInfo.durationYears,
-          validUntil: newValidUntil,
+          sessionStartYear: finalStartYear,
+          sessionEndYear: sessionEndYear,
+          durationYears: finalDurationYears,
+          validUntil: validUntil,
           timestamp: approvedAt,
           offlineTransactionId: formData.paymentInfo?.paymentReference || `app_fee_${applicationId}`,
           approvedBy: {
             userId: uid,
             empId: approverEmpId,
             name: approverName,
-            role: adminSnap.exists ? 'admin' : 'moderator',
+            role: approverRole,
             email: decodedToken.email || '',
           },
           approvedByDisplay,
@@ -187,13 +202,37 @@ export async function POST(request: NextRequest) {
     }
 
     // 4. Batch/Parallelize ALL Firestore Writes & Deletions
-    // Using individual set/delete calls but firing in parallel is faster for distributed IDs
-    await Promise.all([
-      adminDb.collection('students').doc(appData.applicantUid).set(studentDoc),
-      adminDb.collection('users').doc(appData.applicantUid).set(userDoc),
-      adminDb.collection('unauthUsers').doc(appData.applicantUid).delete().catch(() => null),
-      adminDb.collection('applications').doc(applicationId).delete()
-    ]);
+    const batch = adminDb.batch();
+    batch.set(adminDb.collection('users').doc(appData.applicantUid), userDoc);
+    batch.set(adminDb.collection('students').doc(appData.applicantUid), studentDoc);
+    batch.delete(adminDb.collection('unauthUsers').doc(appData.applicantUid));
+    batch.delete(adminDb.collection('applications').doc(applicationId));
+    await batch.commit();
+
+    // Audit Logging if session years were modified (Part 5)
+    if (overrideStartYear !== null || overrideEndYear !== null) {
+      const originalStart = Number(formData.sessionInfo?.sessionStartYear || 0);
+      const originalEnd = Number(formData.sessionInfo?.sessionEndYear || 0);
+      
+      if (originalStart !== finalStartYear || originalEnd !== finalEndYear) {
+        await adminDb.collection('activity_logs').add({
+          action: 'application_approved_with_modified_session',
+          performedBy: uid,
+          actorName: approverName,
+          actorRole: approverRole,
+          targetId: appData.applicantUid,
+          targetName: formData.fullName || '',
+          details: {
+            applicationId: applicationId,
+            previousStartYear: originalStart,
+            finalApprovedStartYear: finalStartYear,
+            previousEndYear: originalEnd,
+            finalApprovedEndYear: finalEndYear,
+          },
+          timestamp: FieldValue.serverTimestamp(),
+        }).catch(err => console.error('Failed to write modification audit log:', err));
+      }
+    }
 
     // 5. Parallelized Background Post-Tasks (Cloudinary, Supabase, Capacity)
     const postTasks = [

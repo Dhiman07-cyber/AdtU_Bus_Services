@@ -1,5 +1,6 @@
 @import "tailwindcss";
-@import "maplibre-gl/dist/maplibre-gl.css";
+/* maplibre-gl CSS is imported inside the map component (src/components/maps/GuwahatiMap.tsx)
+   so it ships only with the lazy-loaded map chunk instead of render-blocking every page. */
 
 html {
   color-scheme: dark;
@@ -269,6 +270,51 @@ pre {
 .animate-spin {
   animation: spin 1s linear infinite !important;
 }
+
+/* Prevent layout shift/shaking when dropdowns, modals, and popovers open */
+html {
+  overflow-y: scroll !important;
+  scrollbar-gutter: stable !important;
+}
+
+/* Highly specific rules to override dynamically injected styles by Radix UI/react-remove-scroll */
+html[data-scroll-locked],
+html[style*="overflow: hidden"],
+html body[data-scroll-locked],
+html body[style*="overflow: hidden"] {
+  overflow-y: scroll !important;
+}
+
+body[data-scroll-locked],
+body[style*="overflow: hidden"],
+html[style*="overflow: hidden"],
+html[data-scroll-locked],
+html body[data-scroll-locked],
+html body[style*="overflow: hidden"] {
+  padding-right: 0px !important;
+  margin-right: 0px !important;
+}
+
+/* Prevent Radix UI scroll lock from shifting fixed/absolute navbars */
+nav.fixed,
+header.fixed,
+.fixed-navbar {
+  padding-right: 0px !important;
+  margin-right: 0px !important;
+}
+
+/* Hide scrollbar completely on the form page while still enabling scrolling */
+html.no-global-scrollbar,
+html.no-global-scrollbar body {
+  scrollbar-width: none !important;
+  -ms-overflow-style: none !important;
+}
+
+html.no-global-scrollbar::-webkit-scrollbar,
+html.no-global-scrollbar body::-webkit-scrollbar {
+  display: none !important;
+}
+
 
 /* Custom thin scrollbar for modals */
 .scrollbar-thin::-webkit-scrollbar {
@@ -1593,7 +1639,7 @@ html.lenis body {
 
 /* 3D Cube Depth Z-translation based on size */
 :root {
-  --cube-z: 96px;
+  --cube-z: 72px;
 }
 @media (min-width: 640px) {
   :root {

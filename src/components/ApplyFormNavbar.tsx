@@ -24,6 +24,12 @@ export default function ApplyFormNavbar() {
   // Don't show navbar if user is not authenticated
   if (!currentUser) return null;
 
+  const googleProvider = currentUser?.providerData?.find(p => p.providerId === 'google.com');
+  const rawGoogleName = googleProvider?.displayName || currentUser?.displayName;
+  const googleName = (rawGoogleName && !rawGoogleName.includes('@')) 
+    ? rawGoogleName 
+    : (userData?.name || "User");
+
   return (
     <nav className="fixed top-0 left-0 right-0 z-50 bg-[#0c0e1a] border-b border-slate-800/50">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -61,7 +67,7 @@ export default function ApplyFormNavbar() {
                     </div>
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-semibold text-gray-900 dark:text-gray-100 truncate">
-                        {userData?.name || currentUser?.displayName || "User"}
+                        {googleName}
                       </p>
                       <p className="text-xs text-gray-500 dark:text-gray-400 truncate">
                         {userData?.email || currentUser?.email}

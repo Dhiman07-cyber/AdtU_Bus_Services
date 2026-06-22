@@ -6,7 +6,8 @@ import { Button } from '@/components/ui/button';
 import PaymentModeSelector from '@/components/PaymentModeSelector';
 import { PaymentStepProps } from './types';
 import { calculateSessionDates } from '@/lib/payment/application-payment.service';
-import { ArrowLeft, ArrowRight } from 'lucide-react';
+import { ArrowLeft, ArrowRight, AlertTriangle } from 'lucide-react';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 
 export default function Step4ServicePayment({
   formData,
@@ -29,8 +30,46 @@ export default function Step4ServicePayment({
   onClear,
   receiptPreview
 }: PaymentStepProps) {
+  const [showCaution, setShowCaution] = React.useState(false);
+
+  const triggerCaution = React.useCallback(() => {
+    const isDismissed = sessionStorage.getItem('academicCautionDismissed');
+    if (!isDismissed) {
+      setShowCaution(true);
+    }
+  }, []);
+
+  const dismissCaution = () => {
+    sessionStorage.setItem('academicCautionDismissed', 'true');
+    setShowCaution(false);
+  };
+
   return (
     <div className="space-y-6 flex-1 flex flex-col">
+      <Dialog open={showCaution} onOpenChange={setShowCaution}>
+        <DialogContent className="max-w-md bg-[#12131A] text-white border-white/10 shadow-2xl sm:rounded-2xl">
+          <DialogHeader className="flex flex-col items-center text-center">
+            <div className="h-12 w-12 rounded-full bg-amber-500/10 flex items-center justify-center border border-amber-500/20 mb-3">
+              <AlertTriangle className="h-6 w-6 text-amber-500" />
+            </div>
+            <DialogTitle className="text-xl font-bold tracking-tight text-white uppercase">
+              Caution
+            </DialogTitle>
+            <DialogDescription className="text-zinc-400 text-sm mt-3 text-justify leading-relaxed">
+              The university follows a July-to-July academic session cycle. Please carefully select the academic session for which you want transportation services. The selected academic session determines the validity period of your transportation access. Ensure that the selected session matches the academic year in which you intend to use the service before continuing.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="mt-6">
+            <Button
+              onClick={dismissCaution}
+              className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-semibold h-11 rounded-xl shadow-lg shadow-indigo-600/20 transition-all duration-200"
+            >
+              I Understand
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <div className="flex items-start justify-between gap-4 border-b border-slate-800/40 pb-4">
         <div>
           <h2 className="text-2xl font-bold tracking-tight text-white mb-1">Service & Payment</h2>
@@ -81,11 +120,14 @@ export default function Step4ServicePayment({
               handleInputChange('sessionInfo.sessionStartYear', startYear);
               handleInputChange('sessionInfo.sessionEndYear', endYear);
             }}
+            onOpenChange={(open) => {
+              if (open) triggerCaution();
+            }}
           >
             <SelectTrigger className="h-10 bg-transparent border-slate-800 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-colors text-xs">
               <SelectValue placeholder="Select Year" />
             </SelectTrigger>
-            <SelectContent className="bg-slate-900 border-slate-800">
+            <SelectContent className="bg-[#12131A] border-slate-800 text-white">
               <SelectItem value={new Date().getFullYear().toString()}>{new Date().getFullYear()}</SelectItem>
               <SelectItem value={(new Date().getFullYear() + 1).toString()}>{new Date().getFullYear() + 1}</SelectItem>
             </SelectContent>

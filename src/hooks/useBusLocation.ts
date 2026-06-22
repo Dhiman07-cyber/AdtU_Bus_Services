@@ -1,12 +1,6 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/lib/supabase-client';
-import {
-  isValidLatLng,
-  isNewerTimestamp,
-  isImpossibleJump,
-  shouldEmitDisplayUpdate,
-  type ThrottleState,
-} from '@/lib/maps/location-display-guards';
+import { isValidLatLng } from '@/lib/maps/location-display-guards';
 
 interface BusLocation {
   busId: string;
@@ -24,22 +18,7 @@ export const useBusLocation = (busId: string) => {
   const [history, setHistory] = useState<BusLocation[]>([]);
   const [loading, setLoading] = useState(true);
 
-  const lastAcceptedRef = useRef<{ lat: number; lng: number; atMs: number; ts: string } | null>(null);
-  const lastUiTsRef = useRef<string | null>(null);
-  const throttleRef = useRef<ThrottleState | null>(null);
-  const pageHiddenRef = useRef(
-    typeof document !== 'undefined' ? document.visibilityState === 'hidden' : false
-  );
-
-  useEffect(() => {
-    const onVis = () => {
-      pageHiddenRef.current = document.visibilityState === 'hidden';
-    };
-    document.addEventListener('visibilitychange', onVis);
-    return () => document.removeEventListener('visibilitychange', onVis);
-  }, []);
-
-  const applyIncomingLocation = useCallback((newLocation: BusLocation, forceDisplay: boolean) => {
+  const applyIncomingLocation = useCallback((newLocation: BusLocation) => {
     if (!isValidLatLng(newLocation.lat, newLocation.lng)) return;
 
     setCurrentLocation(newLocation);
@@ -63,17 +42,13 @@ export const useBusLocation = (busId: string) => {
         accuracy: locationData.accuracy,
         timestamp: locationData.ts || locationData.timestamp || new Date().toISOString(),
       };
-      applyIncomingLocation(newLocation, false);
+      applyIncomingLocation(newLocation);
     },
     [applyIncomingLocation]
   );
 
   useEffect(() => {
-    lastAcceptedRef.current = null;
-    throttleRef.current = null;
-
     if (!busId) {
-      lastUiTsRef.current = null;
       setCurrentLocation(null);
       setHistory([]);
       setLoading(false);
@@ -81,7 +56,6 @@ export const useBusLocation = (busId: string) => {
     }
 
     // Always start fresh - no cache
-    lastUiTsRef.current = null;
     setCurrentLocation(null);
     setHistory([]);
 
@@ -122,11 +96,8 @@ export const useBusLocation = (busId: string) => {
               timestamp: location.timestamp || new Date().toISOString(),
             };
             if (isValidLatLng(busLocation.lat, busLocation.lng)) {
-              applyIncomingLocation(busLocation, true);
-              setHistory([busLocation]);
+              applyIncomingLocation(busLocation);
             }
-          } else {
-            console.log('ℹ️ Location found but too stale (>30m), ignoring.');
           }
         }
       } catch (err) {
@@ -178,11 +149,7 @@ export const useBusLocation = (busId: string) => {
       }
     );
 
-    channel.subscribe((status) => {
-      if (status === 'SUBSCRIBED') {
-        console.log('✅ Subscribed to realtime bus location changes');
-      }
-    });
+    channel.subscribe();
 
     return () => {
       supabase.removeChannel(channel);

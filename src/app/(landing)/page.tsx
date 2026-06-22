@@ -114,33 +114,29 @@ function LandingVideo() {
     <div className="relative w-full mx-auto">
       {/* Device wrapper / Card shell with uniform bezel around the video */}
       <div
-        className="group relative w-full rounded-2xl overflow-hidden border border-white/10 bg-[#070d19] p-5 sm:p-6 transition-all duration-500 hover:scale-[1.002]"
+        className="hero-video-card group relative w-full rounded-2xl overflow-hidden border border-white/10 bg-[#070d19] p-5 sm:p-6 transition-all duration-500 hover:scale-[1.002]"
         style={{
           boxShadow: '0 24px 56px -12px rgba(0,0,0,0.85), inset 0 1px 0 rgba(255,255,255,0.05)',
         }}
       >
         {/* Top Header outside the video frame, inside the bezel padding */}
-        <div className="absolute top-1.5 sm:top-2.5 left-5 sm:left-6 right-5 sm:right-6 flex items-center justify-between text-slate-400 select-none">
+        <div className="hero-video-top-bar absolute top-1.5 sm:top-2.5 left-5 sm:left-6 right-5 sm:right-6 flex items-center justify-between text-slate-400 select-none">
           <div className="flex items-center gap-1.5">
-            <span className="relative flex h-2 w-2">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-              <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
-            </span>
             <span className="text-[9px] font-bold text-slate-200 tracking-wider uppercase">Live Feed</span>
           </div>
-          <span className="text-[9px] font-mono font-bold text-slate-400 tracking-wider bg-slate-900/60 px-2 py-0.5 rounded border border-white/5 shadow-inner">
+          <span className="text-[9px] font-mono font-bold text-slate-400 tracking-wider bg-transparent">
             ADTU-SHUTTLE-STREAM
           </span>
         </div>
 
         {/* Video Area */}
-        <div className="relative w-full aspect-video bg-black/40 rounded-xl overflow-hidden border border-white/5 shadow-inner my-5 sm:my-4">
+        <div className="hero-video-card-inner relative w-full aspect-video bg-black/40 rounded-xl overflow-hidden border border-white/5 shadow-inner my-5 sm:my-4">
           {isLoading || !videoUrl ? (
-            <div className="w-full h-full flex items-center justify-center min-h-[180px]">
+            <div className="absolute inset-0 flex items-center justify-center">
               <div className="w-10 h-10 border-4 border-amber-500/30 border-t-amber-500 rounded-full animate-spin" />
             </div>
           ) : error ? (
-            <div className="w-full h-full flex flex-col items-center justify-center text-center p-6 min-h-[180px]">
+            <div className="absolute inset-0 flex flex-col items-center justify-center text-center p-6">
               <PlayCircle className="w-10 h-10 text-red-400 mb-2" />
               <p className="text-sm text-slate-300 mb-4">{error}</p>
               <button
@@ -171,12 +167,11 @@ function LandingVideo() {
         </div>
 
         {/* Bottom tags bar outside the video frame, inside the bezel padding */}
-        <div className="absolute bottom-1.5 sm:bottom-2.5 left-5 sm:left-6 right-5 sm:right-6 flex items-center justify-between text-[9px] text-slate-400 select-none font-sans">
+        <div className="hero-video-bottom-bar absolute bottom-1.5 sm:bottom-2.5 left-5 sm:left-6 right-5 sm:right-6 flex items-center justify-between text-[9px] text-slate-400 select-none font-sans">
           <div className="flex items-center gap-1.5">
-            <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
             <span className="font-bold text-slate-200 tracking-wide font-sans">Assam down town University</span>
           </div>
-          <div className="flex items-center gap-1 bg-[#022c22]/30 border border-[#059669]/20 px-1.5 py-0.5 rounded text-teal-400">
+          <div className="flex items-center gap-1 bg-transparent text-teal-400">
             <Shield className="w-3 h-3" />
             <span className="font-bold tracking-wider uppercase">SSL Secured</span>
           </div>
@@ -410,22 +405,17 @@ export default function PremiumLanding() {
     router.push("/login");
   };
 
-  if (loading) {
-    return (
-      <div className="flex-1 min-h-screen bg-[#030a16] flex items-center justify-center">
-        <div className="flex flex-col items-center gap-4">
-          <div className="w-12 h-12 border-4 border-amber-500/30 border-t-amber-500 rounded-full animate-spin"></div>
-          <p className="text-lg font-semibold text-slate-300">Loading AdtU ITMS...</p>
-        </div>
-      </div>
-    );
-  }
+  // NOTE: We intentionally do NOT gate the public landing page behind auth `loading`.
+  // Gating swapped a full-screen spinner for the entire page once auth resolved,
+  // which was the single largest source of CLS (layout shift) and delayed LCP.
+  // Anonymous visitors (the common case) now get an immediate first paint; the
+  // redirect effect above still routes authenticated users to their dashboard.
 
   return (
     <div
       ref={containerRef}
       onScroll={handleScroll}
-      className="h-screen overflow-y-auto snap-y snap-mandatory bg-[#030a16] text-white overflow-x-hidden selection:bg-amber-500/30 selection:text-white scroll-smooth scrollbar-none relative"
+      className="h-dvh overflow-y-auto snap-y snap-mandatory bg-[#030a16] text-white overflow-x-hidden selection:bg-amber-500/30 selection:text-white scroll-smooth scrollbar-none relative"
     >
       {/* FIXED PAGE-WIDE BACKGROUND IMAGE */}
       <div className="fixed inset-0 z-0 pointer-events-none select-none">
@@ -443,28 +433,28 @@ export default function PremiumLanding() {
 
 
       {/* 1. HERO SECTION */}
-      <section className="relative h-screen snap-start snap-always flex items-center justify-center px-6 sm:px-12 lg:px-20 z-10 pt-14 pb-8 overflow-hidden bg-transparent">
-        <div className="relative max-w-[94rem] mx-auto w-full flex flex-col lg:grid lg:grid-cols-12 gap-6 lg:gap-10 items-center z-10 h-full justify-center lg:-translate-y-8">
+      <section className="hero-section-container relative h-dvh snap-start snap-always flex items-center justify-center px-6 sm:px-12 lg:px-20 z-10 pt-14 pb-8 overflow-hidden bg-transparent">
+        <div className="hero-grid-container relative max-w-[94rem] mx-auto w-full flex flex-col lg:grid lg:grid-cols-12 gap-6 lg:gap-10 items-center z-10 h-full justify-center lg:-translate-y-8">
           {/* Left Text */}
-          <div className="lg:col-span-5 space-y-4 lg:space-y-5 text-left reveal-on-scroll pr-0 lg:pr-6">
-            <div className="inline-flex items-center gap-2 px-3 py-1 bg-teal-500/10 border border-teal-500/20 text-teal-300 rounded-full text-[10px] md:text-xs font-bold tracking-wider uppercase">
+          <div className="hero-text-column order-2 lg:order-1 lg:col-span-5 space-y-4 lg:space-y-5 text-left pr-0 lg:pr-6">
+            <div className="hidden lg:inline-flex items-center gap-2 px-3 py-1 bg-teal-500/10 border border-teal-500/20 text-teal-300 rounded-full text-[10px] md:text-xs font-bold tracking-wider uppercase">
               <span className="w-1.5 h-1.5 rounded-full bg-teal-400 animate-pulse" />
               Assam down town University
             </div>
 
-            <h1 className="text-3xl sm:text-4xl lg:text-5xl font-black tracking-tight leading-[1.15] text-white">
+            <h1 className="hero-heading text-3xl sm:text-4xl lg:text-5xl font-black tracking-tight leading-[1.15] text-white">
               Track Your ADTU Bus{" "}
               <span className="bg-gradient-to-r from-amber-400 via-amber-300 to-teal-300 bg-clip-text text-transparent">
                 Before You Leave Home
               </span>
             </h1>
 
-            <p className="text-sm sm:text-base lg:text-lg text-slate-300 leading-relaxed max-w-xl font-medium">
+            <p className="hero-description text-sm sm:text-base lg:text-lg text-slate-300 leading-relaxed max-w-xl font-medium">
               Experience a smarter, more organized campus commute. Access your digital bus pass, track bus activity, and manage your transport records from one student-friendly portal.
             </p>
 
             {/* CTAs */}
-            <div className="flex flex-col sm:flex-row gap-3 pt-1">
+            <div className="hero-ctas flex flex-col sm:flex-row gap-3 pt-1">
               <button
                 onClick={handleSignIn}
                 className="px-5 py-3 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-white font-bold rounded-xl transition-all duration-300 hover:shadow-[0_0_20px_rgba(245,158,11,0.25)] hover:scale-[1.01] cursor-pointer text-center text-sm shadow-lg"
@@ -482,7 +472,7 @@ export default function PremiumLanding() {
             </div>
 
             {/* Trust points */}
-            <div className="grid grid-cols-3 gap-3 pt-4 border-t border-slate-800/40 max-w-lg">
+            <div className="hero-trust-points grid grid-cols-3 gap-3 pt-4 border-t border-slate-800/40 max-w-lg">
               {[
                 { label: "Live shuttle track" },
                 { label: "Digital QR pass" },
@@ -497,7 +487,7 @@ export default function PremiumLanding() {
           </div>
 
           {/* Right Media Panel */}
-          <div className="lg:col-span-7 w-full flex items-center justify-center reveal-on-scroll delay-100">
+          <div className="hero-video-wrapper order-1 lg:order-2 lg:col-span-7 w-full flex items-center justify-center">
             <div className="w-full">
               <LandingVideo />
             </div>
@@ -530,7 +520,7 @@ export default function PremiumLanding() {
       <LearningCarousel />
 
       {/* 4. REDESIGNED PORTAL ACCESS SECTION */}
-      <section className="relative h-screen snap-start snap-always flex items-center justify-center px-4 sm:px-6 lg:px-8 z-10 overflow-hidden">
+      <section className="relative h-dvh snap-start snap-always flex items-center justify-center px-4 sm:px-6 lg:px-8 z-10 overflow-hidden">
         {/* Background image for final CTA */}
         <div className="absolute inset-0 z-0">
           <Image
@@ -695,7 +685,7 @@ function InteractiveDiceSection1({
   return (
     <div ref={sectionRef} className="relative w-full bg-transparent h-[200vh] border-t border-white/5">
       {/* Sticky Content Container */}
-      <div className="sticky top-0 h-screen w-full overflow-hidden z-10 flex items-center">
+      <div className="sticky top-0 h-dvh w-full overflow-hidden z-10 flex items-center">
         {/* Background: solid base + image overlay to prevent edge bleed */}
         <div className="absolute inset-0 z-0 bg-[#030a16]">
           <Image
@@ -927,8 +917,8 @@ function InteractiveDiceSection1({
 
       {/* Snap Targets */}
       <div className="absolute inset-0 pointer-events-none z-0">
-        <div className="h-screen snap-start snap-always" />
-        <div className="h-screen snap-start snap-always" />
+        <div className="h-dvh snap-start snap-always" />
+        <div className="h-dvh snap-start snap-always" />
       </div>
     </div>
   );
@@ -969,7 +959,7 @@ function InteractiveDiceSection2({
   return (
     <div ref={sectionRef} className="relative w-full bg-transparent h-[200vh] border-t border-white/5">
       {/* Sticky Content Container */}
-      <div className="sticky top-0 h-screen w-full overflow-hidden z-10 flex items-center">
+      <div className="sticky top-0 h-dvh w-full overflow-hidden z-10 flex items-center">
         {/* Background: solid base + image overlay to prevent edge bleed */}
         <div className="absolute inset-0 z-0 bg-[#030a16]">
           <Image
@@ -1219,8 +1209,8 @@ function InteractiveDiceSection2({
 
       {/* Snap Targets */}
       <div className="absolute inset-0 pointer-events-none z-0">
-        <div className="h-screen snap-start snap-always" />
-        <div className="h-screen snap-start snap-always" />
+        <div className="h-dvh snap-start snap-always" />
+        <div className="h-dvh snap-start snap-always" />
       </div>
     </div>
   );
@@ -1369,7 +1359,7 @@ function LearningCarousel() {
     : 'none';
 
   return (
-    <div className="relative w-full bg-transparent h-screen snap-start snap-always flex flex-col justify-start pt-16 sm:pt-24 pb-8 border-t border-white/5 overflow-hidden">
+    <div className="relative w-full bg-transparent h-dvh snap-start snap-always flex flex-col justify-start pt-16 sm:pt-24 pb-8 border-t border-white/5 overflow-hidden">
       {/* Heading */}
       <div className="max-w-5xl mx-auto px-6 w-full z-10 mb-6 text-center sm:text-left">
         <span className="text-xs font-bold text-teal-400 tracking-widest uppercase block mb-1">

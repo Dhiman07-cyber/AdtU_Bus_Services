@@ -87,6 +87,9 @@ export default function DriverLiveTrackingPage() {
   const locationChannelRef = useRef<any>(null); // Persistent channel for location broadcasting
   const watchIdRef = useRef<number | null>(null);
   const broadcastCountRef = useRef<number>(0); // For write optimization
+  // Holds the latest broadcast inputs so the 1s broadcast interval can read fresh
+  // values without being torn down / recreated on every GPS tick (prevents interval churn).
+  const broadcastInputsRef = useRef<any>(null);
   const lastBroadcastSampleRef = useRef<{ lat: number; lng: number; t: number } | null>(null);
   const manuallyEndedTripRef = useRef<boolean>(false); // Track if trip was manually ended
   const wakeLockRef = useRef<any>(null); // Screen wake lock to prevent screen from turning off
@@ -137,6 +140,14 @@ export default function DriverLiveTrackingPage() {
     since?: string;
   } | null>(null);
   const lastValidLocationRef = useRef<{ lat: number; lng: number } | null>(null);
+
+  // Mirror frequently-changing state into refs so the periodic checkActiveTrip effect
+  // can read fresh values WITHOUT listing them as deps. Previously currentLocation/
+  // tripActive/tripId were effect deps, so the effect tore down + recreated its 10s
+  // interval — and fired /api/driver/check-active-trip — on every GPS tick (~1s).
+  const tripIdRef = useRef<string | null>(null);
+  const busLockedByOtherRef = useRef(false);
+  const currentLocationRef = useRef<{ lat: number; lng: number; accuracy: number } | null>(null);
 
   // WAIT REQUEST STATE
   const [activeWaitRequest, setActiveWaitRequest] = useState<{
@@ -296,8 +307,6 @@ export default function DriverLiveTrackingPage() {
               setSpeed(gpsSpeed || 0);
               setAccuracy(gpsAccuracy);
               setMapCenter([latitude, longitude]);
-
-              console.log("📍 Location update:", { latitude, longitude, gpsSpeed, gpsAccuracy });
             },
             (error) => {
               console.warn("⚠️ Watch error (lower accuracy):", error.code, error.message);
@@ -351,8 +360,6 @@ export default function DriverLiveTrackingPage() {
             setSpeed(gpsSpeed || 0);
             setAccuracy(gpsAccuracy);
             setMapCenter([latitude, longitude]);
-
-            console.log("📍 Location update:", { latitude, longitude, gpsSpeed, gpsAccuracy });
           },
           (error) => {
             console.error("❌ Geolocation watch error:", { code: error.code, message: error.message });
@@ -712,7 +719,7 @@ export default function DriverLiveTrackingPage() {
         if (!response.ok) {
           console.error("❌ Check active trip API error:", response.status, response.statusText);
           // Only reset state if currently active (avoid unnecessary re-renders)
-          if (tripActive) {
+          if (tripActiveRef.current) {
             setTripActive(false);
             setTripId(null);
             stopLocationTracking();
@@ -732,7 +739,7 @@ export default function DriverLiveTrackingPage() {
           setBusLockedByOther(true);
           setLockInfo(result.lockInfo || null);
           // Don't set tripActive for this driver - they shouldn't operate
-          if (tripActive) {
+          if (tripActiveRef.current) {
             setTripActive(false);
             setTripId(null);
             stopLocationTracking();
@@ -740,7 +747,7 @@ export default function DriverLiveTrackingPage() {
           return; // Don't continue with trip check
         } else {
           // Clear lock state if previously locked
-          if (busLockedByOther) {
+          if (busLockedByOtherRef.current) {
             console.log("🔓 Bus lock released, driver can now operate");
             setBusLockedByOther(false);
             setLockInfo(null);
@@ -749,21 +756,21 @@ export default function DriverLiveTrackingPage() {
 
         if (result.hasActiveTrip) {
           // Only update if state changed
-          if (!tripActive || tripId !== result.tripData?.tripId) {
+          if (!tripActiveRef.current || tripIdRef.current !== result.tripData?.tripId) {
             setTripActive(true);
             setTripId(result.tripData?.tripId || null);
             console.log("✅ Active trip found/updated:", result.tripData);
 
             // CRITICAL: Start location tracking to restore marker on page refresh
             // This ensures the bus marker is rendered immediately when an active trip is detected
-            if (!currentLocation) {
+            if (!currentLocationRef.current) {
               console.log("📍 Starting location tracking to restore marker...");
               startLocationTracking();
             }
           }
         } else {
           // Server says no active trip - only update if currently active
-          if (tripActive) {
+          if (tripActiveRef.current) {
             setTripActive(false);
             setTripId(null);
             stopLocationTracking(); // Stop GPS when trip is inactive
@@ -787,11 +794,14 @@ export default function DriverLiveTrackingPage() {
     // Run the check immediately
     checkActiveTrip();
 
-    // Also set up periodic checks every 10 seconds to catch any state changes
+    // Also set up periodic checks every 10 seconds to catch any state changes.
+    // Deps are intentionally limited to STABLE values so this 10s interval is created
+    // ONCE per bus/session rather than torn down + recreated (and re-fired) on every GPS
+    // tick. Fresh tripActive/tripId/busLockedByOther/currentLocation are read via refs.
     const interval = setInterval(checkActiveTrip, 10000);
 
     return () => clearInterval(interval);
-  }, [currentUser, busData, tripActive, tripId, currentLocation, startLocationTracking]); // Dependencies for checking state changes
+  }, [currentUser, busData?.busId, startLocationTracking, stopLocationTracking]);
 
   // ==========================================
   // DEVICE SESSION MANAGEMENT (Multi-Device Conflict Detection)
@@ -803,6 +813,13 @@ export default function DriverLiveTrackingPage() {
   useEffect(() => {
     tripActiveRef.current = tripActive;
   }, [tripActive]);
+
+  // Keep the checkActiveTrip refs in sync on every render (cheap ref assignments).
+  useEffect(() => {
+    tripIdRef.current = tripId;
+    busLockedByOtherRef.current = busLockedByOther;
+    currentLocationRef.current = currentLocation;
+  });
 
   // Check for existing sessions when page loads
   useEffect(() => {
@@ -886,6 +903,50 @@ export default function DriverLiveTrackingPage() {
       }
     };
   }, [currentUser?.uid, tripActive]);
+
+  // ==========================================
+  // TRIP LOCK HEARTBEAT
+  // ==========================================
+  // Keep the trip's Firestore activeTripLock (TTL 300s) and active_trips.last_heartbeat
+  // alive for the FULL duration of the trip. The live-tracking page previously never
+  // sent heartbeats, so 5 minutes into a legitimate trip the lock expired — weakening
+  // exclusive-operation guarantees (another assigned driver could take over) and letting
+  // the nightly stale-lock cleanup treat the trip as orphaned. A 60s cadence leaves a
+  // wide margin under the 300s TTL. Failures are non-fatal: checkActiveTrip re-validates
+  // state, and the lock is re-extended on the next tick.
+  useEffect(() => {
+    if (!tripActive || !tripId || !busData?.busId || !currentUser) return;
+
+    let cancelled = false;
+
+    const sendTripHeartbeat = async () => {
+      try {
+        const idToken = await currentUser.getIdToken();
+        await fetch('/api/driver/heartbeat', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${idToken}`,
+          },
+          body: JSON.stringify({ tripId, busId: busData.busId }),
+        });
+      } catch (err) {
+        console.warn('⚠️ Trip heartbeat failed (will retry next tick):', err);
+      }
+    };
+
+    // Send one immediately so the lock is extended as soon as the trip is known,
+    // then refresh every 60s.
+    sendTripHeartbeat();
+    const interval = setInterval(() => {
+      if (!cancelled) sendTripHeartbeat();
+    }, 60000);
+
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [tripActive, tripId, busData?.busId, currentUser]);
 
   // Function to take over location sharing from another device
   const handleTakeOverSession = async () => {
@@ -1152,9 +1213,24 @@ export default function DriverLiveTrackingPage() {
     };
   }, [tripActive, busData?.busId]);
 
-  // Broadcast location to Supabase
+  // Keep the latest broadcast inputs in a ref every render. This lets the broadcast
+  // interval read fresh GPS values WITHOUT the effect (and its setInterval) being
+  // recreated each tick. Runs after every commit; only assigns a ref (cheap).
   useEffect(() => {
-    if (!tripActive || !currentLocation || !busData || !routeData || !isChannelReady) return;
+    broadcastInputsRef.current = { currentLocation, accuracy, speed, busData, routeData, tripId, currentUser };
+  });
+
+  // Broadcast location to Supabase.
+  // RELIABILITY: This loop is gated ONLY on tripActive — NOT on isChannelReady. The realtime
+  // broadcast channel can drop/reconnect mid-trip; if the loop were gated on channel readiness
+  // it would also stop the periodic DB save, leaving students with NO updates (no broadcast AND
+  // no postgres fallback) during the outage. By running on tripActive, broadcastLocation keeps
+  // writing to the DB every ~15s (the student app's `bus_locations` postgres fallback) regardless
+  // of channel state, and resumes realtime broadcasts automatically the moment the channel ref
+  // is live again (it reads locationChannelRef.current fresh each tick).
+  // Deps are limited to the STABLE tripActive so the 1s interval is created ONCE per trip.
+  useEffect(() => {
+    if (!tripActive) return;
 
     console.log("🚀 Starting location broadcasting for active trip");
 
@@ -1171,9 +1247,14 @@ export default function DriverLiveTrackingPage() {
         console.log("🛑 Location broadcasting stopped");
       }
     };
-  }, [tripActive, currentLocation, busData, routeData, isChannelReady]);
+  }, [tripActive]);
 
-  const broadcastLocation = async () => {
+  // Stable across renders (empty deps): reads the latest inputs from broadcastInputsRef so the
+  // broadcast interval never needs to be recreated to pick up new GPS positions.
+  const broadcastLocation = useCallback(async () => {
+    const inputs = broadcastInputsRef.current;
+    if (!inputs) return;
+    const { currentLocation, accuracy, speed, busData, routeData, tripId, currentUser } = inputs;
     if (!currentLocation || !busData || !routeData) return;
 
     try {
@@ -1207,9 +1288,10 @@ export default function DriverLiveTrackingPage() {
           });
           console.log(`📡 Real-time broadcast sent (${shouldSaveToDatabase ? 'with DB save' : 'broadcast only'})`);
         } else {
-          // This branch should ideally not be reached if isChannelReady is used correctly,
-          // but we keep it silent to avoid warnings during initialization.
-          // console.warn("⚠️ Location channel not ready yet");
+          // Channel not live yet (initial connect) or temporarily dropped (reconnecting).
+          // Intentionally silent: the periodic DB save below still runs, so students keep
+          // receiving updates via the `bus_locations` postgres fallback until the realtime
+          // channel re-subscribes and broadcasts resume.
         }
       } catch (broadcastError) {
         console.warn("⚠️ Realtime broadcast failed:", broadcastError);
@@ -1251,7 +1333,7 @@ export default function DriverLiveTrackingPage() {
     } catch (error) {
       console.error("❌ Error in broadcastLocation:", error);
     }
-  };
+  }, []);
 
   // Distance-based auto-pickup: Remove waiting students when bus gets close (within ~50 meters)
   // NEW BEHAVIOR: Markers and cards stay visible until distance closes to zero, regardless of acknowledgment

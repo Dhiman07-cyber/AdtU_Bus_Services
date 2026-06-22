@@ -72,10 +72,10 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en" className="h-full" suppressHydrationWarning>
+    <html lang="en" className="h-full dark" suppressHydrationWarning>
 
       <head />
-      <body className="min-h-screen bg-background text-foreground transition-colors" suppressHydrationWarning>
+      <body className="min-h-dvh bg-background text-foreground" suppressHydrationWarning>
         <MobileErrorHandler />
         <SimpleErrorBoundary>
           <ThemeProvider>

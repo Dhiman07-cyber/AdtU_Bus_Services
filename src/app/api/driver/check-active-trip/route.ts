@@ -100,7 +100,7 @@ export const POST = withSecurity(
       try {
         const { data, error: statusError } = await supabase
           .from('driver_status')
-          .select('id, status, driver_uid, bus_id, started_at')
+          .select('id, status, driver_uid, bus_id, started_at, trip_id')
           .eq('driver_uid', driverUid)
           .order('last_updated_at', { ascending: false })
           .limit(1)
@@ -138,7 +138,11 @@ export const POST = withSecurity(
         console.log('✅ Active trip found in Supabase');
 
         const startTime = statusData.started_at ? new Date(statusData.started_at).getTime() : Date.now();
-        const tripId = `trip_${busId}_${startTime}`;
+        // Return the REAL trip_id persisted at trip start. The previous fabricated
+        // `trip_${busId}_${startTime}` id never matched active_trips.trip_id, which made
+        // /api/location/update reject DB saves ("Trip mismatch") and broke heartbeats
+        // after a page refresh. Fall back to the fabricated id only if trip_id is missing.
+        const tripId = statusData.trip_id || `trip_${busId}_${startTime}`;
 
         return NextResponse.json({
           hasActiveTrip: true,

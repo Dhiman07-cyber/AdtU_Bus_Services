@@ -300,31 +300,6 @@ export default function StudentTrackBusPage() {
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
   const hasShownArrivalToastRef = useRef(false); // Track if 100m arrival toast shown
 
-  // Custom icons for bus and student markers (dynamically loaded to avoid SSR issues)
-  let busIcon: any = null;
-  let studentIcon: any = null;
-
-  // Initialize icons dynamically
-  const initializeIcons = async () => {
-    if (typeof window !== 'undefined' && !busIcon && !studentIcon) {
-      const L = await import('leaflet');
-
-      busIcon = new L.Icon({
-        iconUrl: "data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNDAiIGhlaWdodD0iNDAiIHZpZXdCb3g9IjAgMCA0MCA0MCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48Y2lyY2xlIGN4PSIyMCIgY3k9IjIwIiByPSIxOCIgZmlsbD0iIzM0OTdGRCIgc3Ryb2tlPSJ3aGl0ZSIgc3Ryb2tlLXdpZHRoPSIzIi8+PHRleHQgeD0iNTAlIiB5PSI1MCUiIGZvbnQtc2l6ZT0iMjAiIGZpbGw9IndoaXRlIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIiBkb21pbmFudC1iYXNlbGluZT0ibWlkZGxlIj7wn5qNPC90ZXh0Pjwvc3ZnPg==",
-        iconSize: [40, 40],
-        iconAnchor: [20, 20],
-        popupAnchor: [0, -20],
-      });
-
-      studentIcon = new L.Icon({
-        iconUrl: "data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzAiIGhlaWdodD0iMzAiIHZpZXdCb3g9IjAgMCAzMCAzMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48Y2lyY2xlIGN4PSIxNSIgY3k9IjE1IiByPSIxMiIgZmlsbD0iI0YwNTI1MiIgc3Ryb2tlPSJ3aGl0ZSIgc3Ryb2tlLXdpZHRoPSIyIi8+PHRleHQgeD0iNTAlIiB5PSI1MCUiIGZvbnQtc2l6ZT0iMTYiIGZpbGw9IndoaXRlIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIiBkb21pbmFudC1iYXNlbGluZT0ibWlkZGxlIj7wn5qpPC90ZXh0Pjwvc3ZnPg==",
-        iconSize: [30, 30],
-        iconAnchor: [15, 15],
-        popupAnchor: [0, -15],
-      });
-    }
-  };
-
   // Calculate distance between two points (Haversine formula)
   const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
     const R = 6371; // Radius of the earth in km
@@ -356,11 +331,6 @@ export default function StudentTrackBusPage() {
     const mins = minutes % 60;
     return `${hrs}h ${mins}m`;
   };
-
-  // Initialize icons on component mount
-  useEffect(() => {
-    initializeIcons();
-  }, []);
 
   useEffect(() => {
     const onVis = () => {
@@ -408,7 +378,6 @@ export default function StudentTrackBusPage() {
           accuracy: position.coords.accuracy,
         };
         setStudentLocation(newLocation);
-        console.log("Student location updated:", newLocation);
       },
       (error) => {
         console.debug("Location watch error:", error.message);
@@ -724,8 +693,6 @@ export default function StudentTrackBusPage() {
       if (distance > 0.5) {
         hasShownArrivalToastRef.current = false;
       }
-
-      console.log(`📍 Distance to bus: ${distance.toFixed(2)} km, ETA: ${timeMinutes} mins`);
     }
   }, [busLocation, studentLocation, tripActive, addToast]);
 
@@ -1020,6 +987,9 @@ export default function StudentTrackBusPage() {
       if (broadcastResult !== 'ok') {
         console.warn("Broadcast warning:", broadcastResult);
       }
+
+      // Remove the one-shot broadcast channel so it doesn't leak on repeated cancels.
+      supabase.removeChannel(channel);
 
       setIsWaiting(false);
       setCurrentFlagId(null);

@@ -32,7 +32,7 @@ interface HighLoadAlertProps {
 export default function HighLoadAlert({ role, className = '' }: HighLoadAlertProps) {
   const router = useRouter();
   const { data: buses, refresh: refreshBuses } = usePaginatedCollection('buses', {
-    pageSize: 50, orderByField: 'busNumber', orderDirection: 'asc', autoRefresh: false,
+    pageSize: 50, orderByField: 'busNumber', orderDirection: 'asc', autoRefresh: false, cacheTTL: 0,
   });
   const [selectedBus, setSelectedBus] = useState<string | null>(null);
 

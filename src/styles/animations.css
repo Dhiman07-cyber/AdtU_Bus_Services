@@ -767,8 +767,8 @@
 
 /* Cube face z-depth & Carousel center offset (responsive via CSS variables) */
 :root {
-  --cube-z: 96px;
-  --carousel-center: 50vw;
+  --cube-z: 72px;
+  --carousel-center: 47vw;
 }
 @media (min-width: 640px) {
   :root { --cube-z: 114px; }
@@ -847,6 +847,141 @@
   }
   100% {
     transform: scaleX(1);
+  }
+}
+
+/* Mobile-only overrides for the hero section height-responsiveness */
+@media (max-width: 1023px) {
+  .hero-section-container {
+    padding-top: 3rem !important;
+    padding-bottom: 2rem !important;
+  }
+  .hero-grid-container {
+    gap: 1.5rem !important;
+  }
+  .hero-text-column {
+    margin-top: 0 !important;
+  }
+  .hero-text-column > * + * {
+    margin-top: 0.75rem !important;
+  }
+  .hero-heading {
+    font-size: 1.75rem !important;
+    line-height: 1.2 !important;
+  }
+  .hero-description {
+    font-size: 0.85rem !important;
+    line-height: 1.4 !important;
+  }
+  .hero-ctas {
+    padding-top: 0.25rem !important;
+  }
+  .hero-trust-points {
+    padding-top: 0.75rem !important;
+    margin-top: 0.75rem !important;
+  }
+
+  /* Low Height Screens (e.g. iPhone SE: height <= 700px) */
+  @media (max-height: 700px) {
+    .hero-section-container {
+      padding-top: 1rem !important;
+      padding-bottom: 0.75rem !important;
+    }
+    .hero-grid-container {
+      gap: 0.5rem !important;
+    }
+    .hero-video-wrapper {
+      margin-top: -1.5rem !important;
+      margin-bottom: -0.25rem !important;
+    }
+    .hero-text-column > * + * {
+      margin-top: 0.25rem !important;
+    }
+    .hero-heading {
+      font-size: 1.25rem !important;
+      line-height: 1.15 !important;
+    }
+    .hero-description {
+      font-size: 0.7rem !important;
+      line-height: 1.3 !important;
+      max-width: 95% !important;
+    }
+    .hero-ctas {
+      padding-top: 0 !important;
+      flex-direction: row !important;
+      justify-content: center !important;
+      gap: 0.5rem !important;
+    }
+    .hero-ctas a, .hero-ctas button {
+      padding: 0.45rem 0.75rem !important;
+      font-size: 0.7rem !important;
+      border-radius: 0.5rem !important;
+      flex: 1 !important;
+    }
+    .hero-trust-points {
+      padding-top: 0.3rem !important;
+      margin-top: 0.3rem !important;
+    }
+    .hero-trust-points span {
+      font-size: 8px !important;
+    }
+    .hero-video-card {
+      padding-top: 1.5rem !important;
+      padding-bottom: 1.5rem !important;
+      padding-left: 0.65rem !important;
+      padding-right: 0.65rem !important;
+      border-radius: 0.75rem !important;
+    }
+    .hero-video-card-inner {
+      margin-top: 0 !important;
+      margin-bottom: 0 !important;
+    }
+    .hero-video-top-bar {
+      top: 0.4rem !important;
+      left: 0.65rem !important;
+      right: 0.65rem !important;
+    }
+    .hero-video-bottom-bar {
+      bottom: 0.4rem !important;
+      left: 0.65rem !important;
+      right: 0.65rem !important;
+    }
+  }
+
+  /* Long Height Screens (e.g. Pixel 7, iPhone 12 Pro: height >= 800px) */
+  @media (min-height: 800px) {
+    .hero-section-container {
+      padding-top: 4.5rem !important;
+      padding-bottom: 4.5rem !important;
+    }
+    .hero-grid-container {
+      gap: 2.5rem !important;
+    }
+    .hero-text-column > * + * {
+      margin-top: 1.25rem !important;
+    }
+    .hero-heading {
+      font-size: 2.15rem !important;
+      line-height: 1.25 !important;
+    }
+    .hero-description {
+      font-size: 0.95rem !important;
+      line-height: 1.55 !important;
+    }
+    .hero-ctas {
+      padding-top: 0.5rem !important;
+    }
+    .hero-ctas a, .hero-ctas button {
+      padding: 0.75rem 1.5rem !important;
+      font-size: 0.9rem !important;
+    }
+    .hero-trust-points {
+      padding-top: 1.25rem !important;
+      margin-top: 1.25rem !important;
+    }
+    .hero-trust-points span {
+      font-size: 0.8rem !important;
+    }
   }
 }
 

@@ -256,15 +256,7 @@ export default function Step1Personal({
         </div>
       </div>
 
-      <div className="mt-auto pt-6 border-t border-slate-800 flex justify-between gap-4">
-        <Button
-          onClick={onPrev}
-          variant="outline"
-          className="border-slate-800 bg-transparent hover:bg-slate-900 text-slate-400 hover:text-white h-11 px-5 font-semibold rounded-xl transition-colors flex items-center gap-2"
-        >
-          <ArrowLeft className="w-4 h-4" />
-          Back
-        </Button>
+      <div className="mt-auto pt-6 border-t border-slate-800 flex justify-end">
         <Button
           onClick={onNext}
           className="bg-indigo-600 hover:bg-indigo-500 text-white font-semibold h-11 px-6 rounded-xl shadow-lg shadow-indigo-600/20 transition-colors flex items-center gap-2"

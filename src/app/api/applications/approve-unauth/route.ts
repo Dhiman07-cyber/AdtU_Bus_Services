@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { adminAuth, adminDb } from '@/lib/firebase-admin';
+import { adminAuth, adminDb, FieldValue } from '@/lib/firebase-admin';
 import { v2 as cloudinary } from 'cloudinary';
 import { calculateRenewalDate } from '@/lib/utils/renewal-utils';
 import { incrementBusCapacity } from '@/lib/busCapacityService';
@@ -102,11 +102,23 @@ export async function POST(request: NextRequest) {
       ? `${approverName} (Admin)`
       : `${approverName} (${approverEmpId})`;
 
+    // Check for overridden session start/end years (Part 2 & 3)
+    const overrideStartYear = body.sessionStartYear ? Number(body.sessionStartYear) : null;
+    const overrideEndYear = body.sessionEndYear ? Number(body.sessionEndYear) : null;
+
     const deadlineConfig = await getDeadlineConfig();
-    const durationYears = Number(sessionInfo.durationYears || 1);
-    const { newValidUntil } = calculateRenewalDate(null, durationYears, deadlineConfig);
-    const validUntil = newValidUntil;
-    const sessionEndYear = new Date(validUntil).getFullYear();
+    
+    // Compute final start year, duration, and end year based on overrides
+    const finalStartYear = overrideStartYear !== null ? overrideStartYear : Number(sessionInfo.sessionStartYear || new Date().getFullYear());
+    const finalEndYear = overrideEndYear !== null ? overrideEndYear : (Number(sessionInfo.sessionEndYear) || (finalStartYear + 1));
+    const finalDurationYears = overrideStartYear !== null && overrideEndYear !== null ? (overrideEndYear - overrideStartYear) : Number(sessionInfo.durationYears || 1);
+
+    const anchorMonth = deadlineConfig.academicYear.anchorMonth;
+    const anchorDay = deadlineConfig.academicYear.anchorDay;
+    const validUntilDate = new Date(finalEndYear, anchorMonth, anchorDay, 23, 59, 59, 999);
+    const validUntil = validUntilDate.toISOString();
+    const sessionEndYear = finalEndYear;
+    
     const blockDates = computeBlockDatesFromValidUntil(validUntil, deadlineConfig);
     const busId = asString(formData.routeId) ? asString(formData.routeId).replace('route_', 'bus_') : '';
     const shift = normalizeShiftValue(formData.shift);
@@ -129,7 +141,7 @@ export async function POST(request: NextRequest) {
       createdAt: nowIso,
       department: formData.department,
       dob: formData.dob,
-      durationYears,
+      durationYears: finalDurationYears,
       email: asString(appData.email) || asString(formData.email),
       enrollmentId: formData.enrollmentId,
       faculty: formData.faculty,
@@ -143,7 +155,7 @@ export async function POST(request: NextRequest) {
       routeId: formData.routeId || '',
       semester: formData.semester,
       sessionEndYear,
-      sessionStartYear: sessionInfo.sessionStartYear,
+      sessionStartYear: finalStartYear,
       shift,
       status: 'active',
       stopId: formData.stopId || '',
@@ -155,6 +167,7 @@ export async function POST(request: NextRequest) {
       paymentAmount: Number(paymentInfo.amountPaid || 0),
       paid_on: nowIso,
     };
+
 
     const paymentAmount = Number(paymentInfo.amountPaid || 0);
     if (paymentAmount > 0) {
@@ -176,9 +189,9 @@ export async function POST(request: NextRequest) {
           amount: onlinePayment.amount,
           method: 'Online',
           status: 'Completed',
-          sessionStartYear: onlinePayment.session_start_year,
+          sessionStartYear: finalStartYear,
           sessionEndYear,
-          durationYears: onlinePayment.duration_years,
+          durationYears: finalDurationYears,
           validUntil: new Date(validUntil),
           razorpayPaymentId: onlinePayment.razorpay_payment_id,
           razorpayOrderId: onlinePayment.razorpay_order_id,
@@ -202,9 +215,9 @@ export async function POST(request: NextRequest) {
           amount: paymentAmount,
           paymentMethod: 'offline',
           status: 'completed',
-          sessionStartYear: Number(sessionInfo.sessionStartYear || new Date().getFullYear()),
+          sessionStartYear: finalStartYear,
           sessionEndYear,
-          durationYears,
+          durationYears: finalDurationYears,
           validUntil,
           timestamp: nowIso,
           offlineTransactionId: asString(paymentInfo.paymentReference) || `unauth_app_fee_${applicantUid}`,
@@ -221,12 +234,38 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    await Promise.all([
-      adminDb.collection('users').doc(applicantUid).set(userDoc),
-      adminDb.collection('students').doc(applicantUid).set(studentDoc),
-      applicationDoc.ref.delete(),
-      adminDb.collection('unauthUsers').doc(applicantUid).delete().catch(() => null),
-    ]);
+    const batch = adminDb.batch();
+    batch.set(adminDb.collection('users').doc(applicantUid), userDoc);
+    batch.set(adminDb.collection('students').doc(applicantUid), studentDoc);
+    batch.delete(applicationDoc.ref);
+    batch.delete(adminDb.collection('unauthUsers').doc(applicantUid));
+    await batch.commit();
+
+    // Audit Logging if session years were modified (Part 5)
+    if (overrideStartYear !== null || overrideEndYear !== null) {
+      const originalStart = Number(sessionInfo.sessionStartYear || 0);
+      const originalEnd = Number(sessionInfo.sessionEndYear || 0);
+      
+      if (originalStart !== finalStartYear || originalEnd !== finalEndYear) {
+        await adminDb.collection('activity_logs').add({
+          action: 'application_approved_with_modified_session',
+          performedBy: moderatorUid,
+          actorName: approverName,
+          actorRole: approverRole,
+          targetId: applicantUid,
+          targetName: asString(formData.fullName),
+          details: {
+            applicationId: studentUid,
+            previousStartYear: originalStart,
+            finalApprovedStartYear: finalStartYear,
+            previousEndYear: originalEnd,
+            finalApprovedEndYear: finalEndYear,
+          },
+          timestamp: FieldValue.serverTimestamp(),
+        }).catch(err => console.error('Failed to write modification audit log:', err));
+      }
+    }
+
 
     if (studentDoc.email) {
       try {

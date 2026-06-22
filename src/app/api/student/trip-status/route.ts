@@ -27,13 +27,20 @@ export const GET = withSecurity(
         // PERF: Use singleton Supabase client instead of creating one per request
         const supabase = getSupabaseServer();
 
-        // Query driver_status for active trips
-        const { data, error } = await supabase
+        // Query driver_status for active trips.
+        // Use order+limit(1) instead of maybeSingle(): if two on_trip rows ever exist for
+        // the same bus (e.g. a stale row from a previous driver alongside the current one),
+        // maybeSingle() throws on multiple rows and the student would lose bus visibility.
+        // Taking the most recently updated row keeps the active bus visible.
+        const { data: rows, error } = await supabase
             .from('driver_status')
             .select('id, status, bus_id, driver_uid, started_at, last_updated_at')
             .eq('bus_id', busId)
             .in('status', ['on_trip', 'enroute'])
-            .maybeSingle();
+            .order('last_updated_at', { ascending: false })
+            .limit(1);
+
+        const data = rows && rows.length > 0 ? rows[0] : null;
 
         if (error) {
             console.error('❌ Error querying driver_status:', error);

@@ -227,6 +227,14 @@ function ApplicationFormContent() {
 
   const toastShownRef = useRef(false);
 
+  // Toggle .no-global-scrollbar class on HTML element for Apply Form page to prevent scrollbar shifting/shaking
+  useEffect(() => {
+    document.documentElement.classList.add('no-global-scrollbar');
+    return () => {
+      document.documentElement.classList.remove('no-global-scrollbar');
+    };
+  }, []);
+
   useEffect(() => {
     return () => revokeBlobUrl(profilePhotoUrl);
   }, [profilePhotoUrl]);
@@ -378,10 +386,13 @@ function ApplicationFormContent() {
 
   useEffect(() => {
     setVisitedSteps(prev => {
-      if (!prev.includes(currentStep)) {
-        return [...prev, currentStep];
+      const nextVisited = [...prev];
+      for (let i = 1; i <= currentStep; i++) {
+        if (!nextVisited.includes(i)) {
+          nextVisited.push(i);
+        }
       }
-      return prev;
+      return nextVisited;
     });
   }, [currentStep]);
 

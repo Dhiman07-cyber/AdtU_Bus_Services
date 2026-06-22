@@ -10,8 +10,6 @@ yarn-debug.log*
 ts-debug.log*
 .vscode/
 .next/
-loadtests/
-docs/
 
 # Environment files - CRITICAL: Never commit secrets!
 .env
@@ -42,10 +40,12 @@ secrets/
 *.swp
 *.swo
 .claude
+.agents
 
 # Debug
 *.log
 logs/
+public/landing_video/
 
 # Firestore data dump - NEVER commit data exports
 firestore_data.json
@@ -54,12 +54,7 @@ firestore_data.json
 .gemini/
 .next
 .vscode
+.agent
 
 # Map data
 public/maps/guwahati.pmtiles
-
-# Agent metadata
-.agents/
-.agent/
-SKILL.md
-skills-lock.json

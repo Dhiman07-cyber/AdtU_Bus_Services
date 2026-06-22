@@ -46,7 +46,7 @@ function FormStepper({
             
             // Backtrack logic: If the step is ahead of current and not complete, show as gray (default)
             // This 'resets' blue circles when you jump back to an earlier step
-            const shouldShowAsVisited = hasBeenVisited && (step.num < currentStep || isFullyCompleted);
+            const shouldShowAsVisited = hasBeenVisited;
 
             return (
               <div 
@@ -117,7 +117,7 @@ function FormStepper({
 
           // Backtrack logic: If the step is ahead of current and not complete, show as gray (default)
           // This 'resets' blue circles when you jump back to an earlier step
-          const shouldShowAsVisited = hasBeenVisited && (step.num < currentStep || isFullyCompleted);
+          const shouldShowAsVisited = hasBeenVisited;
 
           return (
             <div 
