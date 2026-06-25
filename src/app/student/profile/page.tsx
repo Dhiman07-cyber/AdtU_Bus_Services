@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import StudentQRDisplay from "@/components/bus-pass/StudentQRDisplay";
 import SessionStatusBanner from "@/components/student/SessionStatusBanner";
+import { hasTransportEntitlement } from "@/lib/entitlement/transport-entitlement";
 import ProfileImageUpdateModal from "@/components/ProfileImageUpdateModal";
 import { useToast } from "@/contexts/toast-context";
 import Image from "next/image";
@@ -562,7 +563,7 @@ export default function StudentProfilePage() {
           busNumber={studentData.busId || studentData.assignedBusId}
           routeName={studentData.routeId || studentData.assignedRouteId}
           validUntil={studentData.validUntil}
-          isActive={studentData.status === 'active' && !sessionExpired}
+          isActive={hasTransportEntitlement(studentData)}
         />
       )}
 

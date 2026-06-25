@@ -13,6 +13,7 @@
 import { NextResponse } from 'next/server';
 import { auth } from '@/lib/firebase-admin';
 import { missedBusService, MESSAGES } from '@/lib/services/missed-bus-service';
+import { requireTransportEntitlement } from '@/lib/entitlement/require-transport-entitlement';
 
 export async function POST(request: Request) {
     const startTime = Date.now();
@@ -36,6 +37,11 @@ export async function POST(request: Request) {
         // Verify Firebase token
         const decodedToken = await auth.verifyIdToken(idToken);
         const studentId = decodedToken.uid;
+
+        // Phase 3 — a missed-bus pickup is transport functionality (it consumes a
+        // seat on an alternate bus). Deny unless the student owns transport access.
+        const gate = await requireTransportEntitlement(studentId);
+        if (!gate.ok) return (gate as any).response;
 
         // Call the service
         const result = await missedBusService.raiseRequest({

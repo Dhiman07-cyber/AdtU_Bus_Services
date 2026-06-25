@@ -3,16 +3,21 @@ import { db as adminDb } from '@/lib/firebase-admin';
 import { withSecurity } from '@/lib/security/api-security';
 import { NotifyDriverSchema } from '@/lib/security/validation-schemas';
 import { RateLimits } from '@/lib/security/rate-limiter';
+import { requireTransportEntitlement } from '@/lib/entitlement/require-transport-entitlement';
 
 /**
  * POST /api/student/notify-driver
- * 
+ *
  * Logic to notify a driver (FCM or other) when a student sends a request.
  */
 export const POST = withSecurity(
   async (request, { auth, body }) => {
     const { busId, studentName } = body as any;
     const studentUid = auth.uid;
+
+    // Phase 3 — only entitled students may contact the driver.
+    const gate = await requireTransportEntitlement(studentUid);
+    if (!gate.ok) return (gate as any).response;
 
     console.log('🔔 Student notifying driver:', { studentUid, busId, studentName });
 

@@ -24,6 +24,67 @@ export interface AlternativeBusResult {
 }
 
 /**
+ * Result of computing a single-student capacity mutation against a bus document.
+ */
+export interface CapacityDelta {
+  /** Field-path updates to apply to the bus document (caller writes inside its own transaction). */
+  updates: Record<string, unknown>;
+  /** currentMembers before the mutation. */
+  oldMembers: number;
+  /** currentMembers after the mutation. */
+  newMembers: number;
+  /** The bus capacity ceiling. */
+  capacity: number;
+}
+
+/**
+ * SINGLE SOURCE OF TRUTH for how adding/removing ONE student maps onto a bus
+ * document's counters. Every admin-SDK capacity mutation — approval, admin-create,
+ * soft block, hard delete, manual delete, late renewal — must derive its bus
+ * writes from this function so the count math can never diverge across flows.
+ *
+ * `sign = 1` adds a student (increment), `sign = -1` removes one (decrement).
+ *
+ * Pure & side-effect free: it does NOT read or write Firestore. Callers fetch the
+ * bus inside a transaction, pass `busDoc.data()` here, and apply `updates`.
+ *
+ * Invariant produced: currentMembers === load.totalCount, and a single-shift
+ * student moves exactly one of morningCount/eveningCount.
+ */
+export function buildCapacityDelta(
+  busData: Record<string, any> | undefined,
+  shift: string | undefined,
+  sign: 1 | -1
+): CapacityDelta {
+  const oldMembers = busData?.currentMembers || 0;
+  const capacity = busData?.capacity || 55;
+  const newMembers = sign === 1 ? oldMembers + 1 : Math.max(0, oldMembers - 1);
+
+  const updates: Record<string, unknown> = {
+    currentMembers: newMembers,
+    'load.totalCount': newMembers,
+    updatedAt: new Date().toISOString()
+  };
+
+  if (shift) {
+    const normalizedShift = shift.toLowerCase();
+    const currentLoad = busData?.load || { morningCount: 0, eveningCount: 0 };
+
+    // Use includes() to handle variations like "Morning", "morning shift", "Evening Shift"
+    if (normalizedShift.includes('morning') || normalizedShift === 'both') {
+      const morning = currentLoad.morningCount || 0;
+      updates['load.morningCount'] = sign === 1 ? morning + 1 : Math.max(0, morning - 1);
+    }
+    if (normalizedShift.includes('evening') || normalizedShift === 'both') {
+      const evening = currentLoad.eveningCount || 0;
+      updates['load.eveningCount'] = sign === 1 ? evening + 1 : Math.max(0, evening - 1);
+    }
+  }
+
+  return { updates, oldMembers, newMembers, capacity };
+}
+
+/**
  * Get capacity display string (deprecated - use inline template)
  * @deprecated Use `${currentMembers}/${capacity}` directly in templates
  */
@@ -76,51 +137,42 @@ export async function checkBusCapacity(busId: string): Promise<{
 export async function incrementBusCapacity(busId: string, studentUid: string, shift?: string): Promise<void> {
   try {
     const busRef = adminDb.collection('buses').doc(busId);
-    const busDoc = await busRef.get();
 
-    if (!busDoc.exists) {
-      throw new Error(`Bus ${busId} not found`);
-    }
+    let oldMembers = 0;
+    let newMembers = 0;
+    let capacity = 55;
+    let busNumber: string | undefined;
+    let routeId: string | undefined;
 
-    const busData = busDoc.data();
-    const oldMembers = busData?.currentMembers || 0;
-    const currentMembers = oldMembers + 1;
-    const capacity = busData?.capacity || 55;
-
-    // Prepare load updates
-    const updates: any = {
-      currentMembers: currentMembers,
-      'load.totalCount': currentMembers,
-      updatedAt: new Date().toISOString()
-    };
-
-    // Update Load counts if shift is provided
-    if (shift) {
-      const normalizedShift = shift.toLowerCase();
-      const currentLoad = busData?.load || { morningCount: 0, eveningCount: 0 };
-
-      // Use includes() to handle variations like "Morning", "morning shift", "Evening Shift"
-      if (normalizedShift.includes('morning') || normalizedShift === 'both') {
-        updates['load.morningCount'] = (currentLoad.morningCount || 0) + 1;
+    // Atomic read-modify-write inside a transaction eliminates the lost-update
+    // race between concurrent approvals/additions on the same bus.
+    await adminDb.runTransaction(async (transaction) => {
+      const busDoc = await transaction.get(busRef);
+      if (!busDoc.exists) {
+        throw new Error(`Bus ${busId} not found`);
       }
-      if (normalizedShift.includes('evening') || normalizedShift === 'both') {
-        updates['load.eveningCount'] = (currentLoad.eveningCount || 0) + 1;
-      }
-    }
 
-    // Update bus document
-    await busRef.update(updates);
+      const busData = busDoc.data();
+      const delta = buildCapacityDelta(busData, shift, 1);
+      oldMembers = delta.oldMembers;
+      newMembers = delta.newMembers;
+      capacity = delta.capacity;
+      busNumber = busData?.busNumber;
+      routeId = busData?.routeId;
+
+      transaction.update(busRef, delta.updates);
+    });
 
     console.log(`✅ Bus ${busId} capacity incremented:`, {
       oldDisplay: `${oldMembers}/${capacity}`,
-      newDisplay: `${currentMembers}/${capacity}`,
+      newDisplay: `${newMembers}/${capacity}`,
       studentAdded: studentUid,
       shift: shift || 'not provided'
     });
 
-    // Check if bus is now full and send admin alert
-    if (currentMembers >= capacity) {
-      await sendBusFullAlert(busId, busData?.busNumber, busData?.routeId);
+    // Check if bus is now full and send admin alert (post-commit; never inside the transaction)
+    if (newMembers >= capacity) {
+      await sendBusFullAlert(busId, busNumber || '', routeId || '');
     }
   } catch (error) {
     console.error(`Error incrementing bus capacity for ${busId}:`, error);
@@ -134,44 +186,31 @@ export async function incrementBusCapacity(busId: string, studentUid: string, sh
 export async function decrementBusCapacity(busId: string, studentUid: string, shift?: string): Promise<void> {
   try {
     const busRef = adminDb.collection('buses').doc(busId);
-    const busDoc = await busRef.get();
 
-    if (!busDoc.exists) {
-      throw new Error(`Bus ${busId} not found`);
-    }
+    let oldMembers = 0;
+    let newMembers = 0;
+    let capacity = 55;
 
-    const busData = busDoc.data();
-    const oldMembers = busData?.currentMembers || 0;
-    const currentMembers = Math.max(0, oldMembers - 1); // Never go below 0
-    const capacity = busData?.capacity || 55;
-
-    // Prepare updates
-    const updates: any = {
-      currentMembers: currentMembers,
-      'load.totalCount': currentMembers,
-      updatedAt: new Date().toISOString()
-    };
-
-    // Update Load counts if shift is provided
-    if (shift) {
-      const normalizedShift = shift.toLowerCase();
-      const currentLoad = busData?.load || { morningCount: 0, eveningCount: 0 };
-
-      // Use includes() to handle variations like "Morning", "morning shift", "Evening Shift"
-      if (normalizedShift.includes('morning') || normalizedShift === 'both') {
-        updates['load.morningCount'] = Math.max(0, (currentLoad.morningCount || 0) - 1);
+    // Atomic read-modify-write inside a transaction eliminates the lost-update
+    // race between concurrent removals (soft block / hard delete / manual delete).
+    await adminDb.runTransaction(async (transaction) => {
+      const busDoc = await transaction.get(busRef);
+      if (!busDoc.exists) {
+        throw new Error(`Bus ${busId} not found`);
       }
-      if (normalizedShift.includes('evening') || normalizedShift === 'both') {
-        updates['load.eveningCount'] = Math.max(0, (currentLoad.eveningCount || 0) - 1);
-      }
-    }
 
-    // Update bus document
-    await busRef.update(updates);
+      const busData = busDoc.data();
+      const delta = buildCapacityDelta(busData, shift, -1);
+      oldMembers = delta.oldMembers;
+      newMembers = delta.newMembers;
+      capacity = delta.capacity;
+
+      transaction.update(busRef, delta.updates);
+    });
 
     console.log(`✅ Bus ${busId} capacity decremented:`, {
       oldDisplay: `${oldMembers}/${capacity}`,
-      newDisplay: `${currentMembers}/${capacity}`,
+      newDisplay: `${newMembers}/${capacity}`,
       studentRemoved: studentUid,
       shift: shift || 'not provided'
     });
@@ -276,9 +315,12 @@ export async function findAlternativeBuses(
 }
 
 /**
- * Send alert to admins when bus is full
+ * Send alert to admins when bus is full.
+ * Exported so callers that mutate capacity inside their own transaction can fire
+ * this post-commit (it performs its own batched notification write and must never
+ * run inside a capacity transaction).
  */
-async function sendBusFullAlert(busId: string, busNumber: string, routeId: string): Promise<void> {
+export async function sendBusFullAlert(busId: string, busNumber: string, routeId: string): Promise<void> {
   try {
     // Get all admins
     const adminsSnapshot = await adminDb.collection('admins').get();

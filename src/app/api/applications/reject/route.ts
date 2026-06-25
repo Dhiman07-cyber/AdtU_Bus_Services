@@ -4,6 +4,10 @@ import { Application, AuditLogEntry } from '@/lib/types/application';
 import { v2 as cloudinary } from 'cloudinary';
 import { sendApplicationRejectedNotification } from '@/lib/services/admin-email.service';
 import { requireModeratorPermission } from '@/lib/security/moderator-permissions';
+import { writeAuditInTransaction } from '@/lib/audit/audit-service';
+
+/** Thrown inside the rejection transaction when the application was already consumed (duplicate / retry). */
+class ApplicationGoneError extends Error {}
 
 // Configure Cloudinary
 if (process.env.CLOUDINARY_API_KEY && process.env.CLOUDINARY_API_SECRET && process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME) {
@@ -151,12 +155,51 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // ✅ CLEANUP: Delete from applications collection after rejection
+    // ── Tier A: a rejection PERMANENTLY destroys the application. Delete it and
+    //    write the audit record (who rejected, when, WHY, and a snapshot of WHAT
+    //    was destroyed) in ONE transaction, so the action is always reconstructible
+    //    and the document can never vanish without an audit trail. The state is
+    //    re-read inside the transaction for idempotency (concurrent double-reject).
     try {
-      await adminDb.collection('applications').doc(applicationId).delete();
+      const destroyedSnapshot = {
+        applicantUid: appData.applicantUid,
+        enrollmentId: formData.enrollmentId || null,
+        fullName: formData.fullName || null,
+        email: formData.email || null,
+        routeId: formData.routeId || null,
+        stopId: formData.stopId || null,
+        shift: formData.shift || null,
+        applicationType: (appData as any).applicationType || null,
+        targetSession: (appData as any).targetSession || null,
+        paymentId: (appData as any).paymentId || null,
+        amountPaid: formData.paymentInfo?.amountPaid ?? null,
+      };
+      await adminDb.runTransaction(async (transaction) => {
+        const fresh = await transaction.get(appRef);
+        if (!fresh.exists || (fresh.data() as Application).state !== 'submitted') {
+          throw new ApplicationGoneError();
+        }
+        transaction.delete(appRef);
+        writeAuditInTransaction(transaction, {
+          action: 'application_rejected',
+          actor: { id: uid, role: adminDoc.exists ? 'admin' : 'moderator', name: actorData?.fullName || actorData?.name || rejectorName },
+          targetId: appData.applicantUid,
+          targetType: 'application',
+          targetName: formData.fullName || '',
+          reason,
+          before: { applicationId, applicationState: 'submitted', ...destroyedSnapshot },
+          after: { applicationState: 'deleted' },
+          details: { applicationId, rejectorName, rejectorId },
+          correlationId: applicationId,
+        });
+      });
       console.log('✅ Deleted rejected applications document for:', applicationId);
     } catch (deleteError) {
-      console.warn('⚠️ Could not delete applications doc:', deleteError);
+      if (deleteError instanceof ApplicationGoneError) {
+        return NextResponse.json({ error: 'Application already processed' }, { status: 409 });
+      }
+      console.error('❌ Could not delete applications doc:', deleteError);
+      return NextResponse.json({ error: 'Failed to reject application' }, { status: 500 });
     }
 
     // ✅ EMAIL NOTIFICATION: Send rejection email to student

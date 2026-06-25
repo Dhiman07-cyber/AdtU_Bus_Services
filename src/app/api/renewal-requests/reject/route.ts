@@ -3,6 +3,10 @@ import { adminAuth, adminDb } from '@/lib/firebase-admin';
 import { FieldValue } from 'firebase-admin/firestore';
 import { v2 as cloudinary } from 'cloudinary';
 import { requireModeratorPermission } from '@/lib/security/moderator-permissions';
+import { writeAuditInTransaction } from '@/lib/audit/audit-service';
+
+/** Thrown inside the rejection transaction when the request was already consumed (duplicate / retry). */
+class RequestGoneError extends Error {}
 
 // Configure Cloudinary
 if (process.env.CLOUDINARY_API_KEY && process.env.CLOUDINARY_API_SECRET && process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME) {
@@ -174,10 +178,46 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Delete renewal request document (cleanup after rejection)
-    console.log('\n🗑️ Deleting renewal request document from Firestore');
-    await requestRef.delete();
-    console.log('✅ Renewal request document deleted');
+    // ── Tier A: a rejection PERMANENTLY destroys the renewal request. Delete it
+    //    and write the audit (who/when/WHY/snapshot of WHAT) in ONE transaction,
+    //    re-reading status inside for idempotency (concurrent double-reject).
+    try {
+      const destroyedSnapshot = {
+        studentId,
+        enrollmentId: requestData?.enrollmentId || null,
+        studentName: requestData?.studentName || null,
+        durationYears: durationYears ?? null,
+        totalFee: requestData?.totalFee ?? null,
+        paymentMode: requestData?.paymentMode || null,
+        paymentId: requestData?.paymentId || null,
+      };
+      await adminDb.runTransaction(async (transaction) => {
+        const fresh = await transaction.get(requestRef);
+        if (!fresh.exists || fresh.data()?.status !== 'pending') {
+          throw new RequestGoneError();
+        }
+        transaction.delete(requestRef);
+        writeAuditInTransaction(transaction, {
+          action: 'renewal_request_rejected',
+          actor: { id: uid, role: adminDoc.exists ? 'admin' : 'moderator', name: rejectorData?.fullName || rejectorData?.name || rejectorName },
+          targetId: studentId,
+          targetType: 'renewal_request',
+          targetName: requestData?.studentName || '',
+          reason,
+          before: { requestId, requestStatus: 'pending', ...destroyedSnapshot },
+          after: { requestStatus: 'deleted' },
+          details: { requestId, rejectorName, rejectorId },
+          correlationId: requestId,
+        });
+      });
+      console.log('✅ Renewal request document deleted');
+    } catch (deleteError) {
+      if (deleteError instanceof RequestGoneError) {
+        return NextResponse.json({ error: 'Renewal request already processed' }, { status: 409 });
+      }
+      console.error('❌ Failed to delete renewal request:', deleteError);
+      return NextResponse.json({ error: 'Failed to reject renewal request' }, { status: 500 });
+    }
 
     return NextResponse.json({
       success: true,

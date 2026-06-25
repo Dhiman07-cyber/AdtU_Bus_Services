@@ -13,7 +13,6 @@ import { adminDb, FieldValue } from '@/lib/firebase-admin';
 import { PaymentTransactionService } from '@/lib/payment/payment-transaction.service';
 import { calculateValidUntilDate } from '@/lib/utils/date-utils';
 import { fetchOrderDetails } from '@/lib/payment/razorpay.service';
-import { computeBlockDatesFromValidUntil } from '@/lib/utils/deadline-computation';
 import { getDeadlineConfig } from '@/lib/deadline-config-service';
 
 export async function POST(request: NextRequest) {
@@ -107,6 +106,8 @@ export async function POST(request: NextRequest) {
       let newSessionEndYear: number = new Date().getFullYear();
       let totalDurationYears: number = 0;
       let actualStudentName: string = studentName;
+      let studentEmail: string = '';
+      let studentPhone: string = '';
       let transactionRecord: any = null;
 
       try {
@@ -140,6 +141,8 @@ export async function POST(request: NextRequest) {
 
           const studentData = studentDoc.data();
           actualStudentName = studentData?.fullName || studentName;
+          studentEmail = studentData?.email || '';
+          studentPhone = studentData?.phone || studentData?.phoneNumber || '';
 
 
 
@@ -171,25 +174,17 @@ export async function POST(request: NextRequest) {
           newSessionEndYear = baseYear + durationYears;
           totalDurationYears = existingDurationYears + durationYears;
 
-          // Compute block dates from the new validUntil
-          const blockDates = computeBlockDatesFromValidUntil(newValidUntil, deadlineConfig);
-
-
-
-          // Update student document atomically with block dates
-          transaction.update(studentRef, {
-            validUntil: newValidUntil,
-            status: 'active',
-            sessionStartYear: newSessionStartYear,
-            sessionEndYear: newSessionEndYear,
-            paymentAmount: amount / 100,
-            lastRenewalDate: FieldValue.serverTimestamp(),
-            durationYears: totalDurationYears,
-            // CRITICAL: Always update block dates when validUntil changes
-            softBlock: blockDates.softBlock,
-            hardBlock: blockDates.hardBlock,
-            updatedAt: FieldValue.serverTimestamp()
-          });
+          // ───────────────────────────────────────────────────────────────────
+          // Phase 3 — The webhook NO LONGER reactivates the student. Online
+          // renewals converge into the unified approval flow exactly like the
+          // client `verify-payment` path: the captured payment is recorded
+          // (immutable ledger, below) and a PENDING `renewal_requests` document is
+          // created (after this transaction) so `approve-v2` remains the single
+          // event that revalidates capacity, runs reassignment, reclaims the seat,
+          // and flips the student to 'active'. The student document is left
+          // untouched here — no instant entitlement restoration.
+          // The processed_payments marker above still guarantees idempotency.
+          // ───────────────────────────────────────────────────────────────────
 
 
 
@@ -217,12 +212,66 @@ export async function POST(request: NextRequest) {
           };
         });
 
-        // Save transaction record after successful transaction
+        // Save transaction record after successful transaction (records the
+        // captured online payment as Completed in the immutable ledger).
         if (transactionRecord) {
           await PaymentTransactionService.saveTransaction(transactionRecord);
         }
 
+        // Phase 3 — create the PENDING renewal request that approval will act on.
+        // Idempotent by doc id (`online_<paymentId>`); matches verify-payment so the
+        // client path and the webhook safety-net never produce duplicates.
+        const renewalRequestRef = adminDb.collection('renewal_requests').doc(`online_${paymentId}`);
+        const existingRequest = await renewalRequestRef.get();
+        if (!existingRequest.exists) {
+          await renewalRequestRef.set({
+            studentId: studentDocId,
+            enrollmentId: enrollmentId || transactionRecord?.studentId || '',
+            studentName: actualStudentName,
+            studentEmail,
+            studentPhone,
+            durationYears,
+            totalFee: amount / 100,
+            paymentMode: 'online',
+            paymentId,
+            razorpayOrderId: order_id,
+            paymentStatus: 'paid',
+            requestedValidUntil: newValidUntil.toISOString(),
+            status: 'pending',
+            createdAt: FieldValue.serverTimestamp(),
+            updatedAt: FieldValue.serverTimestamp(),
+          });
 
+          try {
+            const [adminsSnapshot, moderatorsSnapshot] = await Promise.all([
+              adminDb.collection('admins').get(),
+              adminDb.collection('moderators').get(),
+            ]);
+            const allStaffIds = [
+              ...adminsSnapshot.docs.map((d: any) => d.id),
+              ...moderatorsSnapshot.docs.map((d: any) => d.id),
+            ];
+            if (allStaffIds.length > 0) {
+              const expiryDate = new Date();
+              expiryDate.setHours(23, 59, 59, 999);
+              await adminDb.collection('notifications').add({
+                title: 'Online Renewal Awaiting Approval',
+                content: `${actualStudentName} (${enrollmentId || ''}) paid online for a ${durationYears} year(s) renewal and is awaiting approval.`,
+                sender: { userId: studentDocId, userName: actualStudentName, userRole: 'student', enrollmentId: enrollmentId || '' },
+                target: { type: 'specific_users', specificUserIds: allStaffIds },
+                recipientIds: allStaffIds,
+                autoInjectedRecipientIds: [],
+                readByUserIds: [],
+                isEdited: false,
+                isDeletedGlobally: false,
+                createdAt: FieldValue.serverTimestamp(),
+                expiresAt: expiryDate.toISOString(),
+              });
+            }
+          } catch (notifyErr) {
+            console.error('[webhook] Failed to notify staff of online renewal request:', notifyErr);
+          }
+        }
 
         return NextResponse.json({ status: 'success' }, { status: 200 });
 

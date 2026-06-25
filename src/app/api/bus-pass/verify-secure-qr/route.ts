@@ -12,6 +12,7 @@ import {
     scannerBusMatchesStudent,
     validateStudentScannerContext,
 } from '@/lib/security/scanner-auth';
+import { getTransportEntitlement } from '@/lib/entitlement/transport-entitlement';
 
 function getValidUntilDate(validUntil: unknown): Date | null {
     if (!validUntil) return null;
@@ -132,14 +133,16 @@ export async function POST(request: NextRequest) {
 
         const studentData = studentDoc.data();
         const validUntilDate = getValidUntilDate(studentData?.validUntil);
-        const sessionActive = !validUntilDate || validUntilDate >= new Date();
-        const isStudentActive = studentData?.status === 'active';
         const assignedBusId = studentData?.assignedBus || studentData?.busId || studentData?.currentBusId;
         const busMatchesScanner = scannerBusMatchesStudent(scannerBusId, assignedBusId);
-        const accountValid = sessionActive && isStudentActive;
+
+        // CANONICAL entitlement (Phase 3) — same single source of truth as the
+        // dashboard / tracking / QR display. Denies soft-blocked, past-soft-block,
+        // renewal-applicant, and future students even with a valid signed token.
+        const { entitled: accountValid, reason: entitlementReason } = getTransportEntitlement(studentData);
 
         let status = accountValid ? 'success' : 'session_expired';
-        let message = accountValid ? 'Student verified (Secure)' : 'Student session expired or inactive';
+        let message = accountValid ? 'Student verified (Secure)' : 'Transport access inactive — boarding not permitted';
         if (accountValid && !busMatchesScanner) {
             status = 'bus_mismatch';
             message = 'Student is assigned to a different bus';
@@ -166,6 +169,7 @@ export async function POST(request: NextRequest) {
             matchesScannerBus: busMatchesScanner,
             canBoard: accountValid && busMatchesScanner,
             sessionActive: accountValid,
+            entitlementReason,
             tokenInfo: {
                 issuedAt: new Date(qrPayload.issuedAt).toISOString(),
                 expiresAt: new Date(qrPayload.expiresAt).toISOString(),

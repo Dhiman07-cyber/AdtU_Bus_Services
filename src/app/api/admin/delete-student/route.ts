@@ -1,13 +1,15 @@
 import { NextResponse } from 'next/server';
 import { adminAuth, adminDb } from '@/lib/firebase-admin';
 import { deleteAsset, extractPublicId } from '@/lib/cloudinary-server';
-import { decrementBusCapacity } from '@/lib/busCapacityService';
+import { buildCapacityDelta } from '@/lib/busCapacityService';
+import { wasSeatReleased } from '@/lib/config/capacity-flags';
 import { withSecurity } from '@/lib/security/api-security';
 import { DeleteStudentSchema } from '@/lib/security/validation-schemas';
 import { RateLimits } from '@/lib/security/rate-limiter';
+import { writeAuditInTransaction, resolveActor } from '@/lib/audit/audit-service';
 
 export const POST = withSecurity(
-    async (request, { body }) => {
+    async (request, { auth, body }) => {
         const { uid } = body as any;
 
         // Get the student data to check if they have a profile photo
@@ -20,57 +22,89 @@ export const POST = withSecurity(
 
         const studentData = studentDoc.data();
         const busId = studentData?.busId || studentData?.currentBusId || studentData?.assignedBusId || null;
+        // DEDUP GUARD: skip the bus decrement if the seat was already released at soft block.
+        const shouldDecrement = !!busId && !wasSeatReleased(studentData);
 
-        // 1. Delete profile photo from Cloudinary (Fire and forget or parallel)
-        const photoCleanup = (async () => {
-            if (studentData.profilePhotoUrl) {
-                const publicId = extractPublicId(studentData.profilePhotoUrl);
-                if (publicId) await deleteAsset(publicId);
+        // Resolve the acting admin BEFORE opening the transaction (it performs reads).
+        const actor = await resolveActor(auth.uid);
+
+        // ── Tier A: the IRREVERSIBLE ownership/capacity mutation — student doc delete,
+        //    user doc delete, and bus seat decrement — commits atomically WITH a
+        //    durable audit row that snapshots exactly what was destroyed. A student
+        //    can never be deleted without a reconstructible record of who/when/why.
+        const userDocRef = adminDb.collection('users').doc(uid);
+        const busRef = shouldDecrement ? adminDb.collection('buses').doc(busId) : null;
+        await adminDb.runTransaction(async (transaction) => {
+            const busSnap = busRef ? await transaction.get(busRef) : null;
+
+            transaction.delete(studentDocRef);
+            transaction.delete(userDocRef);
+
+            if (busRef && busSnap?.exists) {
+                const delta = buildCapacityDelta(busSnap.data(), studentData?.shift, -1);
+                transaction.update(busRef, delta.updates);
             }
-        })();
 
-        // 2. Parallel Cleanup Tasks (FCM, Waiting Flags, Attendance, Auth, Firestore)
-        const deleteTasks = [
-            photoCleanup,
-            // FCM tokens
+            writeAuditInTransaction(transaction, {
+                action: 'student_deleted',
+                actor,
+                targetId: uid,
+                targetType: 'student',
+                targetName: studentData?.fullName || studentData?.name || '',
+                reason: 'admin_manual_delete',
+                before: {
+                    enrollmentId: studentData?.enrollmentId || null,
+                    busId: busId || null,
+                    shift: studentData?.shift || null,
+                    status: studentData?.status || null,
+                    validUntil: studentData?.validUntil || null,
+                    sessionEndYear: studentData?.sessionEndYear || null,
+                    seatReleasedAt: studentData?.seatReleasedAt || null,
+                },
+                after: { deleted: true },
+                details: { seatDecremented: shouldDecrement, busId: busId || null },
+                correlationId: uid,
+            });
+        });
+
+        // Post-commit best-effort cleanup of NON-ownership data (external systems and
+        // bulk sub-collections). These never affect the committed deletion/capacity
+        // invariant; failures are isolated and surfaced via Promise.allSettled.
+        const cleanupTasks = [
+            (async () => {
+                if (studentData?.profilePhotoUrl) {
+                    const publicId = extractPublicId(studentData.profilePhotoUrl);
+                    if (publicId) await deleteAsset(publicId);
+                }
+            })(),
             (async () => {
                 const snapshot = await adminDb.collection('fcm_tokens').where('userUid', '==', uid).get();
                 const batch = adminDb.batch();
                 snapshot.docs.forEach((doc: any) => batch.delete(doc.ref));
                 await batch.commit();
             })(),
-            // Waiting flags
             (async () => {
                 const snapshot = await adminDb.collection('waiting_flags').where('student_uid', '==', uid).get();
                 const batch = adminDb.batch();
                 snapshot.docs.forEach((doc: any) => batch.delete(doc.ref));
                 await batch.commit();
             })(),
-            // Attendance
             (async () => {
                 const snapshot = await adminDb.collection('attendance').where('studentUid', '==', uid).get();
                 const batch = adminDb.batch();
                 snapshot.docs.forEach((doc: any) => batch.delete(doc.ref));
                 await batch.commit();
             })(),
-            // Bus capacity
-            (async () => {
-                if (busId) await decrementBusCapacity(busId, uid, studentData.shift);
-            })(),
-            // Firestore Student & User Doc
-            studentDocRef.delete(),
-            adminDb.collection('users').doc(uid).delete(),
-            // Firebase Auth
             (async () => {
                 try {
                     await adminAuth.deleteUser(uid);
                 } catch (authError: any) {
                     if (authError.code !== 'auth/user-not-found') console.error('Auth deletion error:', authError);
                 }
-            })()
+            })(),
         ];
 
-        await Promise.allSettled(deleteTasks);
+        await Promise.allSettled(cleanupTasks);
 
         return NextResponse.json({
             success: true,

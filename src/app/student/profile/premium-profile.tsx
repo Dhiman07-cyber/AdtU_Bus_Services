@@ -14,6 +14,7 @@ import {
 import { useState, useEffect, useMemo } from "react";
 import StudentQRDisplay from "@/components/bus-pass/StudentQRDisplay";
 import { useRealtimeDocument } from "@/hooks/useRealtimeDocument";
+import { hasTransportEntitlement } from "@/lib/entitlement/transport-entitlement";
 // SPARK PLAN SAFETY: Migrated to usePaginatedCollection
 import { usePaginatedCollection } from '@/hooks/usePaginatedCollection';
 import Image from "next/image";
@@ -287,7 +288,7 @@ export default function PremiumStudentProfile() {
         busNumber={busData?.busNumber || student?.busId}
         routeName={routeData?.routeName || student?.routeId}
         validUntil={student?.validUntil}
-        isActive={student?.status === 'active'}
+        isActive={hasTransportEntitlement(student)}
       />
     </div>
   );

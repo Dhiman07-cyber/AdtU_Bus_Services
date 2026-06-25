@@ -283,6 +283,201 @@ CREATE INDEX IF NOT EXISTS idx_reassignment_logs_changes ON public.reassignment_
 -- 5. Payments are PERMANENT financial records for 5-10+ years.
 -- 6. This table is APPEND-ONLY. Status changes are allowed (Pending → Completed).
 -- 7. For reporting, use SELECT queries only. No destructive operations.
+CREATE INDEX IF NOT EXISTS idx_waiting_flags_active_raised ON waiting_flags(bus_id, student_uid) WHERE status = 'raised';
+
+-- driver_location_updates table (historical breadcrumbs)
+CREATE TABLE IF NOT EXISTS driver_location_updates (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  driver_uid TEXT NOT NULL,
+  bus_id TEXT,
+  lat DOUBLE PRECISION NOT NULL,
+  lng DOUBLE PRECISION NOT NULL,
+  speed DOUBLE PRECISION,
+  heading DOUBLE PRECISION,
+  accuracy DOUBLE PRECISION,
+  timestamp TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_driver_location_updates_driver_uid ON driver_location_updates(driver_uid);
+CREATE INDEX IF NOT EXISTS idx_driver_location_updates_timestamp ON driver_location_updates(timestamp DESC);
+CREATE INDEX IF NOT EXISTS idx_driver_location_updates_cleanup ON driver_location_updates(driver_uid, bus_id);
+
+-- route_cache table (ORS geometry caching)
+CREATE TABLE IF NOT EXISTS route_cache (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  route_id TEXT NOT NULL UNIQUE,
+  geometry JSONB NOT NULL,
+  distance DOUBLE PRECISION,
+  duration DOUBLE PRECISION,
+  cached_at TIMESTAMPTZ DEFAULT NOW(),
+  expires_at TIMESTAMPTZ,
+  fallback_used BOOLEAN DEFAULT FALSE,
+  fallback_type TEXT DEFAULT 'none',
+  fallback_reason TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_route_cache_route_id ON route_cache(route_id);
+CREATE INDEX IF NOT EXISTS idx_route_cache_expires_at ON route_cache(expires_at);
+CREATE INDEX IF NOT EXISTS idx_route_cache_fallback ON route_cache(fallback_used) WHERE fallback_used = TRUE;
+
+-- =====================================================
+-- SECTION 2: DRIVER SWAP SYSTEM TABLES
+-- =====================================================
+
+-- driver_swap_requests table
+CREATE TABLE IF NOT EXISTS driver_swap_requests (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  -- Requester (fromDriver) info
+  requester_driver_uid TEXT NOT NULL,
+  requester_name TEXT NOT NULL,
+  -- Target (toDriver) info  
+  candidate_driver_uid TEXT NOT NULL,
+  candidate_name TEXT NOT NULL,
+  -- Primary bus/route being swapped
+  bus_id TEXT NOT NULL,
+  bus_number TEXT,
+  route_id TEXT,
+  route_name TEXT,
+  -- Secondary bus/route for true swaps (both drivers have buses)
+  secondary_bus_id TEXT,
+  secondary_bus_number TEXT,
+  secondary_route_id TEXT,
+  secondary_route_name TEXT,
+  -- Swap timing
+  starts_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  ends_at TIMESTAMPTZ NOT NULL,
+  expires_at TIMESTAMPTZ, -- When acceptance window expires
+  -- Swap details
+  swap_type TEXT DEFAULT 'assignment' CHECK (swap_type IN ('assignment', 'swap')),
+  reason TEXT,
+  status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'accepted', 'rejected', 'cancelled', 'expired')),
+  -- Timestamps
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  -- Action tracking
+  accepted_by TEXT,
+  accepted_at TIMESTAMPTZ,
+  rejected_by TEXT,
+  rejected_at TIMESTAMPTZ,
+  cancelled_by TEXT,
+  cancelled_at TIMESTAMPTZ,
+  -- Additional metadata
+  meta JSONB DEFAULT '{}'::jsonb
+);
+
+-- Add missing columns if table already exists
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'driver_swap_requests' AND column_name = 'bus_number') THEN
+        ALTER TABLE driver_swap_requests ADD COLUMN bus_number TEXT;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'driver_swap_requests' AND column_name = 'route_name') THEN
+        ALTER TABLE driver_swap_requests ADD COLUMN route_name TEXT;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'driver_swap_requests' AND column_name = 'secondary_bus_id') THEN
+        ALTER TABLE driver_swap_requests ADD COLUMN secondary_bus_id TEXT;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'driver_swap_requests' AND column_name = 'secondary_bus_number') THEN
+        ALTER TABLE driver_swap_requests ADD COLUMN secondary_bus_number TEXT;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'driver_swap_requests' AND column_name = 'secondary_route_id') THEN
+        ALTER TABLE driver_swap_requests ADD COLUMN secondary_route_id TEXT;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'driver_swap_requests' AND column_name = 'secondary_route_name') THEN
+        ALTER TABLE driver_swap_requests ADD COLUMN secondary_route_name TEXT;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'driver_swap_requests' AND column_name = 'swap_type') THEN
+        ALTER TABLE driver_swap_requests ADD COLUMN swap_type TEXT DEFAULT 'assignment';
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'driver_swap_requests' AND column_name = 'expires_at') THEN
+        ALTER TABLE driver_swap_requests ADD COLUMN expires_at TIMESTAMPTZ;
+    END IF;
+END $$;
+
+CREATE INDEX IF NOT EXISTS idx_swap_requests_requester ON driver_swap_requests(requester_driver_uid);
+CREATE INDEX IF NOT EXISTS idx_swap_requests_candidate ON driver_swap_requests(candidate_driver_uid);
+CREATE INDEX IF NOT EXISTS idx_swap_requests_bus ON driver_swap_requests(bus_id);
+CREATE INDEX IF NOT EXISTS idx_swap_requests_status ON driver_swap_requests(status);
+CREATE INDEX IF NOT EXISTS idx_swap_requests_created ON driver_swap_requests(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_swap_requests_active ON driver_swap_requests(status) WHERE status IN ('pending', 'accepted');
+CREATE INDEX IF NOT EXISTS idx_swap_requests_pending_expires ON driver_swap_requests(status, expires_at) WHERE status = 'pending';
+
+-- temporary_assignments table
+CREATE TABLE IF NOT EXISTS temporary_assignments (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  bus_id TEXT NOT NULL UNIQUE,
+  original_driver_uid TEXT NOT NULL,
+  current_driver_uid TEXT NOT NULL,
+  route_id TEXT NOT NULL,
+  starts_at TIMESTAMPTZ NOT NULL,
+  ends_at TIMESTAMPTZ,
+  active BOOLEAN NOT NULL DEFAULT true,
+  created_by TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  source_request_id UUID REFERENCES driver_swap_requests(id),
+  reason TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_temp_assignments_bus ON temporary_assignments(bus_id);
+CREATE INDEX IF NOT EXISTS idx_temp_assignments_current_driver ON temporary_assignments(current_driver_uid);
+CREATE INDEX IF NOT EXISTS idx_temp_assignments_active ON temporary_assignments(active) WHERE active = true;
+CREATE INDEX IF NOT EXISTS idx_temp_assignments_expires ON temporary_assignments(ends_at) WHERE active = true;
+
+-- =====================================================
+-- SECTION 3: REASSIGNMENT LOGS TABLE
+-- =====================================================
+
+CREATE TABLE IF NOT EXISTS public.reassignment_logs (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  
+  -- Operation Identity
+  operation_id TEXT NOT NULL UNIQUE,
+  type TEXT NOT NULL,
+  
+  -- Actor Information
+  actor_id TEXT NOT NULL,
+  actor_label TEXT NOT NULL,
+  
+  -- Status & Timestamps
+  logged_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  status TEXT NOT NULL DEFAULT 'pending',
+  
+  -- Change Details
+  summary TEXT,
+  changes JSONB NOT NULL DEFAULT '[]'::jsonb,
+  meta JSONB DEFAULT '{}'::jsonb,
+  
+  -- Rollback Reference
+  rollback_of TEXT,
+  
+  -- Timestamps
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW(),
+
+  -- Constraints
+  CONSTRAINT chk_reassignment_type CHECK (type IN ('driver_reassignment', 'student_reassignment', 'route_reassignment', 'rollback', 'unknown')),
+  CONSTRAINT chk_reassignment_status CHECK (status IN ('pending', 'committed', 'rolled_back', 'failed', 'no-op'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_reassignment_logs_type_ts ON public.reassignment_logs (type, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_reassignment_logs_actor ON public.reassignment_logs (actor_id);
+CREATE INDEX IF NOT EXISTS idx_reassignment_logs_status ON public.reassignment_logs (status);
+CREATE INDEX IF NOT EXISTS idx_reassignment_logs_logged_at ON public.reassignment_logs (logged_at DESC);
+CREATE INDEX IF NOT EXISTS idx_reassignment_logs_rollback ON public.reassignment_logs (rollback_of) WHERE rollback_of IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_reassignment_logs_changes ON public.reassignment_logs USING GIN (changes);
+
+-- =====================================================
+-- SECTION 4: PAYMENTS TABLE (IMMUTABLE FINANCIAL LEDGER)
+-- =====================================================
+--
+-- ⚠️ CRITICAL AUDIT SAFETY RULES:
+-- 1. This table is the SINGLE SOURCE OF TRUTH for all payment records.
+-- 2. NEVER delete rows from this table.
+-- 3. NEVER truncate or reset this table.
+-- 4. NEVER migrate payment data to another system (e.g., Firestore).
+-- 5. Payments are PERMANENT financial records for 5-10+ years.
+-- 6. This table is APPEND-ONLY. Status changes are allowed (Pending → Completed).
+-- 7. For reporting, use SELECT queries only. No destructive operations.
 --
 -- See README for architecture documentation.
 -- =====================================================
@@ -327,11 +522,10 @@ CREATE TABLE IF NOT EXISTS public.payments (
   
   -- Timestamps
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  updated_at TIMESTAMPTZ DEFAULT NOW(),
   
   -- Constraints
   CONSTRAINT chk_payment_method CHECK (method IN ('Online', 'Offline') OR method IS NULL),
-  CONSTRAINT chk_payment_status CHECK (status IN ('Pending', 'Completed', 'Rejected') OR status IS NULL),
+  CONSTRAINT payments_status_check CHECK (status IN ('Pending', 'Completed', 'Rejected') OR status IS NULL),
   CONSTRAINT chk_payment_amount_positive CHECK (amount IS NULL OR amount > 0),
   CONSTRAINT chk_payment_session_year CHECK (session_start_year IS NULL OR (session_start_year >= 2020 AND session_start_year <= 2050))
 );
@@ -348,6 +542,11 @@ BEGIN
         ALTER TABLE public.payments ADD COLUMN student_name TEXT;
     END IF;
 
+    -- active_trips table
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'active_trips' AND column_name = 'end_time') THEN
+        ALTER TABLE public.active_trips ADD COLUMN end_time TIMESTAMPTZ;
+    END IF;
+
     -- bus_locations table
     IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'bus_locations' AND column_name = 'accuracy') THEN
         ALTER TABLE bus_locations ADD COLUMN accuracy DOUBLE PRECISION;
@@ -358,6 +557,7 @@ BEGIN
     END IF;
 END $$;
 
+DROP INDEX IF EXISTS public.idx_payments_signature;
 CREATE INDEX IF NOT EXISTS idx_payments_student_uid ON public.payments (student_uid);
 CREATE INDEX IF NOT EXISTS idx_payments_student_id ON public.payments (student_id);
 CREATE INDEX IF NOT EXISTS idx_payments_date ON public.payments (transaction_date DESC);
@@ -379,24 +579,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_payments_one_completed_per_student_session
     AND session_start_year IS NOT NULL
     AND session_end_year IS NOT NULL;
 
--- Payment exports table
-CREATE TABLE IF NOT EXISTS public.payment_exports (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  export_id TEXT NOT NULL UNIQUE,
-  academic_year TEXT NOT NULL,
-  file_name TEXT NOT NULL,
-  file_path TEXT,
-  total_records INTEGER NOT NULL DEFAULT 0,
-  total_amount NUMERIC(12,2) DEFAULT 0,
-  export_date TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  exported_by TEXT,
-  status TEXT DEFAULT 'completed',
-  meta JSONB DEFAULT '{}'::jsonb,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
 
-CREATE INDEX IF NOT EXISTS idx_exports_year ON public.payment_exports (academic_year);
-CREATE INDEX IF NOT EXISTS idx_exports_date ON public.payment_exports (export_date DESC);
 
 -- =====================================================
 -- SECTION 5: HELPER FUNCTIONS & TRIGGERS
@@ -476,20 +659,7 @@ CREATE TRIGGER reassignment_logs_updated_at
   FOR EACH ROW
   EXECUTE FUNCTION update_reassignment_logs_updated_at();
 
--- Trigger for updated_at (payments)
-CREATE OR REPLACE FUNCTION update_payments_updated_at()
-RETURNS TRIGGER AS $$
-BEGIN
-  NEW.updated_at = NOW();
-  RETURN NEW;
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
-DROP TRIGGER IF EXISTS payments_updated_at ON public.payments;
-CREATE TRIGGER payments_updated_at
-  BEFORE UPDATE ON public.payments
-  FOR EACH ROW
-  EXECUTE FUNCTION update_payments_updated_at();
 
 -- Function to expire temporary assignments
 CREATE OR REPLACE FUNCTION expire_temporary_assignments()
@@ -609,7 +779,6 @@ ALTER TABLE driver_swap_requests ENABLE ROW LEVEL SECURITY;
 ALTER TABLE temporary_assignments ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.reassignment_logs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.payments ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.payment_exports ENABLE ROW LEVEL SECURITY;
 
 -- ========== bus_locations policies ==========
 DROP POLICY IF EXISTS "bus_locations_select_all" ON bus_locations;
@@ -832,18 +1001,11 @@ CREATE POLICY "payments_update_service" ON public.payments
 -- ⚠️ PAYMENTS ARE IMMUTABLE - NO DELETIONS ALLOWED (not even service_role)
 DROP POLICY IF EXISTS "payments_delete_service" ON public.payments;
 DROP POLICY IF EXISTS "payments_delete_blocked" ON public.payments;
-CREATE POLICY "payments_delete_blocked" ON public.payments
+DROP POLICY IF EXISTS "payments_no_delete" ON public.payments;
+CREATE POLICY "payments_no_delete" ON public.payments
   FOR DELETE USING (false); -- BLOCKED: Payments are permanent financial records
 
--- ========== payment_exports policies ==========
-DROP POLICY IF EXISTS "payment_exports_select_all" ON public.payment_exports;
-DROP POLICY IF EXISTS "payment_exports_select_service" ON public.payment_exports;
-CREATE POLICY "payment_exports_select_service" ON public.payment_exports
-  FOR SELECT USING (auth.role() = 'service_role');
 
-DROP POLICY IF EXISTS "payment_exports_insert_service" ON public.payment_exports;
-CREATE POLICY "payment_exports_insert_service" ON public.payment_exports
-  FOR INSERT WITH CHECK (auth.role() = 'service_role');
 
 -- =====================================================
 -- SECTION 7: GRANTS & REVOKES
@@ -923,13 +1085,15 @@ CREATE TABLE IF NOT EXISTS public.active_trips (
   driver_id TEXT NOT NULL,
   route_id TEXT NOT NULL,
   shift TEXT NOT NULL CHECK (shift IN ('morning', 'evening', 'both')),
-  status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'ended')),
+  status TEXT NOT NULL DEFAULT 'active',
   start_time TIMESTAMPTZ DEFAULT NOW(),
   end_time TIMESTAMPTZ,
   last_heartbeat TIMESTAMPTZ DEFAULT NOW(),
   metadata JSONB DEFAULT '{}'::jsonb,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  updated_at TIMESTAMPTZ DEFAULT NOW()
+  updated_at TIMESTAMPTZ DEFAULT NOW(),
+  
+  CONSTRAINT active_trips_status_check CHECK (status IN ('active', 'ended'))
 );
 
 CREATE INDEX IF NOT EXISTS idx_active_trips_bus_id ON public.active_trips(bus_id);
@@ -1224,7 +1388,6 @@ COMMENT ON TABLE driver_location_updates IS 'Historical location breadcrumbs for
 COMMENT ON TABLE route_cache IS 'Cached route geometries from OpenRouteService';
 COMMENT ON TABLE public.reassignment_logs IS 'Audit logs for driver/student/route reassignment operations';
 COMMENT ON TABLE public.payments IS 'IMMUTABLE FINANCIAL LEDGER - Payment records are permanent and cannot be deleted. Single source of truth for all payments.';
-COMMENT ON TABLE public.payment_exports IS 'Annual payment export tracking';
 COMMENT ON TABLE public.active_trips IS 'Multi-driver lock system - Live trip records with heartbeat for exclusive bus operation';
 COMMENT ON TABLE public.missed_bus_requests IS 'Student missed-bus pickup requests - allows students to request alternate bus pickup when they miss their assigned bus.';
 

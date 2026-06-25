@@ -190,8 +190,7 @@ export default function PremiumLanding() {
   const containerRef = useRef<HTMLDivElement>(null);
   const busRef = useRef<HTMLDivElement>(null);
   const lastScrollTop = useRef(0);
-  const [scrollProgress, setScrollProgress] = useState(0);
-  const [isScrollingDown, setIsScrollingDown] = useState(true);
+  const trackerProgressRef = useRef<HTMLDivElement>(null);
 
   // References for Dice Sections DOM updates
   const section1Ref = useRef<HTMLDivElement>(null);
@@ -219,11 +218,13 @@ export default function PremiumLanding() {
     if (totalScrollable <= 0) return;
 
     const progress = scrollTop / totalScrollable;
-    setScrollProgress(progress);
-
     const down = scrollTop >= lastScrollTop.current;
     lastScrollTop.current = scrollTop;
-    setIsScrollingDown(down);
+
+    // Update Bottom Bar Bus Tracker Progress Line
+    if (trackerProgressRef.current) {
+      trackerProgressRef.current.style.width = `${progress * 100}%`;
+    }
 
     // Update Bottom Bar Bus Tracker
     if (busRef.current) {
@@ -524,20 +525,30 @@ export default function PremiumLanding() {
         {/* Background image for final CTA */}
         <div className="absolute inset-0 z-0">
           <Image
-            src="/landing/adtusw.jpg"
+            src="/landing/hero.jpg"
             alt="Portal access background"
             fill
-            className="object-cover object-center opacity-80 select-none pointer-events-none"
+            className="object-cover object-center opacity-85 select-none pointer-events-none"
           />
           <div className="absolute inset-0 bg-gradient-to-b from-[#030a16]/60 via-[#030a16]/75 to-[#030a16]" />
           <div className="absolute inset-0 bg-[#030a16]/30" />
         </div>
 
         <div className="relative max-w-3xl mx-auto w-full z-10 reveal-on-scroll px-4">
-          <div className="relative overflow-hidden bg-slate-950/50 backdrop-blur-xl border border-white/10 rounded-3xl p-8 md:p-12 shadow-[0_25px_60px_-15px_rgba(0,0,0,0.8)] text-center group">
+          <div className="relative overflow-hidden bg-slate-950/90 sm:bg-slate-950/50 sm:backdrop-blur-xl border border-white/10 rounded-3xl p-8 md:p-12 shadow-[0_25px_60px_-15px_rgba(0,0,0,0.8)] text-center group">
+            {/* Card inner background image */}
+            <div className="absolute inset-0 z-0 select-none pointer-events-none">
+              <Image
+                src="/landing/hero.jpg"
+                alt="Card inner background"
+                fill
+                className="object-cover object-center opacity-80 select-none pointer-events-none"
+              />
+              <div className="absolute inset-0 bg-slate-950/35" />
+            </div>
 
             {/* Absolute internal soft glow */}
-            <div className="absolute -inset-24 rounded-full opacity-10 bg-radial-gradient from-teal-500 via-transparent to-transparent blur-3xl pointer-events-none group-hover:opacity-20 transition-opacity duration-1000" />
+            <div className="hidden sm:block absolute -inset-24 rounded-full opacity-10 bg-radial-gradient from-teal-500 via-transparent to-transparent blur-3xl pointer-events-none group-hover:opacity-20 transition-opacity duration-1000" />
 
             <div className="relative z-10 space-y-5 max-w-xl mx-auto">
               <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-teal-500/10 border border-teal-500/20 text-teal-400 rounded-full text-[10px] font-bold uppercase tracking-widest">
@@ -552,19 +563,19 @@ export default function PremiumLanding() {
                 Sign in with your AdtU Google account to track your bus live, view your digital pass, manage your annual bus card renewal, and receive official dispatch alerts — all from one dashboard.
               </p>
 
-              <div className="pt-2 flex flex-col items-center justify-center gap-3">
+              <div className="pt-3 flex flex-col sm:flex-row items-center justify-center gap-3 w-full max-w-md mx-auto">
                 <button
                   onClick={handleSignIn}
-                  className="w-full max-w-sm px-6 py-4 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-white font-bold rounded-xl text-base shadow-lg transition-all duration-300 hover:scale-[1.01] hover:shadow-[0_0_30px_rgba(245,158,11,0.4)] cursor-pointer text-center flex items-center justify-center gap-3"
+                  className="w-full sm:w-auto px-5 py-2.5 bg-amber-600 hover:bg-amber-500 text-white font-bold rounded-xl text-sm transition-all duration-300 flex items-center justify-center gap-2 shadow-sm hover:scale-[1.01] cursor-pointer"
                 >
                   <span>Sign In with Google</span>
-                  <ArrowRight className="w-5 h-5" />
+                  <ArrowRight className="w-4 h-4" />
                 </button>
                 <a
                   href="https://www.adtu.in/admissions"
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="w-full max-w-sm px-6 py-3 border border-white/15 text-slate-300 hover:text-white hover:border-white/30 font-semibold rounded-xl transition-all duration-300 text-center text-sm"
+                  className="w-full sm:w-auto px-5 py-2.5 border border-white/10 bg-white/[0.02] text-slate-300 hover:text-white hover:bg-white/5 font-semibold rounded-xl text-sm transition-all duration-300 flex items-center justify-center text-center"
                 >
                   Know about Admissions
                 </a>
@@ -578,7 +589,7 @@ export default function PremiumLanding() {
       <Footer className="relative z-10 snap-start snap-always !border-white/5 !bg-[#030a16]" />
 
       {/* DYNAMIC ISLAND BUS TRACKER */}
-      <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 w-[90%] max-w-lg h-14 bg-slate-950/80 backdrop-blur-md border border-white/10 rounded-full flex items-center px-6 justify-between shadow-2xl select-none pointer-events-auto">
+      <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 w-[90%] max-w-lg h-14 bg-slate-950/95 sm:bg-slate-950/80 sm:backdrop-blur-md border border-white/10 rounded-full flex items-center px-6 justify-between shadow-2xl select-none pointer-events-auto">
         <div className="flex flex-col justify-center text-left">
           <span className="text-[11px] font-black tracking-widest text-slate-300">HOME</span>
           <span className="text-[7px] font-bold text-slate-500 tracking-wider leading-none uppercase">Start</span>
@@ -587,15 +598,16 @@ export default function PremiumLanding() {
         <div className="flex-1 mx-4 relative h-6 flex items-center">
           <div className="absolute left-0 right-0 h-0.5 bg-slate-800/80 rounded-full" />
           <div
+            ref={trackerProgressRef}
             className="absolute left-0 h-0.5 bg-gradient-to-r from-amber-500 to-teal-400 rounded-full"
-            style={{ width: `${scrollProgress * 100}%` }}
+            style={{ width: '0%' }}
           />
           <div
             ref={busRef}
             className="absolute w-8 h-6 flex items-center justify-center"
             style={{
-              left: `calc(${scrollProgress} * (100% - 24px))`,
-              transform: `scaleX(${isScrollingDown ? 1 : -1})`,
+              left: '0px',
+              transform: 'scaleX(1)',
               transition: 'left 150ms cubic-bezier(0.16, 1, 0.3, 1), transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1)'
             }}
           >
@@ -697,10 +709,10 @@ function InteractiveDiceSection1({
           <div className="absolute inset-0 bg-gradient-to-r from-[#030a16] via-[#030a16]/70 to-[#030a16]/20" />
         </div>
 
-        <div className="relative max-w-[94rem] mx-auto px-6 sm:px-16 lg:px-24 w-full h-full flex flex-col md:flex-row items-center justify-between z-10">
+        <div className="relative max-w-[94rem] mx-auto px-6 sm:px-16 lg:px-24 w-full h-full flex flex-col md:flex-row items-center justify-start md:justify-between pt-6 md:pt-0 gap-32 md:gap-0 z-10">
           {/* Left Text Column */}
-          <div className="w-full md:w-1/2 flex flex-col justify-center h-full relative pr-0 md:pr-12">
-            <div className="relative h-[450px] w-full flex items-center">
+          <div className="w-full md:w-1/2 flex flex-col justify-center h-auto md:h-full relative pr-0 md:pr-12 order-2 md:order-1">
+            <div className="relative h-[220px] sm:h-[260px] md:h-[450px] w-full flex items-center">
 
               {/* Stage 1 Content */}
               <div ref={text1Ref} className="absolute inset-x-0 space-y-4 md:space-y-6 text-left transition-all duration-75">
@@ -760,7 +772,7 @@ function InteractiveDiceSection1({
             </div>
 
             {/* Dots */}
-            <div className="flex items-center gap-3 pt-6 border-t border-white/5 max-w-md mt-6">
+            <div className="hidden md:flex items-center gap-3 pt-3 md:pt-6 border-t border-white/5 max-w-md mt-3 md:mt-6 justify-center md:justify-start">
               <button
                 ref={dot1Ref}
                 onClick={() => scrollToStage(0)}
@@ -777,16 +789,16 @@ function InteractiveDiceSection1({
           </div>
 
           {/* Right Cube Column */}
-          <div className="w-full md:w-1/2 flex items-center justify-center p-4 md:p-8">
-            <div className="relative w-56 h-56 sm:w-72 sm:h-72 md:w-[22rem] md:h-[22rem] flex items-center justify-center [perspective:1200px] select-none">
+          <div className="w-full md:w-1/2 flex items-center justify-center p-2 md:p-8 order-1 md:order-2">
+            <div className="relative w-64 h-64 sm:w-72 sm:h-72 md:w-[22rem] md:h-[22rem] flex items-center justify-center [perspective:1200px] select-none">
 
               {/* Backlight Glow */}
-              <div className="absolute inset-0 rounded-full opacity-20 blur-3xl bg-radial-gradient from-amber-500/50 to-transparent pointer-events-none" />
+              <div className="hidden sm:block absolute inset-0 rounded-full opacity-20 blur-3xl bg-radial-gradient from-amber-500/50 to-transparent pointer-events-none" />
 
               {/* 3D Cube */}
               <div
                 ref={cubeRef}
-                className="w-48 h-48 sm:w-60 sm:h-60 md:w-72 md:h-72 relative [transform-style:preserve-3d] transition-transform duration-75"
+                className="w-56 h-56 sm:w-60 sm:h-60 md:w-72 md:h-72 relative [transform-style:preserve-3d] will-change-transform"
                 style={{
                   transform: 'rotateY(-12deg) rotateX(-90deg)',
                 }}
@@ -971,18 +983,18 @@ function InteractiveDiceSection2({
           <div className="absolute inset-0 bg-gradient-to-l from-[#030a16] via-[#030a16]/70 to-[#030a16]/20" />
         </div>
 
-        <div className="relative max-w-[94rem] mx-auto px-6 sm:px-16 lg:px-24 w-full h-full flex flex-col md:flex-row items-center justify-between z-10">
+        <div className="relative max-w-[94rem] mx-auto px-6 sm:px-16 lg:px-24 w-full h-full flex flex-col md:flex-row items-center justify-start md:justify-between pt-6 md:pt-0 gap-32 md:gap-0 z-10">
           {/* Left Cube Column */}
-          <div className="w-full md:w-1/2 flex items-center justify-center p-4 md:p-8 order-2 md:order-1">
-            <div className="relative w-56 h-56 sm:w-72 sm:h-72 md:w-[22rem] md:h-[22rem] flex items-center justify-center [perspective:1200px] select-none">
+          <div className="w-full md:w-1/2 flex items-center justify-center p-2 md:p-8 order-1 md:order-1">
+            <div className="relative w-64 h-64 sm:w-72 sm:h-72 md:w-[22rem] md:h-[22rem] flex items-center justify-center [perspective:1200px] select-none">
 
               {/* Backlight Glow */}
-              <div className="absolute inset-0 rounded-full opacity-20 blur-3xl bg-radial-gradient from-teal-500/50 to-transparent pointer-events-none" />
+              <div className="hidden sm:block absolute inset-0 rounded-full opacity-20 blur-3xl bg-radial-gradient from-teal-500/50 to-transparent pointer-events-none" />
 
               {/* 3D Cube */}
               <div
                 ref={cubeRef}
-                className="w-48 h-48 sm:w-60 sm:h-60 md:w-72 md:h-72 relative [transform-style:preserve-3d] transition-transform duration-75"
+                className="w-56 h-56 sm:w-60 sm:h-60 md:w-72 md:h-72 relative [transform-style:preserve-3d] will-change-transform"
                 style={{
                   transform: 'rotateY(-12deg) rotateX(-90deg)',
                 }}
@@ -1123,8 +1135,8 @@ function InteractiveDiceSection2({
           </div>
 
           {/* Right Text Column */}
-          <div className="w-full md:w-1/2 flex flex-col justify-center h-full relative order-1 md:order-2 pl-0 md:pl-12 md:-translate-y-8">
-            <div className="relative h-[450px] w-full flex items-center">
+          <div className="w-full md:w-1/2 flex flex-col justify-center h-auto md:h-full relative order-2 md:order-2 pl-0 md:pl-12 md:-translate-y-8">
+            <div className="relative h-[220px] sm:h-[260px] md:h-[450px] w-full flex items-center">
 
               {/* Stage 3 Content */}
               <div ref={text1Ref} className="absolute inset-x-0 space-y-4 md:space-y-6 text-left transition-all duration-75">
@@ -1189,7 +1201,7 @@ function InteractiveDiceSection2({
             </div>
 
             {/* Dots */}
-            <div className="flex items-center gap-3 pt-6 border-t border-white/5 max-w-md mt-6">
+            <div className="hidden md:flex items-center gap-3 pt-3 md:pt-6 border-t border-white/5 max-w-md mt-3 md:mt-6 justify-center md:justify-start">
               <button
                 ref={dot1Ref}
                 onClick={() => scrollToStage(0)}
@@ -1269,8 +1281,10 @@ function LearningCarousel() {
   const [slideIndex, setSlideIndex] = useState(2 * N); // Start at index 12 (Card 1 of 3rd set)
   const [isTransitioning, setIsTransitioning] = useState(true);
   const [isMobile, setIsMobile] = useState(false);
+  const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
+    setMounted(true);
     const handleResize = () => {
       setIsMobile(window.innerWidth < 640);
     };
@@ -1359,7 +1373,18 @@ function LearningCarousel() {
     : 'none';
 
   return (
-    <div className="relative w-full bg-transparent h-dvh snap-start snap-always flex flex-col justify-start pt-16 sm:pt-24 pb-8 border-t border-white/5 overflow-hidden">
+    <div className="relative w-full h-dvh snap-start snap-always flex flex-col justify-center sm:justify-start pt-16 sm:pt-24 pb-8 border-t border-white/5 overflow-hidden">
+      {/* Background image for Commuter Experience */}
+      <div className="absolute inset-0 z-0">
+        <Image
+          src="/landing/adtusw.jpg"
+          alt="Commuter experience background"
+          fill
+          className="object-cover object-center opacity-85 select-none pointer-events-none"
+        />
+        <div className="absolute inset-0 bg-gradient-to-b from-[#030a16]/60 via-[#030a16]/75 to-[#030a16]" />
+        <div className="absolute inset-0 bg-[#030a16]/30" />
+      </div>
       {/* Heading */}
       <div className="max-w-5xl mx-auto px-6 w-full z-10 mb-6 text-center sm:text-left">
         <span className="text-xs font-bold text-teal-400 tracking-widest uppercase block mb-1">
@@ -1371,134 +1396,134 @@ function LearningCarousel() {
       </div>
 
       {/* Carousel Wrapper */}
-      <div className="w-full max-w-5xl mx-auto overflow-hidden z-10 relative px-4 bg-transparent">
-        <div
-          className="flex flex-row flex-nowrap min-w-max w-max py-8 bg-transparent"
-          style={{
-            transform: `translateX(calc(var(--carousel-center) - ${slideIndex * cardStep + halfCard}px))`,
-            transition: containerTransition
-          }}
-          onTransitionEnd={handleTransitionEnd}
-        >
-          {extendedSlides.map((slide, idx) => {
-            const distance = Math.abs(slideIndex - idx);
-            const isActive = distance === 0;
-            const isNeighbor = distance === 1;
+      {mounted && (
+        <div className="w-full max-w-5xl mx-auto overflow-hidden z-10 relative px-4 bg-transparent">
+          <div
+            className="flex flex-row flex-nowrap min-w-max w-max py-8 bg-transparent"
+            style={{
+              transform: `translateX(calc(var(--carousel-center) - ${slideIndex * cardStep + halfCard}px))`,
+              transition: containerTransition
+            }}
+            onTransitionEnd={handleTransitionEnd}
+          >
+            {extendedSlides.map((slide, idx) => {
+              const distance = Math.abs(slideIndex - idx);
+              const isActive = distance === 0;
+              const isNeighbor = distance === 1;
 
-            return (
-              <div
-                key={idx}
-                className="w-[290px] sm:w-[340px] shrink-0 mx-3 rounded-2xl p-6 cursor-pointer select-none relative overflow-hidden"
-                style={{
-                  transform: `scale(${isActive ? 1.05 : isNeighbor ? 0.92 : 0.85})`,
-                  opacity: isActive ? 1 : isNeighbor ? 0.45 : 0.15,
-                  zIndex: 30 - Math.min(distance, 5),
-                  border: '1px solid',
-                  borderColor: isActive ? 'rgba(251, 191, 36, 0.2)' : 'rgba(255, 255, 255, 0.03)',
-                  backgroundColor: isActive ? '#0b1322' : 'rgba(4, 9, 18, 0.65)',
-                  boxShadow: isActive 
-                    ? '0 20px 40px -10px rgba(0, 0, 0, 0.85), inset 0 1px 0 rgba(255, 255, 255, 0.03)' 
-                    : 'inset 0 2px 4px rgba(0, 0, 0, 0.6)',
-                  transition: cardTransition
-                }}
-                onClick={() => handleCardClick(idx)}
-              >
-                {/* Neomorphic accent top border */}
-                <div 
-                  className="absolute top-0 inset-x-0 h-[2px] bg-gradient-to-r from-amber-400/80 to-yellow-500/80"
-                  style={{
-                    opacity: isActive ? 1 : 0,
-                    transition: isTransitioning ? 'opacity 1500ms cubic-bezier(0.22, 1, 0.36, 1)' : 'none'
-                  }}
-                />
-
-                {/* Icon Section (sunken well when inactive, glowing when active) */}
+              return (
                 <div
-                  className="w-12 h-12 rounded-xl flex items-center justify-center mb-4"
+                  key={idx}
+                  className="w-[290px] sm:w-[340px] shrink-0 mx-3 rounded-2xl p-6 cursor-pointer select-none relative overflow-hidden"
                   style={{
-                    backgroundColor: isActive ? 'rgba(251, 191, 36, 0.06)' : 'rgba(0, 0, 0, 0.25)',
+                    transform: `scale(${isActive ? 1.05 : isNeighbor ? 0.92 : 0.85})`,
+                    opacity: isActive ? 1 : isNeighbor ? 0.45 : 0.15,
+                    zIndex: 30 - Math.min(distance, 5),
                     border: '1px solid',
-                    borderColor: isActive ? 'rgba(251, 191, 36, 0.25)' : 'rgba(255, 255, 255, 0.02)',
+                    borderColor: isActive ? 'rgba(251, 191, 36, 0.2)' : 'rgba(255, 255, 255, 0.03)',
+                    backgroundColor: isActive ? '#0b1322' : 'rgba(4, 9, 18, 0.65)',
                     boxShadow: isActive 
-                      ? '0 4px 12px rgba(251, 191, 36, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.05)' 
-                      : 'inset 2px 2px 5px rgba(0, 0, 0, 0.5)',
-                    transform: `scale(${isActive ? 1.05 : 0.95})`,
-                    transition: isTransitioning ? 'all 1500ms cubic-bezier(0.22, 1, 0.36, 1)' : 'none'
+                      ? '0 20px 40px -10px rgba(0, 0, 0, 0.85), inset 0 1px 0 rgba(255, 255, 255, 0.03)' 
+                      : 'inset 0 2px 4px rgba(0, 0, 0, 0.6)',
+                    transition: cardTransition
                   }}
+                  onClick={() => handleCardClick(idx)}
                 >
-                  {slide.icon}
-                </div>
-
-                {/* Badge Tag */}
-                <span
-                  className="px-2 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider mb-3 inline-block"
-                  style={{
-                    color: isActive ? '#fbbf24' : '#64748b',
-                    backgroundColor: isActive ? 'rgba(251, 191, 36, 0.08)' : 'rgba(255, 255, 255, 0.02)',
-                    border: '1px solid',
-                    borderColor: isActive ? 'rgba(251, 191, 36, 0.15)' : 'rgba(255, 255, 255, 0.05)',
-                    transition: tagTransition
-                  }}
-                >
-                  {slide.tag}
-                </span>
-
-                {/* Title */}
-                <h3
-                  className="text-sm font-bold mb-1.5 leading-snug"
-                  style={{
-                    color: isActive ? '#ffffff' : '#94a3b8',
-                    transform: `translateY(${isActive ? '0px' : '-4px'})`,
-                    opacity: isActive ? 1 : 0.7,
-                    transition: textTransition
-                  }}
-                >
-                  {slide.title}
-                </h3>
-
-                {/* Description */}
-                <p 
-                  className="text-xs leading-relaxed"
-                  style={{
-                    color: isActive ? '#cbd5e1' : '#64748b',
-                    transform: `translateY(${isActive ? '0px' : '-4px'})`,
-                    opacity: isActive ? 1 : 0.5,
-                    transition: textTransition
-                  }}
-                >
-                  {slide.desc}
-                </p>
-              </div>
-            );
-          })}
-        </div>
-
-        {/* Navigation Dots */}
-        <div className="flex justify-center gap-2 mt-4 bg-transparent font-sans">
-          {slides.map((_, idx) => {
-            const isActiveDot = (slideIndex % N) === idx;
-            return (
-              <button
-                key={idx}
-                onClick={() => handleDotClick(idx)}
-                className={`h-1.5 rounded-full transition-all duration-700 ease-[cubic-bezier(0.22,1,0.36,1)] relative overflow-hidden ${
-                  isActiveDot ? "w-8 bg-slate-800" : "w-1.5 bg-slate-700 hover:bg-slate-600"
-                }`}
-                aria-label={`Go to slide ${idx + 1}`}
-              >
-                {isActiveDot && (
-                  <span
-                    className="absolute inset-y-0 left-0 h-full bg-amber-400 rounded-full"
+                  {/* Neomorphic accent top border */}
+                  <div 
+                    className="absolute top-0 inset-x-0 h-[2px] bg-gradient-to-r from-amber-400/80 to-yellow-500/80"
                     style={{
-                      animation: 'progressBar 5000ms linear forwards'
+                      opacity: isActive ? 1 : 0,
+                      transition: isTransitioning ? 'opacity 1500ms cubic-bezier(0.22, 1, 0.36, 1)' : 'none'
                     }}
                   />
-                )}
-              </button>
-            );
-          })}
+
+                  {/* Icon Section (sunken well when inactive, glowing when active) */}
+                  <div
+                    className="w-12 h-12 rounded-xl flex items-center justify-center mb-4"
+                    style={{
+                      backgroundColor: isActive ? 'rgba(251, 191, 36, 0.06)' : 'rgba(0, 0, 0, 0.25)',
+                      border: '1px solid',
+                      borderColor: isActive ? 'rgba(251, 191, 36, 0.25)' : 'rgba(255, 255, 255, 0.02)',
+                      boxShadow: isActive 
+                        ? '0 4px 12px rgba(251, 191, 36, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.05)' 
+                        : 'inset 2px 2px 5px rgba(0, 0, 0, 0.5)',
+                      transform: `scale(${isActive ? 1.05 : 0.95})`,
+                      transition: isTransitioning ? 'all 1500ms cubic-bezier(0.22, 1, 0.36, 1)' : 'none'
+                    }}
+                  >
+                    {slide.icon}
+                  </div>
+
+                  {/* Badge Tag */}
+                  <span
+                    className="px-2 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider mb-3 inline-block"
+                    style={{
+                      color: isActive ? '#fbbf24' : '#64748b',
+                      backgroundColor: isActive ? 'rgba(251, 191, 36, 0.08)' : 'rgba(255, 255, 255, 0.02)',
+                      border: '1px solid',
+                      borderColor: isActive ? 'rgba(251, 191, 36, 0.15)' : 'rgba(255, 255, 255, 0.05)',
+                      transition: tagTransition
+                    }}
+                  >
+                    {slide.tag}
+                  </span>
+
+                  {/* Title */}
+                  <h3
+                    className="text-sm font-bold mb-1.5 leading-snug"
+                    style={{
+                      color: isActive ? '#ffffff' : '#94a3b8',
+                      transform: `translateY(${isActive ? '0px' : '-4px'})`,
+                      opacity: isActive ? 1 : 0.7,
+                      transition: textTransition
+                    }}
+                  >
+                    {slide.title}
+                  </h3>
+
+                  {/* Description */}
+                  <p 
+                    className="text-xs leading-relaxed"
+                    style={{
+                      color: isActive ? '#cbd5e1' : '#64748b',
+                      transform: `translateY(${isActive ? '0px' : '-4px'})`,
+                      opacity: isActive ? 1 : 0.5,
+                      transition: textTransition
+                    }}
+                  >
+                    {slide.desc}
+                  </p>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Navigation Dots */}
+          <div className="flex justify-center gap-2 mt-4 bg-transparent font-sans">
+            {slides.map((_, idx) => {
+              const isActiveDot = (slideIndex % N) === idx;
+              return (
+                <button
+                  key={idx}
+                  onClick={() => handleDotClick(idx)}
+                  className={`h-1.5 rounded-full transition-all duration-700 ease-[cubic-bezier(0.22,1,0.36,1)] relative overflow-hidden ${
+                    isActiveDot ? "w-8 bg-slate-800" : "w-1.5 bg-slate-700 hover:bg-slate-600"
+                  }`}
+                  aria-label={`Go to slide ${idx + 1}`}
+                >
+                  {isActiveDot && (
+                    <span
+                      key={slideIndex}
+                      className="absolute inset-y-0 left-0 w-full h-full bg-amber-400 rounded-full origin-left animate-carousel-progress"
+                    />
+                  )}
+                </button>
+              );
+            })}
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }

@@ -27,6 +27,7 @@ import {
 import Link from "next/link";
 import InlineQRDisplay from "@/components/bus-pass/InlineQRDisplay";
 import { getStudentByUid, getBusById, getRouteById } from "@/lib/dataService";
+import { hasTransportEntitlement } from "@/lib/entitlement/transport-entitlement";
 
 export default function StudentBusPassPage() {
   const { currentUser, userData } = useAuth();
@@ -116,8 +117,10 @@ export default function StudentBusPassPage() {
     }
   };
 
-  // Check if student is active
-  const isActive = studentData?.status === 'active' && isSessionActive();
+  // CANONICAL entitlement (Phase 3) — the single source of truth deciding whether
+  // a QR / bus pass may be shown. Replaces the old status+validUntil check so this
+  // page, the dashboard, the profile, and the server verify endpoints all agree.
+  const isActive = hasTransportEntitlement(studentData);
 
   if (loading) {
     return (

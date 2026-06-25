@@ -7,6 +7,12 @@ import { computeBlockDatesFromValidUntil } from '@/lib/utils/deadline-computatio
 import { deleteAsset, extractPublicId } from '@/lib/cloudinary-server';
 import { getDeadlineConfig } from '@/lib/deadline-config-service';
 import { requireModeratorPermission } from '@/lib/security/moderator-permissions';
+import { buildCapacityDelta } from '@/lib/busCapacityService';
+import { wasSeatReleased } from '@/lib/config/capacity-flags';
+import { writeAuditInTransaction, type AuditActorRole } from '@/lib/audit/audit-service';
+
+/** Thrown inside the renewal transaction when the target bus has no free seat. */
+class CapacityFullError extends Error {}
 
 function toDate(value: unknown): Date | null {
   if (!value) return null;
@@ -73,10 +79,17 @@ export async function POST(request: NextRequest) {
     const requestData = requestSnap.data()!;
     if (requestData.status !== 'pending') return NextResponse.json({ error: 'Request already processed' }, { status: 400 });
 
-    const { 
-      studentId, enrollmentId, studentName, durationYears, totalFee, 
-      transactionId, receiptImageUrl, studentEmail, studentPhone 
+    const {
+      studentId, enrollmentId, studentName, durationYears, totalFee,
+      transactionId, receiptImageUrl, studentEmail, studentPhone
     } = requestData;
+
+    // Phase 3 — renewals converge here from BOTH channels. Online requests
+    // (created by verify-payment / the Razorpay webhook) carry the captured
+    // payment id and were already recorded as Completed in the ledger; offline
+    // requests are pending until this approval. Capacity/seat/activation logic is
+    // identical for both — only the payment-method metadata differs.
+    const isOnlineRenewal = requestData.paymentMode === 'online';
 
     // 2. Identify/Generate Payment ID (Supabase Lookup)
     let paymentId = requestData.paymentId;
@@ -109,6 +122,29 @@ export async function POST(request: NextRequest) {
 
     const newValidUntil = calculateValidUntilDate(baseYear, durationYears, deadlineConfig);
     const newSessionEndYear = baseYear + durationYears;
+
+    // ── Late-renewal seat reclamation ──────────────────────────────────────────
+    // If this student's seat was released at soft block (seatReleasedAt marker set),
+    // the renewal must re-acquire a bus seat. PRE-CHECK capacity BEFORE taking the
+    // payment so a full original bus is rejected cleanly (request stays pending, no
+    // payment saved, no half-state). Students whose seat was never released (marker
+    // absent — early renewal or legacy/flag-off) take ZERO new capacity action.
+    const seatWasReleased = wasSeatReleased(savedStudentData);
+    const renewalBusId = savedStudentData.busId || savedStudentData.currentBusId || savedStudentData.assignedBusId || null;
+    if (seatWasReleased && renewalBusId) {
+      const preBusSnap = await adminDb.collection('buses').doc(renewalBusId).get();
+      if (!preBusSnap.exists) {
+        return NextResponse.json({ error: 'Assigned bus not found for renewal' }, { status: 409 });
+      }
+      const preBusData = preBusSnap.data() || {};
+      if ((preBusData.currentMembers || 0) >= (preBusData.capacity || 55)) {
+        return NextResponse.json({
+          error: 'Original bus is full',
+          message: "This student's seat was released at soft block and the original bus is now full. Reassign the student to a bus with capacity (or increase capacity) before approving this renewal.",
+        }, { status: 409 });
+      }
+    }
+
     const approvalTimestamp = Date.now();
     const transactionRecord = {
       studentId: enrollmentId,
@@ -116,9 +152,9 @@ export async function POST(request: NextRequest) {
       studentEmail: studentEmail || savedStudentData?.email || 'N/A',
       studentPhone: studentPhone || savedStudentData?.phone || 'N/A',
       amount: totalFee,
-      paymentMethod: 'offline' as const,
+      paymentMethod: (isOnlineRenewal ? 'online' : 'offline') as 'online' | 'offline',
       paymentId,
-      offlineTransactionId: transactionId || '',
+      offlineTransactionId: isOnlineRenewal ? '' : (transactionId || ''),
       durationYears,
       validUntil: newValidUntil.toISOString(),
       newValidUntil: newValidUntil.toISOString(),
@@ -144,37 +180,106 @@ export async function POST(request: NextRequest) {
 
     await PaymentTransactionService.saveTransaction(transactionRecord);
 
-    await adminDb.runTransaction(async (transaction: FirebaseFirestore.Transaction) => {
-      const freshStudentDoc = await transaction.get(studentRef);
-      const freshRequestDoc = await transaction.get(requestRef);
-      if (!freshStudentDoc.exists) throw new Error('Student document not found');
-      if (!freshRequestDoc.exists) throw new Error('Renewal request not found');
-      if (freshRequestDoc.data()?.status !== 'pending') throw new Error('Request already processed');
+    try {
+      await adminDb.runTransaction(async (transaction: FirebaseFirestore.Transaction) => {
+        const freshStudentDoc = await transaction.get(studentRef);
+        const freshRequestDoc = await transaction.get(requestRef);
 
-      const freshStudentData = freshStudentDoc.data() || {};
-      const totalDuration = (freshStudentData.durationYears || 0) + durationYears;
-      const blockDates = computeBlockDatesFromValidUntil(newValidUntil, deadlineConfig);
+        // For a released seat, re-read the bus INSIDE the transaction (all reads
+        // before any write) so the increment + status flip + marker clear commit
+        // atomically. No compensation needed — bus and student move together.
+        const reclaimBusRef = (seatWasReleased && renewalBusId)
+          ? (adminDb.collection('buses').doc(renewalBusId) as FirebaseFirestore.DocumentReference<FirebaseFirestore.DocumentData>)
+          : null;
+        const reclaimBusDoc = reclaimBusRef ? await transaction.get(reclaimBusRef) : null;
 
-      transaction.update(studentRef, {
-        validUntil: newValidUntil,
-        status: 'active',
-        sessionEndYear: newSessionEndYear,
-        durationYears: totalDuration,
-        paymentAmount: totalFee,
-        softBlock: blockDates.softBlock,
-        hardBlock: blockDates.hardBlock,
-        lastRenewalDate: FieldValue.serverTimestamp(),
-        updatedAt: FieldValue.serverTimestamp()
+        if (!freshStudentDoc.exists) throw new Error('Student document not found');
+        if (!freshRequestDoc.exists) throw new Error('Renewal request not found');
+        if (freshRequestDoc.data()?.status !== 'pending') throw new Error('Request already processed');
+
+        let busDelta: ReturnType<typeof buildCapacityDelta> | null = null;
+        if (reclaimBusRef) {
+          if (!reclaimBusDoc!.exists) throw new Error('Assigned bus not found for renewal');
+          const reclaimBusData = reclaimBusDoc!.data();
+          // Atomic ceiling enforcement — closes the last-seat race with the pre-check.
+          if ((reclaimBusData?.currentMembers || 0) >= (reclaimBusData?.capacity || 55)) {
+            throw new CapacityFullError();
+          }
+          busDelta = buildCapacityDelta(reclaimBusData, savedStudentData.shift, 1);
+        }
+
+        const freshStudentData = freshStudentDoc.data() || {};
+        const totalDuration = (freshStudentData.durationYears || 0) + durationYears;
+        const blockDates = computeBlockDatesFromValidUntil(newValidUntil, deadlineConfig);
+
+        transaction.update(studentRef, {
+          validUntil: newValidUntil,
+          status: 'active',
+          sessionEndYear: newSessionEndYear,
+          durationYears: totalDuration,
+          paymentAmount: totalFee,
+          softBlock: blockDates.softBlock,
+          hardBlock: blockDates.hardBlock,
+          lastRenewalDate: FieldValue.serverTimestamp(),
+          updatedAt: FieldValue.serverTimestamp(),
+          // Seat reclaimed → clear the release marker so delete/renewal dedup is correct.
+          ...(seatWasReleased ? { seatReleasedAt: null } : {})
+        });
+
+        if (reclaimBusRef && busDelta) {
+          transaction.update(reclaimBusRef, busDelta.updates);
+        }
+
+        transaction.update(requestRef, {
+          status: 'approved',
+          approvedBy: approverUserId,
+          approverName: approverData.fullName,
+          approvedAt: FieldValue.serverTimestamp(),
+          updatedAt: FieldValue.serverTimestamp()
+        });
+
+        // ── Tier A audit (in-transaction): the renewal approval — including the
+        //    seat reclaim and entitlement reactivation — commits if and only if
+        //    this audit row commits. Replaces the former best-effort post-task log.
+        writeAuditInTransaction(transaction, {
+          action: 'renewal_request_approved',
+          actor: { id: approverUserId, role: approverData.role as AuditActorRole, name: approverData.fullName },
+          targetId: studentId,
+          targetType: 'student',
+          targetName: studentName,
+          reason: seatWasReleased ? 'renewal_with_seat_reclaim' : 'renewal_approval',
+          before: {
+            requestId,
+            requestStatus: 'pending',
+            seatWasReleased,
+            previousValidUntil: savedStudentData.validUntil ?? null,
+            previousStatus: freshStudentData.status ?? null,
+          },
+          after: {
+            requestStatus: 'approved',
+            status: 'active',
+            validUntil: newValidUntil.toISOString(),
+            sessionEndYear: newSessionEndYear,
+            durationYears: totalDuration,
+            seatReclaimedBusId: (reclaimBusRef && busDelta) ? renewalBusId : null,
+          },
+          details: { requestId, paymentId, paymentMode: isOnlineRenewal ? 'online' : 'offline', totalFee, durationYears },
+          correlationId: requestId,
+        });
       });
-
-      transaction.update(requestRef, {
-        status: 'approved',
-        approvedBy: approverUserId,
-        approverName: approverData.fullName,
-        approvedAt: FieldValue.serverTimestamp(),
-        updatedAt: FieldValue.serverTimestamp()
-      });
-    });
+    } catch (txErr: any) {
+      if (txErr instanceof CapacityFullError) {
+        // Lost the last seat to a concurrent claim after the pre-check. Payment was
+        // already recorded (system of record); surface a clear, actionable error so
+        // the admin reassigns/increases capacity and re-approves (marker still set,
+        // request still pending → safe to retry).
+        return NextResponse.json({
+          error: 'Original bus is full',
+          message: 'The original bus filled up before this renewal completed. Reassign the student or increase capacity, then approve again.',
+        }, { status: 409 });
+      }
+      throw txErr;
+    }
 
     // 4. Parallel Post-Approval Tasks (Audit & Notifications)
     // Parallelize non-critical secondary ops
@@ -190,13 +295,7 @@ export async function POST(request: NextRequest) {
         isRead: false
       }),
 
-      // 3. Activity Log (Firestore)
-      adminDb.collection('activity_logs').add({
-        action: 'renewal_request_approved', performedBy: approverUserId,
-        targetId: studentId, targetName: studentName,
-        details: { requestId, durationYears, totalFee, newValidUntil: newValidUntil.toISOString() },
-        timestamp: FieldValue.serverTimestamp()
-      }),
+      // (Renewal approval audit is written atomically inside the transaction above.)
 
       // 4. Cloudinary Cleanup
       (async () => {

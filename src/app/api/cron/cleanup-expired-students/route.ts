@@ -4,8 +4,11 @@ import { adminAuth, adminDb } from '@/lib/firebase-admin';
 import { shouldBlockAccessFromStoredDates, shouldHardDeleteFromStoredDates } from '@/lib/utils/renewal-utils';
 import { computeBlockDatesFromValidUntil } from '@/lib/utils/deadline-computation';
 import { v2 as cloudinary } from 'cloudinary';
-import { decrementBusCapacity } from '@/lib/busCapacityService';
+import { buildCapacityDelta } from '@/lib/busCapacityService';
 import { getDeadlineConfig } from '@/lib/deadline-config-service';
+import { isSeatReleaseAtSoftBlockEnabled, wasSeatReleased } from '@/lib/config/capacity-flags';
+import { adminReconcileBusLoads } from '@/lib/services/admin-reconcile-bus-loads';
+import { writeAuditInTransaction, recordOperationalEvent, SYSTEM_ACTOR } from '@/lib/audit/audit-service';
 
 // Configure Cloudinary
 if (process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME) {
@@ -220,18 +223,8 @@ export async function GET(request: NextRequest) {
                         console.log(`   ✅ Deleted ${profileRequestsSnapshot.size} profile update requests`);
                     }
 
-                    // 6. Decrement bus capacity
-                    const busId = studentData.busId || studentData.currentBusId || studentData.assignedBusId;
-                    if (busId) {
-                        try {
-                            await decrementBusCapacity(busId, uid, studentData.shift);
-                            console.log(`   ✅ Decremented bus capacity for bus ${busId}`);
-                        } catch (busError) {
-                            console.warn(`   ⚠️ Bus capacity update warning for ${uid}:`, busError);
-                        }
-                    }
-
-                    // 7. Delete from Firebase Auth (w/ Google Disconnect)
+                    // 6. Delete from Firebase Auth (best-effort, pre-transaction).
+                    //    External system; cannot be part of the Firestore transaction.
                     try {
                         try {
                             const userRecord = await adminAuth.getUser(uid);
@@ -252,29 +245,119 @@ export async function GET(request: NextRequest) {
                         }
                     }
 
-                    // 8. Delete Firestore Documents
-                    console.log(`🚨 [AUDIT] Deleting student document ${uid}. CALLER STACK:`, new Error().stack);
-                    console.log(`   Student Metadata: sessionEndYear=${studentData.sessionEndYear}, validUntil=${validUntilStr}, status=${studentData.status}`);
-                    await adminDb.collection('students').doc(uid).delete();
-                    try {
-                        await adminDb.collection('users').doc(uid).delete();
-                    } catch (e) { /* Ignore if missing */ }
-                    console.log(`   ✅ Deleted Firestore docs`);
+                    // 7. Tier A — ATOMIC hard delete: bus seat decrement + student/user
+                    //    doc deletion + a durable audit row commit together. A student
+                    //    can never be hard-deleted without a reconstructible record of
+                    //    what was destroyed. DEDUP GUARD: skip the decrement if the seat
+                    //    was already released at soft block (seatReleasedAt marker).
+                    const busId = studentData.busId || studentData.currentBusId || studentData.assignedBusId;
+                    const shouldDecrement = !!busId && !wasSeatReleased(studentData);
+                    const studentRef = adminDb.collection('students').doc(uid);
+                    const userRef = adminDb.collection('users').doc(uid);
+                    const busRef = shouldDecrement ? adminDb.collection('buses').doc(busId) : null;
+
+                    await adminDb.runTransaction(async (transaction) => {
+                        const busSnap = busRef ? await transaction.get(busRef) : null;
+                        transaction.delete(studentRef);
+                        transaction.delete(userRef);
+                        if (busRef && busSnap?.exists) {
+                            const delta = buildCapacityDelta(busSnap.data(), studentData.shift, -1);
+                            transaction.update(busRef, delta.updates);
+                        }
+                        writeAuditInTransaction(transaction, {
+                            action: 'student_hard_deleted',
+                            actor: SYSTEM_ACTOR,
+                            targetId: uid,
+                            targetType: 'student',
+                            targetName: studentData.fullName || '',
+                            reason: 'lifecycle_hard_delete_expired',
+                            before: {
+                                enrollmentId: studentData.enrollmentId || null,
+                                busId: busId || null,
+                                shift: studentData.shift || null,
+                                status: studentData.status || null,
+                                validUntil: validUntilStr,
+                                sessionEndYear: studentData.sessionEndYear || null,
+                                hardBlock: hardBlockStr || null,
+                                seatReleasedAt: studentData.seatReleasedAt || null,
+                            },
+                            after: { deleted: true },
+                            details: { seatDecremented: shouldDecrement, busId: busId || null },
+                            correlationId: uid,
+                        });
+                    });
+                    console.log(`   ✅ Hard-deleted student ${uid} (seatDecremented=${shouldDecrement})`);
 
                     results.hardDeleted++;
                     continue; // Skip soft block check since user is gone
                 }
 
                 // --- SOFT BLOCK EXECUTION ---
-                // Only if not already blocked and not just deleted
+                // Only if not already blocked and not just deleted. The
+                // `status === 'active'` guard makes this idempotent: an already
+                // soft-blocked student is skipped, so the seat is released at most once.
                 if (needsSoftBlock && studentData.status === 'active') {
                     console.log(`🔒 SOFT BLOCK triggered for ${studentData.fullName || 'Unknown'} (${uid})`);
                     console.log(`   softBlock date: ${softBlockStr}`);
-                    await adminDb.collection('students').doc(uid).update({
-                        status: 'soft_blocked',
-                        softBlockedAt: new Date().toISOString()
-                    });
-                    results.softBlocked++;
+
+                    const releaseSeat = isSeatReleaseAtSoftBlockEnabled();
+                    const nowIso = new Date().toISOString();
+                    const sbBusId = studentData.busId || studentData.currentBusId || studentData.assignedBusId || null;
+                    const sbStudentRef = adminDb.collection('students').doc(uid);
+                    const sbBusRef = (releaseSeat && sbBusId) ? adminDb.collection('buses').doc(sbBusId) : null;
+
+                    // Tier A — ATOMIC soft block: the status transition, the seatReleasedAt
+                    //   marker, the bus seat decrement, AND the audit row commit together
+                    //   or not at all. This removes the former window where a student could
+                    //   be blocked while the seat decrement failed (relying on the tail
+                    //   reconciliation to heal). If the bus read fails, the whole soft
+                    //   block is retried on the next run — no half-state. Re-reads status
+                    //   inside the transaction for idempotency.
+                    let didBlock = false;
+                    try {
+                        await adminDb.runTransaction(async (transaction) => {
+                            const freshStudent = await transaction.get(sbStudentRef);
+                            if (!freshStudent.exists || freshStudent.data()?.status !== 'active') {
+                                didBlock = false;
+                                return; // already processed → idempotent no-op
+                            }
+                            const sbBusSnap = sbBusRef ? await transaction.get(sbBusRef) : null;
+
+                            transaction.update(sbStudentRef, {
+                                status: 'soft_blocked',
+                                softBlockedAt: nowIso,
+                                ...(releaseSeat ? { seatReleasedAt: nowIso } : {})
+                            });
+
+                            let decremented = false;
+                            if (sbBusRef && sbBusSnap?.exists) {
+                                const delta = buildCapacityDelta(sbBusSnap.data(), studentData.shift, -1);
+                                transaction.update(sbBusRef, delta.updates);
+                                decremented = true;
+                            }
+
+                            writeAuditInTransaction(transaction, {
+                                action: releaseSeat ? 'student_soft_blocked_seat_released' : 'student_soft_blocked',
+                                actor: SYSTEM_ACTOR,
+                                targetId: uid,
+                                targetType: 'student',
+                                targetName: studentData.fullName || '',
+                                reason: 'soft_block',
+                                before: { status: 'active', busId: sbBusId, shift: studentData.shift || null },
+                                after: { status: 'soft_blocked', seatReleased: releaseSeat, seatDecremented: decremented },
+                                details: { busId: sbBusId, at: nowIso },
+                                correlationId: uid,
+                            });
+                            didBlock = true;
+                        });
+                        if (didBlock) {
+                            results.softBlocked++;
+                            console.log(`   ✅ Soft-blocked ${uid}${releaseSeat ? ' (seat released)' : ''}`);
+                        }
+                    } catch (sbErr) {
+                        console.warn(`   ⚠️ Soft-block transaction failed for ${uid} — will retry next run:`, sbErr);
+                        results.errors.push(`Soft-block failed for ${uid}`);
+                    }
                 }
 
             } catch (err: any) {
@@ -283,8 +366,117 @@ export async function GET(request: NextRequest) {
             }
         }
 
+        // ── UPCOMING (future-session) APPLICATIONS PASS ──────────────────────
+        //   Independent of the June renewal calendar. For applications with
+        //   applicationType === 'future' still sitting in state 'submitted':
+        //     (1) when eligibleApproval has arrived, send a ONE-TIME "eligible now"
+        //         reminder to the applicant (idempotent via eligibleReminderSentAt).
+        //     (2) expire (state: 'expired') applications left unapproved for longer
+        //         than the grace window past their eligibility date, so stale
+        //         upcoming applications do not linger forever.
+        //   These applications are NOT students and never touch bus capacity, so
+        //   this pass only reads/writes the `applications` collection.
+        const upcomingResults = { reminded: 0, expired: 0, errors: [] as string[] };
+        // Grace window after eligibility before an unapproved upcoming application
+        // is auto-expired. No dedicated config field exists; this constant is the
+        // single tunable. (Days.)
+        const UPCOMING_GRACE_DAYS = 60;
+        try {
+            const nowMs = Date.now();
+            const upcomingSnap = await adminDb.collection('applications')
+                .where('applicationType', '==', 'future')
+                .where('state', '==', 'submitted')
+                .get();
+
+            for (const appDoc of upcomingSnap.docs) {
+                const appData = appDoc.data();
+                const appId = appDoc.id;
+                try {
+                    const eligibleIso = appData.eligibleApproval;
+                    if (!eligibleIso) continue; // no frozen date → leave untouched
+                    const eligibleMs = new Date(eligibleIso).getTime();
+                    if (Number.isNaN(eligibleMs)) continue;
+
+                    // Not yet eligible → nothing to do this run.
+                    if (nowMs < eligibleMs) continue;
+
+                    const graceCutoffMs = eligibleMs + UPCOMING_GRACE_DAYS * 24 * 60 * 60 * 1000;
+
+                    if (nowMs >= graceCutoffMs) {
+                        // (2) Past grace window → expire the stale application.
+                        await appDoc.ref.update({
+                            state: 'expired',
+                            updatedAt: new Date().toISOString(),
+                            expiredAt: new Date().toISOString(),
+                            expiryReason: 'upcoming_eligibility_grace_elapsed',
+                        });
+                        upcomingResults.expired++;
+                    } else if (!appData.eligibleReminderSentAt) {
+                        // (1) Eligible now, within grace, not yet reminded → notify once.
+                        const notifRef = adminDb.collection('notifications').doc();
+                        await notifRef.set({
+                            notifId: notifRef.id,
+                            toUid: appData.applicantUid || appId,
+                            toRole: 'student',
+                            type: 'UpcomingEligible',
+                            title: 'Your application is now eligible',
+                            body: `Seats for your upcoming session (${appData.targetSession?.startYear || ''}-${appData.targetSession?.endYear || ''}) are now available. Visit the Bus Office to complete your approval.`,
+                            links: { applicationId: appId, statusPage: `/apply/status/${appId}` },
+                            read: false,
+                            createdAt: new Date().toISOString(),
+                        });
+                        await appDoc.ref.update({ eligibleReminderSentAt: new Date().toISOString() });
+                        upcomingResults.reminded++;
+                    }
+                } catch (appErr: any) {
+                    console.error(`❌ Error processing upcoming application ${appId}:`, appErr);
+                    upcomingResults.errors.push(`Error processing application ${appId}`);
+                }
+            }
+            console.log(`📅 Upcoming applications pass:`, upcomingResults);
+        } catch (upcomingErr: any) {
+            console.error('⚠️ Upcoming applications pass failed:', upcomingErr);
+            upcomingResults.errors.push(upcomingErr?.message || 'upcoming pass failed');
+        }
+
+        // POST-BATCH RECONCILIATION (self-healing tail).
+        //   Recounts active seat-owners and repairs any bus left over-counted by a
+        //   failed soft-block decrement (or under-counted by any other drift).
+        //   Gated on the flag: the active-only recount is authoritative ONLY under
+        //   the new seat-release semantics. In legacy (flag-off) mode, soft-blocked
+        //   students still own seats, so an active-only recount would wrongly drop
+        //   them — therefore we skip the auto-correction entirely when the flag is off.
+        let reconciliation: unknown = { skipped: true, reason: 'seat-release flag disabled' };
+        if (isSeatReleaseAtSoftBlockEnabled()) {
+            try {
+                const summary = await adminReconcileBusLoads({ dryRun: false, alertOnLargeDelta: true });
+                reconciliation = {
+                    busesWithDiscrepancies: summary.busesWithDiscrepancies,
+                    busesCorrected: summary.busesCorrected,
+                    largeDeltaBuses: summary.largeDeltaBuses,
+                    invalidShiftStudents: summary.invalidShiftStudents,
+                };
+                console.log(`🔧 Cron tail reconciliation:`, reconciliation);
+            } catch (reconErr: any) {
+                console.error('⚠️ Cron tail reconciliation failed (counts may be stale until next run):', reconErr);
+                reconciliation = { error: reconErr?.message || 'reconciliation failed' };
+            }
+        }
+
+        // Tier B — operational visibility. Surface the run summary (and any healed
+        //   drift) into the audit stream so admins can SEE what the cron did without
+        //   reading server logs. Best-effort with audit_failure capture on write loss.
+        await recordOperationalEvent({
+            action: 'cron_cleanup_expired_students_completed',
+            actor: SYSTEM_ACTOR,
+            targetId: 'cron:cleanup-expired-students',
+            targetType: 'cron',
+            reason: 'scheduled_run',
+            details: { results, upcomingApplications: upcomingResults, reconciliation },
+        });
+
         console.log(`✅ Cron Job Completed:`, results);
-        return NextResponse.json({ success: true, results });
+        return NextResponse.json({ success: true, results, upcomingApplications: upcomingResults, reconciliation });
 
     } catch (error: any) {
         console.error('❌ Cron Job Fatal Error:', error);

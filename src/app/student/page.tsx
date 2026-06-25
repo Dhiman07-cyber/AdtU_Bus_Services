@@ -19,6 +19,7 @@ import {
 import Link from 'next/link';
 import { motion } from "framer-motion";
 import StudentQRDisplay from "@/components/bus-pass/StudentQRDisplay";
+import { getTransportEntitlement } from '@/lib/entitlement/transport-entitlement';
 import { supabase } from '@/lib/supabase-client';
 import { authApiFetch } from '@/lib/secure-api-client';
 // SPARK PLAN SAFETY: Migrated to usePaginatedCollection
@@ -163,7 +164,11 @@ export default function StudentDashboard() {
   // If student is approved (status === 'active'), payment should be considered approved
   const isPaymentApproved = paymentVerified || (studentData?.status === 'active' && hasPayment);
   const validUntil = studentData?.validUntil ? new Date(studentData.validUntil) : null;
+  // Display-only hint for the renewal banner. NOT used for transport gating.
   const isExpired = validUntil ? validUntil < new Date() : false;
+  // CANONICAL entitlement (Phase 3) — the single answer the dashboard uses to gate
+  // every transport feature (QR generation, Track Bus / View Pass actions).
+  const transportEntitled = getTransportEntitlement(studentData ?? userData).entitled;
   const studentName = studentData?.fullName || studentData?.name || userData?.name || 'Student';
   const studentShift = studentData?.shift || 'Not Set';
 
@@ -231,27 +236,40 @@ export default function StudentDashboard() {
                   </div>
                 </div>
 
-                {/* Premium Action Buttons - Grid on Mobile, Flex on Desktop */}
-                <div className="grid grid-cols-2 sm:flex sm:flex-row gap-3 w-full lg:w-auto mt-2 lg:mt-0">
-                  <Link href="/student/track-bus" className="w-full sm:w-auto">
-                    <Button className="w-full sm:w-auto group relative overflow-hidden bg-gradient-to-r from-purple-500 via-blue-600 to-cyan-500 hover:from-purple-600 hover:via-blue-700 hover:to-cyan-600 text-white font-semibold shadow-lg hover:shadow-cyan-500/50 transform hover:-translate-y-0.5 transition-all duration-300 h-10 md:h-11 text-xs md:text-sm">
-                      <span className="absolute inset-0 bg-gradient-to-r from-white/0 via-white/30 to-white/0 translate-x-[-200%] group-hover:translate-x-[200%] transition-transform duration-700" />
+                {/* Premium Action Buttons — Phase 3: transport actions appear only
+                    while the student owns transport access. Non-entitled students
+                    are guided to renewal via the banner below. */}
+                {transportEntitled ? (
+                  <div className="grid grid-cols-2 sm:flex sm:flex-row gap-3 w-full lg:w-auto mt-2 lg:mt-0">
+                    <Link href="/student/track-bus" className="w-full sm:w-auto">
+                      <Button className="w-full sm:w-auto group relative overflow-hidden bg-gradient-to-r from-purple-500 via-blue-600 to-cyan-500 hover:from-purple-600 hover:via-blue-700 hover:to-cyan-600 text-white font-semibold shadow-lg hover:shadow-cyan-500/50 transform hover:-translate-y-0.5 transition-all duration-300 h-10 md:h-11 text-xs md:text-sm">
+                        <span className="absolute inset-0 bg-gradient-to-r from-white/0 via-white/30 to-white/0 translate-x-[-200%] group-hover:translate-x-[200%] transition-transform duration-700" />
+                        <span className="relative flex items-center justify-center">
+                          <Navigation className="h-3.5 w-3.5 md:h-4 md:w-4 mr-1.5 md:mr-2" />
+                          Track Bus
+                        </span>
+                      </Button>
+                    </Link>
+                    <Link href="/student/bus-pass" className="w-full sm:w-auto">
+                      <Button className="w-full sm:w-auto group relative overflow-hidden bg-gradient-to-r from-cyan-500 via-teal-600 to-emerald-500 hover:from-cyan-600 hover:via-teal-700 hover:to-emerald-600 text-white font-semibold shadow-lg hover:shadow-teal-500/50 transform hover:-translate-y-0.5 transition-all duration-300 h-10 md:h-11 text-xs md:text-sm">
+                        <span className="absolute inset-0 bg-gradient-to-r from-white/0 via-white/30 to-white/0 translate-x-[-200%] group-hover:translate-x-[200%] transition-transform duration-700" />
+                        <span className="relative flex items-center justify-center">
+                          <QrCode className="h-3.5 w-3.5 md:h-4 md:w-4 mr-1.5 md:mr-2" />
+                          View Pass
+                        </span>
+                      </Button>
+                    </Link>
+                  </div>
+                ) : (
+                  <Link href="/student/renew-services" className="w-full lg:w-auto mt-2 lg:mt-0">
+                    <Button className="w-full sm:w-auto group relative overflow-hidden bg-gradient-to-r from-amber-500 via-orange-600 to-red-500 hover:from-amber-600 hover:via-orange-700 hover:to-red-600 text-white font-semibold shadow-lg transform hover:-translate-y-0.5 transition-all duration-300 h-10 md:h-11 text-xs md:text-sm">
                       <span className="relative flex items-center justify-center">
-                        <Navigation className="h-3.5 w-3.5 md:h-4 md:w-4 mr-1.5 md:mr-2" />
-                        Track Bus
+                        <RefreshCcw className="h-3.5 w-3.5 md:h-4 md:w-4 mr-1.5 md:mr-2" />
+                        Renew Service
                       </span>
                     </Button>
                   </Link>
-                  <Link href="/student/bus-pass" className="w-full sm:w-auto">
-                    <Button className="w-full sm:w-auto group relative overflow-hidden bg-gradient-to-r from-cyan-500 via-teal-600 to-emerald-500 hover:from-cyan-600 hover:via-teal-700 hover:to-emerald-600 text-white font-semibold shadow-lg hover:shadow-teal-500/50 transform hover:-translate-y-0.5 transition-all duration-300 h-10 md:h-11 text-xs md:text-sm">
-                      <span className="absolute inset-0 bg-gradient-to-r from-white/0 via-white/30 to-white/0 translate-x-[-200%] group-hover:translate-x-[200%] transition-transform duration-700" />
-                      <span className="relative flex items-center justify-center">
-                        <QrCode className="h-3.5 w-3.5 md:h-4 md:w-4 mr-1.5 md:mr-2" />
-                        View Pass
-                      </span>
-                    </Button>
-                  </Link>
-                </div>
+                )}
               </div>
             </div>
           </div>
@@ -271,7 +289,7 @@ export default function StudentDashboard() {
                     Your bus pass expired on {validUntil?.toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' })}
                   </p>
                   <p className="text-sm text-red-700 dark:text-red-400 mb-4">
-                    Renew now to restore access to Track Bus and other services. You can complete the renewal online with instant activation.
+                    Renew now to restore access to Track Bus and other services. After you pay, your renewal is reviewed and approved by an administrator — access is restored once it&apos;s approved.
                   </p>
                   <div className="flex flex-col sm:flex-row gap-3">
                     <Link href="/student/renew-services" className="flex-1">
@@ -1198,7 +1216,7 @@ export default function StudentDashboard() {
         busNumber={busData?.busNumber || studentData?.busId || studentData?.assignedBusId}
         routeName={routeData?.routeName || studentData?.routeId || studentData?.assignedRouteId}
         validUntil={studentData?.validUntil}
-        isActive={studentData?.status === 'active' && !isExpired}
+        isActive={transportEntitled}
       />
     </>
   );

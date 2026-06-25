@@ -59,9 +59,11 @@ export default function ApplyLandingPage() {
     if (!loading) {
       if (userData && userData.role) {
         router.push(`/${userData.role}`);
+      } else if (!currentUser) {
+        router.push('/login');
       }
     }
-  }, [loading, userData, router]);
+  }, [loading, currentUser, userData, router]);
 
   // Combined scroll handler for the custom scrollable container
   const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
@@ -79,10 +81,14 @@ export default function ApplyLandingPage() {
 
       if (scrollable > 0 && relativeScrollTop >= 0) {
         const pct = Math.max(0, Math.min(1, relativeScrollTop / scrollable));
-        setJourneyProgress(pct * 4); // Map to 0 - 4 range
+
+        // Only trigger continuous float state updates on desktop to avoid layout lag
+        if (window.innerWidth >= 768) {
+          setJourneyProgress(pct * 4);
+        }
 
         const stepIndex = Math.max(0, Math.min(4, Math.round(pct * 4)));
-        setActiveStep(stepIndex);
+        setActiveStep((prev) => (prev !== stepIndex ? stepIndex : prev));
       }
     }
 
@@ -117,38 +123,37 @@ export default function ApplyLandingPage() {
     setActiveStep(index);
     const container = mobileScrollRef.current;
     if (container) {
-      container.scrollTo({
-        left: index * container.offsetWidth,
-        behavior: 'smooth'
-      });
+      const children = container.children;
+      if (children && children[index]) {
+        children[index].scrollIntoView({
+          behavior: 'smooth',
+          block: 'nearest',
+          inline: 'center'
+        });
+      }
     }
   };
+
+  useEffect(() => {
+    const container = mobileScrollRef.current;
+    if (container && window.innerWidth < 768) {
+      const children = container.children;
+      if (children && children[activeStep]) {
+        children[activeStep].scrollIntoView({
+          behavior: 'smooth',
+          block: 'nearest',
+          inline: 'center'
+        });
+      }
+    }
+  }, [activeStep]);
 
   if (loading) {
     return <PremiumPageLoader fullScreen message="Loading your dashboard..." subMessage="Fetching your application status and account details..." />;
   }
 
   if (!currentUser) {
-    return (
-      <div className="min-h-screen flex items-center justify-center p-4 bg-[#0F1117] text-slate-100 font-sans">
-        <div className="w-full max-w-md border border-white/[0.08] bg-[#141824] p-8 text-center space-y-6 rounded-3xl shadow-[inset_0_2px_4px_rgba(255,255,255,0.06),_inset_0_-2px_4px_rgba(0,0,0,0.4),_0_8px_30px_rgba(0,0,0,0.25)]">
-          <div className="w-16 h-16 mx-auto rounded-2xl bg-[#1B2132] border border-white/[0.08] flex items-center justify-center shadow-inner">
-            <Shield className="h-8 w-8 text-[#6E7BFF]" />
-          </div>
-          <div className="space-y-2">
-            <h2 className="text-2xl font-bold text-white tracking-tight">Sign In Required</h2>
-            <p className="text-slate-400 text-sm max-w-sm mx-auto leading-relaxed">
-              Please sign in with your institutional Google account to apply for bus services.
-            </p>
-          </div>
-          <Link href="/login" className="block pt-2">
-            <Button className="w-full bg-gradient-to-r from-[#3B82F6] to-[#4F46E5] hover:from-[#2563EB] hover:to-[#4338CA] text-white font-bold h-12 text-sm rounded-xl transition-all duration-300 ease-out hover:scale-[1.02] active:scale-[0.98] shadow-[0_4px_15px_rgba(59,130,246,0.2)] hover:shadow-[0_4px_20px_rgba(79,70,229,0.3)] whitespace-nowrap">
-              Sign In with Google
-            </Button>
-          </Link>
-        </div>
-      </div>
-    );
+    return null;
   }
 
   const stepsData = [
@@ -266,7 +271,7 @@ export default function ApplyLandingPage() {
     <div
       ref={containerRef}
       onScroll={handleScroll}
-      className="h-screen overflow-y-auto snap-y snap-mandatory bg-[#0F1117] text-slate-200 font-sans selection:bg-[#6E7BFF]/20 selection:text-[#7F8CFF] overflow-x-hidden scroll-smooth scrollbar-none relative"
+      className="apply-landing-container h-screen overflow-y-auto snap-y snap-mandatory bg-[#0F1117] text-slate-200 font-sans selection:bg-[#6E7BFF]/20 selection:text-[#7F8CFF] overflow-x-hidden scroll-smooth scrollbar-none relative"
     >
       <style dangerouslySetInnerHTML={{
         __html: `
@@ -296,7 +301,7 @@ export default function ApplyLandingPage() {
 
       {/* 1. HERO SECTION */}
       <section
-        className="relative h-screen snap-start snap-always flex items-center justify-center px-6 lg:px-8"
+        className="apply-snap-section relative h-screen snap-start snap-always flex items-center justify-center px-6 lg:px-8"
         style={{
           backgroundImage: 'linear-gradient(to bottom, #0F1117 0%, rgba(15, 17, 23, 0.3) 15%, rgba(15, 17, 23, 0.3) 85%, #0F1117 100%), url(/apply/hero1.webp)',
           backgroundSize: 'cover',
@@ -322,14 +327,14 @@ export default function ApplyLandingPage() {
               Experience a smarter, more organized campus commute. Access your digital bus pass, track bus activity in real-time, and manage your transport records from one student-friendly portal.
             </p>
 
-            <div className="flex flex-wrap items-center justify-center gap-4 pt-2">
-              <Link href="/apply/form">
-                <Button className="bg-gradient-to-r from-[#3B82F6] to-[#4F46E5] hover:from-[#2563EB] hover:to-[#4338CA] text-white font-bold px-8 py-4 h-auto text-sm rounded-xl transition-all duration-300 ease-out hover:scale-[1.03] hover:-translate-y-0.5 active:scale-[0.98] active:translate-y-0 shadow-[0_4px_20px_rgba(59,130,246,0.3)] hover:shadow-[0_4px_25px_rgba(79,70,229,0.4)] whitespace-nowrap inline-flex items-center justify-center">
+            <div className="flex flex-col sm:flex-row items-center justify-center gap-3 pt-2 w-full max-w-xs sm:max-w-md mx-auto">
+              <Link href="/apply/form" className="w-full sm:w-auto">
+                <Button className="w-full bg-gradient-to-r from-[#3B82F6] to-[#4F46E5] hover:from-[#2563EB] hover:to-[#4338CA] text-white font-bold px-8 py-4 h-auto text-sm rounded-xl transition-all duration-300 ease-out hover:scale-[1.03] hover:-translate-y-0.5 active:scale-[0.98] active:translate-y-0 shadow-[0_4px_20px_rgba(59,130,246,0.3)] hover:shadow-[0_4px_25px_rgba(79,70,229,0.4)] whitespace-nowrap inline-flex items-center justify-center">
                   Start Application
                 </Button>
               </Link>
-              <Link href="/contact">
-                <Button variant="outline" className="border-white/10 text-slate-300 hover:text-white hover:border-[#3B82F6]/50 hover:bg-gradient-to-r hover:from-[#3B82F6]/10 hover:to-[#4F46E5]/10 bg-transparent px-8 py-4 h-auto text-sm rounded-xl transition-all duration-300 ease-out hover:scale-[1.03] hover:-translate-y-0.5 active:scale-[0.98] active:translate-y-0 whitespace-nowrap inline-flex items-center justify-center">
+              <Link href="/contact" className="w-full sm:w-auto">
+                <Button variant="outline" className="w-full border-white/10 text-slate-300 hover:text-white hover:border-[#3B82F6]/50 hover:bg-gradient-to-r hover:from-[#3B82F6]/10 hover:to-[#4F46E5]/10 bg-transparent px-8 py-4 h-auto text-sm rounded-xl transition-all duration-300 ease-out hover:scale-[1.03] hover:-translate-y-0.5 active:scale-[0.98] active:translate-y-0 whitespace-nowrap inline-flex items-center justify-center">
                   Contact Support
                 </Button>
               </Link>
@@ -340,7 +345,7 @@ export default function ApplyLandingPage() {
 
       {/* 2. WHY CHOOSE US SECTION */}
       <section
-        className="relative h-screen snap-start snap-always flex items-center justify-center px-6 lg:px-8"
+        className="apply-snap-section relative h-screen snap-start snap-always flex items-center justify-center px-6 lg:px-8"
         style={{
           backgroundImage: 'linear-gradient(to bottom, #0F1117 0%, rgba(15, 17, 23, 0.3) 15%, rgba(15, 17, 23, 0.3) 85%, #0F1117 100%), url(/apply/image3.webp)',
           backgroundSize: 'cover',
@@ -645,7 +650,7 @@ export default function ApplyLandingPage() {
 
       {/* 4. THINGS YOU SHOULD KNOW */}
       <section
-        className="relative h-screen snap-start snap-always flex items-center justify-center px-6 lg:px-8"
+        className="apply-snap-section relative h-screen snap-start snap-always flex items-center justify-center px-6 lg:px-8"
         style={{
           backgroundImage: 'linear-gradient(to bottom, #0F1117 0%, rgba(15, 17, 23, 0.3) 15%, rgba(15, 17, 23, 0.3) 85%, #0F1117 100%), url(/apply/image3.webp)',
           backgroundSize: 'cover',
@@ -690,7 +695,7 @@ export default function ApplyLandingPage() {
 
       {/* 5. FINAL CTA */}
       <section
-        className="relative h-screen snap-start snap-always flex items-center justify-center px-6 lg:px-8 bg-[#0F1117]"
+        className="apply-snap-section relative h-screen snap-start snap-always flex items-center justify-center px-6 lg:px-8 bg-[#0F1117]"
         style={{
           backgroundImage: 'linear-gradient(to bottom, #0F1117 0%, rgba(15, 17, 23, 0.45) 15%, rgba(15, 17, 23, 0.45) 85%, #0F1117 100%), url(/apply/image2.webp)',
           backgroundSize: 'cover',

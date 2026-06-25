@@ -162,6 +162,144 @@ export default function AdminRenewalServicePage() {
   const [isManualRefreshing, setIsManualRefreshing] = useState(false);
   const [downloadingReceiptId, setDownloadingReceiptId] = useState<string | null>(null);
 
+  // Export states
+  const [showExportDialog, setShowExportDialog] = useState(false);
+  const [exportSession, setExportSession] = useState('');
+  const [exporting, setExporting] = useState(false);
+
+  const exportSessionOptions = useMemo(() => {
+    const now = new Date();
+    const currentMonth = now.getMonth() + 1; // 1-12
+    const currYear = currentMonth >= 7 ? now.getFullYear() : now.getFullYear() - 1;
+
+    return [
+      { value: `${currYear}-${currYear + 1}`, label: `${currYear}-${currYear + 1} (Current Session)`, start: currYear, end: currYear + 1 },
+      { value: `${currYear - 1}-${currYear}`, label: `${currYear - 1}-${currYear} (Last Session)`, start: currYear - 1, end: currYear },
+      { value: `${currYear - 2}-${currYear - 1}`, label: `${currYear - 2}-${currYear - 1}`, start: currYear - 2, end: currYear - 1 },
+      { value: `${currYear - 3}-${currYear - 2}`, label: `${currYear - 3}-${currYear - 2}`, start: currYear - 3, end: currYear - 2 },
+      { value: `${currYear - 4}-${currYear - 3}`, label: `${currYear - 4}-${currYear - 3}`, start: currYear - 4, end: currYear - 3 }
+    ];
+  }, []);
+
+  useEffect(() => {
+    if (exportSessionOptions.length > 0 && !exportSession) {
+      setExportSession(exportSessionOptions[0].value);
+    }
+  }, [exportSessionOptions, exportSession]);
+
+  const handleExportPayments = async () => {
+    if (!currentUser || !exportSession) return;
+
+    setExporting(true);
+    const loadingToastId = toast.loading('Fetching payment data for export...');
+
+    try {
+      const selectedOption = exportSessionOptions.find(opt => opt.value === exportSession);
+      if (!selectedOption) {
+        toast.dismiss(loadingToastId);
+        toast.error('Invalid session selected');
+        setExporting(false);
+        return;
+      }
+
+      const token = await currentUser.getIdToken();
+      const response = await fetch(
+        `/api/payment/export?startYear=${selectedOption.start}&endYear=${selectedOption.end}`,
+        {
+          headers: {
+            'Authorization': `Bearer ${token}`
+          }
+        }
+      );
+
+      if (!response.ok) {
+        const err = await response.json();
+        throw new Error(err.error || 'Failed to fetch export data');
+      }
+
+      const result = await response.json();
+      const payments = result.payments || [];
+
+      if (payments.length === 0) {
+        toast.dismiss(loadingToastId);
+        toast.error(`No payments found for session ${exportSession}`);
+        setExporting(false);
+        return;
+      }
+
+      // Business-friendly header names
+      const headers = [
+        'Sl No',
+        'Payment ID',
+        'Student Name',
+        'Student / Enrollment ID',
+        'Amount (INR)',
+        'Transaction Date',
+        'Payment Method',
+        'Payment Status',
+        'Academic Session',
+        'Valid Until',
+        'Offline Reference ID',
+        'Razorpay Payment ID',
+        'Razorpay Order ID',
+        'Approved By (Name)',
+        'Approved By (Role)',
+        'Approved By (Employee ID)',
+        'Approved At'
+      ];
+
+      const dataRows = payments.map((p: any, index: number) => {
+        const formatDateStr = (dateStr: string) => {
+          if (!dateStr) return 'N/A';
+          const d = new Date(dateStr);
+          if (isNaN(d.getTime())) return 'N/A';
+          return d.toLocaleString('en-IN', {
+            day: '2-digit',
+            month: '2-digit',
+            year: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit'
+          });
+        };
+
+        return [
+          (index + 1).toString(),
+          p.paymentId || 'N/A',
+          p.studentName || 'N/A',
+          p.studentId || 'N/A',
+          p.amount ? `₹${p.amount}` : 'N/A',
+          formatDateStr(p.transactionDate),
+          p.method || 'N/A',
+          p.status || 'N/A',
+          p.session || 'N/A',
+          formatDateStr(p.validUntil),
+          p.offlineTransactionId || 'N/A',
+          p.razorpayPaymentId || 'N/A',
+          p.razorpayOrderId || 'N/A',
+          p.approvedByName || 'N/A',
+          p.approvedByRole || 'N/A',
+          p.approvedByEmpId || 'N/A',
+          formatDateStr(p.approvedAt)
+        ];
+      });
+
+      const exportData = [headers, ...dataRows];
+
+      const { exportToExcel } = await import('@/lib/export-helpers');
+      await exportToExcel(exportData, `ADTU_Payments_Report_${exportSession}_${new Date().toISOString().split('T')[0]}`, 'Payments');
+
+      toast.dismiss(loadingToastId);
+      toast.success(`Payments exported successfully for session ${exportSession}!`);
+      setShowExportDialog(false);
+    } catch (error: any) {
+      console.error('Error exporting payments:', error);
+      toast.dismiss(loadingToastId);
+      toast.error(error.message || 'Failed to export payments');
+    } finally {
+      setExporting(false);
+    }
+  };
+
   // Payment Dashboard states (admin-only)
   const [dashboardStats, setDashboardStats] = useState<{
     totalRevenue: number;
@@ -546,6 +684,13 @@ export default function AdminRenewalServicePage() {
             >
               <RefreshCw className={`mr-2 h-3.5 w-3.5 transition-transform duration-500 ${isManualRefreshing ? 'animate-spin' : 'group-hover:rotate-180'}`} />
               Refresh
+            </Button>
+            <Button
+              onClick={() => setShowExportDialog(true)}
+              className="h-8 px-4 bg-white hover:bg-gray-50 text-gray-600 hover:text-purple-600 border border-gray-200 hover:border-purple-200 shadow-sm hover:shadow-lg hover:shadow-purple-500/10 font-bold text-[10px] uppercase tracking-widest rounded-lg transition-all duration-300 active:scale-95"
+            >
+              <Download className="mr-2 h-3.5 w-3.5" />
+              Export
             </Button>
           </div>
         </div>
@@ -1512,6 +1657,63 @@ export default function AdminRenewalServicePage() {
           }
           paymentId={selectedPaymentId}
         />
+
+        {/* Export Payments Dialog */}
+        <Dialog open={showExportDialog} onOpenChange={setShowExportDialog}>
+          <DialogContent className="w-[90%] sm:w-full max-w-md bg-zinc-950/95 border-zinc-800 shadow-2xl p-6 rounded-2xl overflow-hidden">
+            <DialogHeader>
+              <DialogTitle className="text-white text-lg font-bold">Export Payment Data</DialogTitle>
+              <DialogDescription className="text-zinc-400 text-xs sm:text-sm">
+                Select the academic session you want to export. The export covers payments made from July (start year) to June (end year).
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="space-y-4 my-4">
+              <div>
+                <Label className="text-zinc-300 text-xs sm:text-sm font-medium mb-2 block">Academic Session</Label>
+                <Select value={exportSession} onValueChange={setExportSession}>
+                  <SelectTrigger className="w-full bg-zinc-900 border-zinc-700 text-zinc-100 h-10 text-sm">
+                    <SelectValue placeholder="Select a session" />
+                  </SelectTrigger>
+                  <SelectContent className="bg-zinc-950 border-zinc-800 text-zinc-100">
+                    {exportSessionOptions.map((opt) => (
+                      <SelectItem key={opt.value} value={opt.value} className="text-sm">
+                        {opt.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            <DialogFooter className="flex gap-2 justify-end">
+              <Button
+                variant="outline"
+                onClick={() => setShowExportDialog(false)}
+                className="bg-transparent border-zinc-700 text-zinc-400 hover:text-white hover:bg-zinc-800 hover:border-zinc-600 text-xs sm:text-sm h-9"
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={handleExportPayments}
+                disabled={exporting}
+                className="bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white shadow-lg text-xs sm:text-sm h-9 border-0"
+              >
+                {exporting ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Exporting...
+                  </>
+                ) : (
+                  <>
+                    <Download className="mr-2 h-4 w-4" />
+                    Export to Excel
+                  </>
+                )}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </div>
     </div>
   );

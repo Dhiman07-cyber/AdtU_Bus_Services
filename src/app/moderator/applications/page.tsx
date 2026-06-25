@@ -15,7 +15,7 @@ import { usePaginatedCollection, invalidateCollectionCache } from '@/hooks/usePa
 import {
   FileText, Shield, Eye, Check, X, Loader2, Search,
   SlidersHorizontal, User, Phone, Calendar, Clock, Bus as BusIcon,
-  ChevronDown, RefreshCw, AlertTriangle, ArrowRightLeft
+  ChevronDown, RefreshCw, AlertTriangle, ArrowRightLeft, Bus
 } from "lucide-react";
 import { StatusBadge } from "@/components/application/status-badge";
 import {
@@ -31,6 +31,14 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { cn } from "@/lib/utils";
 import { PremiumPageLoader } from '@/components/LoadingSpinner';
 import { useModeratorPermissions } from '@/hooks/useModeratorPermissions';
+import ReassignmentPanel from '@/components/smart-allocation/ReassignmentPanel';
+import type { StudentData as RPStudentData, BusData as RPBusData } from '@/components/smart-allocation/ReassignmentPanel';
+import AlternativeBusPicker from '@/components/smart-allocation/AlternativeBusPicker';
+import type { AlternativeBusData } from '@/components/smart-allocation/AlternativeBusPicker';
+import { collection, query, where, getDocs } from 'firebase/firestore';
+import { db } from '@/lib/firebase';
+import { toast } from 'react-hot-toast';
+import { isUpcomingApplication, getUpcomingStatus } from '@/lib/utils/application-eligibility';
 
 export default function ModeratorApplicationsPage() {
   const { currentUser, userData } = useAuth();
@@ -60,7 +68,7 @@ export default function ModeratorApplicationsPage() {
   });
 
   const [error, setError] = useState("");
-  const [activeSection, setActiveSection] = useState<'applications' | 'verifications'>('applications');
+  const [activeSection, setActiveSection] = useState<'applications' | 'upcoming' | 'verifications'>('applications');
   const [currentTime, setCurrentTime] = useState(new Date());
   const [approving, setApproving] = useState<string | null>(null);
   const [rejecting, setRejecting] = useState<string | null>(null);
@@ -70,6 +78,167 @@ export default function ModeratorApplicationsPage() {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [expandedCards, setExpandedCards] = useState<Set<string>>(new Set());
   const [processedIds, setProcessedIds] = useState<Set<string>>(new Set());
+
+  // ── Inline resolution modals ────────────────────────────────────────────────
+  const [reassignmentTarget, setReassignmentTarget] = useState<{
+    item: any;
+    busId: string;
+    busData: RPBusData;
+    busStudents: RPStudentData[];
+  } | null>(null);
+  const [alternativePickerTarget, setAlternativePickerTarget] = useState<{
+    item: any;
+    currentBus: AlternativeBusData;
+    alternatives: AlternativeBusData[];
+  } | null>(null);
+  const [loadingBusStudents, setLoadingBusStudents] = useState(false);
+
+  /** Fetch active students on a given bus and open the ReassignmentPanel. */
+  const openReassignmentForBus = async (item: any, capacityStatus: ReturnType<typeof getCapacityStatus>) => {
+    const { busNumber: busLabel, shift: capShift } = capacityStatus;
+    // Determine the actual bus id from the application data (the same logic
+    // getCapacityStatus uses to find the bus).
+    const appBusId = item.formData?.busId || item.formData?.routeId?.replace('route_', 'bus_') || '';
+    const selectedBus = buses.find((b: any) => b.id === appBusId || b.busId === appBusId);
+    if (!selectedBus) {
+      toast.error('Could not identify the overloaded bus');
+      return;
+    }
+    setLoadingBusStudents(true);
+    try {
+      // Query active students currently assigned to this bus
+      const q = query(
+        collection(db, 'students'),
+        where('busId', '==', appBusId),
+        where('status', '==', 'active')
+      );
+      const snap = await getDocs(q);
+      const busStudents: RPStudentData[] = snap.docs.map(d => {
+        const s = d.data();
+        return {
+          id: d.id,
+          fullName: s.fullName || s.name || d.id,
+          enrollmentId: s.enrollmentId,
+          stopId: s.stopId || '',
+          stopName: s.stopName || s.stopId || '',
+          assignedBusId: s.busId || appBusId,
+          shift: s.shift,
+          semester: s.semester,
+          phone: s.phoneNumber || s.phone,
+          photoURL: s.profilePhotoUrl || s.photoURL,
+        };
+      });
+
+      // Convert buses to ReassignmentPanel's BusData format
+      const rpBuses: RPBusData[] = buses.map((b: any) => {
+        const rawStops: Array<{ id?: string; stopId?: string; name?: string; sequence?: number }> =
+          b.route?.stops || b.stops || [];
+        const stops = rawStops.map((s: any) => ({
+          id: s.id || s.stopId || s.name || '',
+          name: s.name || s.stopId || s.id || '',
+          sequence: s.sequence ?? 0,
+        }));
+        return {
+          id: b.id || b.busId || '',
+          busNumber: b.busNumber || b.id || '',
+          routeId: b.routeId,
+          routeName: b.routeName || (b.route?.routeName) || '',
+          currentMembers: b.currentMembers || 0,
+          capacity: b.capacity || b.totalCapacity || 55,
+          shift: b.shift || 'both',
+          stops,
+          load: b.load || { morningCount: 0, eveningCount: 0 },
+          route: b.route,
+        };
+      });
+
+      const currentBusRpb: RPBusData = rpBuses.find(b => b.id === appBusId) || {
+        id: appBusId,
+        busNumber: selectedBus.busNumber || `Bus-${appBusId}`,
+        capacity: selectedBus.capacity || selectedBus.totalCapacity || 55,
+        currentMembers: selectedBus.currentMembers || 0,
+        shift: selectedBus.shift || 'both',
+        stops: [],
+        load: selectedBus.load || { morningCount: 0, eveningCount: 0 },
+      };
+
+      setReassignmentTarget({ item, busId: appBusId, busData: currentBusRpb, busStudents });
+    } catch (err: any) {
+      toast.error(err?.message || 'Failed to load bus data');
+    } finally {
+      setLoadingBusStudents(false);
+    }
+  };
+
+  /** Open the alternative-bus picker for a Case 2 application. */
+  const openAlternativePicker = (item: any) => {
+    const studentShift = (item.formData?.shift || 'Morning').toLowerCase();
+    const appBusId = item.formData?.busId || item.formData?.routeId?.replace('route_', 'bus_') || '';
+    const stopId = (item.formData?.stopId || '').toLowerCase().trim();
+    const stopName = item.formData?.stopName || '';
+
+    // Current (full) bus
+    const currentBusDoc = buses.find((b: any) => b.id === appBusId || b.busId === appBusId);
+    const currentBus: AlternativeBusData = currentBusDoc
+      ? {
+          id: currentBusDoc.id || currentBusDoc.busId || appBusId,
+          busNumber: currentBusDoc.busNumber || `Bus-${appBusId}`,
+          capacity: currentBusDoc.capacity || currentBusDoc.totalCapacity || 55,
+          shift: currentBusDoc.shift || 'both',
+          routeId: currentBusDoc.routeId,
+          routeName: currentBusDoc.routeName || currentBusDoc.route?.routeName,
+          load: currentBusDoc.load,
+          currentMembers: currentBusDoc.currentMembers,
+        }
+      : { id: appBusId, busNumber: `Bus-${appBusId}`, capacity: 55, shift: 'both' };
+
+    // Alternative buses (re-use the getCapacityStatus logic to find them)
+    const matchingRouteIds: string[] = [];
+    routes.forEach((route: any) => {
+      const routeStops = route.stops || [];
+      const hasStop = routeStops.some((stop: any) => {
+        const rsId = (stop.stopId || stop.id || stop.name || '').toLowerCase().trim();
+        const rsName = (stop.name || stop.stopName || '').toLowerCase().trim();
+        const normStopId = stopId;
+        const normStopName = stopName.toLowerCase().trim();
+        return rsId === normStopId || rsName === normStopName ||
+          rsName === normStopId || rsId === normStopName;
+      });
+      if (hasStop) matchingRouteIds.push(route.routeId || route.id);
+    });
+
+    const alternatives: AlternativeBusData[] = buses
+      .filter((b: any) => {
+        if ((b.id || b.busId) === appBusId) return false;
+        if (!matchingRouteIds.includes(b.routeId)) return false;
+        // Shift compatibility
+        const bShift = (b.shift || 'Both').toLowerCase();
+        if (studentShift === 'morning' && bShift !== 'morning' && bShift !== 'both') return false;
+        if (studentShift === 'evening' && bShift !== 'both') return false;
+        // Has capacity
+        const busTotalCapacity = b.capacity || b.totalCapacity || 55;
+        let busShiftLoad = 0;
+        if (studentShift === 'morning') busShiftLoad = b.load?.morningCount ?? b.morningLoad ?? 0;
+        else busShiftLoad = b.load?.eveningCount ?? b.eveningLoad ?? 0;
+        return (busTotalCapacity - busShiftLoad) > 0;
+      })
+      .map((b: any) => ({
+        id: b.id || b.busId || '',
+        busNumber: b.busNumber || b.id || '',
+        capacity: b.capacity || b.totalCapacity || 55,
+        shift: b.shift || 'both',
+        routeId: b.routeId,
+        routeName: b.routeName || b.route?.routeName,
+        load: b.load || { morningCount: 0, eveningCount: 0 },
+        currentMembers: b.currentMembers,
+      }));
+
+    setAlternativePickerTarget({
+      item,
+      currentBus,
+      alternatives,
+    });
+  };
 
   // Manual refresh handler - refreshes both applications and verifications sections
   const handleRefresh = async () => {
@@ -170,8 +339,17 @@ export default function ModeratorApplicationsPage() {
     return notification?.verificationCode || 'HIDDEN';
   };
 
+  // Freshers/Renewals queue: submitted, current-session (non-upcoming) applications.
+  // Upcoming (future-session) applications are split into their own tab so they
+  // never mix with the immediately-actionable queue.
   const applicationApplications = pendingApplications.filter((app: any) =>
-    app.state === 'submitted'
+    app.state === 'submitted' && !isUpcomingApplication(app)
+  );
+
+  // Upcoming queue: submitted future-session applications. Their actionability is
+  // derived from the frozen eligibleApproval date (no extra stored state).
+  const upcomingApplications = pendingApplications.filter((app: any) =>
+    app.state === 'submitted' && isUpcomingApplication(app)
   );
 
   const getBusDisplayFromRoute = (routeId: string) => {
@@ -316,14 +494,20 @@ export default function ModeratorApplicationsPage() {
   );
 
   const filteredData = useMemo(() => {
+    // Both 'applications' (Freshers) and 'upcoming' are application-card sections
+    // that share the same search/shift/processed filtering; 'verifications' uses
+    // the code-card shape.
+    const isApplicationSection = activeSection === 'applications' || activeSection === 'upcoming';
     let data = activeSection === 'applications'
       ? applicationApplications
-      : verificationCodesForModerator;
+      : activeSection === 'upcoming'
+        ? upcomingApplications
+        : verificationCodesForModerator;
 
     if (searchQuery.trim()) {
       const query = searchQuery.toLowerCase();
       data = data.filter((item: any) => {
-        if (activeSection === 'applications') {
+        if (isApplicationSection) {
           return (
             item.formData?.fullName?.toLowerCase().includes(query) ||
             item.formData?.enrollmentId?.toLowerCase().includes(query) ||
@@ -341,7 +525,7 @@ export default function ModeratorApplicationsPage() {
       });
     }
 
-    if (shiftFilter.length > 0 && activeSection === 'applications') {
+    if (shiftFilter.length > 0 && isApplicationSection) {
       data = data.filter((item: any) => {
         const itemShift = (item.formData?.shift || 'both').toLowerCase();
         return shiftFilter.some(f => {
@@ -353,30 +537,33 @@ export default function ModeratorApplicationsPage() {
       });
     }
 
-    if (activeSection === 'applications' && processedIds.size > 0) {
+    if (isApplicationSection && processedIds.size > 0) {
       data = data.filter((item: any) => !processedIds.has(item.applicationId || item.uid));
     }
 
     return data;
-  }, [activeSection, applicationApplications, verificationCodesForModerator, searchQuery, shiftFilter, processedIds]);
+  }, [activeSection, applicationApplications, upcomingApplications, verificationCodesForModerator, searchQuery, shiftFilter, processedIds]);
 
-  const handleApprove = async (applicationId: string) => {
+  const handleApprove = async (applicationId: string, overrideBusId?: string) => {
     if (!currentUser) return;
     setApproving(applicationId);
     try {
       const token = await currentUser.getIdToken();
+      const body: Record<string, unknown> = { studentUid: applicationId };
+      if (overrideBusId) body.overrideBusId = overrideBusId;
       const response = await fetch('/api/applications/approve-unauth', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
         },
-        body: JSON.stringify({ studentUid: applicationId })
+        body: JSON.stringify(body)
       });
 
       if (!response.ok) {
         const errorData = await response.json();
         setError(errorData.error || "Failed to approve application");
+        return false;
       } else {
         setError("");
         // Optimistically hide the card
@@ -386,11 +573,36 @@ export default function ModeratorApplicationsPage() {
           return newSet;
         });
         await handleRefresh();
+        return true;
       }
     } catch (error) {
       setError("Failed to approve application");
+      return false;
     } finally {
       setApproving(null);
+    }
+  };
+
+  // ── Case 2: alternative-bus selection → approve with override ───────────
+  const handleAlternativeSelected = async (busId: string) => {
+    if (!alternativePickerTarget) return;
+    const { item } = alternativePickerTarget;
+    const ok = await handleApprove(item.applicationId, busId);
+    if (ok) {
+      toast.success(`Application approved with bus ${busId}`);
+      setAlternativePickerTarget(null);
+    }
+  };
+
+  // ── Case 1: reassignment completed → approve the now-unblocked application
+  const handleReassignmentResolved = async () => {
+    if (!reassignmentTarget) return;
+    const { item } = reassignmentTarget;
+    setReassignmentTarget(null);
+    // The bus now has a freed seat — approve normally.
+    const ok = await handleApprove(item.applicationId);
+    if (ok) {
+      toast.success('Capacity freed and application approved');
     }
   };
 
@@ -465,7 +677,7 @@ export default function ModeratorApplicationsPage() {
             <h1 className="text-3xl font-bold tracking-tight text-white leading-none">Student Applications</h1>
             <div className="hidden md:block">
               <Badge className="text-[10px] font-bold px-2 py-0.5 bg-indigo-500/20 text-indigo-400 border border-indigo-500/30 uppercase tracking-tight rounded-md">
-                {activeSection === 'applications' ? 'Applications' : 'Verifications'}: {filteredData.length}
+                {activeSection === 'applications' ? 'Applications' : activeSection === 'upcoming' ? 'Upcoming' : 'Verifications'}: {filteredData.length}
               </Badge>
             </div>
           </div>
@@ -496,7 +708,24 @@ export default function ModeratorApplicationsPage() {
             size="sm"
           >
             <FileText className="h-4 w-4" />
-            Applications
+            Freshers
+          </Button>
+          <Button
+            variant={activeSection === 'upcoming' ? 'default' : 'ghost'}
+            onClick={() => setActiveSection('upcoming')}
+            className={cn(
+              "flex-1 gap-2 h-9 relative",
+              activeSection === 'upcoming' ? "bg-indigo-600 hover:bg-indigo-700" : "text-zinc-400"
+            )}
+            size="sm"
+          >
+            <Calendar className="h-4 w-4" />
+            Upcoming
+            {upcomingApplications.length > 0 && (
+              <span className="ml-1 inline-flex items-center justify-center text-[10px] font-bold min-w-[18px] h-[18px] px-1 rounded-full bg-purple-500/30 text-purple-200 border border-purple-400/30">
+                {upcomingApplications.length}
+              </span>
+            )}
           </Button>
           <Button
             variant={activeSection === 'verifications' ? 'default' : 'ghost'}
@@ -512,7 +741,7 @@ export default function ModeratorApplicationsPage() {
           </Button>
         </div>
 
-        {activeSection === 'applications' && (
+        {(activeSection === 'applications' || activeSection === 'upcoming') && (
           <div className="flex flex-col sm:flex-row gap-2 flex-1 w-full">
             <div className="relative flex-1">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-zinc-500" />
@@ -582,7 +811,14 @@ export default function ModeratorApplicationsPage() {
       ) : (
         <div className="grid grid-cols-1 gap-4">
           {filteredData.map((item: any) => {
-            const isApplication = activeSection === 'applications';
+            const isApplication = activeSection === 'applications' || activeSection === 'upcoming';
+            const isUpcoming = activeSection === 'upcoming';
+            // Derived upcoming lifecycle status (no stored state): the frozen
+            // eligibleApproval date alone decides waiting vs eligible.
+            const upcomingStatus = isUpcoming
+              ? getUpcomingStatus(item, currentTime)
+              : null;
+            const isEligibleNow = upcomingStatus === 'eligible_for_approval';
             const key = isApplication ? item.applicationId : item.codeId;
 
             return (
@@ -653,6 +889,44 @@ export default function ModeratorApplicationsPage() {
                             )}
                           </div>
                         </div>
+
+                        {/* Upcoming (future-session) lifecycle banner — derived from the
+                            frozen eligibleApproval date. Waiting = not yet approvable;
+                            Eligible = the existing approval flow is unlocked. */}
+                        {isUpcoming && (
+                          <div className={cn(
+                            "mt-3 rounded-lg p-3 border flex items-start gap-2.5",
+                            isEligibleNow
+                              ? "bg-emerald-500/5 border-emerald-500/20"
+                              : "bg-purple-500/5 border-purple-500/20"
+                          )}>
+                            {isEligibleNow ? (
+                              <Check className="h-4 w-4 text-emerald-400 shrink-0 mt-0.5" />
+                            ) : (
+                              <Clock className="h-4 w-4 text-purple-400 shrink-0 mt-0.5" />
+                            )}
+                            <div className="flex-1">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <h4 className={cn(
+                                  "font-semibold text-xs",
+                                  isEligibleNow ? "text-emerald-400" : "text-purple-300"
+                                )}>
+                                  {isEligibleNow ? "Eligible for Approval" : "Waiting for Eligibility"}
+                                </h4>
+                                {item.targetSession && (
+                                  <Badge variant="outline" className="text-[9px] h-4 px-1.5 border-white/10 text-zinc-400">
+                                    Session {item.targetSession.startYear}-{item.targetSession.endYear}
+                                  </Badge>
+                                )}
+                              </div>
+                              <p className="text-[11px] text-zinc-400 mt-1 leading-relaxed">
+                                {isEligibleNow
+                                  ? "Seats for the upcoming session are now available. This application can be approved through the normal flow."
+                                  : `This future-session application becomes approvable on ${item.eligibleApproval ? new Date(item.eligibleApproval).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : 'its eligibility date'}. It does not occupy a seat or affect capacity until approved.`}
+                              </p>
+                            </div>
+                          </div>
+                        )}
 
                         {/* Middle Section: Bus Info & Tags */}
                         <div className="space-y-3 mb-3">
@@ -777,20 +1051,28 @@ export default function ModeratorApplicationsPage() {
                                         ? `Bus ${busNumber} (${shift}) is at full capacity. This is the only bus serving the student's stop. You must reassign other students or add bus capacity before approving.`
                                         : `Bus ${busNumber} (${shift}) exceeds capacity. Alternative buses are available for this route/stop. Please check reassignment options.`}
                                     </p>
-                                    <Button
-                                      size="sm"
-                                      variant="outline"
-                                      className={cn(
-                                        "h-7 text-[10px] gap-1.5 w-full sm:w-auto transition-colors",
-                                        reassignmentReason === 'bus_full_only_option'
-                                          ? "border-red-500/30 text-red-400 hover:bg-red-500/10"
-                                          : "border-amber-500/30 text-amber-400 hover:bg-amber-500/10"
-                                      )}
-                                      onClick={() => router.push('/admin/smart-allocation')}
-                                    >
-                                      <ArrowRightLeft className="h-3 w-3" />
-                                      Manage Allocations
-                                    </Button>
+                                  <div className="flex flex-col sm:flex-row gap-2">
+                                    {reassignmentReason === 'bus_full_only_option' ? (
+                                      <Button
+                                        size="sm"
+                                        className="h-7 text-[10px] gap-1.5 bg-gradient-to-r from-purple-600 to-pink-500 text-white hover:from-purple-500 hover:to-pink-400 border-0 shadow-md shadow-purple-500/20 transition-all"
+                                        onClick={() => openReassignmentForBus(item, capacityStatus)}
+                                        disabled={loadingBusStudents}
+                                      >
+                                        {loadingBusStudents ? <Loader2 className="h-3 w-3 animate-spin" /> : <ArrowRightLeft className="h-3 w-3" />}
+                                        Free Capacity
+                                      </Button>
+                                    ) : (
+                                      <Button
+                                        size="sm"
+                                        className="h-7 text-[10px] gap-1.5 bg-gradient-to-r from-indigo-600 to-blue-500 text-white hover:from-indigo-500 hover:to-blue-400 border-0 shadow-md shadow-indigo-500/20 transition-all"
+                                        onClick={() => openAlternativePicker(item)}
+                                      >
+                                        <Bus className="h-3 w-3" />
+                                        Select Alternative Bus
+                                      </Button>
+                                    )}
+                                  </div>
                                   </div>
                                 </div>
                               </div>
@@ -813,15 +1095,18 @@ export default function ModeratorApplicationsPage() {
                             <Button
                               className={cn(
                                 "w-full h-10 gap-2 font-medium shadow-lg shadow-emerald-900/20 hover:shadow-emerald-900/40 hover:scale-[1.02] active:scale-[0.98] transition-all",
-                                needsCapacityReview
+                                (needsCapacityReview || (isUpcoming && !isEligibleNow))
                                   ? "bg-emerald-600/50 text-white/50 cursor-not-allowed"
                                   : "bg-emerald-600 hover:bg-emerald-500 text-white"
                               )}
                               onClick={() => handleApprove(item.applicationId)}
-                              disabled={needsCapacityReview || approving === item.applicationId}
+                              disabled={needsCapacityReview || (isUpcoming && !isEligibleNow) || approving === item.applicationId}
+                              title={isUpcoming && !isEligibleNow && item.eligibleApproval
+                                ? `Approvable from ${new Date(item.eligibleApproval).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}`
+                                : undefined}
                             >
-                              {approving === item.applicationId ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
-                              Approve
+                              {approving === item.applicationId ? <Loader2 className="h-4 w-4 animate-spin" /> : (isUpcoming && !isEligibleNow) ? <Clock className="h-4 w-4" /> : <Check className="h-4 w-4" />}
+                              {isUpcoming && !isEligibleNow ? "Not Yet Eligible" : "Approve"}
                             </Button>
                           )}
 
@@ -926,6 +1211,50 @@ export default function ModeratorApplicationsPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Case 1 — Free Capacity: reuse the existing ReassignmentPanel, pre-targeted
+          at the overloaded bus (its active students are the move candidates). */}
+      {reassignmentTarget && (
+        <ReassignmentPanel
+          selectedStudents={reassignmentTarget.busStudents}
+          allBuses={(buses as any[]).map((b: any) => {
+            const rawStops: any[] = b.route?.stops || b.stops || [];
+            return {
+              id: b.id || b.busId || '',
+              busNumber: b.busNumber || b.id || '',
+              routeId: b.routeId,
+              routeName: b.routeName || b.route?.routeName || '',
+              currentMembers: b.currentMembers || 0,
+              capacity: b.capacity || b.totalCapacity || 55,
+              shift: b.shift || 'both',
+              stops: rawStops.map((s: any) => ({
+                id: s.id || s.stopId || s.name || '',
+                name: s.name || s.stopId || s.id || '',
+                sequence: s.sequence ?? 0,
+              })),
+              load: b.load || { morningCount: 0, eveningCount: 0 },
+              route: b.route,
+            };
+          })}
+          currentBus={reassignmentTarget.busData}
+          onClose={() => setReassignmentTarget(null)}
+          onSuccess={() => { void handleReassignmentResolved(); }}
+        />
+      )}
+
+      {/* Case 2 — Select Alternative Bus: lightweight picker (no reassignment),
+          same visual language as ReassignmentPanel. */}
+      {alternativePickerTarget && (
+        <AlternativeBusPicker
+          applicantName={alternativePickerTarget.item.formData?.fullName || 'Applicant'}
+          applicantStopName={alternativePickerTarget.item.formData?.stopName || alternativePickerTarget.item.formData?.stopId || ''}
+          applicantShift={alternativePickerTarget.item.formData?.shift || 'Morning'}
+          currentBus={alternativePickerTarget.currentBus}
+          alternatives={alternativePickerTarget.alternatives}
+          onSelect={handleAlternativeSelected}
+          onClose={() => setAlternativePickerTarget(null)}
+        />
+      )}
     </div>
   );
 }

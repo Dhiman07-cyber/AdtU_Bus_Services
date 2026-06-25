@@ -1,14 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { adminAuth, adminDb, FieldValue } from '@/lib/firebase-admin';
+import { adminAuth, adminDb } from '@/lib/firebase-admin';
 import { Application, AuditLogEntry } from '@/lib/types/application';
-import { validateAndSuggestBus, incrementBusCapacity } from '@/lib/busCapacityService';
+import { validateAndSuggestBus, buildCapacityDelta, sendBusFullAlert } from '@/lib/busCapacityService';
 import { calculateRenewalDate } from '@/lib/utils/renewal-utils';
-import { generateOfflinePaymentId } from '@/lib/types/payment';
 import { computeBlockDatesFromValidUntil } from '@/lib/utils/deadline-computation';
 import { getDeadlineConfig } from '@/lib/deadline-config-service';
 import { deleteAsset, extractPublicId } from '@/lib/cloudinary-server';
 import { requireModeratorPermission } from '@/lib/security/moderator-permissions';
 import { PaymentTransactionService } from '@/lib/payment/payment-transaction.service';
+import { isApprovalEligible } from '@/lib/utils/application-eligibility';
+import { writeAuditInTransaction, type AuditActorRole } from '@/lib/audit/audit-service';
 
 /**
  * Optimized Application Approval API
@@ -19,6 +20,11 @@ import { PaymentTransactionService } from '@/lib/payment/payment-transaction.ser
  * - Backgrounded heavy Cloudinary and Supabase tasks
  * - Integrated hardened Cloudinary server helper
  */
+
+/** Thrown inside the approval transaction when the application was already consumed (duplicate / retry). */
+class ApprovalConflictError extends Error {}
+/** Thrown inside the approval transaction when the target bus has no free seat (lost the last-seat race). */
+class CapacityFullError extends Error {}
 
 function normalizeShift(shift: string | undefined): string {
   if (!shift) return 'Morning';
@@ -72,8 +78,46 @@ export async function POST(request: NextRequest) {
     const appData = appSnap.data() as Application;
     if (appData.state !== 'submitted') return NextResponse.json({ error: 'Application already processed' }, { status: 400 });
 
+    // Phase 2 eligibility gate (server-enforced; UI also disables the button).
+    // A future-session application may not be approved before its frozen
+    // eligibleApproval date (= softBlock(targetSession.startYear) + 1 day).
+    // Legacy/absent eligibleApproval ⇒ immediately eligible.
+    if (!isApprovalEligible(appData)) {
+      return NextResponse.json({
+        error: 'Application is not yet eligible for approval',
+        message: `This future-session application becomes eligible on ${new Date(appData.eligibleApproval as string).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}.`,
+        eligibleApproval: appData.eligibleApproval,
+      }, { status: 409 });
+    }
+
     const formData = appData.formData;
-    const busId = formData.routeId ? formData.routeId.replace('route_', 'bus_') : null;
+    const requestedBusId = formData.routeId ? formData.routeId.replace('route_', 'bus_') : null;
+    const overrideBusId = (body as any).overrideBusId as string | undefined;
+
+    // ── Override bus (Case 2: alternative-bus picker, parity with /approve-unauth)
+    if (overrideBusId && overrideBusId !== requestedBusId) {
+      const overrideDoc = await adminDb.collection('buses').doc(overrideBusId).get();
+      if (!overrideDoc.exists) {
+        return NextResponse.json({ error: 'Selected alternative bus not found' }, { status: 404 });
+      }
+      const overrideData = overrideDoc.data() || {};
+      const overrideShift = (overrideData.shift || '').toLowerCase();
+      const appShift = normalizeShift(formData.shift).toLowerCase();
+      const shiftCompatible =
+        overrideShift === 'both' ||
+        overrideShift.includes(appShift) ||
+        appShift.includes(overrideShift);
+      if (!shiftCompatible) {
+        return NextResponse.json({ error: 'Selected bus is not compatible with the required shift' }, { status: 400 });
+      }
+      if ((overrideData.currentMembers || 0) >= (overrideData.capacity || 55)) {
+        return NextResponse.json({ error: 'Selected alternative bus is also full' }, { status: 400 });
+      }
+      // Mutate formData so the downstream studentDoc and transaction see the override.
+      (formData as any).routeId = overrideData.routeId || overrideData.routeRef || formData.routeId;
+    }
+
+    const busId = overrideBusId || requestedBusId;
     const finalStopId = formData.stopId || (formData as any).pickupPoint || '';
 
     if (!busId || !formData.routeId || !finalStopId || !formData.shift) {
@@ -173,7 +217,9 @@ export async function POST(request: NextRequest) {
           throw new Error('Failed to update online payment validity');
         }
       } else {
-        const paymentId = (appData as any).paymentId || formData.paymentId || formData.paymentInfo?.paymentReference || generateOfflinePaymentId('new_registration');
+        // Deterministic offline payment id keyed by applicationId — stable across
+        // retries so re-running the approval never creates a duplicate ledger entry.
+        const paymentId = (appData as any).paymentId || formData.paymentId || formData.paymentInfo?.paymentReference || `OADF_APP_${applicationId}`;
         await PaymentTransactionService.saveTransaction({
           paymentId,
           studentId: formData.enrollmentId,
@@ -201,41 +247,120 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // 4. Batch/Parallelize ALL Firestore Writes & Deletions
-    const batch = adminDb.batch();
-    batch.set(adminDb.collection('users').doc(appData.applicantUid), userDoc);
-    batch.set(adminDb.collection('students').doc(appData.applicantUid), studentDoc);
-    batch.delete(adminDb.collection('unauthUsers').doc(appData.applicantUid));
-    batch.delete(adminDb.collection('applications').doc(applicationId));
-    await batch.commit();
+    // 4. Atomic entitlement + capacity allocation (single Firestore transaction).
+    //    Student + user creation, application/unauth cleanup, and the bus capacity
+    //    increment all commit together or not at all. The application and bus are
+    //    re-read INSIDE the transaction to make approval idempotent (double-click /
+    //    retry) and to enforce capacity atomically (no time-of-check/time-of-use race).
+    const studentRef = adminDb.collection('students').doc(appData.applicantUid);
+    const userRef = adminDb.collection('users').doc(appData.applicantUid);
+    const unauthRef = adminDb.collection('unauthUsers').doc(appData.applicantUid);
+    const applicationRef = adminDb.collection('applications').doc(applicationId);
+    const busRef = adminDb.collection('buses').doc(busId);
 
-    // Audit Logging if session years were modified (Part 5)
-    if (overrideStartYear !== null || overrideEndYear !== null) {
-      const originalStart = Number(formData.sessionInfo?.sessionStartYear || 0);
-      const originalEnd = Number(formData.sessionInfo?.sessionEndYear || 0);
-      
-      if (originalStart !== finalStartYear || originalEnd !== finalEndYear) {
-        await adminDb.collection('activity_logs').add({
-          action: 'application_approved_with_modified_session',
-          performedBy: uid,
-          actorName: approverName,
-          actorRole: approverRole,
+    let capacityNewMembers = 0;
+    let capacityLimit = 0;
+    let busNumberForAlert = '';
+    let routeIdForAlert = '';
+
+    try {
+      await adminDb.runTransaction(async (transaction) => {
+        const [freshAppSnap, busSnap] = await transaction.getAll(applicationRef, busRef);
+
+        // Idempotency guard: a duplicate/retried approval finds the application
+        // already consumed and aborts cleanly without creating a second student.
+        if (!freshAppSnap.exists || (freshAppSnap.data() as Application).state !== 'submitted') {
+          throw new ApprovalConflictError('Application already processed');
+        }
+        if (!busSnap.exists) {
+          throw new Error(`Bus ${busId} not found`);
+        }
+
+        // Atomic capacity gate — closes the race with concurrent approvals competing
+        // for the last seat. Uses the shared single-source capacity math.
+        const busData = busSnap.data();
+        const delta = buildCapacityDelta(busData, studentDoc.shift, 1);
+        if (delta.oldMembers >= delta.capacity) {
+          throw new CapacityFullError();
+        }
+
+        capacityNewMembers = delta.newMembers;
+        capacityLimit = delta.capacity;
+        busNumberForAlert = busData?.busNumber || '';
+        routeIdForAlert = busData?.routeId || '';
+
+        transaction.set(userRef, userDoc);
+        transaction.set(studentRef, studentDoc);
+        transaction.update(busRef, delta.updates);
+        transaction.delete(unauthRef);
+        transaction.delete(applicationRef);
+
+        // ── Tier A audit: written INSIDE the transaction. The approval commits
+        //    if and only if this audit row commits (mutation ⟺ audit). This
+        //    replaces the former best-effort post-commit logs and, critically,
+        //    guarantees EVERY approval (not just session/bus overrides) is audited.
+        const sessionModified =
+          (overrideStartYear !== null || overrideEndYear !== null) &&
+          (Number(formData.sessionInfo?.sessionStartYear || 0) !== finalStartYear ||
+            Number(formData.sessionInfo?.sessionEndYear || 0) !== finalEndYear);
+        const usedAlternativeBus = !!overrideBusId && overrideBusId !== requestedBusId;
+        writeAuditInTransaction(transaction, {
+          action: 'application_approved',
+          actor: { id: uid, role: approverRole as AuditActorRole, name: approverName },
           targetId: appData.applicantUid,
+          targetType: 'student',
           targetName: formData.fullName || '',
-          details: {
-            applicationId: applicationId,
-            previousStartYear: originalStart,
-            finalApprovedStartYear: finalStartYear,
-            previousEndYear: originalEnd,
-            finalApprovedEndYear: finalEndYear,
+          reason: usedAlternativeBus ? 'capacity_reallocation' : 'application_approval',
+          before: { applicationId, applicationState: 'submitted', requestedBusId: requestedBusId || null },
+          after: {
+            studentUid: appData.applicantUid,
+            busId,
+            shift: studentDoc.shift,
+            sessionStartYear: finalStartYear,
+            sessionEndYear: finalEndYear,
+            validUntil,
+            status: 'active',
           },
-          timestamp: FieldValue.serverTimestamp(),
-        }).catch(err => console.error('Failed to write modification audit log:', err));
+          details: {
+            applicationId,
+            notes: notes || null,
+            sessionModified,
+            previousStartYear: Number(formData.sessionInfo?.sessionStartYear || 0),
+            previousEndYear: Number(formData.sessionInfo?.sessionEndYear || 0),
+            alternativeBus: usedAlternativeBus
+              ? { requestedBusId: requestedBusId || null, approvedBusId: overrideBusId }
+              : null,
+          },
+          correlationId: applicationId,
+        });
+      });
+    } catch (txErr: any) {
+      if (txErr instanceof ApprovalConflictError) {
+        return NextResponse.json({ error: txErr.message }, { status: 409 });
       }
+      if (txErr instanceof CapacityFullError) {
+        // Lost the last seat after the up-front pre-check — return the same
+        // "bus full" response (with alternatives) as the initial gate.
+        const fullValidation = await validateAndSuggestBus({
+          routeId: formData.routeId as string,
+          stopId: finalStopId,
+          shift: formData.shift as string
+        });
+        return NextResponse.json({
+          error: 'Bus is at full capacity',
+          message: fullValidation.message,
+          alternatives: fullValidation.alternatives
+        }, { status: 400 });
+      }
+      throw txErr;
     }
 
-    // 5. Parallelized Background Post-Tasks (Cloudinary, Supabase, Capacity)
-    const postTasks = [
+    // (Approval audit is now written atomically inside the transaction above —
+    //  see the Tier A `writeAuditInTransaction` call. No best-effort post-commit
+    //  audit remains, so an approval can never commit without its audit record.)
+
+    // 5. Post-commit side effects (never affect the committed entitlement/capacity invariant).
+    const postTasks: Promise<unknown>[] = [
       // Cloudinary Cleanup
       (async () => {
         if (formData.paymentInfo?.paymentEvidenceUrl) {
@@ -243,11 +368,13 @@ export async function POST(request: NextRequest) {
           if (publicId) await deleteAsset(publicId);
         }
       })(),
-      // Bus Capacity Sync
-      incrementBusCapacity(busId, appData.applicantUid, formData.shift).catch(() => null),
     ];
 
-    // Optional: Await them briefly or just return if backgrounding is safe
+    // Bus full alert if this approval consumed the last seat
+    if (capacityLimit > 0 && capacityNewMembers >= capacityLimit) {
+      postTasks.push(sendBusFullAlert(busId, busNumberForAlert, routeIdForAlert));
+    }
+
     await Promise.allSettled(postTasks);
 
     return NextResponse.json({

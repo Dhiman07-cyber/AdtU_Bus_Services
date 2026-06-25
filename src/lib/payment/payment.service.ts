@@ -678,8 +678,8 @@ function mapSupabaseToFirestoreFormat(p: PaymentRecord): PaymentDocument {
         sessionStartYear: p.session_start_year || new Date().getFullYear(),
         sessionEndYear: p.session_end_year || new Date().getFullYear() + 1,
         validUntil: p.valid_until || '',
-        createdAt: p.transaction_date ? new Date(p.transaction_date) : new Date(),
-        updatedAt: p.updated_at ? new Date(p.updated_at) : new Date(),
+        createdAt: p.transaction_date ? new Date(p.transaction_date) : (p.created_at ? new Date(p.created_at) : new Date()),
+        updatedAt: p.transaction_date ? new Date(p.transaction_date) : (p.created_at ? new Date(p.created_at) : new Date()),
         ...(p.method === 'Offline' && {
             offlineTransactionId: p.offline_transaction_id,
         }),

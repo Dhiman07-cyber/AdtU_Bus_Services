@@ -302,7 +302,7 @@ export default function ModConfigPage() {
     // ═══════════════════════════════════════════════
     if (loading) {
         return (
-            <div className="min-h-screen bg-[#0a0a0f] flex items-center justify-center">
+            <div className="min-h-screen bg-transparent flex items-center justify-center">
                 <div className="flex flex-col items-center gap-4 animate-in fade-in zoom-in-95 duration-200">
                     <div className="relative">
                         <Loader2 className="w-10 h-10 text-blue-400 animate-spin" />

@@ -123,11 +123,11 @@ const StudentRow = memo(function StudentRow({
           <span className={cn(
             "inline-block px-1.5 py-0.5 rounded-full text-[9px] font-medium",
             student.status === 'active' ? 'bg-green-500 text-white' :
-            student.status === 'expired' ? 'bg-red-500 text-white' :
-            student.status === 'maintenance' ? 'bg-yellow-500 text-white' :
-            theme === 'dark' ? 'bg-gray-100 text-gray-700' : 'bg-gray-200 text-gray-700'
+              student.status === 'expired' ? 'bg-red-500 text-white' :
+                student.status === 'maintenance' ? 'bg-yellow-500 text-white' :
+                  theme === 'dark' ? 'bg-gray-100 text-gray-700' : 'bg-gray-200 text-gray-700'
           )}>
-            {student.status || 'Unknown'}
+            {student.status ? (student.status.charAt(0).toUpperCase() + student.status.slice(1)) : 'Unknown'}
           </span>
           <div className="text-[10px] text-muted-foreground whitespace-nowrap">
             {student.sessionStartYear && student.sessionEndYear
@@ -548,7 +548,7 @@ export default function AdminStudents() {
         </div>
       </div>
 
-      <Card className={cn("border-border", theme === 'dark' ? "bg-gray-900" : "bg-admin-bg")}>
+      <Card className={cn("border-border min-h-[480px]", theme === 'dark' ? "bg-gray-900" : "bg-admin-bg")}>
         <CardContent className="pt-3">
           <div className="mb-3">
             {/* Search Bar and Filters */}

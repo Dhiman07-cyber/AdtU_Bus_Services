@@ -3,6 +3,7 @@ import { getSupabaseServer } from '@/lib/supabase-server';
 import { withSecurity } from '@/lib/security/api-security';
 import { TripStatusQuerySchema } from '@/lib/security/validation-schemas';
 import { RateLimits } from '@/lib/security/rate-limiter';
+import { requireTransportEntitlement } from '@/lib/entitlement/require-transport-entitlement';
 
 /**
  * GET /api/student/trip-status
@@ -11,7 +12,14 @@ import { RateLimits } from '@/lib/security/rate-limiter';
  * Uses service role key to bypass RLS policies.
  */
 export const GET = withSecurity(
-    async (request, context /* use context if needed */) => {
+    async (request, { auth }) => {
+        // Phase 3 — students may only see live trip status while they own transport
+        // access. Staff (driver/admin/moderator) are exempt from this gate.
+        if (auth.role === 'student') {
+            const gate = await requireTransportEntitlement(auth.uid);
+            if (!gate.ok) return (gate as any).response;
+        }
+
         // Extract busId from URL parameters for GET request
         const url = new URL(request.url);
         const busId = url.searchParams.get('busId');

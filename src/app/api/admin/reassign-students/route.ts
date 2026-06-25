@@ -6,6 +6,7 @@ import { withSecurity } from '@/lib/security/api-security';
 import { ReassignStudentsSchema } from '@/lib/security/validation-schemas';
 import { RateLimits } from '@/lib/security/rate-limiter';
 import { requireModeratorPermission } from '@/lib/security/moderator-permissions';
+import { writeAuditInTransaction, recordOperationalEvent, type AuditActorRole } from '@/lib/audit/audit-service';
 import crypto from 'crypto';
 
 type ReassignmentAssignment = {
@@ -83,6 +84,9 @@ export const POST = withSecurity<ReassignStudentsBody>(
         const busSnapshots = new Map<string, FirestoreSnapshot>();
         const busLoadChanges = new Map<string, BusLoadDeltas>();
         const effectiveAssignments: ReassignmentAssignment[] = [];
+        // Generated up-front so the in-transaction Firestore audit and the Supabase
+        // rollback snapshot share ONE correlation id.
+        const operationId = `student_reassignment_${Date.now()}_${crypto.randomUUID()}`;
 
         try {
             await adminDb.runTransaction(async (transaction) => {
@@ -173,8 +177,37 @@ export const POST = withSecurity<ReassignStudentsBody>(
                     transaction.update(busRef, {
                         'load.morningCount': newMorning,
                         'load.eveningCount': newEvening,
+                        'load.totalCount': newMorning + newEvening, // keep canonical totalCount in sync
                         currentMembers: newMorning + newEvening,
                         updatedAt: FieldValue.serverTimestamp(),
+                    });
+                }
+
+                // ── Tier A audit (in-transaction): a durable Firestore record of the
+                //    reassignment commit, atomic with the student/bus mutations. This
+                //    survives even if the detailed Supabase rollback snapshot below
+                //    fails to write. Skipped for pure no-ops (no effective moves).
+                if (effectiveAssignments.length > 0) {
+                    writeAuditInTransaction(transaction, {
+                        action: 'students_reassigned',
+                        actor: { id: currentUserUid, role: (currentUserRole as AuditActorRole) || 'system', name: actorLabel },
+                        targetId: sourceBusId || effectiveAssignments[0].fromBusId,
+                        targetType: 'bus',
+                        targetName: sourceBusId || '',
+                        reason: 'student_reassignment',
+                        before: { sourceBusId },
+                        after: { movedCount: effectiveAssignments.length },
+                        details: {
+                            operationId,
+                            sourceBusId,
+                            assignments: effectiveAssignments.map((a) => ({
+                                studentId: a.studentId,
+                                from: a.fromBusId,
+                                to: a.toBusId,
+                                shift: a.shift,
+                            })),
+                        },
+                        correlationId: operationId,
                     });
                 }
             });
@@ -197,9 +230,8 @@ export const POST = withSecurity<ReassignStudentsBody>(
             });
         }
 
-        // Supabase Audit Logging
+        // Supabase Audit Logging (detailed before/after snapshot used for ROLLBACK)
         try {
-            const operationId = `student_reassignment_${Date.now()}_${crypto.randomUUID()}`;
             const targetBuses = [...new Set(effectiveAssignments.map((a) => a.toBusId))];
             const uniqueBusIds = [...new Set([sourceBusId, ...targetBuses])];
             const busLabels = new Map<string, string>();
@@ -263,7 +295,25 @@ export const POST = withSecurity<ReassignStudentsBody>(
             // but we do it to ensure consistency if the user checks logs immediately
             await logTask;
         } catch (auditError) {
-            console.warn('Failed to create Supabase audit log:', auditError);
+            // The detailed Supabase snapshot is what ROLLBACK depends on. If it fails,
+            // the durable in-tx Firestore audit still exists, but rollback for this
+            // operationId would be impossible — so make the gap DETECTABLE (Tier B)
+            // rather than swallowing it in a console warning.
+            console.error('Failed to create Supabase reassignment rollback snapshot:', auditError);
+            await recordOperationalEvent({
+                action: 'reassignment_rollback_snapshot_failed',
+                actor: { id: currentUserUid, role: (currentUserRole as AuditActorRole) || 'system', name: actorLabel },
+                targetId: sourceBusId || '',
+                targetType: 'bus',
+                reason: 'supabase_log_write_failed',
+                details: {
+                    operationId,
+                    movedCount: effectiveAssignments.length,
+                    error: auditError instanceof Error ? auditError.message : String(auditError),
+                    impact: 'reassignment committed but rollback snapshot missing — manual reversal only',
+                },
+                correlationId: operationId,
+            });
         }
 
         return NextResponse.json({

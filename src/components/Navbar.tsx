@@ -1,6 +1,7 @@
 "use client";
 
 import { useAuth } from "@/contexts/auth-context";
+import { useTransportEntitlement } from "@/hooks/useTransportEntitlement";
 import { useRouter, usePathname } from "next/navigation";
 import Link from "next/link";
 import React, { useState, useCallback, useEffect } from "react";
@@ -41,6 +42,8 @@ interface MobileRoute {
 
 const Navbar = React.memo(function Navbar({ onMenuToggle, isSidebarOpen = false }: NavbarProps) {
   const { currentUser, userData, needsApplication } = useAuth();
+  // Phase 3 — gate transport nav items (Track Bus / My Pass) by canonical entitlement.
+  const { entitled: transportEntitled } = useTransportEntitlement();
   const googleProvider = currentUser?.providerData?.find(p => p.providerId === 'google.com');
   const rawGoogleName = googleProvider?.displayName || currentUser?.displayName;
   const googleName = (rawGoogleName && !rawGoogleName.includes('@'))
@@ -112,8 +115,12 @@ const Navbar = React.memo(function Navbar({ onMenuToggle, isSidebarOpen = false 
     if (userData?.role === 'student') {
       return [
         { label: 'Dashboard', href: '/student', icon: LayoutDashboard, color: 'text-blue-500' },
-        { label: 'Track Bus', href: '/student/track-bus', icon: MapPin, color: 'text-emerald-500' },
-        { label: 'My Pass', href: '/student/bus-pass', icon: QrCode, color: 'text-purple-500' },
+        ...(transportEntitled
+          ? [
+              { label: 'Track Bus', href: '/student/track-bus', icon: MapPin, color: 'text-emerald-500' },
+              { label: 'My Pass', href: '/student/bus-pass', icon: QrCode, color: 'text-purple-500' },
+            ]
+          : []),
         { label: 'Renew Service', href: '/student/renew-services', icon: RefreshCcw, color: 'text-orange-500' },
         { label: 'Notifications', href: '/student/notifications', icon: Bell, color: 'text-red-500' },
       ];

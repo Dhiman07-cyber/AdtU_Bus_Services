@@ -1380,6 +1380,7 @@ export default function SmartAllocationPage() {
                   transaction.update(busRef, {
                     "load.morningCount": newMorningCount,
                     "load.eveningCount": newEveningCount,
+                    "load.totalCount": newMorningCount + newEveningCount,
                     currentMembers: newMorningCount + newEveningCount,
                     updatedAt: serverTimestamp(),
                   });

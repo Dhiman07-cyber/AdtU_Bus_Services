@@ -126,11 +126,14 @@ export async function reconcileBusLoads(
 
         studentsSnap.forEach(studentDoc => {
           const student = studentDoc.data();
-          if (student.shift === 'Morning') {
-            actualMorningCount++;
-          } else if (student.shift === 'Evening') {
-            actualEveningCount++;
-          } else {
+          // Normalize shift IDENTICALLY to the writer (buildCapacityDelta): use
+          // case-insensitive includes() so non-canonical casings are not dropped.
+          const shift = (student.shift || '').toLowerCase();
+          const isMorning = shift.includes('morning') || shift === 'both';
+          const isEvening = shift.includes('evening') || shift === 'both';
+          if (isMorning) actualMorningCount++;
+          if (isEvening) actualEveningCount++;
+          if (!isMorning && !isEvening) {
             console.warn(`⚠️  Student ${studentDoc.id} has invalid shift: ${student.shift}`);
           }
         });

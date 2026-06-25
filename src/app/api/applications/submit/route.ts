@@ -1,6 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { adminAuth, adminDb } from '@/lib/firebase-admin';
 import { Application, AuditLogEntry } from '@/lib/types/application';
+import { getDeadlineConfig } from '@/lib/deadline-config-service';
+import { deriveCreationCategorisation } from '@/lib/utils/application-eligibility';
+
+/** Thrown inside the submit transaction when the application is no longer in a submittable state (concurrent submit / retry). */
+class NotSubmittableError extends Error {}
 
 export async function POST(request: NextRequest) {
   try {
@@ -61,14 +66,47 @@ export async function POST(request: NextRequest) {
       notes: 'Application submitted for admin/moderator review'
     };
 
-    await appRef.update({
-      state: 'submitted',
-      submittedAt,
-      submittedBy: uid,
-      updatedAt: submittedAt,
-      stateHistory: [...(appData.stateHistory || []), { state: 'submitted', timestamp: submittedAt, actor: uid }],
-      auditLogs: [...(appData.auditLogs || []), auditEntry]
-    });
+    // Phase 2: categorise (fresh vs future) and freeze eligibleApproval from the
+    // chosen session. Renewal applications are categorised by the renewal flow,
+    // not this fresh-application submission path.
+    const deadlineConfig = await getDeadlineConfig();
+    const categorisation = deriveCreationCategorisation(
+      Number(formData.sessionInfo?.sessionStartYear || new Date().getFullYear()),
+      Number(formData.sessionInfo?.sessionEndYear || (Number(formData.sessionInfo?.sessionStartYear || new Date().getFullYear()) + 1)),
+      deadlineConfig,
+      submittedAt
+    );
+
+    // Atomic verified → submitted transition. The state is RE-READ inside the
+    // transaction and the flip only succeeds from 'verified', so two concurrent
+    // submits (double-click / browser refresh) can never both pass — exactly one
+    // wins and proceeds to payment + notifications; the loser gets 409. This closes
+    // the former time-of-check/time-of-use window between the read and the update.
+    try {
+      await adminDb.runTransaction(async (transaction) => {
+        const fresh = await transaction.get(appRef);
+        if (!fresh.exists || (fresh.data() as Application).state !== 'verified') {
+          throw new NotSubmittableError();
+        }
+        const freshData = fresh.data() as Application;
+        transaction.update(appRef, {
+          state: 'submitted',
+          submittedAt,
+          submittedBy: uid,
+          updatedAt: submittedAt,
+          applicationType: categorisation.applicationType,
+          targetSession: categorisation.targetSession,
+          eligibleApproval: categorisation.eligibleApproval,
+          stateHistory: [...(freshData.stateHistory || []), { state: 'submitted', timestamp: submittedAt, actor: uid }],
+          auditLogs: [...(freshData.auditLogs || []), auditEntry]
+        });
+      });
+    } catch (txErr) {
+      if (txErr instanceof NotSubmittableError) {
+        return NextResponse.json({ error: 'Application already submitted' }, { status: 409 });
+      }
+      throw txErr;
+    }
 
     // Create pending payment record in Supabase for offline payments
     if (formData.paymentInfo?.paymentMode === 'offline' && formData.paymentInfo?.paymentReference) {

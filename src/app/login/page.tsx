@@ -165,38 +165,47 @@ function LoginContent() {
       <motion.div
         initial={{ 
           opacity: 0,
-          clipPath: "inset(0% 50% 0% 50% round 28px)"
+          clipPath: isMobile 
+            ? "inset(50% 0% 50% 0% round 28px)" 
+            : "inset(0% 50% 0% 50% round 28px)"
         }}
         animate={{ 
           opacity: isVisible ? 1 : 0,
-          clipPath: isExpanded ? "inset(0% 0% 0% 0% round 28px)" : "inset(0% 50% 0% 50% round 28px)"
+          clipPath: isExpanded 
+            ? "inset(0% 0% 0% 0% round 28px)" 
+            : (isMobile ? "inset(50% 0% 50% 0% round 28px)" : "inset(0% 50% 0% 50% round 28px)")
         }}
         transition={{
           opacity: { duration: 0.4, ease: "easeOut" },
           clipPath: { duration: 0.9, ease: [0.16, 1, 0.3, 1] }
         }}
-        className="w-full relative z-10 border-t border-b border-white/[0.08] flex flex-row overflow-hidden items-center rounded-[28px] max-w-[370px] sm:max-w-[850px] min-h-[440px] sm:min-h-[460px] shrink-0 justify-center login-card-container-motion"
+        className="w-full relative z-10 border-t border-b border-white/[0.08] flex flex-col sm:flex-row overflow-hidden items-center rounded-[28px] max-w-[350px] sm:max-w-[850px] min-h-[520px] sm:min-h-[460px] shrink-0 justify-center login-card-container-motion"
         style={{
           background: 'radial-gradient(circle at bottom right, rgba(92, 89, 165, 0.08) 0%, rgba(92, 89, 165, 0) 50%), linear-gradient(135deg, #111115 0%, #0A0A0D 100%)'
         }}
       >
         {/* Inner Content Wrapper - maintains static dimensions to prevent text reflow */}
-        <div className="w-[370px] sm:w-[850px] min-h-[440px] sm:min-h-[460px] flex flex-row items-center shrink-0 relative">
+        <div className="w-full sm:w-[850px] min-h-[520px] sm:min-h-[460px] flex flex-col sm:flex-row items-center justify-center shrink-0 relative py-6 sm:py-0">
 
-          {/* Left Section - AdtU Logo Panel (hidden on mobile, shown on desktop) */}
+          {/* Left Section - AdtU Logo Panel (shown vertically on mobile, horizontally on desktop) */}
           <motion.div 
-            initial={{ opacity: 0, scale: 0.92 }}
+            initial={{ 
+              opacity: 0, 
+              scale: isMobile ? 1 : 0.92,
+              y: isMobile ? 16 : 0
+            }}
             animate={{ 
               opacity: isExpanded ? 0.95 : 0,
-              scale: isExpanded ? 1 : 0.92
+              scale: isExpanded ? 1 : (isMobile ? 1 : 0.92),
+              y: isExpanded ? 0 : (isMobile ? 16 : 0)
             }}
             transition={{ duration: 0.9, ease: "easeOut", delay: 0.2 }}
-            className="hidden sm:flex flex-col items-center justify-center p-6 shrink-0 select-none w-[400px] login-child-left"
+            className="flex flex-col items-center justify-center pt-2 pb-0 px-6 sm:p-6 shrink-0 select-none w-full sm:w-[400px] login-child-left"
           >
             <img
               src="/image.svg"
               alt="Assam down town University Logo"
-              className="w-full max-w-[340px] h-auto object-contain opacity-95"
+              className="w-full max-w-[200px] sm:max-w-[340px] h-auto object-contain opacity-95"
             />
           </motion.div>
 
@@ -210,16 +219,21 @@ function LoginContent() {
 
           {/* Right Section - Login Content Form */}
           <motion.div
-            initial={{ opacity: 0, x: 12 }}
+            initial={{ 
+              opacity: 0, 
+              x: isMobile ? 0 : 12,
+              y: isMobile ? 16 : 0
+            }}
             animate={{ 
               opacity: isExpanded ? 1 : 0,
-              x: isExpanded ? 0 : 12
+              x: isExpanded ? 0 : (isMobile ? 0 : 12),
+              y: isExpanded ? 0 : (isMobile ? 16 : 0)
             }}
             transition={{ duration: 0.9, ease: "easeOut", delay: 0.2 }}
-            className="flex-1 p-6 sm:p-10 sm:min-w-[340px] flex flex-col justify-center h-full login-child-right"
+            className="flex-none sm:flex-1 pt-1 px-6 pb-6 sm:p-10 w-full sm:min-w-[340px] flex flex-col justify-center login-child-right"
           >
             <div className="text-center space-y-5 p-0">
-              <div className="flex justify-center">
+              <div className="hidden sm:flex justify-center">
                 <div className="relative flex items-center justify-center w-12 h-12 rounded-full bg-[#18181F] border border-white/[0.06] shadow-[inset_0_1px_2px_rgba(255,255,255,0.05)]">
                   <Bus className="h-5.5 w-5.5 text-[#5c59a5]" />
                 </div>
@@ -237,9 +251,9 @@ function LoginContent() {
               </div>
             </div>
 
-            <div className="p-0 mt-8">
+            <div className="p-0 mt-8 text-center">
               {error && (
-                <div className="mb-5 p-3 bg-red-950/20 border border-red-900/30 text-red-200 rounded-xl flex items-start gap-2.5 text-xs animate-in fade-in duration-200">
+                <div className="mb-5 p-3 bg-red-950/20 border border-red-900/30 text-red-200 rounded-xl flex items-start gap-2.5 text-xs text-left animate-in fade-in duration-200">
                   <div className="w-1.5 h-1.5 bg-red-500 rounded-full mt-1.5 shrink-0 pulse-dot"></div>
                   <div className="flex-1 leading-relaxed">
                     {error}
@@ -249,7 +263,7 @@ function LoginContent() {
 
               <Button
                 onClick={handleGoogleSignIn}
-                className="w-full h-12 text-xs font-semibold bg-white hover:bg-zinc-100 !text-black border-0 rounded-xl active:scale-[0.98] transition-all duration-200 disabled:opacity-80 disabled:cursor-not-allowed flex items-center justify-center cursor-pointer"
+                className="w-[88%] sm:w-full h-12 text-xs font-semibold bg-white hover:bg-zinc-100 !text-black border-0 rounded-xl active:scale-[0.98] transition-all duration-200 disabled:opacity-80 disabled:cursor-not-allowed flex items-center justify-center cursor-pointer mx-auto"
                 disabled={loading}
               >
                 {loading ? (
@@ -282,7 +296,7 @@ function LoginContent() {
                 )}
               </Button>
 
-              <div className="relative flex items-center my-6">
+              <div className="hidden sm:flex relative items-center my-6">
                 <div className="flex-grow border-t border-white/[0.06]"></div>
                 <span className="flex-shrink mx-3 text-[9px] uppercase tracking-[0.2em] text-zinc-500 font-bold">
                   Secure Access
@@ -290,7 +304,7 @@ function LoginContent() {
                 <div className="flex-grow border-t border-white/[0.06]"></div>
               </div>
 
-              <div className="flex items-center justify-center gap-2 text-[10px] text-zinc-500 font-semibold">
+              <div className="hidden sm:flex items-center justify-center gap-2 text-[10px] text-zinc-500 font-semibold">
                 <span className="relative flex h-1.5 w-1.5">
                   <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
                   <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-500"></span>

@@ -302,7 +302,7 @@ export default function AdminDrivers() {
         </div>
       </div>
 
-      <Card className="bg-gray-50 dark:bg-gray-900 border-gray-200 dark:border-gray-800">
+      <Card className="bg-gray-50 dark:bg-gray-900 border-gray-200 dark:border-gray-800 min-h-[480px]">
         <CardContent className="pt-3">
           <div className="mb-3">
             {/* Search Bar and Filters */}

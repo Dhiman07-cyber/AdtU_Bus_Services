@@ -53,11 +53,13 @@ export const POST = withSecurity(
             }
 
             const counts = busCounts.get(matchedBusId)!;
+            // Normalize shift IDENTICALLY to the writer (buildCapacityDelta): use
+            // includes() so non-canonical casings ("Morning shift") still bucket.
             const shift = (student.shift || 'morning').toLowerCase();
 
             counts.total++;
-            if (shift === 'morning' || shift === 'both') counts.morningCount++;
-            if (shift === 'evening' || shift === 'both') counts.eveningCount++;
+            if (shift.includes('morning') || shift === 'both') counts.morningCount++;
+            if (shift.includes('evening') || shift === 'both') counts.eveningCount++;
 
             // Count per stop
             const stopId = student.stopId || '';
@@ -95,6 +97,7 @@ export const POST = withSecurity(
             ) {
                 batch.update(busRef, {
                     currentMembers: newCounts.currentMembers,
+                    'load.totalCount': newCounts.currentMembers, // keep canonical totalCount in sync
                     'load.morningCount': newCounts.morningCount,
                     'load.eveningCount': newCounts.eveningCount,
                     stopCounts: newCounts.stopCounts,

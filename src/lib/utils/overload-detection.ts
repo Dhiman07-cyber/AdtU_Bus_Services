@@ -33,11 +33,16 @@ export function detectOverloadedShift(bus: BusWithLoad, threshold: number = 100)
     const morningCount = load.morningCount ?? 0;
     const eveningCount = load.eveningCount ?? 0;
 
-    const morningPercentage = (morningCount / capacity) * 100;
-    const eveningPercentage = (eveningCount / capacity) * 100;
+    let morningThresholdCount = (capacity * threshold) / 100;
+    let eveningThresholdCount = (capacity * threshold) / 100;
 
-    const morningOverloaded = morningPercentage > threshold;
-    const eveningOverloaded = eveningPercentage > threshold;
+    if (threshold === 100) {
+        morningThresholdCount = Math.max(Math.ceil(capacity * 0.8), capacity - 5);
+        eveningThresholdCount = Math.max(Math.ceil(capacity * 0.8), capacity - 5);
+    }
+
+    const morningOverloaded = morningCount >= morningThresholdCount;
+    const eveningOverloaded = eveningCount >= eveningThresholdCount;
 
     if (morningOverloaded && eveningOverloaded) {
         return 'both';

@@ -47,19 +47,9 @@ export interface PaymentRecord {
         role?: string;
     };
     approved_at?: string;
-    rejected_by?: {
-        type?: string;
-        userId?: string;
-        empId?: string;
-        name?: string;
-        role?: string;
-    };
-    rejected_at?: string;
     purpose?: string;
     metadata?: Record<string, unknown>;
     created_at?: string;
-    updated_at?: string;
-    // RSA-2048 digital signature for tamper-proof receipts
     document_signature?: string;
 }
 
@@ -381,15 +371,6 @@ class PaymentsSupabaseService {
                 updateData.document_signature = DocumentCryptoService.signDocumentPayload(
                     buildDocumentPayloadFromPayment(paymentForSignature)
                 );
-            } else if (status === 'Rejected' && approverInfo) {
-                updateData.rejected_by = {
-                    type: approverInfo.role === 'Admin' ? 'admin' : 'moderator',
-                    userId: approverInfo.userId,
-                    empId: approverInfo.empId,
-                    name: approverInfo.name,
-                    role: approverInfo.role,
-                };
-                updateData.rejected_at = now;
             }
 
             // ATOMIC: Only transition from 'Pending' — prevents race conditions
@@ -784,7 +765,7 @@ class PaymentsSupabaseService {
                 if (isCompleted) {
                     completedCount++;
                     totalRevenue += (p.amount || 0);
-                    
+
                     if (p.method === 'Online' || (p.method || '').toLowerCase() === 'online') {
                         onlineCount++;
                     } else if (p.method === 'Offline' || (p.method || '').toLowerCase() === 'offline') {
@@ -814,18 +795,18 @@ class PaymentsSupabaseService {
      */
     async getPaymentMethodTrend(): Promise<{ name: string; value: number; color: string }[]> {
         if (!this.isReady()) return [];
-        
+
         try {
             const { data, error } = await this.supabase
                 .from('payments')
                 .select('method')
                 .or('status.eq.Completed,status.eq.completed');
-                
+
             if (error) return [];
-            
+
             const online = data.filter(p => (p.method || '').toLowerCase() === 'online').length;
             const offline = data.filter(p => (p.method || '').toLowerCase() === 'offline').length;
-            
+
             return [
                 { name: 'Online Payments', value: online, color: '#6366f1' },
                 { name: 'Offline Payments', value: offline, color: '#10b981' }

@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { adminAuth, adminDb } from '@/lib/firebase-admin';
 import { generateOfflinePaymentId } from '@/lib/types/payment';
 import { PaymentTransactionService } from '@/lib/payment/payment-transaction.service';
+import { getDeadlineConfig } from '@/lib/deadline-config-service';
+import { deriveCreationCategorisation } from '@/lib/utils/application-eligibility';
 
 type JsonRecord = Record<string, unknown>;
 
@@ -44,10 +46,44 @@ export async function POST(request: NextRequest) {
     const sessionInfo = asRecord(rawFormData.sessionInfo);
     const isOnlinePayment = paymentInfo.paymentMode === 'online';
     const now = new Date().toISOString();
+
+    // ── Server-side duplicate-submission guard ───────────────────────────────
+    // The application doc id IS the student uid, and this route uses .set() (an
+    // upsert). Without a guard a student could overwrite a LIVE application
+    // (e.g. a submitted upcoming app, or an already-approved record) via a direct
+    // API call, destroying lifecycle/payment state. Reject the overwrite when an
+    // existing application is in a live state. Re-application is still allowed
+    // from terminal/editable states (rejected / expired / cancelled / draft).
+    const existingAppSnap = await adminDb.collection('applications').doc(uid).get();
+    if (existingAppSnap.exists) {
+      const existingState = asString(existingAppSnap.data()?.state);
+      const LIVE_STATES = ['submitted', 'approved', 'verified', 'awaiting_verification'];
+      if (LIVE_STATES.includes(existingState)) {
+        return NextResponse.json(
+          {
+            error: 'An application is already in progress',
+            message: 'You already have an active application. You cannot submit another until it is resolved.',
+            state: existingState,
+          },
+          { status: 409 }
+        );
+      }
+    }
     const paymentId = isOnlinePayment
       ? asString(paymentInfo.razorpayPaymentId)
       : generateOfflinePaymentId('new_registration');
     const amountPaid = Number(paymentInfo.amountPaid || 0);
+
+    // Phase 2: categorise the application (fresh vs future) and freeze its
+    // eligibleApproval date from the chosen session. A future application targets
+    // the next academic session and must not be approvable until seats are freed.
+    const deadlineConfig = await getDeadlineConfig();
+    const categorisation = deriveCreationCategorisation(
+      Number(sessionInfo.sessionStartYear || new Date().getFullYear()),
+      Number(sessionInfo.sessionEndYear || (Number(sessionInfo.sessionStartYear || new Date().getFullYear()) + 1)),
+      deadlineConfig,
+      now
+    );
 
     if (!isOnlinePayment && amountPaid > 0) {
       try {
@@ -97,6 +133,10 @@ export async function POST(request: NextRequest) {
       verifiedBy: isOnlinePayment ? 'system_online_payment' : 'system_offline_submission_bypass',
       verifiedAt: now,
       needsCapacityReview,
+      // Phase 2 categorisation (fresh/future + frozen eligibility date)
+      applicationType: categorisation.applicationType,
+      targetSession: categorisation.targetSession,
+      eligibleApproval: categorisation.eligibleApproval,
     };
 
     await adminDb.collection('applications').doc(uid).set(applicationData);

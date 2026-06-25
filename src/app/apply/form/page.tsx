@@ -1545,17 +1545,17 @@ function ApplicationFormContent() {
     return (
       <div className="min-h-screen bg-[#05060e] dark:bg-[#05060e] overflow-x-hidden">
         <ApplyFormNavbar />
-        <div className="relative z-10 pt-20 sm:pt-28 pb-16 min-h-[calc(100vh-80px)] flex items-center justify-center px-4">
+        <div className="apply-received-container relative z-10 pt-20 sm:pt-28 pb-16 min-h-[calc(100vh-80px)] flex items-center justify-center px-4">
           
           <div className="w-full max-w-[420px] relative z-10">
             {/* Clean Card: larger sizing, solid styling, no heavy shadows or blurs */}
-            <div className="bg-[#0c0e1a] border border-slate-805 rounded-[2rem] p-8 sm:p-10 shadow-2xl min-h-[560px] flex flex-col justify-between overflow-hidden">
+            <div className="apply-received-card bg-[#0c0e1a] border border-slate-900 rounded-[2rem] p-8 sm:p-10 shadow-2xl min-h-[560px] flex flex-col justify-between overflow-hidden">
               
               {/* Header Container */}
               <div className="flex flex-col items-center text-center pt-2">
                 {/* Icon Container */}
-                <div className="mb-6">
-                  <div className="h-16 w-16 bg-[#161a30] border border-emerald-500/20 rounded-2xl flex items-center justify-center shadow-md">
+                <div className="apply-received-icon-container mb-6">
+                  <div className="apply-received-icon-box h-16 w-16 bg-[#161a30] border border-emerald-500/20 rounded-2xl flex items-center justify-center shadow-md">
                     <CheckCircle className="h-8 w-8 text-emerald-400" />
                   </div>
                 </div>
@@ -1570,7 +1570,7 @@ function ApplicationFormContent() {
               </div>
 
               {/* Status Progress Timeline */}
-              <div className="w-full bg-[#080a13] border border-slate-900 rounded-2xl p-5 shadow-inner my-5">
+              <div className="apply-received-timeline w-full bg-[#080a13] border border-slate-900 rounded-2xl p-5 shadow-inner my-5">
                 <div className="flex items-center justify-between relative px-2">
                   {/* Connecting Line */}
                   <div className="absolute top-[15px] left-8 right-8 h-[2px] bg-slate-800 z-0"></div>
@@ -1603,7 +1603,7 @@ function ApplicationFormContent() {
               </div>
 
               {/* Next Steps Section */}
-              <div className="w-full bg-[#101326]/30 border border-slate-900 rounded-xl p-5 flex gap-3.5 items-start mb-5">
+              <div className="apply-received-steps w-full bg-[#101326]/30 border border-slate-900 rounded-xl p-5 flex gap-3.5 items-start mb-5">
                 <div className="p-2 bg-indigo-500/10 rounded-xl shrink-0 border border-indigo-500/20 shadow-inner mt-0.5">
                   <Info className="w-4 h-4 text-indigo-400" />
                 </div>

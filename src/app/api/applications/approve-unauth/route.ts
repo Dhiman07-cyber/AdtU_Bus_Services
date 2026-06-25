@@ -1,16 +1,22 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { adminAuth, adminDb, FieldValue } from '@/lib/firebase-admin';
+import { adminAuth, adminDb } from '@/lib/firebase-admin';
 import { v2 as cloudinary } from 'cloudinary';
+import { writeAuditInTransaction, type AuditActorRole } from '@/lib/audit/audit-service';
 import { calculateRenewalDate } from '@/lib/utils/renewal-utils';
-import { incrementBusCapacity } from '@/lib/busCapacityService';
-import { generateOfflinePaymentId } from '@/lib/types/payment';
+import { buildCapacityDelta, sendBusFullAlert, validateAndSuggestBus } from '@/lib/busCapacityService';
 import { computeBlockDatesFromValidUntil } from '@/lib/utils/deadline-computation';
 import { sendApplicationApprovedNotification } from '@/lib/services/admin-email.service';
 import { getDeadlineConfig } from '@/lib/deadline-config-service';
 import { requireModeratorPermission } from '@/lib/security/moderator-permissions';
 import { PaymentTransactionService } from '@/lib/payment/payment-transaction.service';
+import { isApprovalEligible } from '@/lib/utils/application-eligibility';
 
 type JsonRecord = Record<string, unknown>;
+
+/** Thrown inside the approval transaction when the application was already consumed (duplicate / retry). */
+class ApprovalConflictError extends Error {}
+/** Thrown inside the approval transaction when the target bus has no free seat (lost the last-seat race). */
+class CapacityFullError extends Error {}
 
 if (process.env.CLOUDINARY_API_KEY && process.env.CLOUDINARY_API_SECRET && process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME) {
   cloudinary.config({
@@ -91,6 +97,19 @@ export async function POST(request: NextRequest) {
     }
 
     const appData = applicationDoc.data() as JsonRecord;
+
+    // Phase 2 eligibility gate (server-enforced, parity with /approve).
+    // A future-session application may not be approved before its frozen
+    // eligibleApproval date. Legacy/absent eligibleApproval ⇒ immediately eligible.
+    if (!isApprovalEligible(appData as { eligibleApproval?: string })) {
+      const eligibleIso = asString(appData.eligibleApproval);
+      return NextResponse.json({
+        error: 'Application is not yet eligible for approval',
+        message: `This future-session application becomes eligible on ${new Date(eligibleIso).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}.`,
+        eligibleApproval: eligibleIso,
+      }, { status: 409 });
+    }
+
     const formData = asRecord(appData.formData);
     const sessionInfo = asRecord(formData.sessionInfo);
     const paymentInfo = asRecord(formData.paymentInfo);
@@ -120,8 +139,57 @@ export async function POST(request: NextRequest) {
     const sessionEndYear = finalEndYear;
     
     const blockDates = computeBlockDatesFromValidUntil(validUntil, deadlineConfig);
-    const busId = asString(formData.routeId) ? asString(formData.routeId).replace('route_', 'bus_') : '';
+    let busId = asString(formData.routeId) ? asString(formData.routeId).replace('route_', 'bus_') : '';
+    const requestedBusId = busId; // preserved for audit when overridden
+    const overrideBusId = asString(body.overrideBusId);
     const shift = normalizeShiftValue(formData.shift);
+
+    // ── Override bus (Case 2: alternative-bus picker) ──────────────────────────
+    // When the moderator explicitly selects a different bus (the original is full
+    // but alternatives exist), validate the override and use it instead. The
+    // atomic capacity gate inside the transaction is the final authority.
+    if (overrideBusId && overrideBusId !== busId) {
+      const overrideBusDoc = await adminDb.collection('buses').doc(overrideBusId).get();
+      if (!overrideBusDoc.exists) {
+        return NextResponse.json({ error: 'Selected alternative bus not found' }, { status: 404 });
+      }
+      const overrideData = overrideBusDoc.data() || {};
+      const overrideShift = (overrideData.shift || '').toLowerCase();
+      const shiftLower = shift.toLowerCase();
+      const shiftCompatible =
+        overrideShift === 'both' ||
+        overrideShift.includes(shiftLower) ||
+        shiftLower.includes(overrideShift);
+      if (!shiftCompatible) {
+        return NextResponse.json({ error: 'Selected bus is not compatible with the required shift' }, { status: 400 });
+      }
+      // Pre-check capacity (non-authoritative; the txn gate is binding).
+      if ((overrideData.currentMembers || 0) >= (overrideData.capacity || 55)) {
+        return NextResponse.json({ error: 'Selected alternative bus is also full' }, { status: 400 });
+      }
+      busId = overrideBusId;
+      // Also update the routeId to match the new bus so the student doc has
+      // the correct routeRef. stopId stays the same (the bus must serve that stop).
+      (formData as Record<string, unknown>).routeId = overrideData.routeId || overrideData.routeRef || formData.routeId;
+    }
+
+    // Capacity pre-check (parity with /approve): reject full buses up front with
+    // alternative suggestions, before recording payment or creating the student.
+    const validationStopId = asString(formData.stopId) || asString(formData.pickupPoint);
+    if (busId) {
+      const capacityValidation = await validateAndSuggestBus({
+        routeId: asString(formData.routeId),
+        stopId: validationStopId,
+        shift,
+      });
+      if (!capacityValidation.canAssign) {
+        return NextResponse.json({
+          error: 'Bus is at full capacity',
+          message: capacityValidation.message,
+          alternatives: capacityValidation.alternatives
+        }, { status: 400 });
+      }
+    }
 
     const userDoc = {
       createdAt: nowIso,
@@ -201,11 +269,13 @@ export async function POST(request: NextRequest) {
           throw new Error('Failed to update online payment validity');
         }
       } else {
+        // Deterministic offline payment id keyed by applicant — stable across
+        // retries so re-running the approval never creates a duplicate ledger entry.
         const paymentId =
           asString(appData.paymentId) ||
           asString(formData.paymentId) ||
           asString(paymentInfo.paymentReference) ||
-          generateOfflinePaymentId('new_registration');
+          `OADF_APP_${applicantUid}`;
 
         await PaymentTransactionService.saveTransaction({
           paymentId,
@@ -234,38 +304,113 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    const batch = adminDb.batch();
-    batch.set(adminDb.collection('users').doc(applicantUid), userDoc);
-    batch.set(adminDb.collection('students').doc(applicantUid), studentDoc);
-    batch.delete(applicationDoc.ref);
-    batch.delete(adminDb.collection('unauthUsers').doc(applicantUid));
-    await batch.commit();
+    // Atomic entitlement + capacity allocation (single Firestore transaction).
+    //   Student + user creation, application/unauth cleanup, and the capacity
+    //   increment commit together or not at all. The application is re-read inside
+    //   the transaction for idempotency (duplicate / retry), and an atomic capacity
+    //   gate enforces the same first-come-first-served rule as /approve (no moderator
+    //   path may bypass capacity; explicit overrides exist via admin-create/reassignment).
+    const studentRef = adminDb.collection('students').doc(applicantUid);
+    const userRef = adminDb.collection('users').doc(applicantUid);
+    const unauthRef = adminDb.collection('unauthUsers').doc(applicantUid);
+    const applicationRef = applicationDoc.ref;
+    const busRef = busId ? adminDb.collection('buses').doc(busId) : null;
 
-    // Audit Logging if session years were modified (Part 5)
-    if (overrideStartYear !== null || overrideEndYear !== null) {
-      const originalStart = Number(sessionInfo.sessionStartYear || 0);
-      const originalEnd = Number(sessionInfo.sessionEndYear || 0);
-      
-      if (originalStart !== finalStartYear || originalEnd !== finalEndYear) {
-        await adminDb.collection('activity_logs').add({
-          action: 'application_approved_with_modified_session',
-          performedBy: moderatorUid,
-          actorName: approverName,
-          actorRole: approverRole,
+    let capacityNewMembers = 0;
+    let capacityLimit = 0;
+    let busNumberForAlert = '';
+    let routeIdForAlert = '';
+
+    try {
+      await adminDb.runTransaction(async (transaction) => {
+        // Reads first (Firestore requires all reads before writes)
+        const freshAppSnap = await transaction.get(applicationRef);
+        if (!freshAppSnap.exists) {
+          throw new ApprovalConflictError('Application already processed');
+        }
+        let busSnap: FirebaseFirestore.DocumentSnapshot | null = null;
+        if (busRef) {
+          busSnap = await transaction.get(busRef);
+        }
+
+        // Atomic capacity gate (parity with /approve): reject when no free seat
+        // remains. Closes the last-seat race between concurrent approvals.
+        let delta: ReturnType<typeof buildCapacityDelta> | null = null;
+        if (busRef) {
+          if (busSnap && busSnap.exists) {
+            const busData = busSnap.data();
+            delta = buildCapacityDelta(busData, studentDoc.shift, 1);
+            if (delta.oldMembers >= delta.capacity) {
+              throw new CapacityFullError();
+            }
+            capacityNewMembers = delta.newMembers;
+            capacityLimit = delta.capacity;
+            busNumberForAlert = busData?.busNumber || '';
+            routeIdForAlert = busData?.routeId || '';
+          } else {
+            console.warn(`⚠️ approve-unauth: bus ${busId} not found; student created without capacity increment`);
+          }
+        }
+
+        // Writes
+        transaction.set(userRef, userDoc);
+        transaction.set(studentRef, studentDoc);
+        transaction.delete(applicationRef);
+        transaction.delete(unauthRef);
+        if (busRef && delta) {
+          transaction.update(busRef, delta.updates);
+        }
+
+        // ── Tier A audit (in-transaction). Guarantees every unauth approval is
+        //    audited atomically with the entitlement/capacity mutation, replacing
+        //    the former best-effort post-commit logs.
+        const sessionModified =
+          (overrideStartYear !== null || overrideEndYear !== null) &&
+          (Number(sessionInfo.sessionStartYear || 0) !== finalStartYear ||
+            Number(sessionInfo.sessionEndYear || 0) !== finalEndYear);
+        const usedAlternativeBus = !!overrideBusId && overrideBusId !== requestedBusId;
+        writeAuditInTransaction(transaction, {
+          action: 'application_approved',
+          actor: { id: moderatorUid, role: approverRole as AuditActorRole, name: approverName },
           targetId: applicantUid,
+          targetType: 'student',
           targetName: asString(formData.fullName),
+          reason: usedAlternativeBus ? 'capacity_reallocation' : 'application_approval_unauth',
+          before: { applicationId: studentUid, applicationState: 'submitted', requestedBusId: requestedBusId || null },
+          after: { studentUid: applicantUid, busId: busId || null, shift: studentDoc.shift, sessionStartYear: finalStartYear, sessionEndYear: finalEndYear, validUntil, status: 'active' },
           details: {
             applicationId: studentUid,
-            previousStartYear: originalStart,
-            finalApprovedStartYear: finalStartYear,
-            previousEndYear: originalEnd,
-            finalApprovedEndYear: finalEndYear,
+            channel: 'unauthenticated',
+            sessionModified,
+            previousStartYear: Number(sessionInfo.sessionStartYear || 0),
+            previousEndYear: Number(sessionInfo.sessionEndYear || 0),
+            alternativeBus: usedAlternativeBus ? { requestedBusId: requestedBusId || null, approvedBusId: overrideBusId } : null,
           },
-          timestamp: FieldValue.serverTimestamp(),
-        }).catch(err => console.error('Failed to write modification audit log:', err));
+          correlationId: studentUid,
+        });
+      });
+    } catch (txErr: any) {
+      if (txErr instanceof ApprovalConflictError) {
+        return NextResponse.json({ error: txErr.message }, { status: 409 });
       }
+      if (txErr instanceof CapacityFullError) {
+        // Lost the last seat after the up-front pre-check — return the same
+        // "bus full" response (with alternatives) as /approve.
+        const fullValidation = await validateAndSuggestBus({
+          routeId: asString(formData.routeId),
+          stopId: validationStopId,
+          shift,
+        });
+        return NextResponse.json({
+          error: 'Bus is at full capacity',
+          message: fullValidation.message,
+          alternatives: fullValidation.alternatives
+        }, { status: 400 });
+      }
+      throw txErr;
     }
 
+    // (Approval audit is now written atomically inside the transaction above.)
 
     if (studentDoc.email) {
       try {
@@ -286,9 +431,10 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    if (busId) {
-      await incrementBusCapacity(busId, applicantUid, shift).catch(error => {
-        console.error(`Failed to increment bus capacity for ${busId}:`, error);
+    // Post-commit: bus full alert if this approval consumed the last seat (never affects committed state).
+    if (busId && capacityLimit > 0 && capacityNewMembers >= capacityLimit) {
+      await sendBusFullAlert(busId, busNumberForAlert, routeIdForAlert).catch(error => {
+        console.error(`Failed to send bus full alert for ${busId}:`, error);
       });
     }
 

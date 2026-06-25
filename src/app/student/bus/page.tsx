@@ -27,8 +27,9 @@ import LocationPermissionModal from "@/components/LocationPermissionModal";
 import WaitingFlagModal from "@/components/WaitingFlagModal";
 import { useToast } from "@/contexts/toast-context";
 import { useFCMToken } from "@/hooks/useFCMToken";
+import TransportEntitlementGuard from "@/components/transport/TransportEntitlementGuard";
 
-export default function StudentBusPage() {
+function StudentBusLive() {
   const { currentUser, userData } = useAuth();
   const router = useRouter();
   const { addToast } = useToast();
@@ -599,5 +600,18 @@ export default function StudentBusPage() {
         errorMessage={locationError?.userFriendlyMessage}
       />
     </div>
+  );
+}
+
+/**
+ * Phase 3 — entitlement decided before the live bus page (and its Supabase
+ * driver_status / waiting_flags subscriptions) mounts. Ineligible students see
+ * the lifecycle/renewal screen and open no transport subscriptions.
+ */
+export default function StudentBusPage() {
+  return (
+    <TransportEntitlementGuard>
+      <StudentBusLive />
+    </TransportEntitlementGuard>
   );
 }

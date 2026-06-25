@@ -4,6 +4,7 @@ import { getFirestore } from 'firebase-admin/firestore';
 // Import the actual Cloudinary library - server-side only
 import { v2 as cloudinary } from 'cloudinary';
 import { decrementBusCapacity } from '@/lib/busCapacityService';
+import { wasSeatReleased } from '@/lib/config/capacity-flags';
 
 // Configure Cloudinary
 if (process.env.CLOUDINARY_API_KEY && process.env.CLOUDINARY_API_SECRET && process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME) {
@@ -209,15 +210,21 @@ export async function DELETE(request: Request) {
               console.error('Error deleting profile update requests:', requestsError);
             }
 
-            // Decrement bus capacity if student was assigned to a bus
+            // Decrement bus capacity if student was assigned to a bus.
+            // DEDUP GUARD: skip if the seat was already released at soft block
+            // (seatReleasedAt marker present) to avoid double-decrement.
             const busId = studentData.busId || studentData.currentBusId || studentData.assignedBusId || null;
             if (busId) {
-              try {
-                await decrementBusCapacity(busId, uid, studentData.shift);
-                console.log(`✅ Decremented bus capacity for bus ${busId} (student: ${uid})`);
-              } catch (busError) {
-                console.error(`⚠️ Error decrementing bus capacity for bus ${busId}:`, busError);
-                // Continue with deletion even if bus capacity update fails
+              if (wasSeatReleased(studentData)) {
+                console.log(`⏭️ Skipping decrement for bus ${busId} — seat already released at soft block (student: ${uid})`);
+              } else {
+                try {
+                  await decrementBusCapacity(busId, uid, studentData.shift);
+                  console.log(`✅ Decremented bus capacity for bus ${busId} (student: ${uid})`);
+                } catch (busError) {
+                  console.error(`⚠️ Error decrementing bus capacity for bus ${busId}:`, busError);
+                  // Continue with deletion even if bus capacity update fails
+                }
               }
             }
 

@@ -3,6 +3,7 @@ import { adminDb } from '@/lib/firebase-admin';
 import { getSupabaseServer } from '@/lib/supabase-server';
 import { withSecurity } from '@/lib/security/api-security';
 import { RateLimits } from '@/lib/security/rate-limiter';
+import { getTransportEntitlement } from '@/lib/entitlement/transport-entitlement';
 
 /**
  * GET /api/student/dashboard-data
@@ -26,6 +27,26 @@ export const GET = withSecurity(
         }
 
         const studentData = studentDoc.data()!;
+
+        // CANONICAL entitlement gate (Phase 3): never serve live transport data
+        // (bus / route / driver / trip) to a student who does not currently own
+        // transport access. The profile is still returned so the dashboard can
+        // render the lifecycle/renewal panel. This also avoids the Firestore +
+        // Supabase fan-out below for ineligible students.
+        const entitlement = getTransportEntitlement(studentData);
+        if (!entitlement.entitled) {
+            return NextResponse.json({
+                student: studentData,
+                bus: null,
+                route: null,
+                driver: null,
+                tripActive: false,
+                tripData: null,
+                entitled: false,
+                entitlementReason: entitlement.reason,
+            });
+        }
+
         const busId = studentData.busId || studentData.assignedBusId;
         const routeId = studentData.routeId || studentData.assignedRouteId;
 
@@ -64,7 +85,9 @@ export const GET = withSecurity(
             route,
             driver,
             tripActive: isTripActive,
-            tripData: tripStatus?.data || null
+            tripData: tripStatus?.data || null,
+            entitled: true,
+            entitlementReason: entitlement.reason,
         });
     },
     {

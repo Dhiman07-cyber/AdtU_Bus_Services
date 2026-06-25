@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation";
 import { Home, MapPin, QrCode, RefreshCcw, User } from "lucide-react";
 import { cn } from "@/lib/utils";
 import StudentAuthWrapper from "./StudentAuthWrapper";
+import { useTransportEntitlement } from "@/hooks/useTransportEntitlement";
 
 interface StudentLayoutProps {
   children: ReactNode;
@@ -13,11 +14,19 @@ interface StudentLayoutProps {
 
 export default function StudentLayout({ children }: StudentLayoutProps) {
   const pathname = usePathname();
+  // Phase 3 — Track Bus / Bus Pass are transport features; show them in the nav
+  // only while the student currently owns transport access. Dashboard, Renewal,
+  // and Profile stay available in every lifecycle state.
+  const { entitled: transportEntitled } = useTransportEntitlement();
 
   const navItems = [
     { href: "/student", icon: Home, label: "Dashboard" },
-    { href: "/student/track-bus", icon: MapPin, label: "Track Bus" },
-    { href: "/student/bus-pass", icon: QrCode, label: "Bus Pass" },
+    ...(transportEntitled
+      ? [
+          { href: "/student/track-bus", icon: MapPin, label: "Track Bus" },
+          { href: "/student/bus-pass", icon: QrCode, label: "Bus Pass" },
+        ]
+      : []),
     { href: "/student/renew-services", icon: RefreshCcw, label: "Renewal" },
     { href: "/student/profile", icon: User, label: "Profile" },
   ];

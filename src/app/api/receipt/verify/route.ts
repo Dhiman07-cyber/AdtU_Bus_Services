@@ -199,7 +199,7 @@ export const POST = withSecurity<VerifyReceiptBody>(
         validUntil: formatDate(payment.valid_until),
         metadata: payment.metadata,
         createdAt: payment.created_at,
-        updatedAt: payment.updated_at,
+        updatedAt: payment.transaction_date || payment.created_at,
       };
 
     return NextResponse.json({

@@ -12,26 +12,27 @@ export async function GET(request: NextRequest) {
     const decodedToken = await adminAuth.verifyIdToken(token);
     const uid = decodedToken.uid;
 
-    // Check for existing application
-    const applicationsQuery = await adminDb.collection('applications')
-      .where('applicantUid', '==', uid)
-      .orderBy('createdAt', 'desc')
-      .limit(1)
-      .get();
+    // The application document id IS the student uid (one application per student,
+    // enforced by submit-final). Read it directly so the status gate is
+    // deterministic and can never return a stale/secondary doc.
+    const appDoc = await adminDb.collection('applications').doc(uid).get();
 
-    if (applicationsQuery.empty) {
+    if (!appDoc.exists) {
       return NextResponse.json({
         hasApplication: false
       });
     }
 
-    const appDoc = applicationsQuery.docs[0];
     const appData = appDoc.data();
 
     return NextResponse.json({
       hasApplication: true,
-      applicationId: appData.applicationId,
-      state: appData.state
+      applicationId: appData?.applicationId || uid,
+      state: appData?.state,
+      // Phase 2: surface categorisation so the apply UI can explain an
+      // "upcoming" application that is intentionally waiting for eligibility.
+      applicationType: appData?.applicationType ?? 'fresh',
+      eligibleApproval: appData?.eligibleApproval ?? null
     });
   } catch (error: any) {
     console.error('Error checking application:', error);

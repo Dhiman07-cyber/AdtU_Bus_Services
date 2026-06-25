@@ -114,7 +114,7 @@ export function PremiumPageLoader({
   className?: string;
 }) {
   const content = (
-    <div className="flex flex-col items-center gap-5">
+    <div className="flex flex-col items-center gap-3.5">
       <div className="relative scale-110 sm:scale-125">
         {/* Ambient Glows */}
         <div className="absolute -inset-10 bg-purple-500/15 blur-[40px] animate-pulse rounded-full" />
@@ -128,7 +128,7 @@ export function PremiumPageLoader({
         </div>
       </div>
 
-      <div className="space-y-2.5 z-10 w-full max-w-xl mt-2 px-4">
+      <div className="space-y-2.5 z-10 w-full max-w-xl mt-1 px-4">
         <h3 className="text-base sm:text-lg md:text-xl font-bold bg-gradient-to-r from-pink-400 via-purple-400 to-pink-400 bg-clip-text text-transparent animate-pulse tracking-tight leading-tight sm:whitespace-nowrap">
           {message}
         </h3>

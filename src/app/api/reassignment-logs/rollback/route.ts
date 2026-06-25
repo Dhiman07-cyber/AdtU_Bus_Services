@@ -11,11 +11,29 @@ import { NextResponse } from 'next/server';
 import { adminDb } from '@/lib/firebase-admin';
 import { withSecurity } from '@/lib/security/api-security';
 import { RateLimits } from '@/lib/security/rate-limiter';
+import { writeAuditInTransaction, type AuditActorRole } from '@/lib/audit/audit-service';
 import { z } from 'zod';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import crypto from 'crypto';
 
 export const dynamic = 'force-dynamic';
+
+/** Thrown inside the rollback transaction when current state no longer matches the recorded snapshot. */
+class RollbackConflictError extends Error {}
+
+/**
+ * Resolve a value by key that may be a dot-path (e.g. 'load.morningCount') OR an
+ * exact key. Reassignment snapshots store bus counters as dot-path keys but student
+ * fields as plain keys, so precondition comparison must handle both.
+ */
+function getByPath(obj: Record<string, unknown> | undefined, path: string): unknown {
+    if (!obj) return undefined;
+    if (Object.prototype.hasOwnProperty.call(obj, path)) return obj[path];
+    return path.split('.').reduce<unknown>(
+        (acc, part) => (acc && typeof acc === 'object' ? (acc as Record<string, unknown>)[part] : undefined),
+        obj,
+    );
+}
 
 // ============================================================================
 // TYPES & SCHEMAS
@@ -260,82 +278,116 @@ export const POST = withSecurity(
                 rollback_of: operationId,
             }]);
 
+        const reverts = changes.filter((c) => c.before && c.collection && c.docId);
         const revertedDocs: string[] = [];
         const rollbackChanges: ChangeRecord[] = [];
-        const errors: string[] = [];
 
-        // Execute rollback - apply 'before' states in reverse order
-        for (const change of [...changes].reverse()) {
-            if (!change.before || !change.collection || !change.docId) continue;
+        // ── ATOMIC rollback: every 'before' snapshot is re-applied in ONE Firestore
+        //    transaction, so a partial failure can no longer leave a broken rollback
+        //    chain (the former loop applied doc-by-doc and could stop half-way). Each
+        //    target doc is re-read inside the transaction; a missing doc OR a state
+        //    that no longer matches the recorded 'after' aborts the WHOLE rollback
+        //    (409) instead of clobbering a newer reassignment. A durable Tier A audit
+        //    row commits atomically with the revert.
+        try {
+            await adminDb.runTransaction(async (transaction) => {
+                const refs = reverts.map((c) => adminDb.collection(c.collection).doc(c.docId));
+                const snaps = await Promise.all(refs.map((r) => transaction.get(r)));
 
-            try {
-                const docRef = adminDb.collection(change.collection).doc(change.docId);
-                await docRef.update(change.before);
-
-                revertedDocs.push(change.docPath);
-                rollbackChanges.push({
-                    ...change,
-                    before: change.after,
-                    after: change.before,
+                // Validate ALL preconditions before writing anything.
+                snaps.forEach((snap, i) => {
+                    const change = reverts[i];
+                    if (!snap.exists) {
+                        throw new RollbackConflictError(`Document ${change.docPath} no longer exists`);
+                    }
+                    const currentData = snap.data() || {};
+                    for (const key of Object.keys(change.after || {})) {
+                        const expected = JSON.stringify((change.after as Record<string, unknown>)[key]);
+                        const actual = JSON.stringify(getByPath(currentData, key));
+                        if (expected !== actual) {
+                            throw new RollbackConflictError(
+                                `${change.docPath}.${key} changed since the operation (expected ${expected}, found ${actual}); rollback aborted`,
+                            );
+                        }
+                    }
                 });
-            } catch (err: unknown) {
-                const message = err instanceof Error ? err.message : 'unknown error';
-                errors.push(`Failed to revert ${change.docPath}: ${message}`);
-            }
+
+                // All preconditions satisfied → apply the reverts atomically.
+                snaps.forEach((snap, i) => {
+                    const change = reverts[i];
+                    transaction.update(refs[i], change.before as Record<string, unknown>);
+                    revertedDocs.push(change.docPath);
+                    rollbackChanges.push({ ...change, before: change.after, after: change.before });
+                });
+
+                writeAuditInTransaction(transaction, {
+                    action: 'reassignment_rolled_back',
+                    actor: { id: auth.uid, role: (auth.role as AuditActorRole) || 'admin', name: actorLabel },
+                    targetId: operationId,
+                    targetType: 'reassignment',
+                    reason: 'admin_rollback',
+                    before: { rolledBackOperation: operationId, status: 'committed' },
+                    after: { status: 'rolled_back', revertedDocCount: reverts.length },
+                    details: { rollbackOperationId: rollbackOpId, revertedDocs: reverts.map((c) => c.docPath) },
+                    correlationId: operationId,
+                });
+            });
+        } catch (err: unknown) {
+            const message = err instanceof RollbackConflictError
+                ? err.message
+                : (err instanceof Error ? err.message : 'unknown error');
+            // Nothing was reverted (atomic). Mark the pending rollback log failed.
+            await supabase
+                .from('reassignment_logs')
+                .update({
+                    status: 'failed',
+                    meta: { rollbackOf: operationId, error: message, failedAt: new Date().toISOString() },
+                })
+                .eq('operation_id', rollbackOpId);
+            return NextResponse.json({
+                success: false,
+                error: `Rollback aborted: ${message}`,
+                rollbackOperationId: rollbackOpId,
+            }, { status: 409 });
         }
 
-        const rollbackSuccess = errors.length === 0;
+        // Firestore rollback committed atomically (with its in-tx audit). Finalize the
+        // Supabase audit logs best-effort — failures here do NOT undo the rollback.
+        const postErrors: string[] = [];
 
-        // Update rollback log
         const { error: updateRollbackError } = await supabase
             .from('reassignment_logs')
             .update({
-                status: rollbackSuccess ? 'committed' : 'failed',
+                status: 'committed',
                 changes: rollbackChanges,
-                meta: {
-                    rollbackOf: operationId,
-                    revertedDocs,
-                    errors: errors.length > 0 ? errors : undefined,
-                    completedAt: new Date().toISOString(),
-                },
+                meta: { rollbackOf: operationId, revertedDocs, completedAt: new Date().toISOString() },
             })
             .eq('operation_id', rollbackOpId);
-
         if (updateRollbackError) {
             console.error('Failed to update rollback log:', updateRollbackError);
-            errors.push(`Metadata error: Failed to finalized rollback audit log (${updateRollbackError.message})`);
+            postErrors.push(`Failed to finalize rollback audit log (${updateRollbackError.message})`);
         }
 
-        // Mark original as rolled_back (if successful)
-        if (rollbackSuccess) {
-            const { error: updateOriginalError } = await supabase
-                .from('reassignment_logs')
-                .update({
-                    status: 'rolled_back',
-                    meta: {
-                        ...typedOriginalLog.meta,
-                        rolledBackBy: rollbackOpId,
-                        rolledBackAt: new Date().toISOString(),
-                    },
-                })
-                .eq('operation_id', operationId);
-
-            if (updateOriginalError) {
-                console.error('Failed to update original log status:', updateOriginalError);
-                errors.push(`Status update error: Rollback succeeded but original log status could not be updated (${updateOriginalError.message})`);
-            }
+        const { error: updateOriginalError } = await supabase
+            .from('reassignment_logs')
+            .update({
+                status: 'rolled_back',
+                meta: { ...typedOriginalLog.meta, rolledBackBy: rollbackOpId, rolledBackAt: new Date().toISOString() },
+            })
+            .eq('operation_id', operationId);
+        if (updateOriginalError) {
+            console.error('Failed to update original log status:', updateOriginalError);
+            postErrors.push(`Rollback succeeded but original log status could not be updated (${updateOriginalError.message})`);
         }
 
         return NextResponse.json({
-            success: rollbackSuccess && errors.length === 0,
-            message: (rollbackSuccess && errors.length === 0)
+            success: true,
+            message: postErrors.length === 0
                 ? 'Rollback completed successfully'
-                : rollbackSuccess
-                    ? 'Rollback completed (Firestore), but status update had errors'
-                    : 'Rollback partially failed',
+                : 'Rollback committed (Firestore + durable audit); Supabase log update had errors',
             rollbackOperationId: rollbackOpId,
             revertedDocs,
-            errors: errors.length > 0 ? errors : undefined,
+            errors: postErrors.length > 0 ? postErrors : undefined,
         });
     },
     {

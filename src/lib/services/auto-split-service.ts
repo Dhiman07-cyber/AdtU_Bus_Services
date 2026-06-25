@@ -981,6 +981,7 @@ export class AutoSplitService {
             "load.morningCount": newMorningCount,
             "load.eveningCount": newEveningCount,
             "load.totalCount": newMorningCount + newEveningCount,
+            currentMembers: newMorningCount + newEveningCount, // keep canonical currentMembers in sync
             updatedAt: serverTimestamp(),
           });
 

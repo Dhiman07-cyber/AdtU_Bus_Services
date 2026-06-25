@@ -321,8 +321,10 @@ export function busServesAllStops(bus: BusData, stopIds: string[]): boolean {
 export function checkOverload(bus: BusData): OverloadInfo | null {
   const { morningCount = 0, eveningCount = 0 } = bus.load || {};
 
+  const thresholdCount = Math.max(Math.ceil(bus.capacity * 0.8), bus.capacity - 5);
+
   if (bus.shift === 'Morning') {
-    if (morningCount > bus.capacity) {
+    if (morningCount >= thresholdCount) {
       return {
         busId: bus.id,
         busNumber: bus.busNumber,
@@ -335,7 +337,7 @@ export function checkOverload(bus: BusData): OverloadInfo | null {
   }
 
   if (bus.shift === 'Evening') {
-    if (eveningCount > bus.capacity) {
+    if (eveningCount >= thresholdCount) {
       return {
         busId: bus.id,
         busNumber: bus.busNumber,
@@ -348,8 +350,8 @@ export function checkOverload(bus: BusData): OverloadInfo | null {
   }
 
   if (bus.shift === 'Both') {
-    const morningOverload = morningCount > bus.capacity;
-    const eveningOverload = eveningCount > bus.capacity;
+    const morningOverload = morningCount >= thresholdCount;
+    const eveningOverload = eveningCount >= thresholdCount;
 
     if (morningOverload && eveningOverload) {
       return {
@@ -503,10 +505,19 @@ export class BusReassignmentServiceV2 {
             throw new Error(`Bus ${busData.busNumber} would exceed evening capacity (${newEveningCount}/${busData.capacity})`);
           }
 
-          // Update bus load
+          // Update bus load.
+          // NOTE: This is a 'use client' module (client Firestore SDK) and therefore
+          // cannot import buildCapacityDelta() from busCapacityService.ts (admin SDK).
+          // It enforces the SAME invariant by construction:
+          //   currentMembers === morningCount + eveningCount === load.totalCount
+          // Previously currentMembers/load.totalCount were left stale here, diverging
+          // the canonical field on every reassignment — now kept consistent.
+          const newTotalCount = newMorningCount + newEveningCount;
           transaction.update(doc(db, 'buses', busId), {
             'load.morningCount': newMorningCount,
             'load.eveningCount': newEveningCount,
+            'load.totalCount': newTotalCount,
+            currentMembers: newTotalCount,
             updatedAt: serverTimestamp()
           });
 
@@ -907,11 +918,13 @@ export class BusReassignmentServiceV2 {
           before: {
             'load.morningCount': update.morningCountBefore,
             'load.eveningCount': update.eveningCountBefore,
+            'load.totalCount': update.morningCountBefore + update.eveningCountBefore,
             currentMembers: update.morningCountBefore + update.eveningCountBefore
           },
           after: {
             'load.morningCount': update.morningCountAfter,
             'load.eveningCount': update.eveningCountAfter,
+            'load.totalCount': update.morningCountAfter + update.eveningCountAfter,
             currentMembers: update.morningCountAfter + update.eveningCountAfter
           }
         });
@@ -1031,8 +1044,11 @@ export class BusReassignmentServiceV2 {
           busCounts.set(data.busId, { morning: 0, evening: 0 });
         }
         const counts = busCounts.get(data.busId)!;
-        if (data.shift === 'Morning') counts.morning++;
-        else if (data.shift === 'Evening') counts.evening++;
+        // Normalize shift like the writer (case-insensitive includes) so a
+        // lowercase/non-canonical shift is not dropped from the recount.
+        const shift = (data.shift || '').toLowerCase();
+        if (shift.includes('morning') || shift === 'both') counts.morning++;
+        if (shift.includes('evening') || shift === 'both') counts.evening++;
       });
 
       // 3. Get target buses

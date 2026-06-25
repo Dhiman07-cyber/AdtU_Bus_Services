@@ -15,6 +15,20 @@ export type ApplicationState =
   | 'cancelled'              // User cancelled
   | 'expired';               // Application expired
 
+// Application Type discriminator (Phase 2)
+// A single `applications` collection holds all three categories. Behaviour at
+// approval time keys off this field:
+//   - 'fresh'   : new applicant for the current session  → create student now
+//   - 'renewal' : soft-blocked student re-entering        → reactivate existing student
+//   - 'future'  : applicant for the NEXT session          → not approvable until eligibleApproval
+export type ApplicationType = 'fresh' | 'renewal' | 'future';
+
+// The academic session an application targets.
+export interface TargetSession {
+  startYear: number; // session start year (e.g. 2027 for the 2027-2028 session)
+  endYear: number;   // session end year   (e.g. 2028)
+}
+
 // Payment Modes
 export type PaymentMode = 'offline' | 'upi' | 'bank' | 'card';
 
@@ -195,6 +209,36 @@ export interface Application {
 
   // Supabase Ledger tracking
   paymentId?: string;
+
+  // ── Phase 2: application categorisation & future-session eligibility ──
+  /**
+   * Discriminator for the unified applications queue. Absent on legacy docs,
+   * which must be treated as 'fresh' (see resolveApplicationType()).
+   */
+  applicationType?: ApplicationType;
+  /**
+   * The academic session this application is for. For 'future' applications this
+   * is the NEXT session; for 'fresh'/'renewal' it is the current session.
+   */
+  targetSession?: TargetSession;
+  /**
+   * The earliest moment this application may be approved, as an ISO timestamp,
+   * COMPUTED AND FROZEN AT CREATION TIME.
+   *
+   * Rule (locked): eligibleApproval = softBlock(targetSession.startYear) + 1 day.
+   * The seats a future application waits for are released when the outgoing
+   * session's students are soft-blocked. Storing the resolved date at creation
+   * makes eligibility deterministic and immune to later deadline-config changes.
+   *
+   * For 'fresh'/'renewal' applications this is the creation time (immediately
+   * eligible). Absent on legacy docs → treated as immediately eligible.
+   */
+  eligibleApproval?: string;
+  /**
+   * For 'renewal' applications: the uid of the existing (soft-blocked) student
+   * document to reactivate at approval, instead of creating a new student.
+   */
+  linkedStudentUid?: string;
 }
 
 // Student User Profile (post-approval)
@@ -213,7 +257,18 @@ export interface StudentUser {
   durationYears: number;
   sessionEndYear: number;
   validUntil: string;
-  status: 'active' | 'expired' | 'suspended';
+  status: 'active' | 'soft_blocked' | 'pending_deletion' | 'expired' | 'suspended' | 'inactive';
+
+  /**
+   * Phase 1 seat-ownership marker. ISO timestamp set at SOFT BLOCK when the seat
+   * is released (bus capacity decremented), and cleared to `null` when a late
+   * renewal reclaims the seat. PRESENCE is the single authoritative signal that
+   * this student's bus counter was already decremented — used by all delete paths
+   * (dedup, no double-decrement) and late renewal (conditional re-increment).
+   * Absent on legacy docs, which correctly means "seat never released by new code".
+   * See src/lib/config/capacity-flags.ts.
+   */
+  seatReleasedAt?: string | null;
 
   // Approval Info
   approvedBy: string; // {Name} {EMPID} - REQUIRED

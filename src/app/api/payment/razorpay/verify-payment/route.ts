@@ -9,7 +9,6 @@ import { PaymentTransactionService } from '@/lib/payment/payment-transaction.ser
 import { calculateValidUntilDate } from '@/lib/utils/date-utils';
 import { createOnlinePayment } from '@/lib/payment/payment.service';
 import { paymentsSupabaseService } from '@/lib/services/payments-supabase';
-import { computeBlockDatesFromValidUntil } from '@/lib/utils/deadline-computation';
 import { getDeadlineConfig } from '@/lib/deadline-config-service';
 import { withSecurity } from '@/lib/security/api-security';
 import { VerifyPaymentSchema } from '@/lib/security/validation-schemas';
@@ -198,7 +197,6 @@ export const POST = withSecurity<VerifyPaymentBody>(
             const studentData = studentDoc.data();
             const actualStudentName = studentData?.fullName || trustedStudentName;
             const actualEnrollmentId = studentData?.enrollmentId || trustedEnrollmentId;
-            const existingDurationYears = studentData?.durationYears || 0;
             const existingValidUntil = toDate(studentData?.validUntil);
 
             let baseYear = new Date().getFullYear();
@@ -240,30 +238,74 @@ export const POST = withSecurity<VerifyPaymentBody>(
                 });
             }
 
-            await adminDb.runTransaction(async (transaction: FirebaseFirestore.Transaction) => {
-                const freshStudentDoc = await transaction.get(studentRef);
-                if (!freshStudentDoc.exists) throw new Error('Student document not found');
-
-                const freshStudentData = freshStudentDoc.data();
-                const freshValidUntil = toDate(freshStudentData?.validUntil);
-                if (freshValidUntil && freshValidUntil >= targetValidUntil) {
-                    return;
-                }
-
-                const blockDates = computeBlockDatesFromValidUntil(targetValidUntil, deadlineConfig);
-
-                transaction.update(studentRef, {
-                    validUntil: targetValidUntil,
-                    status: 'active',
-                    sessionEndYear: targetValidUntil.getFullYear(),
-                    paymentAmount: trustedAmount,
-                    lastRenewalDate: FieldValue.serverTimestamp(),
-                    durationYears: (freshStudentData?.durationYears || existingDurationYears) + transactionRecord.durationYears,
-                    softBlock: blockDates.softBlock,
-                    hardBlock: blockDates.hardBlock,
+            // ─────────────────────────────────────────────────────────────────────
+            // Phase 3 — Online renewal CONVERGES into the unified approval flow.
+            //
+            // The captured payment is recorded above (immutable financial ledger),
+            // but transport entitlement is NOT restored here. We create a PENDING
+            // `renewal_requests` document so the moderator/admin approval architecture
+            // (`/api/renewal-requests/approve-v2`) remains the SINGLE event that
+            // revalidates capacity, runs reassignment, reclaims the released seat, and
+            // flips the student to 'active'. There is no instant reactivation path:
+            // online and offline renewals now share one lifecycle. The student doc is
+            // intentionally left untouched (status, validUntil, seat all unchanged).
+            //
+            // Idempotent by construction: the request doc id is derived from the
+            // Razorpay payment id, so retries/webhook races never duplicate it.
+            // ─────────────────────────────────────────────────────────────────────
+            const renewalRequestRef = adminDb.collection('renewal_requests').doc(`online_${razorpay_payment_id}`);
+            const existingRequest = await renewalRequestRef.get();
+            if (!existingRequest.exists) {
+                await renewalRequestRef.set({
+                    studentId: trustedUserId,
+                    enrollmentId: actualEnrollmentId,
+                    studentName: actualStudentName,
+                    studentEmail: studentData?.email || '',
+                    studentPhone: studentData?.phone || studentData?.phoneNumber || '',
+                    durationYears: transactionRecord.durationYears,
+                    totalFee: trustedAmount,
+                    paymentMode: 'online',
+                    paymentId: razorpay_payment_id,
+                    razorpayOrderId: razorpay_order_id,
+                    razorpaySignature: razorpay_signature,
+                    paymentStatus: 'paid',
+                    requestedValidUntil: targetValidUntil.toISOString(),
+                    status: 'pending',
+                    createdAt: FieldValue.serverTimestamp(),
                     updatedAt: FieldValue.serverTimestamp(),
                 });
-            });
+
+                // Notify staff that a PAID online renewal is awaiting approval.
+                try {
+                    const [adminsSnapshot, moderatorsSnapshot] = await Promise.all([
+                        adminDb.collection('admins').get(),
+                        adminDb.collection('moderators').get(),
+                    ]);
+                    const allStaffIds = [
+                        ...adminsSnapshot.docs.map((d) => d.id),
+                        ...moderatorsSnapshot.docs.map((d) => d.id),
+                    ];
+                    if (allStaffIds.length > 0) {
+                        const expiryDate = new Date();
+                        expiryDate.setHours(23, 59, 59, 999);
+                        await adminDb.collection('notifications').add({
+                            title: 'Online Renewal Awaiting Approval',
+                            content: `${actualStudentName} (${actualEnrollmentId}) paid online for a ${transactionRecord.durationYears} year(s) renewal and is awaiting approval.`,
+                            sender: { userId: trustedUserId, userName: actualStudentName, userRole: 'student', enrollmentId: actualEnrollmentId },
+                            target: { type: 'specific_users', specificUserIds: allStaffIds },
+                            recipientIds: allStaffIds,
+                            autoInjectedRecipientIds: [],
+                            readByUserIds: [],
+                            isEdited: false,
+                            isDeletedGlobally: false,
+                            createdAt: FieldValue.serverTimestamp(),
+                            expiresAt: expiryDate.toISOString(),
+                        });
+                    }
+                } catch (notifyErr) {
+                    console.error('Failed to notify staff of online renewal request:', notifyErr);
+                }
+            }
         }
 
         if (!transactionRecord) {
@@ -274,29 +316,65 @@ export const POST = withSecurity<VerifyPaymentBody>(
         }
 
         if (trustedPurpose === 'new_registration') {
-            await createOnlinePayment({
-                studentUid: trustedUserId,
-                studentId: transactionRecord.studentId,
-                studentName: transactionRecord.studentName,
-                amount: transactionRecord.amount,
-                durationYears: transactionRecord.durationYears,
-                sessionStartYear: new Date().getFullYear(),
-                sessionEndYear: Number.parseInt(
-                    transactionRecord.validUntil?.substring(0, 4) ||
-                    String(new Date().getFullYear() + transactionRecord.durationYears),
-                    10
-                ),
-                validUntil: transactionRecord.validUntil || new Date().toISOString(),
-                razorpayPaymentId: razorpay_payment_id,
-                razorpayOrderId: razorpay_order_id,
-                razorpaySignature: razorpay_signature,
-                purpose: transactionRecord.purpose,
+            // Atomic single-winner guard (parity with the Razorpay webhook). The
+            // Supabase isPaymentProcessed() fast-path above is read-then-write and
+            // races under concurrent double-submit; the processed_payments marker is
+            // set INSIDE a transaction so exactly one request records the ledger entry.
+            let alreadyMarked = false;
+            await adminDb.runTransaction(async (transaction) => {
+                const markerRef = adminDb.collection('processed_payments').doc(razorpay_payment_id);
+                const markerSnap = await transaction.get(markerRef);
+                if (markerSnap.exists) {
+                    alreadyMarked = true;
+                    return;
+                }
+                transaction.set(markerRef, {
+                    paymentId: razorpay_payment_id,
+                    orderId: razorpay_order_id,
+                    processedAt: FieldValue.serverTimestamp(),
+                    amount: trustedAmount,
+                    enrollmentId: trustedEnrollmentId,
+                    userId: trustedUserId,
+                    source: 'verify-payment',
+                });
             });
+
+            if (!alreadyMarked) {
+                try {
+                    await createOnlinePayment({
+                        studentUid: trustedUserId,
+                        studentId: transactionRecord.studentId,
+                        studentName: transactionRecord.studentName,
+                        amount: transactionRecord.amount,
+                        durationYears: transactionRecord.durationYears,
+                        sessionStartYear: new Date().getFullYear(),
+                        sessionEndYear: Number.parseInt(
+                            transactionRecord.validUntil?.substring(0, 4) ||
+                            String(new Date().getFullYear() + transactionRecord.durationYears),
+                            10
+                        ),
+                        validUntil: transactionRecord.validUntil || new Date().toISOString(),
+                        razorpayPaymentId: razorpay_payment_id,
+                        razorpayOrderId: razorpay_order_id,
+                        razorpaySignature: razorpay_signature,
+                        purpose: transactionRecord.purpose,
+                    });
+                } catch (createErr) {
+                    // Roll back the marker so the payment can be re-recorded on retry —
+                    // a missing ledger entry is far worse than a duplicate webhook hit.
+                    await adminDb.collection('processed_payments').doc(razorpay_payment_id).delete().catch(() => {});
+                    throw createErr;
+                }
+            }
         }
 
+        const pendingApproval = trustedPurpose === 'renewal';
         return NextResponse.json({
             success: true,
-            message: 'Payment verified successfully',
+            pendingApproval,
+            message: pendingApproval
+                ? 'Payment received. Your renewal is now awaiting approval — transport access will be restored once an administrator approves it.'
+                : 'Payment verified successfully',
             payment: paymentRecord,
             verification: {
                 isValid: true,

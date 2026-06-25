@@ -16,43 +16,45 @@ This single file contains everything you need - no other SQL files are required.
 
 ## What COMPLETE_SCHEMA.sql Contains
 
-### Tables (13 total)
+### Tables (12 total)
 | Table | Purpose |
 |-------|---------|
 | `bus_locations` | Real-time GPS tracking |
 | `driver_status` | Driver operational status |
 | `waiting_flags` | Student waiting signals |
-| `driver_location_updates` | Historical breadcrumbs |
-| `notifications` | System notifications |
+| `driver_location_updates` | Historical location breadcrumbs |
 | `route_cache` | ORS geometry cache |
-| `trip_sessions_archive` | Analytics data |
 | `driver_swap_requests` | Driver swap requests |
-| `temporary_assignments` | Active swaps |
-| `temporary_assignment_history` | Swap history |
-| `reassignment_logs` | Audit logs |
-| `payments` | Payment records |
-| `payment_exports` | Export tracking |
+| `temporary_assignments` | Active driver swaps |
+| `reassignment_logs` | Audit logs for assignments |
+| `payments` | Immutable financial ledger |
+| `active_trips` | Lock management for multi-driver system |
+| `missed_bus_requests` | Student missed-bus pickup requests |
+| `device_sessions` | Single-device session locks |
 
 ### Security Features
 - ✅ **Row Level Security (RLS)** enabled on all tables
-- ✅ **Hardened Policies** - Not all data is publicly readable
-- ✅ **Service role** required for write operations
-- ✅ **User-scoped** read access for sensitive data
+- ✅ **Hardened Policies** - Unauthorized reading of sensitive data is restricted
+- ✅ **Service role** required for administrative write operations
+- ✅ **User-scoped** read access for student/driver personal profiles
+- ✅ **Append-Only Policies** - Destructive deletes are blocked on the payments ledger
 
 ### Key Security Policies
 
 | Table | Who Can Read |
 |-------|--------------|
-| `bus_locations` | Authenticated users |
-| `waiting_flags` | Own flags OR drivers of that bus |
-| `driver_location_updates` | Own data only |
-| `trip_sessions_archive` | Service role only |
-| `payments` | Own payments only |
+| `bus_locations` | Anon, Authenticated |
+| `waiting_flags` | Student owner, active drivers, or service role |
+| `driver_location_updates` | Driver owner or service role |
+| `payments` | Student owner or service role |
 | `reassignment_logs` | Service role only |
+| `active_trips` | Anon, Authenticated (only active status) |
+| `missed_bus_requests` | Anon, Authenticated |
+| `device_sessions` | Authenticated session owner or service role |
 
 ### Also Includes
 - ✅ All performance indexes
-- ✅ Helper functions and triggers
+- ✅ Helper functions and triggers (including timing-safe triggers and heartbeat utilities)
 - ✅ Realtime configuration
 - ✅ Documentation comments
 
@@ -76,18 +78,16 @@ SELECT indexname, tablename FROM pg_indexes WHERE schemaname = 'public' ORDER BY
 | File | Purpose |
 |------|---------|
 | `COMPLETE_SCHEMA.sql` | **THE ONLY SQL FILE YOU NEED** |
-| `config.toml` | Supabase local config |
+| `config.toml` | Supabase local configuration settings |
 | `.gitignore` | Git ignore rules |
 | `README.md` | This file |
-| `init-data.js` | Optional: seed data |
-| `init-tables.js` | Legacy: use SQL instead |
-| `run-migrations.js` | Legacy: use SQL instead |
 
 ## ❌ DO NOT
 
 - Do not use old migration files (consolidated into COMPLETE_SCHEMA.sql)
 - Do not run migrations multiple times (we use IF NOT EXISTS)
 - Do not modify RLS policies without security review
+- Do not delete rows from the `payments` table (immutable ledger)
 
 ## Migration History
 
@@ -96,3 +96,4 @@ SELECT indexname, tablename FROM pg_indexes WHERE schemaname = 'public' ORDER BY
 | 2025-12-31 | Consolidated all SQL into COMPLETE_SCHEMA.sql |
 | 2025-12-31 | Added security-hardened RLS policies |
 | 2025-12-31 | Added payments & reassignment_logs tables |
+| 2026-06-24 | Consolidated June 2026 migrations (production optimizations: active_trips lock, rejected payments, RLS policies, trigger function fixes) |

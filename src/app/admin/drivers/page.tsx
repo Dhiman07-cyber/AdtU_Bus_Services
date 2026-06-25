@@ -451,7 +451,7 @@ export default function AdminDrivers() {
         </div>
       </div>
 
-      <Card className={cn("border", theme === 'dark' ? "bg-gray-900 border-gray-800" : "bg-admin-bg border-admin-border")}>
+      <Card className={cn("border min-h-[480px]", theme === 'dark' ? "bg-gray-900 border-gray-800" : "bg-admin-bg border-admin-border")}>
         <CardContent className="pt-3">
           <div className="mb-3">
             {/* Search Bar and Filters */}

@@ -6,6 +6,7 @@
 import { adminDb } from './firebase-admin';
 import { decrementBusCapacity } from './busCapacityService';
 import { extractPublicId, deleteAsset } from './cloudinary-server';
+import { wasSeatReleased } from './config/capacity-flags';
 
 /**
  * Delete profile image from Cloudinary
@@ -123,14 +124,22 @@ export async function deleteUserAndData(
         console.error('⚠️ Error cleaning up legacy FCM tokens:', fcmError);
       }
 
-      // Decrement bus capacity if student was assigned to a bus
+      // Decrement bus capacity if student was assigned to a bus.
+      // DEDUP GUARD: skip if the seat was already released at soft block.
+      // FIX: pass the student's shift so the per-shift counter is decremented too
+      // (previously omitted → currentMembers moved but morningCount/eveningCount did
+      // not, diverging the counters and violating currentMembers === morning+evening).
       if (busId) {
-        try {
-          await decrementBusCapacity(busId, userId);
-          console.log(`✅ Decremented bus capacity for bus ${busId}`);
-        } catch (busError) {
-          console.error(`⚠️ Error decrementing bus capacity for bus ${busId}:`, busError);
-          // Continue with deletion even if bus capacity update fails
+        if (wasSeatReleased(userData)) {
+          console.log(`⏭️ Skipping decrement for bus ${busId} — seat already released at soft block (student: ${userId})`);
+        } else {
+          try {
+            await decrementBusCapacity(busId, userId, userData?.shift);
+            console.log(`✅ Decremented bus capacity for bus ${busId}`);
+          } catch (busError) {
+            console.error(`⚠️ Error decrementing bus capacity for bus ${busId}:`, busError);
+            // Continue with deletion even if bus capacity update fails
+          }
         }
       }
 

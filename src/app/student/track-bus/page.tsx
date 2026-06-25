@@ -31,8 +31,7 @@ import { useToast } from "@/contexts/toast-context";
 import dynamic from "next/dynamic";
 import { useMissedBus, generateOpId, MISSED_BUS_MESSAGES } from "@/hooks/useMissedBus";
 import { useBusLocation } from '@/hooks/useBusLocation';
-import StudentAccessBlockScreen from "@/components/StudentAccessBlockScreen";
-import { shouldBlockAccess } from "@/lib/utils/renewal-utils";
+import TransportEntitlementGuard from "@/components/transport/TransportEntitlementGuard";
 import { useSystemConfig } from "@/contexts/SystemConfigContext";
 import { formatIdForDisplay } from "@/lib/utils";
 
@@ -53,8 +52,8 @@ const DEFAULT_CENTER: [number, number] = [
   parseFloat(process.env.NEXT_PUBLIC_DEFAULT_MAP_CENTER_LNG || "91.7360")
 ];
 
-export default function StudentTrackBusPage() {
-  const { currentUser, userData, loading, signOut } = useAuth();
+function TrackBusLive() {
+  const { currentUser, userData, loading } = useAuth();
   const router = useRouter();
   const { addToast } = useToast();
   const { refreshConfig } = useSystemConfig();
@@ -86,9 +85,6 @@ export default function StudentTrackBusPage() {
   const [countdown, setCountdown] = useState(5);
 
   const handleRaiseWaitingFlagRef = useRef<(() => Promise<void>) | null>(null);
-
-  // Deadline config state (must be declared before any early returns — React rules of hooks)
-  const [deadlineConfig, setDeadlineConfig] = useState<any>(null);
 
   // Exit full screen mode automatically when trip ends
   useEffect(() => {
@@ -1028,21 +1024,6 @@ export default function StudentTrackBusPage() {
     }
   };
 
-  // Fetch deadline config
-  useEffect(() => {
-    const fetchDeadlineConfig = async () => {
-      try {
-        const response = await fetch('/api/settings/deadline-config');
-        if (response.ok) {
-          const data = await response.json();
-          setDeadlineConfig(data.config || data);
-        }
-      } catch (error) {
-        console.error("Error fetching deadline config:", error);
-      }
-    };
-    fetchDeadlineConfig();
-  }, []);
 
   // Show loading while auth is loading
   if (loading) {
@@ -1056,47 +1037,10 @@ export default function StudentTrackBusPage() {
     );
   }
 
-  // Check if student should be soft-blocked based on dynamic deadline config
-  if (userData) {
-    // Convert validUntil to ISO string for the check
-    let validUntilStr: string | null = null;
-    if (userData.validUntil) {
-      if (typeof userData.validUntil === 'string') {
-        validUntilStr = userData.validUntil;
-      } else if (userData.validUntil?.toDate) {
-        validUntilStr = userData.validUntil.toDate().toISOString();
-      } else if (userData.validUntil?.seconds) {
-        validUntilStr = new Date(userData.validUntil.seconds * 1000).toISOString();
-      } else if (userData.validUntil instanceof Date) {
-        validUntilStr = userData.validUntil.toISOString();
-      }
-    }
-
-    // Use dynamic config if available, only check if config has been loaded to prevent errors
-    const isBlocked = deadlineConfig ? shouldBlockAccess(
-      validUntilStr,
-      userData.lastRenewalDate,
-      null,
-      userData.status,
-      deadlineConfig // Pass dynamic config here
-    ) : false;
-
-    if (isBlocked) {
-      return (
-        <StudentAccessBlockScreen
-          validUntil={userData.validUntil}
-          studentName={userData.fullName || userData.name || 'Student'}
-          deadlineConfig={deadlineConfig} // Pass dynamic config to screen
-          onLogout={async () => {
-            const result = await signOut();
-            if (result.success) {
-              router.push('/');
-            }
-          }}
-        />
-      );
-    }
-  }
+  // NOTE (Phase 3): the soft-block / entitlement gate that used to live here has
+  // moved UP to <TransportEntitlementGuard> (see default export). This component
+  // only ever mounts for students who currently own transport access, so all the
+  // realtime subscriptions above are guaranteed to run only for entitled students.
 
   if (dataLoading) {
     return (
@@ -1627,5 +1571,20 @@ export default function StudentTrackBusPage() {
         }
       </div>
     </div>
+  );
+}
+
+/**
+ * Phase 3 — entitlement is decided BEFORE the live tracking UI mounts.
+ * `TrackBusLive` (which holds every Supabase channel, Firestore listener, and
+ * geolocation watcher) is rendered only when the canonical guard confirms the
+ * student currently owns transport access. Ineligible students never open a
+ * single transport subscription.
+ */
+export default function StudentTrackBusPage() {
+  return (
+    <TransportEntitlementGuard>
+      <TrackBusLive />
+    </TransportEntitlementGuard>
   );
 }

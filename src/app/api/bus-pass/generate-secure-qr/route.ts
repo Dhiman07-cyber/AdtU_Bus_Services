@@ -18,6 +18,7 @@ import { encryptQRCodeData } from '@/lib/security/encryption.service';
 import { checkRateLimit, RateLimits, createRateLimitId } from '@/lib/security/rate-limiter';
 import { verifyApiAuth } from '@/lib/security/api-auth';
 import { requireModeratorPermission } from '@/lib/security/moderator-permissions';
+import { getTransportEntitlement } from '@/lib/entitlement/transport-entitlement';
 
 export async function POST(request: NextRequest) {
     try {
@@ -81,31 +82,19 @@ export async function POST(request: NextRequest) {
 
         const studentData = studentDoc.data();
 
-        // Check if student is active
-        if (studentData?.status !== 'active') {
+        // CANONICAL entitlement (Phase 3): a QR may be generated ONLY while the
+        // student currently owns transport access. Same single source of truth as
+        // the verify endpoints and the in-app QR display.
+        const entitlement = getTransportEntitlement(studentData);
+        if (!entitlement.entitled) {
             return NextResponse.json(
-                { success: false, error: 'Student account is not active' },
+                {
+                    success: false,
+                    error: 'Transport access is not active. Please renew your service to use your bus pass.',
+                    reason: entitlement.reason,
+                },
                 { status: 403 }
             );
-        }
-
-        // Check validity
-        const validUntil = studentData?.validUntil;
-        let validUntilDate: Date | null = null;
-
-        if (validUntil) {
-            validUntilDate = validUntil.toDate ? validUntil.toDate() : new Date(validUntil);
-
-            if (validUntilDate && validUntilDate < new Date()) {
-                return NextResponse.json(
-                    {
-                        success: false,
-                        error: 'Bus pass has expired. Please renew your service.',
-                        expiredAt: validUntilDate.toISOString()
-                    },
-                    { status: 403 }
-                );
-            }
         }
 
         // Generate encrypted QR token
@@ -122,7 +111,9 @@ export async function POST(request: NextRequest) {
             studentInfo: {
                 name: studentData?.fullName || studentData?.name,
                 enrollmentId: studentData?.enrollmentId,
-                validUntil: validUntilDate?.toISOString()
+                validUntil: studentData?.validUntil?.toDate
+                    ? studentData.validUntil.toDate().toISOString()
+                    : (studentData?.validUntil ? new Date(studentData.validUntil).toISOString() : undefined)
             }
         });
 

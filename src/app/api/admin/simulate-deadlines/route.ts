@@ -3,6 +3,7 @@ import { adminAuth, adminDb } from '@/lib/firebase-admin';
 import { v2 as cloudinary } from 'cloudinary';
 import { decrementBusCapacity } from '@/lib/busCapacityService';
 import { getDeadlineConfig } from '@/lib/deadline-config-service';
+import { isSeatReleaseAtSoftBlockEnabled, wasSeatReleased } from '@/lib/config/capacity-flags';
 import { withSecurity } from '@/lib/security/api-security';
 import { SimulateDeadlinesSchema } from '@/lib/security/validation-schemas';
 import { RateLimits } from '@/lib/security/rate-limiter';
@@ -86,10 +87,43 @@ export const POST = withSecurity(
 
         if (execute && !dryRun) {
             const executionResults = { softBlocked: 0, hardDeleted: 0, errors: [] as string[] };
+            const releaseSeatAtSoftBlock = isSeatReleaseAtSoftBlockEnabled();
             for (const student of eligibleForSoftBlock) {
                 try {
-                    await adminDb.collection('students').doc(student.uid).update({ status: 'soft_blocked', softBlockedAt: new Date().toISOString() });
+                    // Re-read the live doc so we (a) honour the idempotency guard and
+                    // (b) have busId/shift for the seat release. The summary objects do
+                    // not carry transport fields.
+                    const sbDocRef = adminDb.collection('students').doc(student.uid);
+                    const sbDoc = await sbDocRef.get();
+                    if (!sbDoc.exists) { continue; }
+                    const sbData = sbDoc.data() || {};
+                    // Idempotency: only release/transition a student who is still active.
+                    if (sbData.status !== 'active') { continue; }
+
+                    const nowIso = new Date().toISOString();
+                    await sbDocRef.update({
+                        status: 'soft_blocked',
+                        softBlockedAt: nowIso,
+                        ...(releaseSeatAtSoftBlock ? { seatReleasedAt: nowIso } : {})
+                    });
                     executionResults.softBlocked++;
+
+                    if (releaseSeatAtSoftBlock) {
+                        const sbBusId = sbData.busId || sbData.currentBusId || sbData.assignedBusId;
+                        if (sbBusId) {
+                            try {
+                                await decrementBusCapacity(sbBusId, student.uid, sbData.shift);
+                                await adminDb.collection('activity_logs').add({
+                                    action: 'seat_released', reason: 'soft_block_simulation',
+                                    targetId: student.uid, targetName: sbData.fullName || '',
+                                    details: { busId: sbBusId, shift: sbData.shift || null, at: nowIso },
+                                    timestamp: nowIso
+                                }).catch(() => {});
+                            } catch (e: any) {
+                                executionResults.errors.push(`Soft-block decrement failed for ${student.uid}: ${e.message}`);
+                            }
+                        }
+                    }
                 } catch (err: any) { executionResults.errors.push(`Soft block failed for ${student.uid}: ${err.message}`); }
             }
 
@@ -122,8 +156,11 @@ export const POST = withSecurity(
                     const attendance = await adminDb.collection('attendance').where('studentUid', '==', student.uid).get();
                     if (!attendance.empty) { const b = adminDb.batch(); attendance.docs.forEach((d: any) => b.delete(d.ref)); await b.commit(); }
 
+                    // DEDUP GUARD: skip decrement if the seat was already released at soft block.
                     const busId = studentData?.busId || studentData?.currentBusId || studentData?.assignedBusId;
-                    if (busId) await decrementBusCapacity(busId, student.uid, studentData?.shift).catch(() => {});
+                    if (busId && !wasSeatReleased(studentData)) {
+                        await decrementBusCapacity(busId, student.uid, studentData?.shift).catch(() => {});
+                    }
 
                     try {
                         const userRecord = await adminAuth.getUser(student.uid);

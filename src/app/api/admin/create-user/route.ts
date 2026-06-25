@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { adminAuth, adminDb } from '@/lib/firebase-admin';
 import { calculateRenewalDate } from '@/lib/utils/renewal-utils';
-import { incrementBusCapacity } from '@/lib/busCapacityService';
+import { buildCapacityDelta, sendBusFullAlert } from '@/lib/busCapacityService';
 import { generateOfflinePaymentId } from '@/lib/types/payment';
 import { computeBlockDatesFromValidUntil } from '@/lib/utils/deadline-computation';
 import {
@@ -162,39 +162,92 @@ export const POST = withSecurity<CreateUserBody>(
                 paymentAmount: totalAmount, paid_on: now,
             };
 
-            // Write all student-related data in parallel
-            const writeTasks: Promise<unknown>[] = [
-                adminDb.collection('students').doc(uid).set(studentDoc),
-                adminDb.collection('users').doc(uid).set({ createdAt: now, email, name, role: 'student', uid })
-            ];
-
-            // Add payment record if applicable
+            // Phase 1 — Persist payment to Supabase BEFORE entitlement (safe direction:
+            // a failure here creates no student and no seat).
             if (paymentId) {
-                writeTasks.push((async () => {
-                    const { paymentsSupabaseService } = await import('@/lib/services/payments-supabase');
-                    const createdPaymentId = await paymentsSupabaseService.createPayment({
-                        paymentId, studentId: enrollmentId || '', studentUid: uid, studentName: name,
-                        stopId: finalStopId, amount: totalAmount, method: 'Offline', status: 'Completed',
-                        sessionStartYear: sessionStartYear || new Date().getFullYear(),
-                        sessionEndYear: finalSessionEndYear, durationYears: finalDuration,
-                        validUntil: new Date(finalValidUntil), transactionDate: new Date(),
-                        offlineTransactionId: `manual_entry_${Date.now()}`,
-                        approvedBy: { type: 'Manual', userId: currentUserUid, empId: currentUserEmployeeId, name: currentUserName, role: currentUserRole === 'admin' ? 'Admin' : 'Moderator' },
-                        approvedAt: new Date(),
-                    });
-                    if (!createdPaymentId) {
-                        throw new Error('Failed to create payment ledger record');
+                const { paymentsSupabaseService } = await import('@/lib/services/payments-supabase');
+                const createdPaymentId = await paymentsSupabaseService.createPayment({
+                    paymentId, studentId: enrollmentId || '', studentUid: uid, studentName: name,
+                    stopId: finalStopId, amount: totalAmount, method: 'Offline', status: 'Completed',
+                    sessionStartYear: sessionStartYear || new Date().getFullYear(),
+                    sessionEndYear: finalSessionEndYear, durationYears: finalDuration,
+                    validUntil: new Date(finalValidUntil), transactionDate: new Date(),
+                    offlineTransactionId: `manual_entry_${Date.now()}`,
+                    approvedBy: { type: 'Manual', userId: currentUserUid, empId: currentUserEmployeeId, name: currentUserName, role: currentUserRole === 'admin' ? 'Admin' : 'Moderator' },
+                    approvedAt: new Date(),
+                });
+                if (!createdPaymentId) {
+                    throw new Error('Failed to create payment ledger record');
+                }
+            }
+
+            // Phase 2 — Atomic student creation + capacity allocation (single transaction).
+            //   Admin-create intentionally preserves over-fill capability (no capacity
+            //   gate). Capacity is incremented only when the student did not already
+            //   exist, so a double-submit (same uid) can never double-allocate a seat.
+            const studentRef = adminDb.collection('students').doc(uid);
+            const userRef = adminDb.collection('users').doc(uid);
+            const assignedBusId = studentDoc.busId;
+
+            let capNewMembers = 0;
+            let capLimit = 0;
+            let capExceeded = false;
+            let capAlreadyCounted = false;
+            let capBusNumber = '';
+            let capRouteId = '';
+
+            await adminDb.runTransaction(async (transaction) => {
+                // Reads first (Firestore requires all reads before writes)
+                const studentSnap = await transaction.get(studentRef);
+                const alreadyExisted = studentSnap.exists;
+
+                let busSnap: FirebaseFirestore.DocumentSnapshot | null = null;
+                if (assignedBusId && !alreadyExisted) {
+                    busSnap = await transaction.get(adminDb.collection('buses').doc(assignedBusId));
+                }
+
+                // Writes
+                transaction.set(studentRef, studentDoc);
+                transaction.set(userRef, { createdAt: now, email, name, role: 'student', uid });
+
+                if (assignedBusId && !alreadyExisted) {
+                    if (busSnap && busSnap.exists) {
+                        const busData = busSnap.data();
+                        const delta = buildCapacityDelta(busData, studentDoc.shift, 1);
+                        capNewMembers = delta.newMembers;
+                        capLimit = delta.capacity;
+                        capExceeded = delta.newMembers > delta.capacity;
+                        capBusNumber = busData?.busNumber || '';
+                        capRouteId = busData?.routeId || '';
+                        transaction.update(busSnap.ref, delta.updates);
+                    } else {
+                        console.warn(`⚠️ create-user: bus ${assignedBusId} not found; student created without capacity increment`);
                     }
-                    return createdPaymentId;
-                })());
-            }
+                } else if (assignedBusId && alreadyExisted) {
+                    capAlreadyCounted = true;
+                }
+            });
 
-            // Bus capacity increment
-            if (studentDoc.busId) {
-                writeTasks.push(incrementBusCapacity(studentDoc.busId, uid, shift).catch(e => console.error('Capacity error:', e)));
+            // Phase 3 — Post-commit: alert + admin over-fill audit (never affects committed state).
+            if (capAlreadyCounted) {
+                console.warn(`⚠️ create-user: student ${uid} already existed; skipped duplicate capacity allocation on bus ${assignedBusId}`);
             }
-
-            await Promise.all(writeTasks);
+            if (assignedBusId && capLimit > 0 && capNewMembers >= capLimit) {
+                await sendBusFullAlert(assignedBusId, capBusNumber, capRouteId).catch(e => console.error('Bus full alert failed:', e));
+            }
+            if (capExceeded) {
+                console.warn(`🚨 ADMIN OVER-FILL: bus ${assignedBusId} now ${capNewMembers}/${capLimit} via admin-create of ${uid}`);
+                await adminDb.collection('activity_logs').add({
+                    action: 'capacity_exceeded_admin_create',
+                    performedBy: currentUserUid,
+                    actorName: currentUserName,
+                    actorRole: currentUserRole,
+                    targetId: uid,
+                    targetName: name,
+                    details: { busId: assignedBusId, newMembers: capNewMembers, capacity: capLimit, shift: studentDoc.shift },
+                    timestamp: new Date().toISOString(),
+                }).catch(e => console.error('Over-fill audit log failed:', e));
+            }
 
             // 4. Fire-and-forget notifications (if moderator added)
             if (currentUserRole === 'moderator') {

@@ -517,7 +517,7 @@ export default function AdminStudents() {
                                                                 student.status === 'maintenance' ? 'bg-yellow-500 text-white' :
                                                                     'bg-gray-100 text-gray-700'
                                                             }`}>
-                                                            {student.status.charAt(0).toUpperCase() + student.status.slice(1)}
+                                                            {student.status ? (student.status.charAt(0).toUpperCase() + student.status.slice(1)) : 'Unknown'}
                                                         </span>
                                                         <div className="text-[10px] text-muted-foreground whitespace-nowrap">
                                                             {student.sessionStartYear && student.sessionEndYear

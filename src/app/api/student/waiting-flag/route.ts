@@ -8,10 +8,11 @@ import {
     WaitingFlagDeleteSchema 
 } from '@/lib/security/validation-schemas';
 import { RateLimits } from '@/lib/security/rate-limiter';
+import { getTransportEntitlement } from '@/lib/entitlement/transport-entitlement';
 
 /**
  * POST /api/student/waiting-flag
- * 
+ *
  * Raises a waiting flag for a student.
  */
 export const POST = withSecurity(
@@ -35,8 +36,19 @@ export const POST = withSecurity(
         ]);
 
         if (!studentDoc) return NextResponse.json({ error: 'Student record not found' }, { status: 404 });
-        
+
         const studentData = studentDoc.data()!;
+
+        // Phase 3 — raising a waiting flag is transport functionality; deny unless
+        // the student currently owns transport access (canonical source of truth).
+        const entitlement = getTransportEntitlement(studentData);
+        if (!entitlement.entitled) {
+            return NextResponse.json(
+                { error: 'Transport access is not active for this account.', entitled: false, reason: entitlement.reason },
+                { status: 403 }
+            );
+        }
+
         const studentBusId = studentData.busId || studentData.assignedBusId;
         
         if (!studentBusId || studentBusId !== busId) {

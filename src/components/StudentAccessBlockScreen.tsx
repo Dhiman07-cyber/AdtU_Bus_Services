@@ -3,37 +3,72 @@
 import { useEffect } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { AlertTriangle, Clock, XCircle, Phone, Mail, CreditCard, ArrowRight } from 'lucide-react';
+import { AlertTriangle, XCircle, Phone, Mail, CreditCard, ArrowRight } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { getDaysUntilHardDelete, getBlockingMessage, getContactInfo, getHardDeleteDate } from '@/lib/utils/renewal-utils';
+import { EntitlementReason, ENTITLEMENT_MESSAGES } from '@/lib/entitlement/transport-entitlement';
 
 interface StudentAccessBlockScreenProps {
   validUntil: string | null;
   studentName: string;
   onLogout?: () => void;
   deadlineConfig?: any;
+  /** Phase 3 — why transport access is unavailable (drives the headline copy). */
+  reason?: EntitlementReason;
 }
 
 /**
- * Full-screen block overlay for students whose access is blocked
- * Shown after academic year deadline (June 30th by default) if student hasn't renewed
+ * Full-screen lifecycle screen for students who do NOT currently own transport
+ * access (soft-blocked, past soft-block, or expired).
+ *
+ * Phase 3: this is the single lifecycle/messaging surface reused by the transport
+ * entitlement guard, the track-bus/bus pages, and the dashboard. It always tells
+ * the student: current status, WHY access is unavailable, the required action
+ * (renew), and what happens next (admin approval — NOT instant reactivation).
+ *
+ * It tolerates a missing `deadlineConfig` (the hard-delete countdown + contact
+ * block are simply omitted) so it can render immediately while config loads.
  */
 export default function StudentAccessBlockScreen({
   validUntil,
   studentName,
   onLogout,
-  deadlineConfig
+  deadlineConfig,
+  reason,
 }: StudentAccessBlockScreenProps) {
   const router = useRouter();
-  const daysUntilDelete = getDaysUntilHardDelete(validUntil, null, deadlineConfig);
-  const message = getBlockingMessage(validUntil, null, deadlineConfig);
-  const contactInfo = getContactInfo(deadlineConfig); // Pass config to avoid error
-  const hardDeleteDate = getHardDeleteDate(validUntil, null, deadlineConfig);
-  const hardDeleteDateFormatted = hardDeleteDate.toLocaleDateString('en-GB', {
-    day: 'numeric',
-    month: 'long',
-    year: 'numeric'
-  });
+
+  // Config-dependent details are optional — only computed when config is present.
+  let daysUntilDelete = 0;
+  let hardDeleteDateFormatted = '';
+  let contactInfo: any = null;
+  if (deadlineConfig) {
+    try {
+      daysUntilDelete = getDaysUntilHardDelete(validUntil, null, deadlineConfig);
+      contactInfo = getContactInfo(deadlineConfig);
+      hardDeleteDateFormatted = getHardDeleteDate(validUntil, null, deadlineConfig).toLocaleDateString('en-GB', {
+        day: 'numeric',
+        month: 'long',
+        year: 'numeric',
+      });
+    } catch {
+      contactInfo = null;
+    }
+  }
+
+  // Reason-aware headline + explanation (falls back to the generic expiry message).
+  const reasonCopy = reason ? ENTITLEMENT_MESSAGES[reason] : null;
+  const headlineDetail = (() => {
+    if (deadlineConfig) {
+      try {
+        return getBlockingMessage(validUntil, null, deadlineConfig);
+      } catch {
+        /* fall through */
+      }
+    }
+    return reasonCopy?.detail ?? 'Your bus service is not active. Please renew your service to restore transport access.';
+  })();
+  const headlineTitle = reasonCopy?.title ?? 'Bus Service Inactive';
 
   // Prevent background scrolling while the overlay is open
   useEffect(() => {
@@ -68,10 +103,10 @@ export default function StudentAccessBlockScreen({
             </div>
             <div>
               <CardTitle className="text-xl text-red-700 dark:text-red-400">
-                Bus Service Expired
+                {headlineTitle}
               </CardTitle>
               <CardDescription className="text-red-600 dark:text-red-300 mt-1">
-                Track Bus access is restricted
+                Transport access is restricted
               </CardDescription>
             </div>
           </div>
@@ -87,34 +122,35 @@ export default function StudentAccessBlockScreen({
                   Dear {studentName},
                 </p>
                 <p className="text-sm text-yellow-700 dark:text-yellow-300 leading-relaxed">
-                  {message}
+                  {headlineDetail}
                 </p>
               </div>
             </div>
           </div>
 
-
-          {/* Contact Information - Dynamic from Config */}
-          <div className="p-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
-            <h3 className="font-semibold text-blue-800 dark:text-blue-200 mb-3">
-              Contact Admin Office Immediately
-            </h3>
-            <div className="space-y-2 text-sm text-blue-700 dark:text-blue-300">
-              <div className="flex items-center gap-2">
-                <Phone className="h-4 w-4" />
-                <span>{contactInfo.officeName}: {contactInfo.phone}</span>
+          {/* Contact Information - only when config is available */}
+          {contactInfo && (
+            <div className="p-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
+              <h3 className="font-semibold text-blue-800 dark:text-blue-200 mb-3">
+                Contact Admin Office
+              </h3>
+              <div className="space-y-2 text-sm text-blue-700 dark:text-blue-300">
+                <div className="flex items-center gap-2">
+                  <Phone className="h-4 w-4" />
+                  <span>{contactInfo.officeName}: {contactInfo.phone}</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Mail className="h-4 w-4" />
+                  <span>Email: {contactInfo.email}</span>
+                </div>
               </div>
-              <div className="flex items-center gap-2">
-                <Mail className="h-4 w-4" />
-                <span>Email: {contactInfo.email}</span>
-              </div>
+              <p className="text-xs text-blue-600 dark:text-blue-400 mt-3">
+                {contactInfo.visitInstructions}
+              </p>
             </div>
-            <p className="text-xs text-blue-600 dark:text-blue-400 mt-3">
-              {contactInfo.visitInstructions}
-            </p>
-          </div>
+          )}
 
-          {/* Warning - Dynamic Threshold */}
+          {/* Warning - Dynamic Threshold (only when config is available) */}
           {daysUntilDelete > 0 && daysUntilDelete <= (deadlineConfig?.urgentWarningThreshold?.days || 15) && (
             <div className="p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg">
               <div className="flex items-center gap-2 text-red-700 dark:text-red-400">
@@ -129,16 +165,19 @@ export default function StudentAccessBlockScreen({
             </div>
           )}
 
-          {/* Renewal CTA */}
+          {/* Renewal CTA — Phase 3: approval-gated, NOT instant */}
           <div className="p-4 bg-gradient-to-r from-green-50 to-emerald-50 dark:from-green-900/20 dark:to-emerald-900/20 border-2 border-green-300 dark:border-green-700 rounded-xl">
             <div className="flex items-center gap-2 mb-2">
               <CreditCard className="h-5 w-5 text-green-600" />
               <h3 className="font-bold text-green-800 dark:text-green-200">
-                Renew Your Service Online Now!
+                Renew Your Service
               </h3>
             </div>
-            <p className="text-sm text-green-700 dark:text-green-300 mb-3">
-              You can now renew your bus service online instantly. Complete payment and regain access to Track Bus feature immediately.
+            <p className="text-sm text-green-700 dark:text-green-300 mb-1">
+              Submit a renewal to get your transport access back.
+            </p>
+            <p className="text-xs text-green-600/90 dark:text-green-300/80 mb-3">
+              After you pay (online or offline), your renewal is reviewed and approved by an administrator. Transport access — tracking, bus pass, and trip access — is restored once your renewal is approved.
             </p>
             <Button
               onClick={() => router.push('/student/renew-services')}
@@ -146,7 +185,7 @@ export default function StudentAccessBlockScreen({
               size="lg"
             >
               <CreditCard className="mr-2 h-5 w-5" />
-              Renew Service Now
+              Renew Service
               <ArrowRight className="ml-2 h-5 w-5" />
             </Button>
           </div>
