@@ -317,7 +317,7 @@ export default function ProfileImageUpdateModal({
 
                             <div
                                 onClick={() => fileInputRef.current?.click()}
-                                className="border-2 border-dashed border-gray-600 rounded-xl p-8 text-center cursor-pointer hover:border-blue-500 hover:bg-blue-500/5 transition-all"
+                                className="border-2 border-dashed border-gray-600 rounded-xl p-8 text-center cursor-pointer hover:cursor-pointer hover:border-blue-500 hover:bg-blue-500/5 transition-all"
                             >
                                 <Upload className="h-12 w-12 text-gray-400 mx-auto mb-3" />
                                 <p className="text-gray-300 font-medium">Click to select image</p>

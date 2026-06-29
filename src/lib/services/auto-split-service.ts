@@ -59,7 +59,6 @@ export type BusShift = "Morning" | "Evening" | "Both";
 export interface BusLoad {
   morningCount: number;
   eveningCount: number;
-  totalCount?: number;
 }
 
 /**
@@ -980,8 +979,7 @@ export class AutoSplitService {
           transaction.update(busRef, {
             "load.morningCount": newMorningCount,
             "load.eveningCount": newEveningCount,
-            "load.totalCount": newMorningCount + newEveningCount,
-            currentMembers: newMorningCount + newEveningCount, // keep canonical currentMembers in sync
+            currentMembers: newMorningCount + newEveningCount,
             updatedAt: serverTimestamp(),
           });
 

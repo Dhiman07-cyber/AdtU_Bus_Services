@@ -52,7 +52,7 @@
         "importantNotes": [
             {
                 "icon": "CreditCard",
-                "text": "Supports both Online and Offline Payment. Chose anyone as per your convinience."
+                "text": "Supports both Online and Offline Payment. Choose anyone as per your convenience."
             },
             {
                 "icon": "Shield",
@@ -64,7 +64,7 @@
             },
             {
                 "icon": "CheckCircle",
-                "text": "Renewal Reminders: You'll receive automate reminders in June before your pass expires."
+                "text": "Renewal Reminders: You'll receive automated reminders in June before your pass expires."
             },
             {
                 "icon": "Clock",

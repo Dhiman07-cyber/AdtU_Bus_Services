@@ -65,6 +65,7 @@ import { Label } from '@/components/ui/label';
 import { useToast } from '@/contexts/toast-context';
 import Image from 'next/image';
 import { notificationService } from '@/lib/notifications/NotificationService';
+import { formatDateTimeShort } from '@/lib/utils/date-utils';
 
 interface FeedbackEntry {
     id: string;
@@ -228,15 +229,7 @@ export default function ModeratorFeedbackPage() {
         });
     }, [feedback, searchQuery, roleFilter]);
 
-    const formatDate = (dateString: string) => {
-        const date = new Date(dateString);
-        return new Intl.DateTimeFormat('en-US', {
-            month: 'short',
-            day: 'numeric',
-            hour: '2-digit',
-            minute: '2-digit'
-        }).format(date);
-    };
+    const formatDate = formatDateTimeShort;
 
     const formatFullDate = (dateString: string) => {
         const date = new Date(dateString);

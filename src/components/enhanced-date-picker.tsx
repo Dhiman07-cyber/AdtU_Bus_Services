@@ -251,7 +251,7 @@ export default function EnhancedDatePicker({
               placeholder={placeholder}
               readOnly={!allowManualInput}
               required={required}
-              className={`pr-9 cursor-pointer text-xs ${className || 'h-10'} border-gray-300 dark:border-gray-600 focus:border-indigo-500 focus:ring-indigo-500 transition-all duration-200 shadow-sm hover:shadow-md`}
+              className={`pr-9 cursor-pointer hover:cursor-pointer text-xs ${className || 'h-10'} border-gray-300 dark:border-gray-600 focus:border-indigo-500 focus:ring-indigo-500 transition-all duration-200 shadow-sm hover:shadow-md`}
               onClick={(e) => {
                 if (!allowManualInput) {
                   e.preventDefault();
@@ -327,7 +327,7 @@ export default function EnhancedDatePicker({
                               <button
                                 key={month}
                                 type="button"
-                                className={`block w-full text-left px-3 py-2 text-sm font-medium ${index === currentMonth.getMonth() ? 'bg-indigo-600 text-white font-bold' : 'text-gray-700 dark:text-gray-300 hover:bg-indigo-50 dark:hover:bg-indigo-900'}`}
+                                className={`block w-full text-left px-3 py-2 text-sm font-medium cursor-pointer hover:cursor-pointer ${index === currentMonth.getMonth() ? 'bg-indigo-600 text-white font-bold' : 'text-gray-700 dark:text-gray-300 hover:bg-indigo-50 dark:hover:bg-indigo-900'}`}
                                 onClick={() => handleMonthChange(index)}
                               >
                                 {month}
@@ -344,7 +344,7 @@ export default function EnhancedDatePicker({
                               <button
                                 key={year}
                                 type="button"
-                                className={`block w-full text-left px-3 py-2 text-sm font-medium ${year === getYear(currentMonth) ? 'bg-indigo-600 text-white font-bold' : 'text-gray-700 dark:text-gray-300 hover:bg-indigo-50 dark:hover:bg-indigo-900'}`}
+                                className={`block w-full text-left px-3 py-2 text-sm font-medium cursor-pointer hover:cursor-pointer ${year === getYear(currentMonth) ? 'bg-indigo-600 text-white font-bold' : 'text-gray-700 dark:text-gray-300 hover:bg-indigo-50 dark:hover:bg-indigo-900'}`}
                                 onClick={() => handleYearChange(year)}
                               >
                                 {year}

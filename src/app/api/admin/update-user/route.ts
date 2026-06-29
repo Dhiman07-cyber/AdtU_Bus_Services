@@ -4,6 +4,7 @@ import { FieldValue, Transaction, DocumentSnapshot, DocumentReference } from 'fi
 import { withSecurity } from '@/lib/security/api-security';
 import { UpdateStudentSchema } from '@/lib/security/validation-schemas';
 import { RateLimits } from '@/lib/security/rate-limiter';
+import { wasSeatReleased } from '@/lib/config/capacity-flags';
 
 /**
  * POST /api/admin/update-user
@@ -17,6 +18,25 @@ import { RateLimits } from '@/lib/security/rate-limiter';
 export const POST = withSecurity(
     async (request, { auth, body }) => {
         const { uid, ...updateData } = body as any;
+
+        // SECURITY: Moderators cannot modify sensitive fields that affect
+        // entitlement, capacity, or financial state. Only admins can.
+        const SENSITIVE_FIELDS = [
+            'validUntil', 'status', 'sessionStartYear', 'sessionEndYear',
+            'durationYears', 'paymentAmount', 'paid_on', 'softBlock', 'hardBlock',
+            'role', 'busId', 'routeId', 'shift', 'seatReleasedAt',
+            'softBlockedAt', 'hardDeleteScheduledAt', 'approvedBy', 'approvedById',
+        ];
+
+        if (auth.role === 'moderator') {
+            const attemptedSensitiveFields = SENSITIVE_FIELDS.filter(f => f in updateData);
+            if (attemptedSensitiveFields.length > 0) {
+                return NextResponse.json({
+                    success: false,
+                    error: `Moderators cannot modify sensitive fields: ${attemptedSensitiveFields.join(', ')}`
+                }, { status: 403 });
+            }
+        }
 
         try {
             await adminDb.runTransaction(async (transaction: Transaction) => {
@@ -46,13 +66,15 @@ export const POST = withSecurity(
 
                 if (busChanged || shiftChanged) {
                     // 1. Decrement old bus capacity
-                    if (oldBusId) {
+                    // SKIP if seat was already released at soft-block — the bus was
+                    // already decremented once; decrementing again would undercount.
+                    const seatAlreadyReleased = wasSeatReleased(currentData);
+                    if (oldBusId && !seatAlreadyReleased) {
                         const oldBusSnap = busSnaps.get(oldBusId);
                         if (oldBusSnap?.exists) {
                             const updates: any = {};
                             if (busChanged) {
                                 updates.currentMembers = FieldValue.increment(-1);
-                                updates['load.totalCount'] = FieldValue.increment(-1);
                             }
                             if (oldShift === 'Morning' || oldShift === 'Both') updates['load.morningCount'] = FieldValue.increment(-1);
                             if (oldShift === 'Evening' || oldShift === 'Both') updates['load.eveningCount'] = FieldValue.increment(-1);
@@ -67,7 +89,6 @@ export const POST = withSecurity(
                             const updates: any = {};
                             if (busChanged) {
                                 updates.currentMembers = FieldValue.increment(1);
-                                updates['load.totalCount'] = FieldValue.increment(1);
                             }
                             if (newShift === 'Morning' || newShift === 'Both') updates['load.morningCount'] = FieldValue.increment(1);
                             if (newShift === 'Evening' || newShift === 'Both') updates['load.eveningCount'] = FieldValue.increment(1);

@@ -166,22 +166,6 @@ service cloud.firestore {
         );
     }
     
-    // Attendance collection
-    match /attendance/{attendanceId} {
-      // Only authenticated users can read
-      allow read: if request.auth != null;
-      
-      // Drivers can create attendance records for their assigned bus
-      // Admins and moderators can create attendance records
-      allow create: if request.auth != null && 
-        exists(/databases/$(database)/documents/users/$(request.auth.uid)) && (
-          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' ||
-          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'moderator' ||
-          (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'driver' &&
-           get(/databases/$(database)/documents/users/$(request.auth.uid)).data.assignedBus == resource.data.busId)
-        );
-    }
-    
     // Waiting flags collection
     match /waitingFlags/{flagId} {
       // Students can read their own flags

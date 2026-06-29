@@ -21,8 +21,8 @@ export const POST = withSecurity(
         const studentUid = auth.uid;
         const supabase = getSupabaseServer();
 
-        // 1. Parallelize student profile fetch and duplicate flag check
-        const [studentDoc, existingFlagRes] = await Promise.all([
+        // 1. Parallelize student profile fetch, duplicate flag check, and active trip lookup
+        const [studentDoc, existingFlagRes, activeTripRes] = await Promise.all([
             adminDb.collection('students').doc(studentUid).get().then(doc => {
                 if (doc.exists) return doc;
                 return adminDb.collection('students').where('uid', '==', studentUid).limit(1).get().then(q => q.empty ? null : q.docs[0]);
@@ -32,7 +32,12 @@ export const POST = withSecurity(
                 .eq('student_uid', studentUid)
                 .eq('bus_id', busId)
                 .in('status', ['raised', 'waiting', 'acknowledged'])
-                .limit(1)
+                .limit(1),
+            supabase.from('active_trips')
+                .select('trip_id')
+                .eq('bus_id', busId)
+                .eq('status', 'active')
+                .maybeSingle()
         ]);
 
         if (!studentDoc) return NextResponse.json({ error: 'Student record not found' }, { status: 404 });
@@ -75,6 +80,7 @@ export const POST = withSecurity(
             stop_id: stopId || 'unknown',
             stop_name: stopName || 'Unknown Stop',
             status: 'raised',
+            trip_id: activeTripRes.data?.trip_id || null,
             created_at: new Date(currentTimestamp).toISOString(),
             message: message || null
         };
@@ -144,15 +150,21 @@ export const DELETE = withSecurity(
         const supabase = getSupabaseServer();
 
         // 1. Concurrent status update (audit-safe)
-        const { error: supabaseError } = await supabase
+        const { data: updatedData, error: supabaseError } = await supabase
             .from('waiting_flags')
             .update({ status: 'cancelled' })
             .eq('id', flagId)
-            .eq('student_uid', studentUid);
+            .eq('student_uid', studentUid)
+            .in('status', ['raised', 'acknowledged', 'waiting'])
+            .select();
 
         if (supabaseError) {
             console.error('Supabase error:', supabaseError);
             return NextResponse.json({ error: 'Failed to cancel waiting flag' }, { status: 500 });
+        }
+
+        if (!updatedData || updatedData.length === 0) {
+            return NextResponse.json({ error: 'Cannot cancel waiting flag that is already boarded, cancelled, or expired' }, { status: 409 });
         }
 
         // 2. Non-blocking Broadcast (Background)
@@ -190,6 +202,12 @@ export const GET = withSecurity(
     async (request, { auth, body }) => {
         const { studentUid } = body as any;
         const requesterUid = auth.uid;
+
+        // SECURITY: IDOR prevention — students can only query their own flags
+        if (requesterUid !== studentUid) {
+            return NextResponse.json({ error: 'Forbidden: Cannot query another student\'s waiting flag' }, { status: 403 });
+        }
+
         const supabase = getSupabaseServer();
 
         const { data, error } = await supabase

@@ -48,10 +48,6 @@ export const POLLING_INTERVAL_MS = 86_400_000; // 24 hours (effectively off, rel
 export const NOTIFICATION_POLLING_INTERVAL_MS = 120_000; // 2 minutes (custom logic for notifications)
 
 /**
- * Auto-refresh interval for admin/moderator management pages (in milliseconds)
-export const MANAGEMENT_PAGE_REFRESH_INTERVAL_MS = 86_400_000; // 24 hours (effectively off, rely on manual refresh)
-
-/**
  * System signals polling interval (in milliseconds)
  * Set to 60s to balance responsiveness with quota safety
  */

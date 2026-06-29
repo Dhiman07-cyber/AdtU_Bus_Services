@@ -3,7 +3,7 @@ import { adminDb } from '@/lib/firebase-admin';
 import { verifyApiAuth } from '@/lib/security/api-auth';
 import { getSystemConfig } from '@/lib/system-config-service';
 import { sanitizeLegalConfig } from '@/lib/security/object-safety';
-const COLLECTION_NAME = 'settings';
+import { SETTINGS_COLLECTION } from '@/config/firestore-collections';
 const DOC_ID = 'privacy';
 const FALLBACK_TITLE = 'Privacy Policy';
 
@@ -13,7 +13,7 @@ export async function GET(req: NextRequest) {
         let source;
 
         // 1. Try Firestore
-        const doc = await adminDb.collection(COLLECTION_NAME).doc(DOC_ID).get();
+        const doc = await adminDb.collection(SETTINGS_COLLECTION).doc(DOC_ID).get();
         if (doc.exists) {
             config = doc.data();
             source = 'firestore';
@@ -72,7 +72,7 @@ export async function POST(req: NextRequest) {
         safeConfig.lastUpdated = new Date().toISOString().split('T')[0];
 
         // Save to Firestore
-        await adminDb.collection(COLLECTION_NAME).doc(DOC_ID).set(safeConfig);
+        await adminDb.collection(SETTINGS_COLLECTION).doc(DOC_ID).set(safeConfig);
 
         return NextResponse.json({ success: true, message: 'Configuration saved successfully', config: safeConfig });
 

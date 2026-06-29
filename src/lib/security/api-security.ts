@@ -30,7 +30,8 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { adminAuth, adminDb } from '@/lib/firebase-admin';
+import { adminAuth } from '@/lib/firebase-admin';
+import { resolveUserRole } from '@/lib/security/role-cache';
 import { applyRateLimit, createRateLimitId, RateLimits, type RateLimitResult } from '@/lib/security/rate-limiter';
 import { validateInput, type ValidationResult } from '@/lib/security/validation-schemas';
 import { z } from 'zod';
@@ -107,78 +108,8 @@ function extractToken(request: Request, body: any, allowBodyToken: boolean): str
 }
 
 // ============================================================================
-// ROLE RESOLUTION (with TTL cache)
+// ROLE RESOLUTION (delegated to canonical role-cache)
 // ============================================================================
-
-/** Cached role resolution entry */
-interface RoleCacheEntry {
-    role: string;
-    name: string;
-    expiresAt: number;
-}
-
-/** In-memory cache: uid → { role, name, expiresAt } */
-const _roleCache = new Map<string, RoleCacheEntry>();
-const ROLE_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
-const ROLE_CACHE_MAX = 2000;
-
-/** Periodic cleanup every 10 min */
-if (typeof setInterval !== 'undefined') {
-    setInterval(() => {
-        const now = Date.now();
-        for (const [key, entry] of _roleCache) {
-            if (now > entry.expiresAt) _roleCache.delete(key);
-        }
-    }, 10 * 60 * 1000);
-}
-
-async function resolveUserRole(uid: string): Promise<{ role: string; name: string }> {
-    if (!adminDb) return { role: '', name: '' };
-
-    // PERF: Check cache first
-    const cached = _roleCache.get(uid);
-    if (cached && Date.now() < cached.expiresAt) {
-        return { role: cached.role, name: cached.name };
-    }
-
-    // Check users collection first (fastest, most common case)
-    const userDoc = await adminDb.collection('users').doc(uid).get();
-    if (userDoc.exists) {
-        const data = userDoc.data();
-        const result = {
-            role: data?.role || 'student',
-            name: data?.name || data?.fullName || '',
-        };
-        _cacheRole(uid, result);
-        return result;
-    }
-
-    // PERF: Parallel lookup across all role-specific collections instead of sequential waterfall
-    const [adminDoc, modDoc, driverDoc, studentDoc] = await Promise.all([
-        adminDb.collection('admins').doc(uid).get(),
-        adminDb.collection('moderators').doc(uid).get(),
-        adminDb.collection('drivers').doc(uid).get(),
-        adminDb.collection('students').doc(uid).get(),
-    ]);
-
-    let result = { role: '', name: '' };
-    if (adminDoc.exists) result = { role: 'admin', name: adminDoc.data()?.name || '' };
-    else if (modDoc.exists) result = { role: 'moderator', name: modDoc.data()?.fullName || '' };
-    else if (driverDoc.exists) result = { role: 'driver', name: driverDoc.data()?.fullName || '' };
-    else if (studentDoc.exists) result = { role: 'student', name: studentDoc.data()?.fullName || '' };
-
-    if (result.role) _cacheRole(uid, result);
-    return result;
-}
-
-function _cacheRole(uid: string, entry: { role: string; name: string }): void {
-    // Evict oldest if at capacity
-    if (_roleCache.size >= ROLE_CACHE_MAX) {
-        const firstKey = _roleCache.keys().next().value;
-        if (firstKey) _roleCache.delete(firstKey);
-    }
-    _roleCache.set(uid, { ...entry, expiresAt: Date.now() + ROLE_CACHE_TTL });
-}
 
 // ============================================================================
 // IP EXTRACTION
@@ -262,7 +193,6 @@ export function withSecurity<T = any>(
                 const origin = request.headers.get('origin');
                 if (origin) {
                     const allowedOrigins = [
-                        process.env.NEXTAUTH_URL,
                         process.env.NEXT_PUBLIC_APP_URL,
                         process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : null,
                         process.env.NODE_ENV !== 'production' ? 'http://localhost:3000' : null,
@@ -337,7 +267,8 @@ export function withSecurity<T = any>(
                 }
 
                 // ── 3. Role resolution ──
-                const { role, name } = await resolveUserRole(decodedToken.uid);
+                const resolved = await resolveUserRole(decodedToken.uid);
+                const { role, name } = resolved;
 
                 auth = {
                     uid: decodedToken.uid,
@@ -348,7 +279,7 @@ export function withSecurity<T = any>(
 
                 // ── 4. Role authorization ──
                 if (requiredRoles.length > 0 && !requiredRoles.includes(role)) {
-                    console.warn(`[${requestId}] Access denied: ${auth.uid} (${role}) tried to access ${url} requiring [${requiredRoles}]`);
+                    console.warn(`[${requestId}] Access denied: ${auth.uid.substring(0,8)}... (${role}) tried to access ${url} requiring [${requiredRoles}]`);
                     return NextResponse.json(
                         { success: false, error: 'Insufficient permissions', requestId },
                         { status: 403 }

@@ -4,7 +4,7 @@
  * React hook for drivers to view and respond to missed-bus pickup requests.
  */
 
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { supabase } from '@/lib/supabase-client';
 
 interface MissedBusRequest {
@@ -20,6 +20,7 @@ interface MissedBusRequest {
 interface UseDriverMissedBusReturn {
     // State
     loading: boolean;
+    error: string | null;
     pendingRequests: MissedBusRequest[];
 
     // Actions
@@ -37,6 +38,7 @@ export function useDriverMissedBusRequests(
     activeTripId: string | null
 ): UseDriverMissedBusReturn {
     const [loading, setLoading] = useState(false);
+    const [error, setError] = useState<string | null>(null);
     const [pendingRequests, setPendingRequests] = useState<MissedBusRequest[]>([]);
 
     // Refresh pending requests from server
@@ -71,6 +73,7 @@ export function useDriverMissedBusRequests(
 
         } catch (err: any) {
             console.error('Error fetching missed-bus requests:', err);
+            setError('Failed to fetch requests');
             setPendingRequests([]);
         } finally {
             setLoading(false);
@@ -189,7 +192,13 @@ export function useDriverMissedBusRequests(
                     }
                 }
             )
-            .subscribe();
+            .subscribe((status: string, err: any) => {
+                if (status === 'CHANNEL_ERROR') {
+                    console.error('Missed bus requests channel error:', err);
+                } else if (status === 'TIMED_OUT') {
+                    console.error('Missed bus requests channel timed out');
+                }
+            });
 
         return () => {
             supabase.removeChannel(channel);
@@ -198,13 +207,24 @@ export function useDriverMissedBusRequests(
 
     // Initial fetch
     useEffect(() => {
-        if (driverId && activeTripId) {
-            refreshRequests();
-        }
+        const isMounted = { current: true };
+
+        const fetchInitial = async () => {
+            if (driverId && activeTripId && isMounted.current) {
+                await refreshRequests();
+            }
+        };
+
+        fetchInitial();
+
+        return () => {
+            isMounted.current = false;
+        };
     }, [driverId, activeTripId, refreshRequests]);
 
     return {
         loading,
+        error,
         pendingRequests,
         respondToRequest,
         refreshRequests

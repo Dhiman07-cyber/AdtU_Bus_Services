@@ -174,6 +174,12 @@ export const POST = withSecurity<VerifyPaymentBody>(
                 });
             }
 
+            const targetValidUntil = calculateValidUntilDate(
+                new Date().getFullYear(),
+                trustedDurationYears,
+                deadlineConfig
+            );
+
             transactionRecord = {
                 studentId: trustedEnrollmentId,
                 studentName: trustedStudentName,
@@ -182,7 +188,7 @@ export const POST = withSecurity<VerifyPaymentBody>(
                 paymentId: razorpay_payment_id,
                 timestamp: new Date().toISOString(),
                 durationYears: trustedDurationYears,
-                validUntil: '',
+                validUntil: targetValidUntil.toISOString(),
                 status: 'completed',
                 purpose: 'new_registration',
             };
@@ -286,21 +292,30 @@ export const POST = withSecurity<VerifyPaymentBody>(
                         ...moderatorsSnapshot.docs.map((d) => d.id),
                     ];
                     if (allStaffIds.length > 0) {
-                        const expiryDate = new Date();
-                        expiryDate.setHours(23, 59, 59, 999);
-                        await adminDb.collection('notifications').add({
-                            title: 'Online Renewal Awaiting Approval',
-                            content: `${actualStudentName} (${actualEnrollmentId}) paid online for a ${transactionRecord.durationYears} year(s) renewal and is awaiting approval.`,
-                            sender: { userId: trustedUserId, userName: actualStudentName, userRole: 'student', enrollmentId: actualEnrollmentId },
-                            target: { type: 'specific_users', specificUserIds: allStaffIds },
-                            recipientIds: allStaffIds,
-                            autoInjectedRecipientIds: [],
-                            readByUserIds: [],
-                            isEdited: false,
-                            isDeletedGlobally: false,
-                            createdAt: FieldValue.serverTimestamp(),
-                            expiresAt: expiryDate.toISOString(),
-                        });
+                        // Dedup: skip if a notification for this student's renewal already exists
+                        const existingNotif = await adminDb.collection('notifications')
+                            .where('sender.userId', '==', trustedUserId)
+                            .where('title', '==', 'Online Renewal Awaiting Approval')
+                            .limit(1)
+                            .get();
+                        if (existingNotif.empty) {
+                            const expiryDate = new Date();
+                            expiryDate.setHours(23, 59, 59, 999);
+                            await adminDb.collection('notifications').add({
+                                title: 'Online Renewal Awaiting Approval',
+                                content: `${actualStudentName} (${actualEnrollmentId}) paid online for a ${transactionRecord.durationYears} year(s) renewal and is awaiting approval.`,
+                                sender: { userId: trustedUserId, userName: actualStudentName, userRole: 'student', enrollmentId: actualEnrollmentId },
+                                target: { type: 'specific_users', specificUserIds: allStaffIds },
+                                recipientIds: allStaffIds,
+                                autoInjectedRecipientIds: [],
+                                readByUserIds: [],
+                                isEdited: false,
+                                isDeletedGlobally: false,
+                                createdAt: FieldValue.serverTimestamp(),
+                                expiresAt: expiryDate.toISOString(),
+                                metadata: { paymentId: razorpay_payment_id },
+                            });
+                        }
                     }
                 } catch (notifyErr) {
                     console.error('Failed to notify staff of online renewal request:', notifyErr);

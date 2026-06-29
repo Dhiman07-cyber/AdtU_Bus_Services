@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { adminAuth, adminDb } from '@/lib/firebase-admin';
-const COLLECTION_NAME = 'settings';
+import { SETTINGS_COLLECTION } from '@/config/firestore-collections';
 const DOC_ID = 'ui';
 
 /**
@@ -10,7 +10,7 @@ const DOC_ID = 'ui';
 export async function GET(req: NextRequest) {
     try {
         // 1. Try fetching from Firestore
-        const doc = await adminDb.collection(COLLECTION_NAME).doc(DOC_ID).get();
+        const doc = await adminDb.collection(SETTINGS_COLLECTION).doc(DOC_ID).get();
 
         if (doc.exists) {
             return NextResponse.json({
@@ -62,7 +62,7 @@ export async function POST(req: NextRequest) {
 
         // Get current config (from Firestore or File) to merge
         let currentConfig = {};
-        const doc = await adminDb.collection(COLLECTION_NAME).doc(DOC_ID).get();
+        const doc = await adminDb.collection(SETTINGS_COLLECTION).doc(DOC_ID).get();
         if (doc.exists) {
             currentConfig = doc.data() || {};
         }
@@ -77,9 +77,9 @@ export async function POST(req: NextRequest) {
         };
 
         // Write to Firestore (Primary)
-        await adminDb.collection(COLLECTION_NAME).doc(DOC_ID).set(updatedConfig);
+        await adminDb.collection(SETTINGS_COLLECTION).doc(DOC_ID).set(updatedConfig);
 
-        console.log(`[UI-Config] Updated by ${decodedToken.email} in Firestore`);
+        console.log(`[UI-Config] Updated by ${decodedToken.uid.substring(0,8)}... in Firestore`);
 
         return NextResponse.json({
             message: 'UI configuration updated successfully',

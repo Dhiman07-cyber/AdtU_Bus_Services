@@ -80,7 +80,7 @@ export default function StudentDistribution({ distribution, totalStudents }: Stu
             
             <div className="absolute inset-0 rounded-full border border-indigo-500/10 pointer-events-none scale-105 group-hover:scale-110 transition-transform duration-1000 z-10" />
 
-            <ResponsiveContainer width="100%" height="100%">
+            <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
               <PieChart>
                 <Pie
                   data={distribution}
@@ -136,7 +136,7 @@ export default function StudentDistribution({ distribution, totalStudents }: Stu
                  x: activeData?.name === 'Morning' ? 10 : 0,
                  backgroundColor: activeData?.name === 'Morning' ? 'rgba(245, 158, 11, 0.08)' : 'rgba(255, 255, 255, 0.03)'
                }}
-               className="flex items-center p-3.5 rounded-3xl border border-white/5 hover:border-amber-500/20 transition-all group overflow-hidden relative cursor-default"
+               className="flex items-center p-3.5 rounded-3xl border border-white/5 hover:border-amber-500/20 transition-all group overflow-hidden relative hover:cursor-pointer"
             >
               <div className="absolute top-0 right-0 p-4 opacity-5 group-hover:opacity-10 transition-opacity">
                 <Sun className="w-12 h-12 text-amber-500" />
@@ -162,7 +162,7 @@ export default function StudentDistribution({ distribution, totalStudents }: Stu
                  x: activeData?.name === 'Evening' ? 10 : 0,
                  backgroundColor: activeData?.name === 'Evening' ? 'rgba(99, 102, 241, 0.08)' : 'rgba(255, 255, 255, 0.03)'
                }}
-               className="flex items-center p-3.5 rounded-3xl border border-white/5 hover:border-indigo-500/20 transition-all group overflow-hidden relative cursor-default"
+               className="flex items-center p-3.5 rounded-3xl border border-white/5 hover:border-indigo-500/20 transition-all group overflow-hidden relative hover:cursor-pointer"
             >
               <div className="absolute top-0 right-0 p-4 opacity-5 group-hover:opacity-10 transition-opacity">
                 <Moon className="w-12 h-12 text-indigo-500" />

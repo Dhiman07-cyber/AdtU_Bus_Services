@@ -1,6 +1,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { adminAuth, adminDb } from '@/lib/firebase-admin';
+import crypto from 'crypto';
 import { shouldBlockAccessFromStoredDates, shouldHardDeleteFromStoredDates } from '@/lib/utils/renewal-utils';
 import { computeBlockDatesFromValidUntil } from '@/lib/utils/deadline-computation';
 import { v2 as cloudinary } from 'cloudinary';
@@ -41,7 +42,10 @@ export async function GET(request: NextRequest) {
             console.error('🚫 CRON_SECRET not configured — blocking cron request');
             return NextResponse.json({ error: 'Server configuration error' }, { status: 500 });
         }
-        if (authHeader !== `Bearer ${cronSecret}`) {
+        const providedToken = authHeader?.startsWith('Bearer ') ? authHeader.substring(7) : '';
+        const secretsMatch = providedToken.length === cronSecret.length &&
+            crypto.timingSafeEqual(Buffer.from(providedToken), Buffer.from(cronSecret));
+        if (!secretsMatch) {
             return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
         }
 
@@ -56,17 +60,27 @@ export async function GET(request: NextRequest) {
         console.log(`   Config: SoftBlock=${softBlockStr}, HardDelete=${hardDeleteStr}`);
         console.log(`   Using PRE-STORED softBlock/hardBlock dates from student documents`);
 
-        // 2. Fetch all students
-        const studentsSnapshot = await adminDb.collection('students').get();
+        // 2. Paginate through all students to avoid loading entire collection into memory
+        const PAGE_SIZE = 500;
+        let lastDoc: FirebaseFirestore.QueryDocumentSnapshot | null = null;
+        let hasMore = true;
         const results = {
-            totalChecked: studentsSnapshot.size,
+            totalChecked: 0,
             softBlocked: 0,
             hardDeleted: 0,
             blockDatesAdded: 0,
             errors: [] as string[]
         };
 
-        // 3. Iterate and Apply Logic
+        // 3. Paginate through students and Apply Logic
+        while (hasMore) {
+            let query = adminDb.collection('students').orderBy('__name__').limit(PAGE_SIZE) as any;
+            if (lastDoc) query = query.startAfter(lastDoc);
+            const studentsSnapshot = await query.get();
+            results.totalChecked += studentsSnapshot.size;
+            if (studentsSnapshot.empty || studentsSnapshot.size < PAGE_SIZE) hasMore = false;
+            if (studentsSnapshot.docs.length > 0) lastDoc = studentsSnapshot.docs[studentsSnapshot.docs.length - 1];
+
         for (const doc of studentsSnapshot.docs) {
             const studentData = doc.data();
             const uid = doc.id;
@@ -110,7 +124,7 @@ export async function GET(request: NextRequest) {
                     softBlockStr = blockDates.softBlock;
                     hardBlockStr = blockDates.hardBlock;
                     results.blockDatesAdded++;
-                    console.log(`📅 Added block dates for ${studentData.fullName || uid}: softBlock=${softBlockStr.split('T')[0]}, hardBlock=${hardBlockStr.split('T')[0]}`);
+                    console.log(`📅 Added block dates for ${uid.substring(0,8)}...: softBlock=${softBlockStr.split('T')[0]}, hardBlock=${hardBlockStr.split('T')[0]}`);
                 }
 
                 // Prepare student data object for optimized checks
@@ -136,7 +150,7 @@ export async function GET(request: NextRequest) {
                 // --- HARD DELETE EXECUTION ---
                 if (needsHardDelete) {
                     // SAFETY CHECK: Log before deletion
-                    console.log(`🗑️ HARD DELETE triggered for ${studentData.fullName || 'Unknown'} (${uid})`);
+                    console.log(`🗑️ HARD DELETE triggered for ${uid.substring(0,8)}...`);
                     console.log(`   hardBlock date: ${hardBlockStr}`);
                     console.log(`   validUntil: ${validUntilStr}`);
                     console.log(`   status: ${studentData.status}`);
@@ -188,7 +202,7 @@ export async function GET(request: NextRequest) {
                     }
 
                     // 2. Delete FCM tokens
-                    const fcmSnapshot = await adminDb.collection('fcm_tokens').where('userUid', '==', uid).get();
+                    const fcmSnapshot = await adminDb.collection('fcm_tokens').where('userUid', '==', uid).limit(400).get();
                     if (!fcmSnapshot.empty) {
                         const batch = adminDb.batch();
                         fcmSnapshot.docs.forEach((d: any) => batch.delete(d.ref));
@@ -197,7 +211,7 @@ export async function GET(request: NextRequest) {
                     }
 
                     // 3. Delete waiting flags
-                    const waitingSnapshot = await adminDb.collection('waiting_flags').where('student_uid', '==', uid).get();
+                    const waitingSnapshot = await adminDb.collection('waiting_flags').where('student_uid', '==', uid).limit(400).get();
                     if (!waitingSnapshot.empty) {
                         const batch = adminDb.batch();
                         waitingSnapshot.docs.forEach((d: any) => batch.delete(d.ref));
@@ -205,17 +219,8 @@ export async function GET(request: NextRequest) {
                         console.log(`   ✅ Deleted ${waitingSnapshot.size} waiting flags`);
                     }
 
-                    // 4. Delete attendance records
-                    const attendanceSnapshot = await adminDb.collection('attendance').where('studentUid', '==', uid).get();
-                    if (!attendanceSnapshot.empty) {
-                        const batch = adminDb.batch();
-                        attendanceSnapshot.docs.forEach((d: any) => batch.delete(d.ref));
-                        await batch.commit();
-                        console.log(`   ✅ Deleted ${attendanceSnapshot.size} attendance records`);
-                    }
-
-                    // 5. Delete profile update requests
-                    const profileRequestsSnapshot = await adminDb.collection('profile_update_requests').where('studentUid', '==', uid).get();
+                    // 4. Delete profile update requests
+                    const profileRequestsSnapshot = await adminDb.collection('profile_update_requests').where('studentUid', '==', uid).limit(400).get();
                     if (!profileRequestsSnapshot.empty) {
                         const batch = adminDb.batch();
                         profileRequestsSnapshot.docs.forEach((d: any) => batch.delete(d.ref));
@@ -297,7 +302,7 @@ export async function GET(request: NextRequest) {
                 // `status === 'active'` guard makes this idempotent: an already
                 // soft-blocked student is skipped, so the seat is released at most once.
                 if (needsSoftBlock && studentData.status === 'active') {
-                    console.log(`🔒 SOFT BLOCK triggered for ${studentData.fullName || 'Unknown'} (${uid})`);
+                    console.log(`🔒 SOFT BLOCK triggered for ${uid.substring(0,8)}...`);
                     console.log(`   softBlock date: ${softBlockStr}`);
 
                     const releaseSeat = isSeatReleaseAtSoftBlockEnabled();
@@ -365,6 +370,7 @@ export async function GET(request: NextRequest) {
                 results.errors.push(`Error processing student ${uid}`);
             }
         }
+        } // end while (hasMore)
 
         // ── UPCOMING (future-session) APPLICATIONS PASS ──────────────────────
         //   Independent of the June renewal calendar. For applications with
@@ -383,10 +389,20 @@ export async function GET(request: NextRequest) {
         const UPCOMING_GRACE_DAYS = 60;
         try {
             const nowMs = Date.now();
-            const upcomingSnap = await adminDb.collection('applications')
+            const UPCOMING_PAGE_SIZE = 400;
+            let upcomingLastDoc: FirebaseFirestore.QueryDocumentSnapshot | null = null;
+            let upcomingHasMore = true;
+
+            while (upcomingHasMore) {
+            let upcomingQuery = adminDb.collection('applications')
                 .where('applicationType', '==', 'future')
                 .where('state', '==', 'submitted')
-                .get();
+                .limit(UPCOMING_PAGE_SIZE) as any;
+            if (upcomingLastDoc) upcomingQuery = upcomingQuery.startAfter(upcomingLastDoc);
+            const upcomingSnap = await upcomingQuery.get();
+
+            if (upcomingSnap.empty || upcomingSnap.docs.length < UPCOMING_PAGE_SIZE) upcomingHasMore = false;
+            if (upcomingSnap.docs.length > 0) upcomingLastDoc = upcomingSnap.docs[upcomingSnap.docs.length - 1];
 
             for (const appDoc of upcomingSnap.docs) {
                 const appData = appDoc.data();
@@ -433,6 +449,7 @@ export async function GET(request: NextRequest) {
                     upcomingResults.errors.push(`Error processing application ${appId}`);
                 }
             }
+            } // end while (upcomingHasMore)
             console.log(`📅 Upcoming applications pass:`, upcomingResults);
         } catch (upcomingErr: any) {
             console.error('⚠️ Upcoming applications pass failed:', upcomingErr);

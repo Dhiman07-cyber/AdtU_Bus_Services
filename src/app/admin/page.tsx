@@ -61,12 +61,9 @@ const PlatformAnalytics = dynamic(() => import('@/components/admin/dashboard/Pla
 // ============================================================================
 // DASHBOARD CACHING UTILITIES
 // ============================================================================
-const DASHBOARD_CACHE_KEY = 'adtu_admin_dashboard_cache';
-const DASHBOARD_CACHE_EXPIRY_KEY = 'adtu_admin_dashboard_expiry';
-const DASHBOARD_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+import { createDashboardCache } from '@/lib/dashboard-cache';
 
-interface DashboardCache {
-  realCounts: {
+interface AdminDashboardCounts {
     totalStudents: number;
     activeStudents: number;
     expiredStudents: number;
@@ -91,36 +88,16 @@ interface DashboardCache {
       hardBlock: any;
       busFee: number;
     };
-  };
-  paymentTrends: { days: any[]; months: any[] };
 }
 
-function getCachedDashboard(): DashboardCache | null {
-  try {
-    if (typeof window === 'undefined') return null;
-    const cached = localStorage.getItem(DASHBOARD_CACHE_KEY);
-    const expiry = localStorage.getItem(DASHBOARD_CACHE_EXPIRY_KEY);
-    if (!cached || !expiry) return null;
-    if (Date.now() > parseInt(expiry)) {
-      localStorage.removeItem(DASHBOARD_CACHE_KEY);
-      localStorage.removeItem(DASHBOARD_CACHE_EXPIRY_KEY);
-      return null;
-    }
-    return JSON.parse(cached);
-  } catch (error) {
-    console.warn('Failed to read dashboard cache:', error);
-    return null;
-  }
+const dashboardCache = createDashboardCache<AdminDashboardCounts>('admin');
+
+function getCachedDashboard() {
+  return dashboardCache.getCached();
 }
 
-function setCachedDashboard(data: DashboardCache): void {
-  try {
-    if (typeof window === 'undefined') return;
-    localStorage.setItem(DASHBOARD_CACHE_KEY, JSON.stringify(data));
-    localStorage.setItem(DASHBOARD_CACHE_EXPIRY_KEY, (Date.now() + DASHBOARD_CACHE_TTL).toString());
-  } catch (error) {
-    console.warn('Failed to cache dashboard:', error);
-  }
+function setCachedDashboard(data: Parameters<typeof dashboardCache.setCached>[0]): void {
+  dashboardCache.setCached(data);
 }
 
 export default function EnhancedAdminDashboard() {
@@ -186,15 +163,24 @@ export default function EnhancedAdminDashboard() {
         authApiFetch(currentUser, '/api/payment/analytics', { query: { mode: 'months' } }),
       ]);
 
-      // Parse all responses in parallel
+      const parseJsonSafely = async (res: Response) => {
+        if (!res.ok) return { success: false };
+        try {
+          return await res.json();
+        } catch {
+          return { success: false };
+        }
+      };
+
+      // Parse all responses in parallel safely
       const [countsData, dataDays, dataMonths] = await Promise.all([
-        countsRes.json(),
-        resDays.json(),
-        resMonths.json(),
+        parseJsonSafely(countsRes),
+        parseJsonSafely(resDays),
+        parseJsonSafely(resMonths),
       ]);
 
-      if (!countsData.success) {
-        console.error('Dashboard counts API error:', countsData.error);
+      if (!countsData?.success || !countsData.data) {
+        console.error('Dashboard counts API error:', countsData?.error || 'Failed to load counts');
         return;
       }
 
@@ -203,18 +189,18 @@ export default function EnhancedAdminDashboard() {
       // Payment analytics
       let totalRevenue = 0;
       let newTrends = { days: [] as any[], months: [] as any[] };
-      if (dataDays.success && dataDays.data) {
-        totalRevenue = dataDays.data.totalRevenue;
+      if (dataDays?.success && dataDays.data) {
+        totalRevenue = dataDays.data.totalRevenue || 0;
         newTrends.days = dataDays.data.trend || [];
       }
-      if (dataMonths.success && dataMonths.data) {
+      if (dataMonths?.success && dataMonths.data) {
         newTrends.months = dataMonths.data.trend || [];
       }
 
       setPaymentTrends(newTrends);
 
-      const onlineCount = dataDays.data.onlinePayments || 0;
-      const offlineCount = dataDays.data.offlinePayments || 0;
+      const onlineCount = dataDays?.data?.onlinePayments || 0;
+      const offlineCount = dataDays?.data?.offlinePayments || 0;
 
       // Set buses and routes from server response (eliminates duplicate getDocs)
       setAllBuses(d.allBuses || []);

@@ -184,69 +184,6 @@ export async function POST(request: NextRequest) {
       name: formData.fullName, role: 'student', uid: appData.applicantUid
     };
 
-    const amount = Number(formData.paymentInfo?.amountPaid || 0);
-    if (amount > 0) {
-      const { paymentsSupabaseService } = await import('@/lib/services/payments-supabase');
-      const isOnline = formData.paymentInfo?.paymentMode === 'online' || !!formData.paymentInfo?.razorpayPaymentId;
-
-      if (isOnline) {
-        const studentPayments = await paymentsSupabaseService.getPaymentsByStudentUid(appData.applicantUid);
-        const onlinePayment = studentPayments.find(p => p.method === 'Online' && p.status === 'Completed');
-        if (!onlinePayment) {
-          throw new Error('Completed online payment record not found');
-        }
-
-        const updatedPaymentId = await paymentsSupabaseService.upsertPayment({
-          paymentId: onlinePayment.payment_id,
-          studentId: formData.enrollmentId,
-          studentUid: appData.applicantUid,
-          studentName: formData.fullName,
-          amount: onlinePayment.amount,
-          method: 'Online',
-          status: 'Completed',
-          sessionStartYear: finalStartYear,
-          sessionEndYear: sessionEndYear,
-          durationYears: finalDurationYears,
-          validUntil: new Date(validUntil),
-          stopId: finalStopId,
-          razorpayPaymentId: onlinePayment.razorpay_payment_id,
-          razorpayOrderId: onlinePayment.razorpay_order_id,
-        });
-
-        if (!updatedPaymentId) {
-          throw new Error('Failed to update online payment validity');
-        }
-      } else {
-        // Deterministic offline payment id keyed by applicationId — stable across
-        // retries so re-running the approval never creates a duplicate ledger entry.
-        const paymentId = (appData as any).paymentId || formData.paymentId || formData.paymentInfo?.paymentReference || `OADF_APP_${applicationId}`;
-        await PaymentTransactionService.saveTransaction({
-          paymentId,
-          studentId: formData.enrollmentId,
-          studentName: formData.fullName,
-          userId: appData.applicantUid,
-          amount,
-          paymentMethod: 'offline',
-          status: 'completed',
-          sessionStartYear: finalStartYear,
-          sessionEndYear: sessionEndYear,
-          durationYears: finalDurationYears,
-          validUntil: validUntil,
-          timestamp: approvedAt,
-          offlineTransactionId: formData.paymentInfo?.paymentReference || `app_fee_${applicationId}`,
-          approvedBy: {
-            userId: uid,
-            empId: approverEmpId,
-            name: approverName,
-            role: approverRole,
-            email: decodedToken.email || '',
-          },
-          approvedByDisplay,
-          approvedAtISO: approvedAt,
-        });
-      }
-    }
-
     // 4. Atomic entitlement + capacity allocation (single Firestore transaction).
     //    Student + user creation, application/unauth cleanup, and the bus capacity
     //    increment all commit together or not at all. The application and bus are
@@ -359,7 +296,73 @@ export async function POST(request: NextRequest) {
     //  see the Tier A `writeAuditInTransaction` call. No best-effort post-commit
     //  audit remains, so an approval can never commit without its audit record.)
 
-    // 5. Post-commit side effects (never affect the committed entitlement/capacity invariant).
+    // 5. Payment processing AFTER successful transaction — prevents inconsistent
+    //    state where payment is Completed but student was never created (e.g. bus
+    //    full race or duplicate approval conflict).
+    const amount = Number(formData.paymentInfo?.amountPaid || 0);
+    if (amount > 0) {
+      const { paymentsSupabaseService } = await import('@/lib/services/payments-supabase');
+      const isOnline = formData.paymentInfo?.paymentMode === 'online' || !!formData.paymentInfo?.razorpayPaymentId;
+
+      if (isOnline) {
+        const studentPayments = await paymentsSupabaseService.getPaymentsByStudentUid(appData.applicantUid);
+        const onlinePayment = studentPayments.find(p => p.method === 'Online' && p.status === 'Completed');
+        if (!onlinePayment) {
+          console.error('Completed online payment record not found post-transaction for', appData.applicantUid);
+        } else {
+          const updatedPaymentId = await paymentsSupabaseService.upsertPayment({
+            paymentId: onlinePayment.payment_id,
+            studentId: formData.enrollmentId,
+            studentUid: appData.applicantUid,
+            studentName: formData.fullName,
+            amount: onlinePayment.amount,
+            method: 'Online',
+            status: 'Completed',
+            sessionStartYear: finalStartYear,
+            sessionEndYear: sessionEndYear,
+            durationYears: finalDurationYears,
+            validUntil: new Date(validUntil),
+            stopId: finalStopId,
+            razorpayPaymentId: onlinePayment.razorpay_payment_id,
+            razorpayOrderId: onlinePayment.razorpay_order_id,
+          });
+
+          if (!updatedPaymentId) {
+            console.error('Failed to update online payment validity post-transaction for', appData.applicantUid);
+          }
+        }
+      } else {
+        // Deterministic offline payment id keyed by applicationId — stable across
+        // retries so re-running the approval never creates a duplicate ledger entry.
+        const paymentId = (appData as any).paymentId || formData.paymentId || formData.paymentInfo?.paymentReference || `OADF_APP_${applicationId}`;
+        await PaymentTransactionService.saveTransaction({
+          paymentId,
+          studentId: formData.enrollmentId,
+          studentName: formData.fullName,
+          userId: appData.applicantUid,
+          amount,
+          paymentMethod: 'offline',
+          status: 'completed',
+          sessionStartYear: finalStartYear,
+          sessionEndYear: sessionEndYear,
+          durationYears: finalDurationYears,
+          validUntil: validUntil,
+          timestamp: approvedAt,
+          offlineTransactionId: formData.paymentInfo?.paymentReference || `app_fee_${applicationId}`,
+          approvedBy: {
+            userId: uid,
+            empId: approverEmpId,
+            name: approverName,
+            role: approverRole,
+            email: decodedToken.email || '',
+          },
+          approvedByDisplay,
+          approvedAtISO: approvedAt,
+        });
+      }
+    }
+
+    // 6. Post-commit side effects (never affect the committed entitlement/capacity invariant).
     const postTasks: Promise<unknown>[] = [
       // Cloudinary Cleanup
       (async () => {

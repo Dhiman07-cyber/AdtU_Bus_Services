@@ -1,5 +1,6 @@
 import { db } from '@/lib/firebase';
 import { doc, setDoc, serverTimestamp, collection, getDocs, query, limit } from 'firebase/firestore';
+import crypto from 'crypto';
 
 let adminApp: any;
 let auth: any;
@@ -48,7 +49,8 @@ export async function POST(request: Request) {
     }
 
     const headerSecret = request.headers.get('x-bootstrap-secret');
-    if (headerSecret !== bootstrapSecret) {
+    if (!headerSecret || headerSecret.length !== bootstrapSecret.length ||
+        !crypto.timingSafeEqual(Buffer.from(headerSecret), Buffer.from(bootstrapSecret))) {
       return new Response(JSON.stringify({
         success: false,
         error: 'Unauthorized bootstrap request'

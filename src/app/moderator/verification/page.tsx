@@ -9,6 +9,8 @@
 
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useAuth } from '@/contexts/auth-context';
+import { useModeratorPermissions } from "@/hooks/useModeratorPermissions";
+import { PermissionDeniedCard } from "@/components/PermissionDeniedCard";
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
 import { Button } from '@/components/ui/button';
@@ -79,6 +81,7 @@ function getErrorMessage(error: unknown): string {
 
 export default function ModeratorVerificationPage() {
     const { userData, currentUser, loading: authLoading } = useAuth();
+    const { canGenerateVerificationCode, loading: permsLoading } = useModeratorPermissions();
     const router = useRouter();
     const videoRef = useRef<HTMLVideoElement>(null);
     const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -409,6 +412,10 @@ export default function ModeratorVerificationPage() {
                 <Loader2 className="h-12 w-12 animate-spin text-purple-600" />
             </div>
         );
+    }
+
+    if (!permsLoading && !canGenerateVerificationCode) {
+        return <PermissionDeniedCard title="Verification Restricted" actionName="Verification & QR Generation" showGoBack={false} />;
     }
 
     return (

@@ -57,6 +57,7 @@ import { usePaginatedCollection, invalidateCollectionCache } from '@/hooks/usePa
 import { useEventDrivenRefresh } from '@/hooks/useEventDrivenRefresh';
 import { useTheme } from '@/components/theme-provider';
 import { cn } from '@/lib/utils';
+import { formatDateDDMMYYYY } from '@/lib/utils/date-utils';
 
 // Memoized table row — skips re-rendering for drivers whose data/handlers are
 // unchanged, keeping search/filter typing smooth with a full page of rows.
@@ -376,18 +377,7 @@ export default function AdminDrivers() {
   };
 
   // Helper function to format date
-  const formatDate = (date: any): string => {
-    if (!date) return 'N/A';
-
-    const d = new Date(date);
-    if (isNaN(d.getTime())) return 'N/A';
-
-    const day = String(d.getDate()).padStart(2, '0');
-    const month = String(d.getMonth() + 1).padStart(2, '0');
-    const year = d.getFullYear();
-
-    return `${day}-${month}-${year}`;
-  };
+  const formatDate = formatDateDDMMYYYY;
 
   // Helper function to extract number from string
   const extractNumber = (str: string): string => {

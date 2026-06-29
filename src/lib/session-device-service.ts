@@ -1,3 +1,5 @@
+import { getCrypto } from '@/lib/security/random-id';
+
 /**
  * Session Device Service
  * 
@@ -19,7 +21,7 @@ export function getOrCreateDeviceId(): string {
     let deviceId = localStorage.getItem(STORAGE_KEY);
 
     if (!deviceId) {
-        const cryptoObj = typeof window !== 'undefined' ? (window.crypto || (window as any).msCrypto) : null;
+        const cryptoObj = getCrypto();
         if (cryptoObj?.randomUUID) {
             deviceId = cryptoObj.randomUUID();
         } else if (cryptoObj?.getRandomValues) {

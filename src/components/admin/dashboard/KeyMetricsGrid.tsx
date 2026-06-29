@@ -56,7 +56,7 @@ const MetricCard = ({
 
   return (
     <Card className={cn(
-      "relative overflow-hidden group transition-all duration-500",
+      "relative overflow-hidden group transition-all duration-500 hover:cursor-pointer",
       theme === 'dark' ? "border-white/5 bg-[#0a0b14] hover:bg-[#0f101f]" : "border-[#E5E7EB] bg-white hover:bg-gray-50",
       className
     )}>
@@ -155,17 +155,17 @@ export default function KeyMetricsGrid({ stats, role = 'admin' }: { stats: Dashb
             </div>
           </div>
           <div className={cn("grid grid-cols-2 md:grid-cols-3 gap-3 mt-4 pt-3 border-t", theme === 'dark' ? "border-white/5" : "border-[#E5E7EB]")}>
-            <div className="space-y-1">
+            <div className="space-y-1 hover:cursor-pointer">
               <span className={cn("text-[10px] font-bold uppercase tracking-widest", theme === 'dark' ? "text-slate-500" : "text-[#6B7280]")}>System Bus fee</span>
               <div className={cn("text-xl font-bold", theme === 'dark' ? "text-white" : "text-[#111827]")}>₹{typeof stats.systemBusFee === 'number' ? stats.systemBusFee.toLocaleString('en-IN') : '...'}</div>
             </div>
             {role === 'admin' ? (
               <>
-                <div className="space-y-1">
+                <div className="space-y-1 hover:cursor-pointer">
                   <span className={cn("text-[10px] font-bold uppercase tracking-widest", theme === 'dark' ? "text-slate-500" : "text-[#6B7280]")}>Online Payments</span>
                   <div className="text-xl font-bold text-indigo-400">{stats.onlinePayments || 0}</div>
                 </div>
-                <div className="space-y-1">
+                <div className="space-y-1 hover:cursor-pointer">
                   <span className={cn("text-[10px] font-bold uppercase tracking-widest", theme === 'dark' ? "text-slate-500" : "text-[#6B7280]")}>Offline Payments</span>
                   <div className="text-xl font-bold text-emerald-400">{stats.offlinePayments || 0}</div>
                 </div>

@@ -5,6 +5,7 @@ import { computeBlockDatesFromValidUntil } from '@/lib/utils/deadline-computatio
 import { getDeadlineConfig } from '@/lib/deadline-config-service';
 import { buildCapacityDelta } from '@/lib/busCapacityService';
 import { wasSeatReleased } from '@/lib/config/capacity-flags';
+import { paymentsSupabaseService } from '@/lib/services/payments-supabase';
 import crypto from 'crypto';
 
 /** Thrown inside a per-student renewal transaction when the target bus is full. */
@@ -125,10 +126,36 @@ export async function POST(request: NextRequest) {
       if (claim.data?.status === 'completed') {
         return NextResponse.json({ success: true, replayed: true, results: claim.data.results, summary: claim.data.summary });
       }
-      return NextResponse.json(
-        { success: false, error: 'An identical renewal request is already being processed.' },
-        { status: 409 }
-      );
+      // Staleness check: if the in_progress record is older than 5 minutes, allow retry
+      const createdAt = claim.data?.createdAt ? new Date(claim.data.createdAt) : null;
+      const isStale = createdAt && (Date.now() - createdAt.getTime()) > 5 * 60 * 1000;
+      if (isStale) {
+        await opRef.delete().catch(() => {});
+        // Re-claim (will succeed since we just deleted)
+        const retryClaim = await adminDb.runTransaction(async (txn) => {
+          const snap = await txn.get(opRef);
+          if (snap.exists) return { duplicate: true, data: snap.data() as any };
+          txn.set(opRef, {
+            type: 'renew-services',
+            status: 'in_progress',
+            actorUid: decodedToken.uid,
+            renewalCount: renewals.length,
+            createdAt: new Date().toISOString(),
+          });
+          return { duplicate: false, data: null as any };
+        });
+        if (retryClaim.duplicate) {
+          return NextResponse.json(
+            { success: false, error: 'An identical renewal request is already being processed.' },
+            { status: 409 }
+          );
+        }
+      } else {
+        return NextResponse.json(
+          { success: false, error: 'An identical renewal request is already being processed.' },
+          { status: 409 }
+        );
+      }
     }
 
     // Process renewals
@@ -143,6 +170,8 @@ export async function POST(request: NextRequest) {
     const batch = adminDb.batch();
     let batchCount = 0;
     const MAX_BATCH_SIZE = 500;
+    // Track batched results separately so we only report success after commit
+    const pendingBatchResults: Array<{ studentUid: string; newValidUntil: string }> = [];
 
     for (const renewal of renewals) {
       const { studentUid, durationYears, amount } = renewal;
@@ -179,6 +208,50 @@ export async function POST(request: NextRequest) {
             error: 'Student data unavailable'
           });
           continue;
+        }
+
+        // Check for existing pending renewal request for this student
+        const pendingRenewalQuery = await adminDb
+          .collection('renewal_requests')
+          .where('studentId', '==', studentUid)
+          .where('status', '==', 'pending')
+          .limit(1)
+          .get();
+
+        if (!pendingRenewalQuery.empty) {
+          results.push({
+            studentUid,
+            success: false,
+            error: 'Student has a pending renewal request that must be resolved first'
+          });
+          continue;
+        }
+
+        // Verify payment exists for this renewal
+        if (paymentMode === 'manual') {
+          // Manual mode: require a transactionId (proof of offline payment received)
+          if (!transactionId || transactionId.trim() === '') {
+            results.push({
+              studentUid,
+              success: false,
+              error: 'Transaction ID required for manual renewal (proof of payment)'
+            });
+            continue;
+          }
+        } else if (paymentMode === 'online') {
+          // Online mode: verify a completed payment exists in Supabase
+          const existingPayments = await paymentsSupabaseService.getPaymentsByStudentUid(studentUid);
+          const completedPayment = existingPayments.find(
+            p => p.status === 'Completed' && p.method === 'Online'
+          );
+          if (!completedPayment) {
+            results.push({
+              studentUid,
+              success: false,
+              error: 'No completed online payment found — student must pay before renewal'
+            });
+            continue;
+          }
         }
 
         // Calculate new validUntil date
@@ -234,7 +307,7 @@ export async function POST(request: NextRequest) {
               txn.update(studentRef, { ...studentUpdate, seatReleasedAt: null });
             });
             results.push({ studentUid, success: true, newValidUntil });
-            console.log(`✅ Renewed + reclaimed seat for ${studentData.fullName || studentData.name} on bus ${renewalBusId}`);
+            console.log(`✅ Renewed + reclaimed seat for ${studentUid.substring(0,8)}... on bus ${renewalBusId}`);
           } catch (txErr: any) {
             if (txErr instanceof CapacityFullError) {
               results.push({ studentUid, success: false, error: 'Original bus full — reassign required before renewal' });
@@ -249,21 +322,21 @@ export async function POST(request: NextRequest) {
         // Update student document with validUntil AND block dates (fast batch path)
         batch.update(studentRef, studentUpdate);
         batchCount++;
+        pendingBatchResults.push({ studentUid, newValidUntil });
 
         // Commit batch if reaching limit
         if (batchCount >= MAX_BATCH_SIZE) {
           await batch.commit();
           console.log(`✅ Committed batch of ${batchCount} operations`);
+          // Only NOW push results after successful commit
+          for (const r of pendingBatchResults) {
+            results.push({ studentUid: r.studentUid, success: true, newValidUntil: r.newValidUntil });
+          }
+          pendingBatchResults.length = 0;
           batchCount = 0;
         }
 
-        results.push({
-          studentUid,
-          success: true,
-          newValidUntil
-        });
-
-        console.log(`✅ Renewed service for ${studentData.fullName || studentData.name}: ${currentValidUntil ? formatRenewalDate(currentValidUntil) : 'Expired'} → ${formatRenewalDate(newValidUntil)}`);
+        console.log(`✅ Renewed service for ${studentUid.substring(0,8)}...: ${currentValidUntil ? formatRenewalDate(currentValidUntil) : 'Expired'} → ${formatRenewalDate(newValidUntil)}`);
 
       } catch (error: any) {
         console.error(`❌ Error renewing service for ${studentUid}:`, error);
@@ -279,6 +352,10 @@ export async function POST(request: NextRequest) {
     if (batchCount > 0) {
       await batch.commit();
       console.log(`✅ Committed final batch of ${batchCount} operations`);
+      // Only NOW push results after successful commit
+      for (const r of pendingBatchResults) {
+        results.push({ studentUid: r.studentUid, success: true, newValidUntil: r.newValidUntil });
+      }
     }
 
     // Summary

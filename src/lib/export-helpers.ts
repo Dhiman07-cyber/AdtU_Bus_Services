@@ -6,6 +6,8 @@
  * The xlsx package had unpatched Prototype Pollution and ReDoS vulnerabilities.
  */
 
+import { formatDateDDMMYYYY } from '@/lib/utils/date-utils';
+
 type ExcelWorkbook = import('exceljs').Workbook;
 type ExcelJSRuntime = typeof import('exceljs');
 
@@ -731,18 +733,7 @@ async function generateReportData(
 /**
  * Format date as DD-MM-YYYY
  */
-function formatDate(date: any): string {
-  if (!date) return 'N/A';
-
-  const d = new Date(date);
-  if (isNaN(d.getTime())) return 'N/A';
-
-  const day = String(d.getDate()).padStart(2, '0');
-  const month = String(d.getMonth() + 1).padStart(2, '0');
-  const year = d.getFullYear();
-
-  return `${day}-${month}-${year}`;
-}
+const formatDate = formatDateDDMMYYYY;
 
 /**
  * Helper to extract number from string

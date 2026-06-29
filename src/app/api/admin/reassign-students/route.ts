@@ -15,7 +15,7 @@ type ReassignmentAssignment = {
     fromBusId: string;
     toBusId: string;
     toBusNumber: string;
-    shift: 'Morning' | 'Evening';
+    shift: 'Morning' | 'Evening' | 'Morning & Evening' | 'Both';
     stopId?: string;
     stopName?: string;
 };
@@ -177,7 +177,6 @@ export const POST = withSecurity<ReassignStudentsBody>(
                     transaction.update(busRef, {
                         'load.morningCount': newMorning,
                         'load.eveningCount': newEvening,
-                        'load.totalCount': newMorning + newEvening, // keep canonical totalCount in sync
                         currentMembers: newMorning + newEvening,
                         updatedAt: FieldValue.serverTimestamp(),
                     });
@@ -280,20 +279,33 @@ export const POST = withSecurity<ReassignStudentsBody>(
 
             const supabase = getSupabaseServer();
 
-            const logTask = supabase.from('reassignment_logs').insert([{
-                    operation_id: operationId,
-                    type: 'student_reassignment',
-                    actor_id: currentUserUid,
-                    actor_label: actorLabel,
-                    status: 'committed',
-                    summary: `Reassigned ${effectiveAssignments.length} student(s) from ${sourceLabel} to ${destLabels}`,
-                    changes: changes,
-                    meta: { studentCount: effectiveAssignments.length, sourceBusId, targetBuses, busLoadChanges: Object.fromEntries(busLoadChanges) },
-                }]);
+            // Retry the Supabase audit write with exponential backoff — this is the
+            // rollback snapshot. If it fails, admins can only reverse manually.
+            let auditWritten = false;
+            for (let attempt = 1; attempt <= 3; attempt++) {
+                try {
+                    await supabase.from('reassignment_logs').insert([{
+                        operation_id: operationId,
+                        type: 'student_reassignment',
+                        actor_id: currentUserUid,
+                        actor_label: actorLabel,
+                        status: 'committed',
+                        summary: `Reassigned ${effectiveAssignments.length} student(s) from ${sourceLabel} to ${destLabels}`,
+                        changes: changes,
+                        meta: { studentCount: effectiveAssignments.length, sourceBusId, targetBuses, busLoadChanges: Object.fromEntries(busLoadChanges) },
+                    }]);
+                    auditWritten = true;
+                    break;
+                } catch (retryErr) {
+                    if (attempt < 3) {
+                        await new Promise(r => setTimeout(r, 500 * attempt));
+                    }
+                }
+            }
 
-            // Don't necessarily need to await the log task to return response
-            // but we do it to ensure consistency if the user checks logs immediately
-            await logTask;
+            if (!auditWritten) {
+                throw new Error('Supabase audit write failed after 3 attempts');
+            }
         } catch (auditError) {
             // The detailed Supabase snapshot is what ROLLBACK depends on. If it fails,
             // the durable in-tx Firestore audit still exists, but rollback for this

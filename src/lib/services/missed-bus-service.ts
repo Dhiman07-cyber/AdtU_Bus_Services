@@ -13,7 +13,8 @@
  * - Automatic expiration of pending requests
  */
 
-import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import { SupabaseClient } from '@supabase/supabase-js';
+import { getSupabaseServer } from '@/lib/supabase-server';
 import { db as adminDb } from '@/lib/firebase-admin';
 
 // Configuration (per spec)
@@ -138,16 +139,7 @@ export class MissedBusService {
   private supabase: SupabaseClient;
 
   constructor() {
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-    if (!supabaseUrl || !supabaseServiceKey) {
-      throw new Error('Missing Supabase configuration');
-    }
-
-    this.supabase = createClient(supabaseUrl, supabaseServiceKey, {
-      auth: { persistSession: false }
-    });
+    this.supabase = getSupabaseServer();
   }
 
   /**
@@ -731,6 +723,44 @@ export class MissedBusService {
       return data;
     } catch {
       return null;
+    }
+  }
+
+  /**
+   * Expire pending missed-bus requests that have exceeded their TTL.
+   * Called by the cleanup cron job.
+   * @returns Number of requests expired
+   */
+  async expirePendingRequests(): Promise<number> {
+    try {
+      const now = new Date().toISOString();
+
+      // Atomically update all pending requests where expires_at has passed.
+      // The WHERE clause ensures idempotency: already-expired or already-handled
+      // rows are not touched.
+      const { data, error } = await this.supabase
+        .from('missed_bus_requests')
+        .update({
+          status: 'expired',
+          updated_at: now
+        })
+        .eq('status', 'pending')
+        .lt('expires_at', now)
+        .select('id');
+
+      if (error) {
+        console.error('Failed to expire pending missed-bus requests:', error);
+        return 0;
+      }
+
+      const count = data?.length || 0;
+      if (count > 0) {
+        console.log(`🔄 Expired ${count} stale missed-bus requests`);
+      }
+      return count;
+    } catch (error) {
+      console.error('Error in expirePendingRequests:', error);
+      return 0;
     }
   }
 }

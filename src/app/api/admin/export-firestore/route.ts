@@ -33,7 +33,7 @@ function convertTimestamps(obj: any): any {
 
 export const GET = withSecurity(
     async (request, { auth }) => {
-        console.log(`📦 Firestore export requested by admin: ${auth.email}`);
+        console.log(`📦 Firestore export requested by admin: ${auth.uid.substring(0,8)}...`);
 
         const exportData: any = {
             metadata: {

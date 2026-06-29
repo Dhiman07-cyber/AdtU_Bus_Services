@@ -5,7 +5,8 @@
  * for instant updates without polling.
  */
 
-import { createClient, RealtimeChannel } from '@supabase/supabase-js';
+import { RealtimeChannel } from '@supabase/supabase-js';
+import { getSupabaseServer } from '@/lib/supabase-server';
 import { db as adminDb, FieldValue } from './firebase-admin';
 import { calculateNotificationExpiry } from './notification-expiry';
 
@@ -13,10 +14,7 @@ import { calculateNotificationExpiry } from './notification-expiry';
 const NOTIFICATION_TTL_DAYS = 1;
 
 // Server-side Supabase client with service role
-const supabase = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
+const supabase = getSupabaseServer();
 
 export interface SwapRequest {
     id: string;
@@ -172,6 +170,16 @@ export class DriverSwapSupabaseService {
                 params.toDriverUID
             );
 
+            // Send real-time broadcast to candidate driver
+            await this.broadcastSwapUpdate(data.id, 'swap_requested', {
+                requestId: data.id,
+                requesterUID: params.fromDriverUID,
+                candidateUID: params.toDriverUID,
+                requesterName: params.fromDriverName,
+                candidateName: params.toDriverName,
+                busNumber: params.busNumber
+            });
+
             return { success: true, requestId: data.id };
         } catch (error: any) {
             console.error('❌ Exception creating swap request:', error);
@@ -245,6 +253,10 @@ export class DriverSwapSupabaseService {
             }
 
             if (request.status !== 'pending') {
+                if (request.status === 'accepted' && request.accepted_by === acceptorUid) {
+                    await this.createTemporaryAssignment(request);
+                    return { success: true };
+                }
                 return { success: false, error: `Cannot accept: request is ${request.status}` };
             }
 
@@ -252,18 +264,29 @@ export class DriverSwapSupabaseService {
                 return { success: false, error: 'You are not the target of this swap request' };
             }
 
-            // Update the request
-            const { error: updateError } = await supabase
+            // Update the request atomically
+            const { data: updatedData, error: updateError } = await supabase
                 .from('driver_swap_requests')
                 .update({
                     status: 'accepted',
                     accepted_by: acceptorUid,
                     accepted_at: new Date().toISOString()
                 })
-                .eq('id', requestId);
+                .eq('id', requestId)
+                .eq('status', 'pending')
+                .select();
 
             if (updateError) {
                 return { success: false, error: updateError.message };
+            }
+
+            if (!updatedData || updatedData.length === 0) {
+                const { data: currentReq } = await supabase.from('driver_swap_requests').select('*').eq('id', requestId).single();
+                if (currentReq?.status === 'accepted' && currentReq?.accepted_by === acceptorUid) {
+                    await this.createTemporaryAssignment(currentReq);
+                    return { success: true };
+                }
+                return { success: false, error: 'Request was already processed' };
             }
 
             // Create temporary assignment
@@ -277,6 +300,12 @@ export class DriverSwapSupabaseService {
             // Send notifications
             await this.sendSwapAcceptedNotifications(request);
             await this.notifyStudentsOfDriverChange(request);
+            await this.broadcastSwapUpdate(requestId, 'swap_accepted', {
+                requestId,
+                acceptedBy: acceptorUid,
+                requesterName: request.requester_name,
+                candidateName: request.candidate_name
+            }, request);
 
             console.log('✅ Swap request accepted successfully');
             return { success: true };
@@ -308,6 +337,9 @@ export class DriverSwapSupabaseService {
             }
 
             if (request.status !== 'pending') {
+                if (request.status === 'rejected' && request.rejected_by === rejectorUid) {
+                    return { success: true };
+                }
                 return { success: false, error: `Cannot reject: request is ${request.status}` };
             }
 
@@ -315,18 +347,28 @@ export class DriverSwapSupabaseService {
                 return { success: false, error: 'You are not the target of this swap request' };
             }
 
-            // Update the request
-            const { error: updateError } = await supabase
+            // Update the request atomically
+            const { data: updatedData, error: updateError } = await supabase
                 .from('driver_swap_requests')
                 .update({
                     status: 'rejected',
                     rejected_by: rejectorUid,
                     rejected_at: new Date().toISOString()
                 })
-                .eq('id', requestId);
+                .eq('id', requestId)
+                .eq('status', 'pending')
+                .select();
 
             if (updateError) {
                 return { success: false, error: updateError.message };
+            }
+
+            if (!updatedData || updatedData.length === 0) {
+                const { data: currentReq } = await supabase.from('driver_swap_requests').select('*').eq('id', requestId).single();
+                if (currentReq?.status === 'rejected' && currentReq?.rejected_by === rejectorUid) {
+                    return { success: true };
+                }
+                return { success: false, error: 'Request was already processed' };
             }
 
             // Send notification to requester
@@ -374,21 +416,34 @@ export class DriverSwapSupabaseService {
             }
 
             if (request.status !== 'pending') {
+                if (request.status === 'cancelled' && request.cancelled_by === cancellerUid) {
+                    return { success: true };
+                }
                 return { success: false, error: `Cannot cancel: request is ${request.status}` };
             }
 
-            // Update the request
-            const { error: updateError } = await supabase
+            // Update the request atomically
+            const { data: updatedData, error: updateError } = await supabase
                 .from('driver_swap_requests')
                 .update({
                     status: 'cancelled',
                     cancelled_by: cancellerUid,
                     cancelled_at: new Date().toISOString()
                 })
-                .eq('id', requestId);
+                .eq('id', requestId)
+                .eq('status', 'pending')
+                .select();
 
             if (updateError) {
                 return { success: false, error: updateError.message };
+            }
+
+            if (!updatedData || updatedData.length === 0) {
+                const { data: currentReq } = await supabase.from('driver_swap_requests').select('*').eq('id', requestId).single();
+                if (currentReq?.status === 'cancelled' && currentReq?.cancelled_by === cancellerUid) {
+                    return { success: true };
+                }
+                return { success: false, error: 'Request was already processed' };
             }
 
             // Send real-time broadcast to both drivers
@@ -498,7 +553,7 @@ export class DriverSwapSupabaseService {
                 if (hasPrimaryTrip) {
                     // Trip still active on primary bus - mark as pending_revert
                     console.log('⏳ Trip in progress on primary bus - marking swap %s as pending_revert', requestId);
-                    console.log('   → Bus ownership will remain with %s until trip completes', request.candidate_name);
+                    console.log('   → Bus ownership will remain with driver until trip completes (swap %s)', requestId);
 
                     await supabase
                         .from('driver_swap_requests')
@@ -524,37 +579,51 @@ export class DriverSwapSupabaseService {
                 console.log('✅ No active trips - reverting ASSIGNMENT swap %s', requestId);
                 console.log('   📋 Reverting ASSIGNMENT...');
 
-                // Restore bus to original driver (requester) AND clear activeTripId
-                const busRef = adminDb.collection('buses').doc(request.bus_id);
-                await busRef.update({
-                    activeDriverId: request.requester_driver_uid,
-                    assignedDriverId: request.requester_driver_uid,
-                    activeTripId: null,
-                    updatedAt: FieldValue.serverTimestamp()
-                });
-                console.log('   ✅ Bus %s restored to %s', request.bus_id, request.requester_name);
+                // ATOMIC: Wrap bus + driver updates in a single Firestore transaction
+                // so a partial failure cannot leave bus assigned to one driver while
+                // the driver doc points to a different bus.
+                await adminDb.runTransaction(async (transaction) => {
+                    const busRef = adminDb.collection('buses').doc(request.bus_id);
+                    const fromDriverRef = adminDb.collection('drivers').doc(request.requester_driver_uid);
+                    const toDriverRef = adminDb.collection('drivers').doc(request.candidate_driver_uid);
 
-                // Restore requester (fromDriver) - reassign to their original bus
-                const fromDriverRef = adminDb.collection('drivers').doc(request.requester_driver_uid);
-                await fromDriverRef.update({
-                    assignedBusId: request.bus_id,
-                    busId: request.bus_id,
-                    assignedRouteId: request.route_id || null,
-                    routeId: request.route_id || null,
-                    updatedAt: FieldValue.serverTimestamp()
-                });
-                console.log('   ✅ From driver (%s) reassigned to bus', request.requester_name);
+                    // All reads before writes
+                    await Promise.all([
+                        transaction.get(busRef),
+                        transaction.get(fromDriverRef),
+                        transaction.get(toDriverRef),
+                    ]);
 
-                // Make candidate (toDriver) reserved again
-                const toDriverRef = adminDb.collection('drivers').doc(request.candidate_driver_uid);
-                await toDriverRef.update({
-                    assignedBusId: null,
-                    busId: null,
-                    assignedRouteId: null,
-                    routeId: null,
-                    updatedAt: FieldValue.serverTimestamp()
+                    // Restore bus to original driver (requester) AND clear activeTripId
+                    transaction.update(busRef, {
+                        activeDriverId: request.requester_driver_uid,
+                        assignedDriverId: request.requester_driver_uid,
+                        activeTripId: null,
+                        updatedAt: FieldValue.serverTimestamp()
+                    });
+
+                    // Restore requester (fromDriver) - reassign to their original bus
+                    transaction.update(fromDriverRef, {
+                        assignedBusId: request.bus_id,
+                        busId: request.bus_id,
+                        assignedRouteId: request.route_id || null,
+                        routeId: request.route_id || null,
+                        updatedAt: FieldValue.serverTimestamp()
+                    });
+
+                    // Make candidate (toDriver) reserved again
+                    transaction.update(toDriverRef, {
+                        assignedBusId: null,
+                        busId: null,
+                        assignedRouteId: null,
+                        routeId: null,
+                        updatedAt: FieldValue.serverTimestamp()
+                    });
                 });
-                console.log('   ✅ To driver (%s) set to reserved', request.candidate_name);
+
+                console.log('   ✅ Bus %s restored to requester (swap %s)', request.bus_id, requestId);
+                console.log('   ✅ From driver reassigned to bus (swap %s)', requestId);
+                console.log('   ✅ To driver set to reserved (swap %s)', requestId);
 
             } else {
                 // ========== HANDLE CASE 2: TRUE SWAP (Assigned ↔ Assigned) ==========
@@ -566,8 +635,8 @@ export class DriverSwapSupabaseService {
                 if (hasPrimaryTrip && hasSecondaryTrip) {
                     // BOTH trips are active - wait for both to complete
                     console.log('⏳ Both trips in progress - marking swap %s as pending_revert', requestId);
-                    console.log('   → Primary bus (%s): %s still on trip', request.bus_number, request.candidate_name);
-                    console.log('   → Secondary bus (%s): %s still on trip', request.secondary_bus_number, request.requester_name);
+                    console.log('   → Primary bus: candidate still on trip (swap %s)', requestId);
+                    console.log('   → Secondary bus: requester still on trip (swap %s)', requestId);
                     console.log('   → Both drivers keep their current buses until trips complete');
 
                     await supabase
@@ -595,8 +664,8 @@ export class DriverSwapSupabaseService {
                     // PRIMARY bus has active trip (candidate still driving)
                     // Secondary bus trip is done - make REQUESTER reserved temporarily
                     console.log('⏳ Partial revert - Primary bus trip still active');
-                    console.log('   → %s still on trip with %s - keeps the bus', request.candidate_name, request.bus_number);
-                    console.log('   → %s has finished trip - becomes RESERVED temporarily', request.requester_name);
+                    console.log('   → Candidate still on trip with primary bus - keeps the bus (swap %s)', requestId);
+                    console.log('   → Requester has finished trip - becomes RESERVED temporarily (swap %s)', requestId);
 
                     // Make requester reserved (they finished their trip on secondary bus)
                     const requesterRef = adminDb.collection('drivers').doc(request.requester_driver_uid);
@@ -607,7 +676,7 @@ export class DriverSwapSupabaseService {
                         routeId: null,
                         updatedAt: FieldValue.serverTimestamp()
                     });
-                    console.log('   ✅ %s set to reserved (waiting for %s\'s trip to end)', request.requester_name, request.candidate_name);
+                    console.log('   ✅ Requester set to reserved (waiting for candidate trip to end, swap %s)', requestId);
 
                     // Clear the secondary bus assignment (no driver now)
                     const secondaryBusRef = adminDb.collection('buses').doc(request.secondary_bus_id!);
@@ -617,7 +686,7 @@ export class DriverSwapSupabaseService {
                         activeTripId: null,
                         updatedAt: FieldValue.serverTimestamp()
                     });
-                    console.log('   ✅ Secondary bus (%s) temporarily unassigned', request.secondary_bus_number);
+                    console.log('   ✅ Secondary bus temporarily unassigned (swap %s)', requestId);
 
                     await supabase
                         .from('driver_swap_requests')
@@ -645,8 +714,8 @@ export class DriverSwapSupabaseService {
                     // SECONDARY bus has active trip (requester still driving)
                     // Primary bus trip is done - make CANDIDATE reserved temporarily
                     console.log('⏳ Partial revert - Secondary bus trip still active');
-                    console.log('   → %s still on trip with %s - keeps the bus', request.requester_name, request.secondary_bus_number);
-                    console.log('   → %s has finished trip - becomes RESERVED temporarily', request.candidate_name);
+                    console.log('   → Requester still on trip with secondary bus - keeps the bus (swap %s)', requestId);
+                    console.log('   → Candidate has finished trip - becomes RESERVED temporarily (swap %s)', requestId);
 
                     // Make candidate reserved (they finished their trip on primary bus)
                     const candidateRef = adminDb.collection('drivers').doc(request.candidate_driver_uid);
@@ -657,7 +726,7 @@ export class DriverSwapSupabaseService {
                         routeId: null,
                         updatedAt: FieldValue.serverTimestamp()
                     });
-                    console.log('   ✅ %s set to reserved (waiting for %s\'s trip to end)', request.candidate_name, request.requester_name);
+                    console.log('   ✅ Candidate set to reserved (waiting for requester trip to end, swap %s)', requestId);
 
                     // Clear the primary bus assignment (no driver now)
                     const primaryBusRef = adminDb.collection('buses').doc(request.bus_id);
@@ -667,7 +736,7 @@ export class DriverSwapSupabaseService {
                         activeTripId: null,
                         updatedAt: FieldValue.serverTimestamp()
                     });
-                    console.log('   ✅ Primary bus (%s) temporarily unassigned', request.bus_number);
+                    console.log('   ✅ Primary bus temporarily unassigned (swap %s)', requestId);
 
                     await supabase
                         .from('driver_swap_requests')
@@ -695,171 +764,108 @@ export class DriverSwapSupabaseService {
                     // NO trips active - complete full revert
                     console.log('✅ No active trips - completing TRUE SWAP revert %s', requestId);
 
-                    // Check if this was a partial revert scenario
-                    if (previousPartialRevert === 'secondary') {
-                        // Secondary was already reverted - just need to complete primary side
+                    const isPartialSecondary = previousPartialRevert === 'secondary';
+                    const isPartialPrimary = previousPartialRevert === 'primary';
+                    if (isPartialSecondary) {
                         console.log('   📋 Completing partial revert (secondary side was already done)...');
-
-                        // Restore PRIMARY bus to requester
-                        const primaryBusRef = adminDb.collection('buses').doc(request.bus_id);
-                        await primaryBusRef.update({
-                            activeDriverId: request.requester_driver_uid,
-                            assignedDriverId: request.requester_driver_uid,
-                            activeTripId: null,
-                            updatedAt: FieldValue.serverTimestamp()
-                        });
-                        console.log('   ✅ Primary bus (%s) restored to %s', request.bus_number, request.requester_name);
-
-                        // Restore SECONDARY bus to candidate
-                        const secondaryBusRef = adminDb.collection('buses').doc(request.secondary_bus_id!);
-                        await secondaryBusRef.update({
-                            activeDriverId: request.candidate_driver_uid,
-                            assignedDriverId: request.candidate_driver_uid,
-                            activeTripId: null,
-                            updatedAt: FieldValue.serverTimestamp()
-                        });
-                        console.log('   ✅ Secondary bus (%s) restored to %s', request.secondary_bus_number, request.candidate_name);
-
-                        // Restore requester to primary bus
-                        const fromDriverRef = adminDb.collection('drivers').doc(request.requester_driver_uid);
-                        await fromDriverRef.update({
-                            assignedBusId: request.bus_id,
-                            busId: request.bus_id,
-                            assignedRouteId: request.route_id || null,
-                            routeId: request.route_id || null,
-                            updatedAt: FieldValue.serverTimestamp()
-                        });
-                        console.log('   ✅ %s restored to %s', request.requester_name, request.bus_number);
-
-                        // Restore candidate to secondary bus
-                        const toDriverRef = adminDb.collection('drivers').doc(request.candidate_driver_uid);
-                        await toDriverRef.update({
-                            assignedBusId: request.secondary_bus_id,
-                            busId: request.secondary_bus_id,
-                            assignedRouteId: request.secondary_route_id || null,
-                            routeId: request.secondary_route_id || null,
-                            updatedAt: FieldValue.serverTimestamp()
-                        });
-                        console.log('   ✅ %s restored to %s', request.candidate_name, request.secondary_bus_number);
-
-                    } else if (previousPartialRevert === 'primary') {
-                        // Primary was already reverted - just need to complete secondary side
+                    } else if (isPartialPrimary) {
                         console.log('   📋 Completing partial revert (primary side was already done)...');
-
-                        // Restore PRIMARY bus to requester
-                        const primaryBusRef = adminDb.collection('buses').doc(request.bus_id);
-                        await primaryBusRef.update({
-                            activeDriverId: request.requester_driver_uid,
-                            assignedDriverId: request.requester_driver_uid,
-                            activeTripId: null,
-                            updatedAt: FieldValue.serverTimestamp()
-                        });
-                        console.log('   ✅ Primary bus (%s) restored to %s', request.bus_number, request.requester_name);
-
-                        // Restore SECONDARY bus to candidate
-                        const secondaryBusRef = adminDb.collection('buses').doc(request.secondary_bus_id!);
-                        await secondaryBusRef.update({
-                            activeDriverId: request.candidate_driver_uid,
-                            assignedDriverId: request.candidate_driver_uid,
-                            activeTripId: null,
-                            updatedAt: FieldValue.serverTimestamp()
-                        });
-                        console.log('   ✅ Secondary bus (%s) restored to %s', request.secondary_bus_number, request.candidate_name);
-
-                        // Restore requester to primary bus
-                        const fromDriverRef = adminDb.collection('drivers').doc(request.requester_driver_uid);
-                        await fromDriverRef.update({
-                            assignedBusId: request.bus_id,
-                            busId: request.bus_id,
-                            assignedRouteId: request.route_id || null,
-                            routeId: request.route_id || null,
-                            updatedAt: FieldValue.serverTimestamp()
-                        });
-                        console.log('   ✅ %s restored to %s', request.requester_name, request.bus_number);
-
-                        // Restore candidate to secondary bus
-                        const toDriverRef = adminDb.collection('drivers').doc(request.candidate_driver_uid);
-                        await toDriverRef.update({
-                            assignedBusId: request.secondary_bus_id,
-                            busId: request.secondary_bus_id,
-                            assignedRouteId: request.secondary_route_id || null,
-                            routeId: request.secondary_route_id || null,
-                            updatedAt: FieldValue.serverTimestamp()
-                        });
-                        console.log('   ✅ %s restored to %s', request.candidate_name, request.secondary_bus_number);
-
                     } else {
-                        // Full revert from start (no partial revert was done)
                         console.log('   📋 Reverting TRUE SWAP (full revert)...');
-                        console.log('   ↔️ Restoring: %s → %s, %s → %s', request.requester_name, request.bus_number, request.candidate_name, request.secondary_bus_number);
+                        console.log('   ↔️ Restoring buses to original drivers (swap %s)', requestId);
+                    }
+
+                    // ATOMIC: Wrap ALL bus + driver updates in a single Firestore
+                    // transaction so a partial failure cannot leave one bus assigned
+                    // while the other is orphaned, or a driver doc inconsistent with
+                    // its bus.
+                    await adminDb.runTransaction(async (transaction) => {
+                        const primaryBusRef = adminDb.collection('buses').doc(request.bus_id);
+                        const secondaryBusRef = adminDb.collection('buses').doc(request.secondary_bus_id!);
+                        const fromDriverRef = adminDb.collection('drivers').doc(request.requester_driver_uid);
+                        const toDriverRef = adminDb.collection('drivers').doc(request.candidate_driver_uid);
+
+                        // All reads before writes
+                        await Promise.all([
+                            transaction.get(primaryBusRef),
+                            transaction.get(secondaryBusRef),
+                            transaction.get(fromDriverRef),
+                            transaction.get(toDriverRef),
+                        ]);
 
                         // Restore PRIMARY bus to requester
-                        const primaryBusRef = adminDb.collection('buses').doc(request.bus_id);
-                        await primaryBusRef.update({
+                        transaction.update(primaryBusRef, {
                             activeDriverId: request.requester_driver_uid,
                             assignedDriverId: request.requester_driver_uid,
                             activeTripId: null,
                             updatedAt: FieldValue.serverTimestamp()
                         });
-                        console.log('   ✅ Primary bus (%s) restored to %s', request.bus_number, request.requester_name);
 
                         // Restore SECONDARY bus to candidate
-                        const secondaryBusRef = adminDb.collection('buses').doc(request.secondary_bus_id!);
-                        await secondaryBusRef.update({
+                        transaction.update(secondaryBusRef, {
                             activeDriverId: request.candidate_driver_uid,
                             assignedDriverId: request.candidate_driver_uid,
                             activeTripId: null,
                             updatedAt: FieldValue.serverTimestamp()
                         });
-                        console.log('   ✅ Secondary bus (%s) restored to %s', request.secondary_bus_number, request.candidate_name);
 
                         // Restore requester to primary bus
-                        const fromDriverRef = adminDb.collection('drivers').doc(request.requester_driver_uid);
-                        await fromDriverRef.update({
+                        transaction.update(fromDriverRef, {
                             assignedBusId: request.bus_id,
                             busId: request.bus_id,
                             assignedRouteId: request.route_id || null,
                             routeId: request.route_id || null,
                             updatedAt: FieldValue.serverTimestamp()
                         });
-                        console.log('   ✅ From driver (%s) restored to %s', request.requester_name, request.bus_number);
 
                         // Restore candidate to secondary bus
-                        const toDriverRef = adminDb.collection('drivers').doc(request.candidate_driver_uid);
-                        await toDriverRef.update({
+                        transaction.update(toDriverRef, {
                             assignedBusId: request.secondary_bus_id,
                             busId: request.secondary_bus_id,
                             assignedRouteId: request.secondary_route_id || null,
                             routeId: request.secondary_route_id || null,
                             updatedAt: FieldValue.serverTimestamp()
                         });
-                        console.log('   ✅ To driver (%s) restored to %s', request.candidate_name, request.secondary_bus_number);
-                    }
+                    });
+
+                    console.log('   ✅ Primary bus restored to requester (swap %s)', requestId);
+                    console.log('   ✅ Secondary bus restored to candidate (swap %s)', requestId);
+                    console.log('   ✅ Requester restored to primary bus (swap %s)', requestId);
+                    console.log('   ✅ Candidate restored to secondary bus (swap %s)', requestId);
                 }
             }
 
             // If we reached here without returning, the revert was successful
             console.log('✅ Firestore bus/driver ownership reverted successfully');
 
-            // Delete the temporary assignment from Supabase
-            await supabase
-                .from('temporary_assignments')
-                .delete()
-                .eq('source_request_id', requestId);
-
-            // If this was a true swap (both drivers had buses), cleanup secondary too
-            if (request.secondary_bus_id) {
+            // Supabase cleanup is housekeeping — failure here must NOT lose the
+            // Firestore revert. Wrapped in try-catch so the next cron pass or
+            // opportunistic cleanup will drain orphaned Supabase records.
+            try {
+                // Delete the temporary assignment from Supabase
                 await supabase
                     .from('temporary_assignments')
                     .delete()
-                    .eq('bus_id', request.secondary_bus_id);
-            }
+                    .eq('source_request_id', requestId);
 
-            // Delete the request (cleanup)
-            await supabase
-                .from('driver_swap_requests')
-                .delete()
-                .eq('id', requestId);
+                // If this was a true swap (both drivers had buses), cleanup secondary too
+                if (request.secondary_bus_id) {
+                    await supabase
+                        .from('temporary_assignments')
+                        .delete()
+                        .eq('bus_id', request.secondary_bus_id);
+                }
+
+                // Delete the request (cleanup)
+                await supabase
+                    .from('driver_swap_requests')
+                    .delete()
+                    .eq('id', requestId);
+            } catch (cleanupErr) {
+                console.error('Non-critical: Supabase cleanup failed after Firestore revert:', cleanupErr);
+                // The swap is functionally ended (Firestore ownership reverted).
+                // Orphaned Supabase records will be cleaned by the next cron pass.
+            }
 
 
             console.log('✅ Swap ended and ownership reverted successfully');
@@ -1111,82 +1117,97 @@ export class DriverSwapSupabaseService {
                 // fromDriver (requester) becomes reserved, toDriver (candidate) takes over the bus
                 console.log('   📋 Processing as ASSIGNMENT (to reserved driver)');
 
-                // Update bus document - set candidate as active driver
+                // Atomic: all Firestore writes in a single transaction so bus + both
+                // driver docs are consistent even if a concurrent swap or assignment runs.
                 const busRef = adminDb.collection('buses').doc(request.bus_id);
-                await busRef.update({
-                    activeDriverId: request.candidate_driver_uid,
-                    assignedDriverId: request.candidate_driver_uid,
-                    updatedAt: FieldValue.serverTimestamp()
-                });
-                console.log('   ✅ Bus %s assigned to %s', request.bus_id, request.candidate_name);
-
-                // Update requester (fromDriver) - make them reserved (remove bus assignment)
                 const fromDriverRef = adminDb.collection('drivers').doc(request.requester_driver_uid);
-                await fromDriverRef.update({
-                    assignedBusId: null,
-                    busId: null,
-                    assignedRouteId: null,
-                    routeId: null,
-                    updatedAt: FieldValue.serverTimestamp()
-                });
-                console.log('   ✅ From driver (%s) set to reserved', request.requester_name);
-
-                // Update candidate (toDriver) - assign them to the bus
                 const toDriverRef = adminDb.collection('drivers').doc(request.candidate_driver_uid);
-                await toDriverRef.update({
-                    assignedBusId: request.bus_id,
-                    busId: request.bus_id,
-                    assignedRouteId: request.route_id || null,
-                    routeId: request.route_id || null,
-                    updatedAt: FieldValue.serverTimestamp()
+
+                await adminDb.runTransaction(async (transaction) => {
+                    const [busSnap, fromSnap, toSnap] = await Promise.all([
+                        transaction.get(busRef),
+                        transaction.get(fromDriverRef),
+                        transaction.get(toDriverRef),
+                    ]);
+                    if (!busSnap.exists || !fromSnap.exists || !toSnap.exists) {
+                        throw new Error('Document not found during swap transaction');
+                    }
+                    transaction.update(busRef, {
+                        activeDriverId: request.candidate_driver_uid,
+                        assignedDriverId: request.candidate_driver_uid,
+                        updatedAt: FieldValue.serverTimestamp()
+                    });
+                    transaction.update(fromDriverRef, {
+                        assignedBusId: null,
+                        busId: null,
+                        assignedRouteId: null,
+                        routeId: null,
+                        updatedAt: FieldValue.serverTimestamp()
+                    });
+                    transaction.update(toDriverRef, {
+                        assignedBusId: request.bus_id,
+                        busId: request.bus_id,
+                        assignedRouteId: request.route_id || null,
+                        routeId: request.route_id || null,
+                        updatedAt: FieldValue.serverTimestamp()
+                    });
                 });
-                console.log('   ✅ To driver (%s) assigned to bus %s', request.candidate_name, request.bus_id);
+                console.log('   ✅ Bus %s assigned to %s (atomic)', request.bus_id, request.id);
+                console.log('   ✅ From driver (%s) set to reserved', request.id);
+                console.log('   ✅ To driver (%s) assigned to bus %s', request.id, request.bus_id);
 
             } else {
                 // SCENARIO 2: True Swap between two active drivers
                 // Both drivers exchange their bus assignments
                 console.log('   📋 Processing as TRUE SWAP (both drivers have buses)');
-                console.log('   ↔️ Exchanging: %s ⟷ %s', request.bus_number, request.secondary_bus_number);
+                console.log('   ↔️ Exchanging buses (swap %s)', request.id);
 
-                // Update PRIMARY bus - assign candidate driver
+                // Atomic: all Firestore writes in a single transaction so both buses
+                // and both drivers swap consistently.
                 const primaryBusRef = adminDb.collection('buses').doc(request.bus_id);
-                await primaryBusRef.update({
-                    activeDriverId: request.candidate_driver_uid,
-                    assignedDriverId: request.candidate_driver_uid,
-                    updatedAt: FieldValue.serverTimestamp()
-                });
-                console.log('   ✅ Primary bus (%s) assigned to %s', request.bus_number, request.candidate_name);
-
-                // Update SECONDARY bus - assign requester driver
                 const secondaryBusRef = adminDb.collection('buses').doc(request.secondary_bus_id!);
-                await secondaryBusRef.update({
-                    activeDriverId: request.requester_driver_uid,
-                    assignedDriverId: request.requester_driver_uid,
-                    updatedAt: FieldValue.serverTimestamp()
-                });
-                console.log('   ✅ Secondary bus (%s) assigned to %s', request.secondary_bus_number, request.requester_name);
-
-                // Update requester (fromDriver) - assign to secondary bus
                 const fromDriverRef = adminDb.collection('drivers').doc(request.requester_driver_uid);
-                await fromDriverRef.update({
-                    assignedBusId: request.secondary_bus_id,
-                    busId: request.secondary_bus_id,
-                    assignedRouteId: request.secondary_route_id || null,
-                    routeId: request.secondary_route_id || null,
-                    updatedAt: FieldValue.serverTimestamp()
-                });
-                console.log('   ✅ From driver (%s) assigned to %s', request.requester_name, request.secondary_bus_number);
-
-                // Update candidate (toDriver) - assign to primary bus
                 const toDriverRef = adminDb.collection('drivers').doc(request.candidate_driver_uid);
-                await toDriverRef.update({
-                    assignedBusId: request.bus_id,
-                    busId: request.bus_id,
-                    assignedRouteId: request.route_id || null,
-                    routeId: request.route_id || null,
-                    updatedAt: FieldValue.serverTimestamp()
+
+                await adminDb.runTransaction(async (transaction) => {
+                    const [pBusSnap, sBusSnap, fromSnap, toSnap] = await Promise.all([
+                        transaction.get(primaryBusRef),
+                        transaction.get(secondaryBusRef),
+                        transaction.get(fromDriverRef),
+                        transaction.get(toDriverRef),
+                    ]);
+                    if (!pBusSnap.exists || !sBusSnap.exists || !fromSnap.exists || !toSnap.exists) {
+                        throw new Error('Document not found during swap transaction');
+                    }
+                    transaction.update(primaryBusRef, {
+                        activeDriverId: request.candidate_driver_uid,
+                        assignedDriverId: request.candidate_driver_uid,
+                        updatedAt: FieldValue.serverTimestamp()
+                    });
+                    transaction.update(secondaryBusRef, {
+                        activeDriverId: request.requester_driver_uid,
+                        assignedDriverId: request.requester_driver_uid,
+                        updatedAt: FieldValue.serverTimestamp()
+                    });
+                    transaction.update(fromDriverRef, {
+                        assignedBusId: request.secondary_bus_id,
+                        busId: request.secondary_bus_id,
+                        assignedRouteId: request.secondary_route_id || null,
+                        routeId: request.secondary_route_id || null,
+                        updatedAt: FieldValue.serverTimestamp()
+                    });
+                    transaction.update(toDriverRef, {
+                        assignedBusId: request.bus_id,
+                        busId: request.bus_id,
+                        assignedRouteId: request.route_id || null,
+                        routeId: request.route_id || null,
+                        updatedAt: FieldValue.serverTimestamp()
+                    });
                 });
-                console.log('   ✅ To driver (%s) assigned to %s', request.candidate_name, request.bus_number);
+                console.log('   ✅ Primary bus assigned to candidate (atomic, swap %s)', request.id);
+                console.log('   ✅ Secondary bus assigned to requester (swap %s)', request.id);
+                console.log('   ✅ From driver assigned to secondary bus (swap %s)', request.id);
+                console.log('   ✅ To driver assigned to primary bus (swap %s)', request.id);
             }
 
             console.log('✅ Firestore bus/driver ownership transferred successfully');
@@ -1327,7 +1348,7 @@ export class DriverSwapSupabaseService {
 
     private static async notifyStudentsOfDriverChange(request: SwapRequest): Promise<void> {
         try {
-            console.log('📢 Notifying students of driver change for Bus %s', request.bus_number);
+            console.log('📢 Notifying students of driver change for swap %s', request.id);
 
             // Get students on this bus
             const studentsSnapshot = await adminDb
@@ -1383,16 +1404,16 @@ export class DriverSwapSupabaseService {
      */
     private static async broadcastSwapUpdate(
         requestId: string,
-        eventType: 'swap_cancelled' | 'swap_rejected' | 'swap_accepted',
+        eventType: 'swap_requested' | 'swap_cancelled' | 'swap_rejected' | 'swap_accepted',
         payload: any,
         request?: SwapRequest
     ): Promise<void> {
         try {
             console.log('📡 Broadcasting %s for request %s', eventType, requestId);
             
-            // Extract driver UIDs from payload or request
-            const requesterUID = payload.requesterUID || payload.rejectedBy || payload.cancelledBy || request?.requester_driver_uid;
-            const candidateUID = payload.candidateUID || request?.candidate_driver_uid;
+            // Extract driver UIDs from request or payload cleanly
+            const requesterUID = request?.requester_driver_uid || payload.requesterUID || payload.requesterUid;
+            const candidateUID = request?.candidate_driver_uid || payload.candidateUID || payload.candidateUid;
             
             if (!requesterUID || !candidateUID) {
                 console.error('❌ Cannot broadcast: missing driver UIDs');

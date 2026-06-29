@@ -17,7 +17,8 @@ import { NextResponse } from 'next/server';
 import { withSecurity } from '@/lib/security/api-security';
 import { RateLimits } from '@/lib/security/rate-limiter';
 import { z } from 'zod';
-import { createClient, type SupabaseClient } from '@supabase/supabase-js';
+import { getSupabaseServer } from '@/lib/supabase-server';
+import type { SupabaseClient } from '@supabase/supabase-js';
 export const dynamic = 'force-dynamic';
 
 // ============================================================================
@@ -84,20 +85,11 @@ type ReassignmentLogsDatabase = {
 };
 
 // ============================================================================
-// SUPABASE CLIENT (lazy singleton)
+// SUPABASE CLIENT (via canonical singleton)
 // ============================================================================
 
-let _supabase: SupabaseClient<ReassignmentLogsDatabase> | null = null;
-
 function getSupabase() {
-    if (_supabase) return _supabase;
-
-    const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-    const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-    if (!url || !key) return null;
-
-    _supabase = createClient<ReassignmentLogsDatabase>(url, key, { auth: { persistSession: false } });
-    return _supabase;
+    return getSupabaseServer() as SupabaseClient<ReassignmentLogsDatabase> | null;
 }
 
 // ============================================================================

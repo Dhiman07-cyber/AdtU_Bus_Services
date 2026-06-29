@@ -126,7 +126,7 @@ export async function POST(request: NextRequest) {
       try {
         const { sendApplicationRejectedNotification } = await import('@/lib/services/admin-email.service');
 
-        console.log(`📧 Notification: Queuing renewal rejection email for ${requestData?.studentName} (${studentEmail})`);
+        console.log(`📧 Notification: Queuing renewal rejection email for request ${requestId}`);
 
         await sendApplicationRejectedNotification({
           studentName: requestData?.studentName || 'Student',
@@ -135,47 +135,13 @@ export async function POST(request: NextRequest) {
           rejectedBy: rejectorName || 'Administrator'
         });
 
-        console.log(`📧 Rejection email sent to ${studentEmail}`);
+        console.log(`📧 Rejection email sent for request ${requestId}`);
       } catch (emailError) {
         console.error('❌ Failed to send rejection email:', emailError);
         // Continue with deletion even if email fails
       }
     } else {
       console.warn('⚠️ Student email not found. Notification skipped.');
-    }
-
-    // Delete payment proof image from Cloudinary (if exists)
-    const receiptImageUrl = requestData?.receiptImageUrl;
-    if (receiptImageUrl && cloudinary.config().api_key) {
-      try {
-        console.log('\n🗑️ DELETING PAYMENT PROOF FROM CLOUDINARY');
-        const url = new URL(receiptImageUrl);
-        const pathParts = url.pathname.split('/');
-
-        // Find the part after 'upload' to get the full path
-        const uploadIndex = pathParts.findIndex(part => part === 'upload');
-        if (uploadIndex !== -1) {
-          // Get everything after 'upload' (version, folder, filename)
-          const afterUpload = pathParts.slice(uploadIndex + 1);
-          const fileName = afterUpload[afterUpload.length - 1];
-
-          if (fileName) {
-            // Remove version (v1234567890) and get the actual public ID path
-            const publicIdParts = afterUpload.filter(part => !part.startsWith('v') || isNaN(Number(part.substring(1))));
-            // Remove file extension from the last part
-            const lastPart = publicIdParts[publicIdParts.length - 1];
-            const nameWithoutExtension = lastPart.split('.').slice(0, -1).join('.');
-            publicIdParts[publicIdParts.length - 1] = nameWithoutExtension;
-            const publicId = publicIdParts.join('/');
-
-            await cloudinary.uploader.destroy(publicId);
-            console.log(`✅ Deleted payment proof from Cloudinary: ${publicId}`);
-          }
-        }
-      } catch (cloudinaryError) {
-        console.error('⚠️ Error deleting payment proof from Cloudinary:', cloudinaryError);
-        // Don't fail rejection if deletion fails
-      }
     }
 
     // ── Tier A: a rejection PERMANENTLY destroys the renewal request. Delete it
@@ -217,6 +183,32 @@ export async function POST(request: NextRequest) {
       }
       console.error('❌ Failed to delete renewal request:', deleteError);
       return NextResponse.json({ error: 'Failed to reject renewal request' }, { status: 500 });
+    }
+
+    // Invariant 7: Delete assets ONLY after transaction commit succeeds
+    const receiptImageUrl = requestData?.receiptImageUrl;
+    if (receiptImageUrl && cloudinary.config().api_key) {
+      try {
+        console.log('\n🗑️ DELETING PAYMENT PROOF FROM CLOUDINARY POST-COMMIT');
+        const url = new URL(receiptImageUrl);
+        const pathParts = url.pathname.split('/');
+        const uploadIndex = pathParts.findIndex(part => part === 'upload');
+        if (uploadIndex !== -1) {
+          const afterUpload = pathParts.slice(uploadIndex + 1);
+          const fileName = afterUpload[afterUpload.length - 1];
+          if (fileName) {
+            const publicIdParts = afterUpload.filter(part => !part.startsWith('v') || isNaN(Number(part.substring(1))));
+            const lastPart = publicIdParts[publicIdParts.length - 1];
+            const nameWithoutExtension = lastPart.split('.').slice(0, -1).join('.');
+            publicIdParts[publicIdParts.length - 1] = nameWithoutExtension;
+            const publicId = publicIdParts.join('/');
+            await cloudinary.uploader.destroy(publicId);
+            console.log(`✅ Deleted payment proof from Cloudinary post-commit: ${publicId}`);
+          }
+        }
+      } catch (cloudinaryError) {
+        console.error('⚠️ Error deleting payment proof from Cloudinary post-commit:', cloudinaryError);
+      }
     }
 
     return NextResponse.json({

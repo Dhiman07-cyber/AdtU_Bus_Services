@@ -19,7 +19,7 @@ export const POST = withSecurity(
     const gate = await requireTransportEntitlement(studentUid);
     if (!gate.ok) return (gate as any).response;
 
-    console.log('🔔 Student notifying driver:', { studentUid, busId, studentName });
+    console.log('🔔 Student notifying driver:', { studentUid: studentUid.substring(0,8)+'...', busId });
 
     // Find the driver assigned to this bus
     let driversSnapshot = await adminDb

@@ -40,10 +40,12 @@ import { db } from '@/lib/firebase';
 import { toast } from 'react-hot-toast';
 import { isUpcomingApplication, getUpcomingStatus } from '@/lib/utils/application-eligibility';
 
+import { PermissionDeniedCard } from '@/components/PermissionDeniedCard';
+
 export default function ModeratorApplicationsPage() {
   const { currentUser, userData } = useAuth();
   const router = useRouter();
-  const { canApplicationApprove, canApplicationReject } = useModeratorPermissions();
+  const { canApplicationView, canApplicationApprove, canApplicationReject, loading: permsLoading } = useModeratorPermissions();
 
   // SPARK PLAN SAFETY: Manual refresh only - no auto-polling to conserve quota
   const { data: pendingApplications, loading, refresh: refreshApplications } = usePaginatedCollection('applications', {
@@ -666,6 +668,10 @@ export default function ModeratorApplicationsPage() {
         </Card>
       </div>
     );
+  }
+
+  if (!permsLoading && !canApplicationView) {
+    return <PermissionDeniedCard title="Applications Section Restricted" actionName="Viewing Applications" showGoBack={false} />;
   }
 
   return (

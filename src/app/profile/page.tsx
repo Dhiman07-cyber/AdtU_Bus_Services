@@ -6,15 +6,21 @@ import { useEffect } from "react";
 import { Loader2 } from "lucide-react";
 
 export default function ProfileRedirect() {
-  const { userData } = useAuth();
+  const { currentUser, userData, loading } = useAuth();
   const router = useRouter();
 
   useEffect(() => {
+    if (loading) return;
+
+    if (!currentUser) {
+      router.replace('/login');
+      return;
+    }
+
     if (userData?.role) {
-      // Redirect to role-specific profile
       router.replace(`/${userData.role}/profile`);
     }
-  }, [userData, router]);
+  }, [currentUser, userData, loading, router]);
 
   return (
     <div className="flex-1 min-h-[calc(100dvh-120px)] flex items-center justify-center bg-gray-50 dark:bg-gray-950">

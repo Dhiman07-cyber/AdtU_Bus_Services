@@ -237,73 +237,6 @@ export async function POST(request: NextRequest) {
     };
 
 
-    const paymentAmount = Number(paymentInfo.amountPaid || 0);
-    if (paymentAmount > 0) {
-      const isOnlinePayment = paymentInfo.paymentMode === 'online';
-
-      if (isOnlinePayment) {
-        const { paymentsSupabaseService } = await import('@/lib/services/payments-supabase');
-        const studentPayments = await paymentsSupabaseService.getPaymentsByStudentUid(applicantUid);
-        const onlinePayment = studentPayments.find(p => p.method === 'Online' && p.status === 'Completed');
-        if (!onlinePayment) {
-          throw new Error('Completed online payment record not found');
-        }
-
-        const updatedPaymentId = await paymentsSupabaseService.upsertPayment({
-          paymentId: onlinePayment.payment_id,
-          studentId: onlinePayment.student_id,
-          studentUid: onlinePayment.student_uid,
-          studentName: onlinePayment.student_name,
-          amount: onlinePayment.amount,
-          method: 'Online',
-          status: 'Completed',
-          sessionStartYear: finalStartYear,
-          sessionEndYear,
-          durationYears: finalDurationYears,
-          validUntil: new Date(validUntil),
-          razorpayPaymentId: onlinePayment.razorpay_payment_id,
-          razorpayOrderId: onlinePayment.razorpay_order_id,
-        });
-
-        if (!updatedPaymentId) {
-          throw new Error('Failed to update online payment validity');
-        }
-      } else {
-        // Deterministic offline payment id keyed by applicant — stable across
-        // retries so re-running the approval never creates a duplicate ledger entry.
-        const paymentId =
-          asString(appData.paymentId) ||
-          asString(formData.paymentId) ||
-          asString(paymentInfo.paymentReference) ||
-          `OADF_APP_${applicantUid}`;
-
-        await PaymentTransactionService.saveTransaction({
-          paymentId,
-          studentId: asString(formData.enrollmentId),
-          studentName: asString(formData.fullName),
-          userId: applicantUid,
-          amount: paymentAmount,
-          paymentMethod: 'offline',
-          status: 'completed',
-          sessionStartYear: finalStartYear,
-          sessionEndYear,
-          durationYears: finalDurationYears,
-          validUntil,
-          timestamp: nowIso,
-          offlineTransactionId: asString(paymentInfo.paymentReference) || `unauth_app_fee_${applicantUid}`,
-          approvedBy: {
-            userId: moderatorUid,
-            empId: asString(moderatorData?.employeeId) || moderatorUid,
-            name: asString(moderatorData?.name) || moderatorEmail || 'Approver',
-            role: approverRole,
-            email: moderatorEmail,
-          },
-          approvedByDisplay,
-          approvedAtISO: nowIso,
-        });
-      }
-    }
-
     // Atomic entitlement + capacity allocation (single Firestore transaction).
     //   Student + user creation, application/unauth cleanup, and the capacity
     //   increment commit together or not at all. The application is re-read inside
@@ -328,6 +261,11 @@ export async function POST(request: NextRequest) {
         if (!freshAppSnap.exists) {
           throw new ApprovalConflictError('Application already processed');
         }
+        // Reject drafts — only 'submitted' applications may be approved.
+        const freshState = freshAppSnap.data()?.state;
+        if (freshState !== 'submitted') {
+          throw new ApprovalConflictError(`Application state is '${freshState}', expected 'submitted'`);
+        }
         let busSnap: FirebaseFirestore.DocumentSnapshot | null = null;
         if (busRef) {
           busSnap = await transaction.get(busRef);
@@ -348,7 +286,8 @@ export async function POST(request: NextRequest) {
             busNumberForAlert = busData?.busNumber || '';
             routeIdForAlert = busData?.routeId || '';
           } else {
-            console.warn(`⚠️ approve-unauth: bus ${busId} not found; student created without capacity increment`);
+            // Bus referenced but does not exist — abort, don't create a phantom assignment.
+            throw new Error(`Assigned bus ${busId} not found; cannot approve without a valid bus`);
           }
         }
 
@@ -411,6 +350,76 @@ export async function POST(request: NextRequest) {
     }
 
     // (Approval audit is now written atomically inside the transaction above.)
+
+    // Payment processing AFTER successful transaction — prevents inconsistent
+    //    state where payment is Completed but student was never created (e.g. bus
+    //    full race or duplicate approval conflict).
+    const paymentAmount = Number(paymentInfo.amountPaid || 0);
+    if (paymentAmount > 0) {
+      const isOnlinePayment = paymentInfo.paymentMode === 'online';
+
+      if (isOnlinePayment) {
+        const { paymentsSupabaseService } = await import('@/lib/services/payments-supabase');
+        const studentPayments = await paymentsSupabaseService.getPaymentsByStudentUid(applicantUid);
+        const onlinePayment = studentPayments.find(p => p.method === 'Online' && p.status === 'Completed');
+        if (!onlinePayment) {
+          console.error('Completed online payment record not found post-transaction for', applicantUid);
+        } else {
+          const updatedPaymentId = await paymentsSupabaseService.upsertPayment({
+            paymentId: onlinePayment.payment_id,
+            studentId: onlinePayment.student_id,
+            studentUid: onlinePayment.student_uid,
+            studentName: onlinePayment.student_name,
+            amount: onlinePayment.amount,
+            method: 'Online',
+            status: 'Completed',
+            sessionStartYear: finalStartYear,
+            sessionEndYear,
+            durationYears: finalDurationYears,
+            validUntil: new Date(validUntil),
+            razorpayPaymentId: onlinePayment.razorpay_payment_id,
+            razorpayOrderId: onlinePayment.razorpay_order_id,
+          });
+
+          if (!updatedPaymentId) {
+            console.error('Failed to update online payment validity post-transaction for', applicantUid);
+          }
+        }
+      } else {
+        // Deterministic offline payment id keyed by applicant — stable across
+        // retries so re-running the approval never creates a duplicate ledger entry.
+        const paymentId =
+          asString(appData.paymentId) ||
+          asString(formData.paymentId) ||
+          asString(paymentInfo.paymentReference) ||
+          `OADF_APP_${applicantUid}`;
+
+        await PaymentTransactionService.saveTransaction({
+          paymentId,
+          studentId: asString(formData.enrollmentId),
+          studentName: asString(formData.fullName),
+          userId: applicantUid,
+          amount: paymentAmount,
+          paymentMethod: 'offline',
+          status: 'completed',
+          sessionStartYear: finalStartYear,
+          sessionEndYear,
+          durationYears: finalDurationYears,
+          validUntil,
+          timestamp: nowIso,
+          offlineTransactionId: asString(paymentInfo.paymentReference) || `unauth_app_fee_${applicantUid}`,
+          approvedBy: {
+            userId: moderatorUid,
+            empId: asString(moderatorData?.employeeId) || moderatorUid,
+            name: asString(moderatorData?.name) || moderatorEmail || 'Approver',
+            role: approverRole,
+            email: moderatorEmail,
+          },
+          approvedByDisplay,
+          approvedAtISO: nowIso,
+        });
+      }
+    }
 
     if (studentDoc.email) {
       try {

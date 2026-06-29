@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { auth } from '@/lib/firebase-admin';
+import { auth, db as adminDb } from '@/lib/firebase-admin';
 import { DriverSwapSupabaseService } from '@/lib/driver-swap-supabase';
 
 export async function POST(
@@ -23,6 +23,15 @@ export async function POST(
     const token = authHeader.substring(7);
     const decodedToken = await auth.verifyIdToken(token);
     const userUID = decodedToken.uid;
+
+    // SECURITY: Verify the caller is actually a driver.
+    const driverDoc = await adminDb.collection('drivers').doc(userUID).get();
+    if (!driverDoc.exists) {
+      return NextResponse.json(
+        { error: 'Only drivers can cancel swap requests' },
+        { status: 403 }
+      );
+    }
 
     console.log('📥 Cancel swap request: %s by %s', requestId, userUID.substring(0, 8));
 

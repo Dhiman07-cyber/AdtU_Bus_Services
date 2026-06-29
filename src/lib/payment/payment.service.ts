@@ -19,6 +19,7 @@ import { adminDb } from '@/lib/firebase-admin';
 import { FieldValue } from 'firebase-admin/firestore';
 import { paymentsSupabaseService, type PaymentRecord } from '@/lib/services/payments-supabase';
 import { ensureReceiptSignature } from '@/lib/services/receipt.service';
+import { recordOperationalEvent } from '@/lib/audit/audit-service';
 import {
     PaymentDocument,
     OnlinePaymentDocument,
@@ -181,13 +182,34 @@ async function applyPaymentValidityToStudent(payment: PaymentRecord): Promise<vo
     const studentRef = adminDb.collection(STUDENTS_COLLECTION).doc(payment.student_uid);
     const newValidUntil = payment.valid_until ? new Date(payment.valid_until) : null;
 
-    await studentRef.update({
-        validUntil: newValidUntil,
-        sessionStartYear: payment.session_start_year,
-        sessionEndYear: payment.session_end_year,
-        status: 'active',
-        lastRenewalDate: FieldValue.serverTimestamp(),
-        updatedAt: FieldValue.serverTimestamp(),
+    // Atomic read-modify-write: the read + max-merge + update are inside a single
+    // Firestore transaction. Without this, a concurrent renewal or payment approval
+    // that writes validUntil between our read and our write would be silently lost
+    // (lost update / write skew).
+    await adminDb.runTransaction(async (transaction) => {
+        const studentSnap = await transaction.get(studentRef);
+        if (!studentSnap.exists) return;
+        const studentData = studentSnap.data() || {};
+        const existingValidUntil = studentData.validUntil
+            ? (studentData.validUntil.toDate ? studentData.validUntil.toDate() : new Date(studentData.validUntil))
+            : null;
+
+        // Invariant 1: older payment cannot overwrite newer validity; no workflow shortens entitlement
+        const finalValidUntil = (existingValidUntil && newValidUntil && existingValidUntil > newValidUntil)
+            ? existingValidUntil
+            : newValidUntil;
+        const finalSessionEndYear = (studentData.sessionEndYear && payment.session_end_year && studentData.sessionEndYear > payment.session_end_year)
+            ? studentData.sessionEndYear
+            : payment.session_end_year;
+
+        transaction.update(studentRef, {
+            validUntil: finalValidUntil,
+            sessionStartYear: payment.session_start_year || studentData.sessionStartYear,
+            sessionEndYear: finalSessionEndYear,
+            status: 'active',
+            lastRenewalDate: FieldValue.serverTimestamp(),
+            updatedAt: FieldValue.serverTimestamp(),
+        });
     });
 }
 
@@ -224,7 +246,12 @@ export async function approveOfflinePayment(
         // IDEMPOTENT: If already completed, return success
         if (payment.status === 'Completed') {
             await applyPaymentValidityToStudent(payment);
-            await requireSecuredReceiptSignature(payment);
+            // Receipt signature is secondary — log failure but don't throw
+            try {
+                await requireSecuredReceiptSignature(payment);
+            } catch (sigErr: any) {
+                console.error(`⚠️ Receipt signature failed for already-completed payment ${request.paymentId}:`, sigErr.message);
+            }
             return {
                 success: true,
                 payment: mapSupabaseToFirestoreFormat(payment),
@@ -262,25 +289,68 @@ export async function approveOfflinePayment(
             throw new Error('Payment approval could not be confirmed');
         }
 
-        // Update student document validity in Firestore
+        // Update student document validity in Firestore safely via helper.
+        // Retry up to 3 times — if this fails, the payment is Completed but the
+        // student's validity was never extended. The admin must manually renew.
         if (completedPayment.student_uid) {
-            const studentRef = adminDb.collection(STUDENTS_COLLECTION).doc(completedPayment.student_uid);
-            
-            const newValidUntil = completedPayment.valid_until ? new Date(completedPayment.valid_until) : null;
-            
-            await studentRef.update({
-                validUntil: newValidUntil,
-                sessionStartYear: completedPayment.session_start_year,
-                sessionEndYear: completedPayment.session_end_year,
-                status: 'active',
-                lastRenewalDate: FieldValue.serverTimestamp(),
-                updatedAt: FieldValue.serverTimestamp(),
-            });
+            let studentUpdated = false;
+            for (let attempt = 1; attempt <= 3; attempt++) {
+                try {
+                    await applyPaymentValidityToStudent(completedPayment);
+                    studentUpdated = true;
+                    console.log(`✅ Success: Student ${payment.student_uid.substring(0,8)}... validity updated securely (attempt ${attempt}).`);
+                    break;
+                } catch (studentErr: any) {
+                    console.error(`❌ Attempt ${attempt}/3: Failed to update student ${completedPayment.student_uid.substring(0,8)}... validity:`, studentErr.message);
+                    if (attempt < 3) {
+                        await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
+                    }
+                }
+            }
+            if (!studentUpdated) {
+                console.error(`🔴 CRITICAL: Payment ${request.paymentId} is Completed but student ${completedPayment.student_uid.substring(0,8)}... validity was NOT updated after 3 attempts. Admin must manually renew.`);
 
-            console.log(`✅ Success: Student ${payment.student_uid} validity updated until ${newValidUntil?.toISOString()}`);
+                // Write a detectable outbox record so the next cron, admin scan, or
+                // reconciliation pass can identify and repair this diverged state.
+                try {
+                    await adminDb.collection('audit_failures').add({
+                        kind: 'payment_student_validity_sync',
+                        paymentId: request.paymentId,
+                        studentUid: completedPayment.student_uid,
+                        paymentStatus: 'Completed',
+                        studentValidityUpdated: false,
+                        error: 'Student validity update failed after 3 retries',
+                        recovered: false,
+                        createdAtISO: new Date().toISOString(),
+                    });
+                } catch (outboxErr) {
+                    console.error('CRITICAL: Could not write audit_failure outbox for payment', request.paymentId.substring(0,8)+'...', outboxErr);
+                }
+            }
         }
 
-        await requireSecuredReceiptSignature(completedPayment);
+        // Receipt signature is secondary — log failure but don't throw
+        try {
+            await requireSecuredReceiptSignature(completedPayment);
+        } catch (sigErr: any) {
+            console.error(`⚠️ Receipt signature failed for payment ${request.paymentId}:`, sigErr.message);
+        }
+
+        await recordOperationalEvent({
+            action: 'payment_approved',
+            actor: {
+                id: request.approverUserId,
+                role: (request.approverRole?.toLowerCase() || 'admin') as any,
+                name: request.approverName,
+            },
+            targetId: request.paymentId,
+            targetType: 'payment',
+            targetName: completedPayment.student_name || '',
+            reason: 'manual_offline_approval',
+            before: { status: 'Pending', amount: payment.amount },
+            after: { status: 'Completed', amount: completedPayment.amount, validUntil: completedPayment.valid_until },
+            details: { studentUid: completedPayment.student_uid, empId: request.approverEmpId },
+        }).catch((e) => console.error('Payment approval audit write failed:', e));
 
         // Return compatible format
         return {
@@ -360,7 +430,23 @@ export async function rejectOfflinePayment(
             throw new Error('Payment was already processed by another reviewer');
         }
 
-        console.log(`🗑️ Payment ${request.paymentId} rejected by ${request.rejectorName}`);
+        console.log(`🗑️ Payment ${request.paymentId.substring(0,8)}... rejected by ${request.rejectorName?.substring(0,8) || 'admin'}...`);
+
+        await recordOperationalEvent({
+            action: 'payment_rejected',
+            actor: {
+                id: request.rejectorUserId,
+                role: (request.rejectorRole?.toLowerCase() || 'admin') as any,
+                name: request.rejectorName,
+            },
+            targetId: request.paymentId,
+            targetType: 'payment',
+            targetName: payment.student_name || '',
+            reason: 'manual_offline_rejection',
+            before: { status: 'Pending', amount: payment.amount },
+            after: { status: 'Rejected' },
+            details: { studentUid: payment.student_uid, empId: request.rejectorEmpId },
+        }).catch((e) => console.error('Payment rejection audit write failed:', e));
 
         return { success: true };
     } catch (error) {

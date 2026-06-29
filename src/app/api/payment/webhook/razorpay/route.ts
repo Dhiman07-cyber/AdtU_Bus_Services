@@ -74,8 +74,58 @@ export async function POST(request: NextRequest) {
 
 
 
+      const rawPurpose = String(notes.purpose || notes.type || '');
+      const isNewRegistration = rawPurpose.toLowerCase().includes('registration') || rawPurpose.toLowerCase() === 'new_registration';
+
       // Fetch dynamic deadline config
       const deadlineConfig = await getDeadlineConfig();
+
+      if (isNewRegistration) {
+        let alreadyMarked = false;
+        await adminDb.runTransaction(async (transaction: any) => {
+          const processedPaymentRef = adminDb.collection('processed_payments').doc(paymentId);
+          const processedPaymentDoc = await transaction.get(processedPaymentRef);
+          if (processedPaymentDoc.exists) {
+            alreadyMarked = true;
+            return;
+          }
+          transaction.set(processedPaymentRef, {
+            paymentId,
+            orderId: order_id,
+            processedAt: FieldValue.serverTimestamp(),
+            amount: amount / 100,
+            enrollmentId: enrollmentId || '',
+            userId: userId || '',
+            source: 'webhook'
+          });
+        });
+
+        if (alreadyMarked) {
+          return NextResponse.json({ status: 'already_processed' }, { status: 200 });
+        }
+
+        const targetValidUntil = calculateValidUntilDate(
+          new Date().getFullYear(),
+          durationYears,
+          deadlineConfig
+        );
+
+        await PaymentTransactionService.saveTransaction({
+          studentId: enrollmentId || '',
+          studentName,
+          amount: amount / 100,
+          paymentMethod: 'online',
+          paymentId,
+          timestamp: new Date().toISOString(),
+          durationYears,
+          validUntil: targetValidUntil.toISOString(),
+          userId: userId || '',
+          status: 'completed',
+          purpose: 'new_registration'
+        });
+
+        return NextResponse.json({ status: 'success' }, { status: 200 });
+      }
 
       // Find student by enrollmentId OR userId
       let studentRef: any;
@@ -252,21 +302,30 @@ export async function POST(request: NextRequest) {
               ...moderatorsSnapshot.docs.map((d: any) => d.id),
             ];
             if (allStaffIds.length > 0) {
-              const expiryDate = new Date();
-              expiryDate.setHours(23, 59, 59, 999);
-              await adminDb.collection('notifications').add({
-                title: 'Online Renewal Awaiting Approval',
-                content: `${actualStudentName} (${enrollmentId || ''}) paid online for a ${durationYears} year(s) renewal and is awaiting approval.`,
-                sender: { userId: studentDocId, userName: actualStudentName, userRole: 'student', enrollmentId: enrollmentId || '' },
-                target: { type: 'specific_users', specificUserIds: allStaffIds },
-                recipientIds: allStaffIds,
-                autoInjectedRecipientIds: [],
-                readByUserIds: [],
-                isEdited: false,
-                isDeletedGlobally: false,
-                createdAt: FieldValue.serverTimestamp(),
-                expiresAt: expiryDate.toISOString(),
-              });
+              // Dedup: skip if a notification for this student's renewal already exists
+              const existingNotif = await adminDb.collection('notifications')
+                .where('sender.userId', '==', studentDocId)
+                .where('title', '==', 'Online Renewal Awaiting Approval')
+                .limit(1)
+                .get();
+              if (existingNotif.empty) {
+                const expiryDate = new Date();
+                expiryDate.setHours(23, 59, 59, 999);
+                await adminDb.collection('notifications').add({
+                  title: 'Online Renewal Awaiting Approval',
+                  content: `${actualStudentName} (${enrollmentId || ''}) paid online for a ${durationYears} year(s) renewal and is awaiting approval.`,
+                  sender: { userId: studentDocId, userName: actualStudentName, userRole: 'student', enrollmentId: enrollmentId || '' },
+                  target: { type: 'specific_users', specificUserIds: allStaffIds },
+                  recipientIds: allStaffIds,
+                  autoInjectedRecipientIds: [],
+                  readByUserIds: [],
+                  isEdited: false,
+                  isDeletedGlobally: false,
+                  createdAt: FieldValue.serverTimestamp(),
+                  expiresAt: expiryDate.toISOString(),
+                  metadata: { paymentId },
+                });
+              }
             }
           } catch (notifyErr) {
             console.error('[webhook] Failed to notify staff of online renewal request:', notifyErr);

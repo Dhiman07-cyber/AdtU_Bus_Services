@@ -44,33 +44,9 @@ import {
 } from "@/components/ui/dialog";
 import { getDriverById, deleteDriver } from '@/lib/dataService';
 import { safeImageSrc } from "@/lib/security/url-sanitizer";
+import { formatDateFlexible } from '@/lib/utils/date-utils';
 
-const formatDate = (dateValue: any) => {
-  if (!dateValue) return 'Not provided';
-  try {
-    let date: Date;
-
-    if (typeof dateValue === 'object' && 'seconds' in dateValue && 'nanoseconds' in dateValue) {
-      date = new Date(dateValue.seconds * 1000);
-    } else if (typeof dateValue === 'string') {
-      date = new Date(dateValue);
-    } else if (dateValue instanceof Date) {
-      date = dateValue;
-    } else {
-      return 'Not provided';
-    }
-
-    if (isNaN(date.getTime())) return 'Not provided';
-
-    return date.toLocaleDateString('en-US', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric'
-    });
-  } catch (error) {
-    return 'Not provided';
-  }
-};
+const formatDate = formatDateFlexible;
 
 const calculateAge = (dob: string | undefined) => {
   if (!dob) return null;
@@ -144,9 +120,13 @@ const InfoCard = ({ icon: Icon, label, value, gradient }: any) => (
   </div>
 );
 
+import { useModeratorPermissions } from '@/hooks/useModeratorPermissions';
+import { PermissionDeniedCard } from '@/components/PermissionDeniedCard';
+
 export default function ViewDriverPage({ params }: { params: Promise<{ id: string }> }) {
   const router = useRouter();
   const { addToast } = useToast();
+  const { canDriverView, canDriverEdit, canDriverDelete, loading: permsLoading } = useModeratorPermissions();
   const { id } = use(params);
   const [driver, setDriver] = useState<any>(null);
   const [loading, setLoading] = useState(true);
@@ -226,6 +206,10 @@ export default function ViewDriverPage({ params }: { params: Promise<{ id: strin
     );
   }
 
+  if (!permsLoading && !canDriverView) {
+    return <PermissionDeniedCard title="Driver Profile Restricted" actionName="Viewing Driver Details" />;
+  }
+
   return (
     <div className="min-h-screen pb-12 mt-7 bg-gradient-to-br from-background via-background to-muted/20">
       {/* Header */}
@@ -244,18 +228,22 @@ export default function ViewDriverPage({ params }: { params: Promise<{ id: strin
                   &lt;- Back
                 </Button>
               </Link>
-              <Button
-                onClick={handleEdit}
-                className="hidden md:inline-flex bg-white hover:bg-gray-100 text-black border border-gray-200 px-2.5 py-1.5 rounded-lg text-xs shadow-sm h-7">
-                <Edit className="w-3 h-3 mr-1" />
-                Edit Profile
-              </Button>
-              <Button
-                onClick={handleDelete}
-                className="hidden md:inline-flex bg-red-600 hover:bg-red-700 text-white px-2.5 py-1.5 rounded-lg text-xs shadow-sm h-7">
-                <Trash2 className="w-3 h-3 mr-1" />
-                Delete
-              </Button>
+              {canDriverEdit && (
+                <Button
+                  onClick={handleEdit}
+                  className="hidden md:inline-flex bg-white hover:bg-gray-100 text-black border border-gray-200 px-2.5 py-1.5 rounded-lg text-xs shadow-sm h-7">
+                  <Edit className="w-3 h-3 mr-1" />
+                  Edit Profile
+                </Button>
+              )}
+              {canDriverDelete && (
+                <Button
+                  onClick={handleDelete}
+                  className="hidden md:inline-flex bg-red-600 hover:bg-red-700 text-white px-2.5 py-1.5 rounded-lg text-xs shadow-sm h-7">
+                  <Trash2 className="w-3 h-3 mr-1" />
+                  Delete
+                </Button>
+              )}
             </div>
           </div>
         </div>

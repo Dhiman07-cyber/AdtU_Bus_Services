@@ -1,22 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { adminAuth, adminDb } from '@/lib/firebase-admin';
 import { Application, AuditLogEntry } from '@/lib/types/application';
-import { v2 as cloudinary } from 'cloudinary';
+import { deleteAsset, extractPublicId } from '@/lib/cloudinary-server';
 import { sendApplicationRejectedNotification } from '@/lib/services/admin-email.service';
 import { requireModeratorPermission } from '@/lib/security/moderator-permissions';
 import { writeAuditInTransaction } from '@/lib/audit/audit-service';
 
 /** Thrown inside the rejection transaction when the application was already consumed (duplicate / retry). */
 class ApplicationGoneError extends Error {}
-
-// Configure Cloudinary
-if (process.env.CLOUDINARY_API_KEY && process.env.CLOUDINARY_API_SECRET && process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME) {
-  cloudinary.config({
-    cloud_name: process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME,
-    api_key: process.env.CLOUDINARY_API_KEY,
-    api_secret: process.env.CLOUDINARY_API_SECRET,
-  });
-}
 
 export async function POST(request: NextRequest) {
   try {
@@ -74,92 +65,20 @@ export async function POST(request: NextRequest) {
       }, { status: 400 });
     }
 
-    // Delete payment proof AND profile image from Cloudinary
     const formData = appData.formData;
 
-    // Delete payment proof
-    if (formData.paymentInfo?.paymentEvidenceUrl && cloudinary.config().api_key) {
-      try {
-        const url = new URL(formData.paymentInfo.paymentEvidenceUrl);
-        const pathParts = url.pathname.split('/');
-
-        // Find the part after 'upload' to get the full path
-        const uploadIndex = pathParts.findIndex(part => part === 'upload');
-        if (uploadIndex !== -1) {
-          // Get everything after 'upload' (version, folder, filename)
-          const afterUpload = pathParts.slice(uploadIndex + 1);
-          const fileName = afterUpload[afterUpload.length - 1];
-
-          if (fileName) {
-            // Remove version (v1234567890) and get the actual public ID path
-            const publicIdParts = afterUpload.filter(part => !part.startsWith('v') || isNaN(Number(part.substring(1))));
-            // Remove file extension from the last part
-            const lastPart = publicIdParts[publicIdParts.length - 1];
-            const nameWithoutExtension = lastPart.split('.').slice(0, -1).join('.');
-            publicIdParts[publicIdParts.length - 1] = nameWithoutExtension;
-            const publicId = publicIdParts.join('/');
-
-            await cloudinary.uploader.destroy(publicId);
-            console.log(`✅ Deleted payment proof from Cloudinary: ${publicId}`);
-          }
-        }
-      } catch (cloudinaryError) {
-        console.error('⚠️ Error deleting payment proof from Cloudinary:', cloudinaryError);
-      }
-    }
-
-    // Delete profile photo
-    if (formData.profilePhotoUrl && cloudinary.config().api_key) {
-      try {
-        const url = new URL(formData.profilePhotoUrl);
-        const pathParts = url.pathname.split('/');
-
-        // Find the part after 'upload' to get the full path
-        const uploadIndex = pathParts.findIndex(part => part === 'upload');
-        if (uploadIndex !== -1) {
-          // Get everything after 'upload' (version, folder, filename)
-          const afterUpload = pathParts.slice(uploadIndex + 1);
-          const fileName = afterUpload[afterUpload.length - 1];
-
-          if (fileName) {
-            // Remove version (v1234567890) and get the actual public ID path
-            const publicIdParts = afterUpload.filter(part => !part.startsWith('v') || isNaN(Number(part.substring(1))));
-            // Remove file extension from the last part
-            const lastPart = publicIdParts[publicIdParts.length - 1];
-            const nameWithoutExtension = lastPart.split('.').slice(0, -1).join('.');
-            publicIdParts[publicIdParts.length - 1] = nameWithoutExtension;
-            const publicId = publicIdParts.join('/');
-
-            await cloudinary.uploader.destroy(publicId);
-            console.log(`✅ Deleted profile photo from Cloudinary: ${publicId}`);
-          }
-        }
-      } catch (cloudinaryError) {
-        console.error('⚠️ Error deleting profile photo from Cloudinary:', cloudinaryError);
-      }
-    }
-
-    // ✅ CLEANUP: Remove pending payment record from Supabase
-    if ((appData as any).paymentId) {
-      try {
-        const { paymentsSupabaseService } = await import('@/lib/services/payments-supabase');
-        
-        await paymentsSupabaseService.updatePaymentStatus((appData as any).paymentId, 'Rejected', {
-          userId: uid,
-          name: actorData?.fullName || actorData?.name || rejectorName,
-          empId: actorData?.employeeId || actorData?.staffId || '',
-          role: adminDoc.exists ? 'Admin' : 'Moderator',
-        });
-      } catch (paymentCleanupError) {
-        console.error('Failed to reject pending payment record:', paymentCleanupError);
-      }
-    }
+    // Capture payment ID before the transaction — used for cleanup AFTER successful
+    // deletion. Payment rejection is moved AFTER the Firestore transaction to prevent
+    // partial-commit: if the transaction fails (application already consumed), the
+    // payment is NOT rejected (application still exists, so the payment is still valid).
+    const rejectPaymentId = (appData as any).paymentId || null;
 
     // ── Tier A: a rejection PERMANENTLY destroys the application. Delete it and
     //    write the audit record (who rejected, when, WHY, and a snapshot of WHAT
     //    was destroyed) in ONE transaction, so the action is always reconstructible
     //    and the document can never vanish without an audit trail. The state is
     //    re-read inside the transaction for idempotency (concurrent double-reject).
+    let applicationDeleted = false;
     try {
       const destroyedSnapshot = {
         applicantUid: appData.applicantUid,
@@ -193,6 +112,7 @@ export async function POST(request: NextRequest) {
           correlationId: applicationId,
         });
       });
+      applicationDeleted = true;
       console.log('✅ Deleted rejected applications document for:', applicationId);
     } catch (deleteError) {
       if (deleteError instanceof ApplicationGoneError) {
@@ -200,6 +120,41 @@ export async function POST(request: NextRequest) {
       }
       console.error('❌ Could not delete applications doc:', deleteError);
       return NextResponse.json({ error: 'Failed to reject application' }, { status: 500 });
+    }
+
+    // ✅ CLEANUP: Remove pending payment record from Supabase — ONLY after the
+    //    Firestore transaction succeeds (application was actually deleted). Prevents
+    //    partial-commit: if the transaction failed, the application still exists and
+    //    the payment remains valid for it.
+    if (applicationDeleted && rejectPaymentId) {
+      try {
+        const { paymentsSupabaseService } = await import('@/lib/services/payments-supabase');
+        
+        await paymentsSupabaseService.updatePaymentStatus(rejectPaymentId, 'Rejected', {
+          userId: uid,
+          name: actorData?.fullName || actorData?.name || rejectorName,
+          empId: actorData?.employeeId || actorData?.staffId || '',
+          role: adminDoc.exists ? 'Admin' : 'Moderator',
+        });
+      } catch (paymentCleanupError) {
+        console.error('Failed to reject pending payment record:', paymentCleanupError);
+      }
+    }
+
+    // Invariant 7: Delete assets ONLY after transaction commit succeeds
+    if (formData.paymentInfo?.paymentEvidenceUrl) {
+      const publicId = extractPublicId(formData.paymentInfo.paymentEvidenceUrl);
+      if (publicId) {
+        await deleteAsset(publicId).catch((err) => console.error('Failed to delete payment proof asset:', err));
+        console.log(`✅ Deleted payment proof from Cloudinary post-commit: ${publicId}`);
+      }
+    }
+    if (formData.profilePhotoUrl) {
+      const publicId = extractPublicId(formData.profilePhotoUrl);
+      if (publicId) {
+        await deleteAsset(publicId).catch((err) => console.error('Failed to delete profile photo asset:', err));
+        console.log(`✅ Deleted profile photo from Cloudinary post-commit: ${publicId}`);
+      }
     }
 
     // ✅ EMAIL NOTIFICATION: Send rejection email to student

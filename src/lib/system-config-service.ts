@@ -1,7 +1,7 @@
 import { adminDb } from '@/lib/firebase-admin';
 import { stripUnsafeObjectKeys } from '@/lib/security/object-safety';
+import { SETTINGS_COLLECTION } from '@/config/firestore-collections';
 
-const SETTINGS_COLLECTION = 'settings';
 const SYSTEM_DOC = 'config';
 
 // Define strict interface for what we store

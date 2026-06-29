@@ -47,8 +47,12 @@ type DriverFormData = {
   shift: string;
 };
 
+import { useModeratorPermissions } from '@/hooks/useModeratorPermissions';
+import { PermissionDeniedCard } from '@/components/PermissionDeniedCard';
+
 export default function AddDriver() {
   const { currentUser, userData, loading } = useAuth();
+  const { canDriverAdd, loading: permsLoading } = useModeratorPermissions();
   const { addToast } = useToast();
   const router = useRouter();
 
@@ -581,6 +585,10 @@ export default function AddDriver() {
 
   if (!currentUser || !userData || (userData.role !== 'admin' && userData.role !== 'moderator')) {
     return null;
+  }
+
+  if (!permsLoading && !canDriverAdd) {
+    return <PermissionDeniedCard title="Adding Driver Restricted" actionName="Adding Drivers" />;
   }
 
   // Format route display text - Show first, fourth, second-last, and last stops

@@ -14,9 +14,12 @@
 import { NextResponse } from 'next/server';
 import { getSupabaseServer } from '@/lib/supabase-server';
 import { db as adminDb, FieldValue } from '@/lib/firebase-admin';
+import crypto from 'crypto';
 
-// Configuration
-const HEARTBEAT_TIMEOUT_SECONDS = 300;
+// Configuration — 10 minutes; university buses commonly pass through
+// connectivity dead zones (tunnels, parking garages) where heartbeats
+// pause temporarily. 5 min was too aggressive and killed active trips.
+const HEARTBEAT_TIMEOUT_SECONDS = 600;
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
@@ -31,7 +34,9 @@ function verifyCronAuth(request: Request): boolean {
         return false;
     }
 
-    return authHeader === `Bearer ${cronSecret}`;
+    const providedToken = authHeader?.startsWith('Bearer ') ? authHeader.substring(7) : '';
+    if (providedToken.length !== cronSecret.length) return false;
+    return crypto.timingSafeEqual(Buffer.from(providedToken), Buffer.from(cronSecret));
 }
 
 export async function GET(request: Request) {
@@ -74,7 +79,7 @@ export async function GET(request: Request) {
                 // For each cleaned lock, also release Firestore lock
                 for (const lock of cleanedLocks) {
                     try {
-                        await releaseFirestoreLock(lock.cleaned_bus_id);
+                        await releaseFirestoreLock(lock.cleaned_bus_id, lock.cleaned_trip_id);
                         stats.firestoreLocksReleased++;
 
                         // Broadcast lock release
@@ -90,16 +95,28 @@ export async function GET(request: Request) {
                             }
                         });
 
-                        // Comprehensive cleanup of ALL trip-related tables
+                        // Comprehensive cleanup of ALL trip-related tables.
+                        // Scoped by trip_id (not just bus_id) to avoid deleting data
+                        // from a new trip that may have started on the same bus between
+                        // the Supabase RPC cleanup and these deletes.
                         await Promise.allSettled([
-                            // Delete driver_status
-                            supabase.from('driver_status').delete().eq('bus_id', lock.cleaned_bus_id),
-                            // Delete bus_locations
-                            supabase.from('bus_locations').delete().eq('bus_id', lock.cleaned_bus_id),
-                            // Delete driver_location_updates
-                            supabase.from('driver_location_updates').delete().eq('bus_id', lock.cleaned_bus_id),
-                            // Delete waiting_flags
-                            supabase.from('waiting_flags').delete().eq('bus_id', lock.cleaned_bus_id).in('status', ['raised', 'acknowledged']),
+                            // Delete driver_status — scoped to this trip's driver
+                            supabase.from('driver_status').delete()
+                                .eq('driver_id', lock.cleaned_driver_id)
+                                .eq('bus_id', lock.cleaned_bus_id),
+                            // Delete bus_locations — scoped to this trip
+                            supabase.from('bus_locations').delete()
+                                .eq('bus_id', lock.cleaned_bus_id)
+                                .eq('trip_id', lock.cleaned_trip_id),
+                            // Delete driver_location_updates — scoped to this trip's driver
+                            supabase.from('driver_location_updates').delete()
+                                .eq('driver_id', lock.cleaned_driver_id)
+                                .eq('trip_id', lock.cleaned_trip_id),
+                            // Delete waiting_flags — scoped to this trip's bus
+                            supabase.from('waiting_flags').delete()
+                                .eq('bus_id', lock.cleaned_bus_id)
+                                .eq('trip_id', lock.cleaned_trip_id)
+                                .in('status', ['raised', 'acknowledged']),
                             // Clean device sessions for this driver
                             supabase.from('device_sessions').delete().eq('user_id', lock.cleaned_driver_id),
                         ]);
@@ -124,6 +141,7 @@ export async function GET(request: Request) {
             if (adminDb) {
                 const busesSnapshot = await adminDb.collection('buses')
                     .where('activeTripLock.active', '==', true)
+                    .limit(100)
                     .get();
 
                 for (const busDoc of busesSnapshot.docs) {
@@ -141,14 +159,19 @@ export async function GET(request: Request) {
                         if (!error && (!activeTrip || activeTrip.status !== 'active')) {
                             // Orphaned Firestore lock - release it
                             console.log(`⚠️ Found orphaned Firestore lock for bus ${busDoc.id}, releasing...`);
-                            await releaseFirestoreLock(busDoc.id);
+                            await releaseFirestoreLock(busDoc.id, tripId);
                             stats.firestoreLocksReleased++;
 
-                            // Cleanup driver_status
-                            await supabase
-                                .from('driver_status')
-                                .delete()
-                                .eq('bus_id', busDoc.id);
+                            // Cleanup driver_status — scoped to this trip's driver
+                            // to avoid deleting data from a new trip on the same bus.
+                            const lockDriverId = busData.activeTripLock?.driverId;
+                            if (lockDriverId) {
+                                await supabase
+                                    .from('driver_status')
+                                    .delete()
+                                    .eq('driver_id', lockDriverId)
+                                    .eq('bus_id', busDoc.id);
+                            }
                         }
                     }
                 }
@@ -180,24 +203,30 @@ export async function GET(request: Request) {
     }
 }
 
-/**
- * Release a Firestore lock
- */
-async function releaseFirestoreLock(busId: string): Promise<void> {
+async function releaseFirestoreLock(busId: string, expectedTripId?: string): Promise<void> {
     if (!adminDb) return;
 
-    await adminDb.collection('buses').doc(busId).update({
-        activeTripLock: {
-            active: false,
-            tripId: null,
-            driverId: null,
-            shift: null,
-            since: null,
-            expiresAt: null
-        },
-        activeDriverId: null,
-        activeTripId: null,
-        lastEndedAt: FieldValue.serverTimestamp()
+    const busRef = adminDb.collection('buses').doc(busId);
+    await adminDb.runTransaction(async (transaction) => {
+        const doc = await transaction.get(busRef);
+        if (!doc.exists) return;
+        const currentTripId = doc.data()?.activeTripLock?.tripId;
+        if (expectedTripId && currentTripId && currentTripId !== expectedTripId) {
+            return;
+        }
+        transaction.update(busRef, {
+            activeTripLock: {
+                active: false,
+                tripId: null,
+                driverId: null,
+                shift: null,
+                since: null,
+                expiresAt: null
+            },
+            activeDriverId: null,
+            activeTripId: null,
+            lastEndedAt: FieldValue.serverTimestamp()
+        });
     });
 }
 

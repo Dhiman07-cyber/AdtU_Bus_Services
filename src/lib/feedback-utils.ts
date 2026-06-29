@@ -94,26 +94,44 @@ export async function cleanupOldFeedback(entries: FeedbackEntry[]): Promise<Feed
   // finding docs where auto_delete_at < now
 
   const now = new Date().toISOString();
-  // This query requires index on auto_delete_at usually, but on small datasets it's fine.
-  // If we can't query, we skip.
   try {
-    const expiredSnapshot = await db.collection(COLLECTION)
-      .where('auto_delete_at', '<', now)
-      .get();
+    // Paginate to avoid Firestore batch limit (max 500 ops per batch)
+    const BATCH_SIZE = 400;
+    let totalDeleted = 0;
+    let hasMore = true;
 
-    if (!expiredSnapshot.empty) {
+    while (hasMore) {
+      const expiredSnapshot = await db.collection(COLLECTION)
+        .where('auto_delete_at', '<', now)
+        .limit(BATCH_SIZE)
+        .get();
+
+      if (expiredSnapshot.empty) {
+        hasMore = false;
+        break;
+      }
+
       const batch = db.batch();
       expiredSnapshot.docs.forEach((doc: { ref: any; }) => {
         batch.delete(doc.ref);
       });
       await batch.commit();
-      console.log(`Buh-bye! Deleted ${expiredSnapshot.size} expired feedback entries.`);
+      totalDeleted += expiredSnapshot.size;
+
+      // If we got fewer than BATCH_SIZE, we're done
+      if (expiredSnapshot.size < BATCH_SIZE) {
+        hasMore = false;
+      }
+    }
+
+    if (totalDeleted > 0) {
+      console.log(`Deleted ${totalDeleted} expired feedback entries.`);
     }
 
     // Return entries that are NOT expired (in case the input `entries` contained them)
     return entries.filter(e => e.auto_delete_at > now);
   } catch (e) {
-    // If index missing or error, just return entries
+    console.error('Error cleaning up expired feedback:', e);
     return entries;
   }
 }

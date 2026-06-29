@@ -8,6 +8,7 @@ import { cert } from 'firebase-admin/app';
 import { computeBlockDatesFromValidUntil } from '@/lib/utils/deadline-computation';
 import { calculateValidUntilDate } from '@/lib/utils/date-utils';
 import { getDeadlineConfig } from '@/lib/deadline-config-service';
+import { buildCapacityDelta } from '@/lib/busCapacityService';
 
 let adminApp: any;
 let auth: any;
@@ -169,7 +170,16 @@ export async function POST(request: Request) {
       try {
         const decodedToken = await auth.verifyIdToken(token);
         const userDoc = await db.collection('users').doc(decodedToken.uid).get();
-        const userRole = userDoc.data().role;
+        if (!userDoc.exists) {
+          return new Response(JSON.stringify({
+            success: false,
+            error: 'Forbidden: User profile not found'
+          }), {
+            status: 403,
+            headers: { 'Content-Type': 'application/json' },
+          });
+        }
+        const userRole = userDoc.data()!.role;
 
         if (userRole === 'moderator' && (role === 'moderator' || role === 'admin')) {
           return new Response(JSON.stringify({
@@ -223,8 +233,11 @@ export async function POST(request: Request) {
 
         // Create role-specific document
         if (role === 'student') {
+          const finalValidUntilStr = validUntil || calculateValidUntilDate(sessionStartYear || new Date().getFullYear(), parseInt(sessionDuration || '1'), deadlineConfig).toISOString();
+          const blockDates = computeBlockDatesFromValidUntil(finalValidUntilStr, deadlineConfig);
+
           const studentDocData: any = {
-            uid, // Set the actual Firebase Auth UID
+            uid,
             email,
             fullName: name,
             faculty: faculty || '',
@@ -239,30 +252,53 @@ export async function POST(request: Request) {
             bloodGroup: bloodGroup || '',
             address: address || '',
             profilePhotoUrl: profilePhotoUrl || '',
-            // Unified field structure
             routeId: routeId || null,
-            assignedRouteId: routeId || null, // Same as routeId for consistency
+            assignedRouteId: routeId || null,
             busId: busId || null,
-            assignedBusId: busId || null, // Same as busId for consistency
-            shift: shift || 'Morning', // Default to Morning if not provided
+            assignedBusId: busId || null,
+            shift: shift || 'Morning',
             approvedBy: approvedBy || 'System (AUTO_MIGRATION)',
-            // Session System fields
             sessionDuration: sessionDuration || '1',
             sessionStartYear: sessionStartYear || new Date().getFullYear(),
             sessionEndYear: sessionEndYear || (new Date().getFullYear() + 1),
-            validUntil: validUntil || calculateValidUntilDate(sessionStartYear || new Date().getFullYear(), parseInt(sessionDuration || '1'), deadlineConfig).toISOString(),
-            // Block dates computed from sessionEndYear
-            ...computeBlockDatesFromValidUntil(validUntil || calculateValidUntilDate(sessionStartYear || new Date().getFullYear(), parseInt(sessionDuration || '1'), deadlineConfig).toISOString(), deadlineConfig),
+            validUntil: finalValidUntilStr,
+            ...blockDates,
             pickupPoint: pickupPoint || '',
             waitingFlag: false,
             boardedFlag: false,
             feesStatus: 'draft',
+            status: 'active',
             createdAt: new Date().toISOString(),
             updatedAt: new Date().toISOString(),
-            // Audit trail - who created/updated this document
           };
 
-          await db.collection('students').doc(uid).set(studentDocData);
+          // Atomic student + user creation with bus capacity increment.
+          // Without a transaction, a concurrent create-user on the same bus
+          // could overfill beyond capacity, or a failure after user creation
+          // leaves an orphan user doc with no student.
+          const studentRef = db.collection('students').doc(uid);
+          const userRef = db.collection('users').doc(uid);
+          const assignedBusId = studentDocData.busId;
+
+          await db.runTransaction(async (transaction) => {
+            const studentSnap = await transaction.get(studentRef);
+            const alreadyExisted = studentSnap.exists;
+
+            let busSnap: FirebaseFirestore.DocumentSnapshot | null = null;
+            if (assignedBusId && !alreadyExisted) {
+              busSnap = await transaction.get(db.collection('buses').doc(assignedBusId));
+            }
+
+            transaction.set(userRef, userDocData);
+            transaction.set(studentRef, studentDocData);
+
+            // Increment bus capacity only if student is new and bus exists
+            if (assignedBusId && !alreadyExisted && busSnap?.exists) {
+              const busData = busSnap.data();
+              const delta = buildCapacityDelta(busData, studentDocData.shift, 1);
+              transaction.update(busSnap.ref, delta.updates);
+            }
+          });
         } else if (role === 'driver') {
           const driverDocData: any = {
             uid, // Set the actual Firebase Auth UID

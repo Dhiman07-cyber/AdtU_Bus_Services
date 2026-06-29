@@ -1,11 +1,10 @@
-// @ts-nocheck
 /**
  * Missed Bus Requests Cleanup Worker
- * 
+ *
  * Cron job endpoint that expires stale missed-bus requests.
  * Should be called every 30 seconds via Vercel Cron or integrated
  * into the main cleanup worker.
- * 
+ *
  * Actions:
  * 1. Expire pending requests that have passed their TTL
  * 2. No admin intervention - fully automatic
@@ -13,6 +12,7 @@
 
 import { NextResponse } from 'next/server';
 import { missedBusService, MESSAGES } from '@/lib/services/missed-bus-service';
+import crypto from 'crypto';
 
 // SECURITY: Fail-closed cron auth verification
 function verifyCronAuth(request: Request): boolean {
@@ -25,7 +25,9 @@ function verifyCronAuth(request: Request): boolean {
         return false;
     }
 
-    return authHeader === `Bearer ${cronSecret}`;
+    const providedToken = authHeader?.startsWith('Bearer ') ? authHeader.substring(7) : '';
+    if (providedToken.length !== cronSecret.length) return false;
+    return crypto.timingSafeEqual(Buffer.from(providedToken), Buffer.from(cronSecret));
 }
 
 export async function GET(request: Request) {

@@ -203,7 +203,7 @@ const FacultyDepartmentSelector: React.FC<FacultyDepartmentSelectorProps> = ({
                     {filteredFaculties.map((faculty) => (
                       <li
                         key={faculty.id}
-                        className="px-4 py-2 text-xs cursor-pointer hover:bg-indigo-600/20 hover:text-indigo-300 text-slate-300 transition-colors"
+                        className="px-4 py-2 text-xs cursor-pointer hover:cursor-pointer hover:bg-indigo-600/20 hover:text-indigo-300 text-slate-300 transition-colors"
                         onClick={() => handleFacultySelect(faculty)}
                       >
                         {faculty.faculty}
@@ -259,7 +259,7 @@ const FacultyDepartmentSelector: React.FC<FacultyDepartmentSelectorProps> = ({
                         {category.departments.map((department, index) => (
                           <li
                             key={`${category.category}-${index}`}
-                            className="px-6 py-2 text-xs cursor-pointer hover:bg-blue-600/20 hover:text-blue-300 text-slate-300 transition-colors"
+                            className="px-6 py-2 text-xs cursor-pointer hover:cursor-pointer hover:bg-blue-600/20 hover:text-blue-300 text-slate-300 transition-colors"
                             onClick={() => handleDepartmentSelect(department)}
                           >
                             {department}

@@ -43,18 +43,28 @@ export const POST = withSecurity(
         return NextResponse.json({ success: false, error: 'Authorization failed: Driver-bus mismatch', requestId }, { status: 403 });
       }
 
-      // 4. Update waiting flag status to acknowledged
-      const { error: updateError } = await supabase
+      // 4. Check for idempotency and update waiting flag status to acknowledged atomically
+      if (waitingFlag.status === 'acknowledged') {
+        return NextResponse.json({ success: true, message: 'Waiting flag already acknowledged', requestId });
+      }
+
+      const { data: updatedFlags, error: updateError } = await supabase
         .from('waiting_flags')
         .update({ 
             status: 'acknowledged',
             ack_by_driver_uid: driverUid 
         })
-        .eq('id', waitingFlagId);
+        .eq('id', waitingFlagId)
+        .in('status', ['raised', 'waiting'])
+        .select();
 
       if (updateError) {
         console.error(`[${requestId}] Failed to update flag status:`, updateError);
         return NextResponse.json({ success: false, error: 'Database update failed', requestId }, { status: 500 });
+      }
+
+      if (!updatedFlags || updatedFlags.length === 0) {
+        return NextResponse.json({ success: true, message: 'Flag already acknowledged or processed', requestId });
       }
 
       // 5. Asynchronous FCM notification to student (don't block the response)

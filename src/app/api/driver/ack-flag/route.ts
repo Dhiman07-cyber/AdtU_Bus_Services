@@ -62,20 +62,40 @@ export const POST = withSecurity(
       );
     }
 
-    // Update waiting flag status
-    const { error: updateError } = await supabase
+    // Check current flag status for idempotency and state guards
+    if (flagData.status === 'acknowledged') {
+      return NextResponse.json({
+        success: true,
+        message: 'Flag already acknowledged',
+        data: { flagId, studentUid: flagData.student_uid, ackByDriverUid: driverUid }
+      });
+    }
+    if (['boarded', 'picked_up', 'cancelled', 'expired'].includes(flagData.status)) {
+      return NextResponse.json({ error: `Cannot acknowledge flag that is already ${flagData.status}` }, { status: 400 });
+    }
+
+    // Update waiting flag status atomically
+    const { data: updatedData, error: updateError } = await supabase
       .from('waiting_flags')
       .update({
         status: 'acknowledged',
         ack_by_driver_uid: driverUid
       })
-      .eq('id', flagId);
+      .eq('id', flagId)
+      .in('status', ['raised', 'waiting'])
+      .select();
 
     if (updateError) {
       console.error('Error acknowledging flag:', updateError);
       return NextResponse.json(
         { error: 'Failed to acknowledge flag' },
         { status: 500 }
+      );
+    }
+
+    if (!updatedData || updatedData.length === 0) {
+      return NextResponse.json(
+        { success: true, message: 'Flag already processed or acknowledged', data: { flagId, studentUid: flagData.student_uid, ackByDriverUid: driverUid } }
       );
     }
 

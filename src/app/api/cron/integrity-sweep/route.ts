@@ -23,6 +23,7 @@ import { adminReconcileBusLoads } from '@/lib/services/admin-reconcile-bus-loads
 import { runIntegrityScan } from '@/lib/services/integrity-detector';
 import { isSeatReleaseAtSoftBlockEnabled } from '@/lib/config/capacity-flags';
 import { recordOperationalEvent, replayAuditFailures, SYSTEM_ACTOR } from '@/lib/audit/audit-service';
+import crypto from 'crypto';
 
 export const dynamic = 'force-dynamic';
 
@@ -34,7 +35,11 @@ export async function GET(request: NextRequest) {
       console.error('🚫 CRON_SECRET not configured — blocking integrity sweep');
       return NextResponse.json({ error: 'Server configuration error' }, { status: 500 });
     }
-    if (request.headers.get('Authorization') !== `Bearer ${cronSecret}`) {
+    const providedToken = request.headers.get('Authorization')?.startsWith('Bearer ')
+      ? request.headers.get('Authorization')!.substring(7) : '';
+    const secretsMatch = providedToken.length === cronSecret.length &&
+      crypto.timingSafeEqual(Buffer.from(providedToken), Buffer.from(cronSecret));
+    if (!secretsMatch) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 

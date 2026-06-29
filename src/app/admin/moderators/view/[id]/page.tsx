@@ -36,33 +36,9 @@ import {
 } from "@/components/ui/dialog";
 import { getModeratorById, deleteModerator } from '@/lib/dataService';
 import { safeImageSrc } from "@/lib/security/url-sanitizer";
+import { formatDateFlexible } from '@/lib/utils/date-utils';
 
-const formatDate = (dateValue: any) => {
-  if (!dateValue) return 'Not provided';
-  try {
-    let date: Date;
-
-    if (typeof dateValue === 'object' && 'seconds' in dateValue && 'nanoseconds' in dateValue) {
-      date = new Date(dateValue.seconds * 1000);
-    } else if (typeof dateValue === 'string') {
-      date = new Date(dateValue);
-    } else if (dateValue instanceof Date) {
-      date = dateValue;
-    } else {
-      return 'Not provided';
-    }
-
-    if (isNaN(date.getTime())) return 'Not provided';
-
-    return date.toLocaleDateString('en-US', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric'
-    });
-  } catch (error) {
-    return 'Not provided';
-  }
-};
+const formatDate = formatDateFlexible;
 
 const calculateAge = (dob: string | undefined) => {
   if (!dob) return null;

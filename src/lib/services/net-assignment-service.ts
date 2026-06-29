@@ -9,7 +9,7 @@
  * - Per-type filtering (driver/student/route)
  */
 
-import { db, auth } from "@/lib/firebase";
+import { db } from "@/lib/firebase";
 import {
     doc,
     runTransaction,
@@ -20,55 +20,13 @@ import {
     FieldValue,
 } from "firebase/firestore";
 import { ChangeRecord } from './reassignment-logs-supabase';
+import { generatePrefixedId } from '@/lib/security/random-id';
 
 // ============================================
 // HELPER: Write to Supabase via API route
 // ============================================
 
-async function writeToSupabaseViaAPI(payload: {
-    operationId: string;
-    type: string;
-    actorId: string;
-    actorLabel: string;
-    status: string;
-    summary: string;
-    changes: ChangeRecord[];
-    meta: Record<string, any>;
-}): Promise<boolean> {
-
-    try {
-        // Get current user token
-        const user = auth.currentUser;
-        if (!user) {
-            console.error('[writeToSupabaseViaAPI] ❌ No authenticated user');
-            return false;
-        }
-
-        const token = await user.getIdToken();
-
-        // Use the correct endpoint
-        const response = await fetch('/api/reassignment-logs', {
-            method: 'POST',
-            headers: {
-                'Authorization': `Bearer ${token}`,
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify(payload),
-        });
-
-        const result = await response.json();
-
-        if (!response.ok) {
-            console.error('[writeToSupabaseViaAPI] ❌ API error:', result.error);
-            return false;
-        }
-
-        return true;
-    } catch (err: any) {
-        console.error('[writeToSupabaseViaAPI] ❌ Exception:', err.message);
-        return false;
-    }
-}
+import { writeToSupabaseViaAPI } from './reassignment-log-writer';
 
 // ============================================
 // TYPES
@@ -722,13 +680,7 @@ async function writeAssignmentAuditLog(
         }
 
         // Generate operation ID
-        const cryptoObj = typeof window !== 'undefined' ? (window.crypto || (window as any).msCrypto) : globalThis.crypto;
-        const randomHex = cryptoObj && cryptoObj.randomUUID 
-            ? cryptoObj.randomUUID() 
-            : (cryptoObj && cryptoObj.getRandomValues 
-                ? Array.from(cryptoObj.getRandomValues(new Uint8Array(8))).map(b => (b as any).toString(16).padStart(2, '0')).join('')
-                : Date.now().toString(36));
-        const operationId = `driver_reassignment_${Date.now()}_${randomHex}`;
+        const operationId = generatePrefixedId('driver_reassignment_', 8);
 
         // Generate actor label
         let actorLabel = actorInfo?.label;

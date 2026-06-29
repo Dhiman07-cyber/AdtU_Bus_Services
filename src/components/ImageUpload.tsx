@@ -115,7 +115,7 @@ export function ImageUpload({
         </div>
       ) : (
         <div 
-          className="border-2 border-dashed rounded-md p-8 text-center cursor-pointer hover:border-blue-500 transition-colors"
+          className="border-2 border-dashed rounded-md p-8 text-center cursor-pointer hover:cursor-pointer hover:border-blue-500 transition-colors"
           onClick={triggerFileInput}
         >
           <Camera className="mx-auto h-12 w-12 text-gray-400" />

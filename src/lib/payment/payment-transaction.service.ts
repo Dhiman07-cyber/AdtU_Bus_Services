@@ -215,7 +215,7 @@ export class PaymentTransactionService {
       const doc = await adminDb.collection('payments').doc(paymentId).get();
       if (!doc.exists) return false;
       const data = doc.data();
-      return data?.status === 'Completed' || data?.status === 'completed';
+      return data?.status?.toLowerCase() === 'completed';
     } catch {
       return false;
     }
@@ -353,9 +353,22 @@ export class PaymentTransactionService {
   }
 
   /**
-   * Mark a transaction as pending (in Supabase)
+   * Mark a transaction as pending for manual reconciliation.
+   * Writes a detectable outbox record in Firestore `audit_failures` so the next
+   * cron, admin scan, or reconciliation pass can identify and repair the state.
    */
   static async markTransactionPending(paymentId: string): Promise<void> {
-    console.warn(`[PaymentTransaction] markTransactionPending(${paymentId}) skipped; pending rows are created explicitly and must not be auto-completed.`);
+    try {
+      await adminDb.collection('audit_failures').add({
+        kind: 'webhook_payment_sync_pending',
+        paymentId,
+        error: 'saveTransaction failed after Firestore commit; payment needs Supabase ledger entry',
+        recovered: false,
+        createdAtISO: new Date().toISOString(),
+      });
+      console.warn(`[PaymentTransaction] Marked ${paymentId} as pending for reconciliation (outbox record written).`);
+    } catch (outboxErr) {
+      console.error(`[PaymentTransaction] CRITICAL: Could not write outbox for ${paymentId}:`, outboxErr);
+    }
   }
 }

@@ -21,30 +21,21 @@ function LoginContent() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [showApplyModal, setShowApplyModal] = useState(false);
-  const [isVisible, setIsVisible] = useState(false);
-  const [isExpanded, setIsExpanded] = useState(false);
+  const [mounted, setMounted] = useState(false);
+  const [isDesktop, setIsDesktop] = useState(false);
   const { signInWithGoogle, currentUser, userData, needsApplication } = useAuth();
   const router = useRouter();
   const searchParams = useSearchParams();
   const isRedirectingRef = useRef(false);
-  const [isMobile, setIsMobile] = useState(true);
 
-  // Monitor viewport width to animate to correct responsive dimensions
   useEffect(() => {
-    const checkMobile = () => {
-      setIsMobile(window.innerWidth < 640);
+    const checkViewport = () => {
+      setIsDesktop(window.innerWidth >= 640);
     };
-    checkMobile();
-    window.addEventListener("resize", checkMobile);
-    return () => window.removeEventListener("resize", checkMobile);
-  }, []);
-  // Trigger animations sequentially: fade-in the vertical line first, then widen the card
-  useEffect(() => {
-    setIsVisible(true);
-    const timer = setTimeout(() => {
-      setIsExpanded(true);
-    }, 100); // Start widening 100ms after fade-in starts to connect the transitions
-    return () => clearTimeout(timer);
+    checkViewport();
+    setMounted(true);
+    window.addEventListener("resize", checkViewport);
+    return () => window.removeEventListener("resize", checkViewport);
   }, []);
 
   // Redirect logic if already logged in
@@ -163,77 +154,134 @@ function LoginContent() {
     >
       {/* Butter-Smooth Card Container using GPU-accelerated Clip-Path */}
       <motion.div
-        initial={{ 
+        key={mounted ? (isDesktop ? "desktop" : "mobile") : "loading"}
+        initial={{
           opacity: 0,
-          clipPath: isMobile 
-            ? "inset(50% 0% 50% 0% round 28px)" 
-            : "inset(0% 50% 0% 50% round 28px)"
+          clipPath: isDesktop
+            ? "inset(0% 50% 0% 50% round 28px)"
+            : "inset(50% 0% 50% 0% round 28px)"
         }}
-        animate={{ 
-          opacity: isVisible ? 1 : 0,
-          clipPath: isExpanded 
-            ? "inset(0% 0% 0% 0% round 28px)" 
-            : (isMobile ? "inset(50% 0% 50% 0% round 28px)" : "inset(0% 50% 0% 50% round 28px)")
+        animate={{
+          opacity: mounted ? 1 : 0,
+          clipPath: mounted ? "inset(0% 0% 0% 0% round 28px)" : (isDesktop ? "inset(0% 50% 0% 50% round 28px)" : "inset(50% 0% 50% 0% round 28px)")
         }}
         transition={{
-          opacity: { duration: 0.4, ease: "easeOut" },
-          clipPath: { duration: 0.9, ease: [0.16, 1, 0.3, 1] }
+          duration: 0.9,
+          ease: [0.16, 1, 0.3, 1]
         }}
-        className="w-full relative z-10 border-t border-b border-white/[0.08] flex flex-col sm:flex-row overflow-hidden items-center rounded-[28px] max-w-[350px] sm:max-w-[850px] min-h-[520px] sm:min-h-[460px] shrink-0 justify-center login-card-container-motion"
+        className="w-full relative z-10 border-t border-b border-white/[0.08] flex flex-col sm:flex-row overflow-hidden items-center rounded-[28px] max-w-[350px] sm:max-w-[850px] min-h-[520px] sm:min-h-[460px] shrink-0 justify-center"
         style={{
           background: 'radial-gradient(circle at bottom right, rgba(92, 89, 165, 0.08) 0%, rgba(92, 89, 165, 0) 50%), linear-gradient(135deg, #111115 0%, #0A0A0D 100%)'
         }}
       >
         {/* Inner Content Wrapper - maintains static dimensions to prevent text reflow */}
-        <div className="w-full sm:w-[850px] min-h-[520px] sm:min-h-[460px] flex flex-col sm:flex-row items-center justify-center shrink-0 relative py-6 sm:py-0">
+        <div className="w-full sm:w-[850px] min-h-[500px] sm:min-h-[460px] flex flex-col sm:flex-row items-center justify-center shrink-0 relative p-6 sm:p-0">
 
-          {/* Left Section - AdtU Logo Panel (shown vertically on mobile, horizontally on desktop) */}
+          {/* Dedicated Mobile View (< sm) */}
           <motion.div 
-            initial={{ 
-              opacity: 0, 
-              scale: isMobile ? 1 : 0.92,
-              y: isMobile ? 16 : 0
-            }}
-            animate={{ 
-              opacity: isExpanded ? 0.95 : 0,
-              scale: isExpanded ? 1 : (isMobile ? 1 : 0.92),
-              y: isExpanded ? 0 : (isMobile ? 16 : 0)
-            }}
-            transition={{ duration: 0.9, ease: "easeOut", delay: 0.2 }}
-            className="flex flex-col items-center justify-center pt-2 pb-0 px-6 sm:p-6 shrink-0 select-none w-full sm:w-[400px] login-child-left"
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: mounted ? 1 : 0, y: mounted ? 0 : 12 }}
+            transition={{ duration: 0.8, delay: 0.15, ease: "easeOut" }}
+            className="sm:hidden w-full flex flex-col items-center justify-between min-h-[440px] py-2"
+          >
+            {/* Top Brand Badge Header */}
+            <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-[#181820] border border-white/[0.08] shadow-sm mb-4">
+              <div className="w-5 h-5 rounded-full bg-[#5c59a5]/20 flex items-center justify-center">
+                <Bus className="h-3 w-3 text-[#9794e7]" />
+              </div>
+              <span className="text-[9px] font-extrabold tracking-[0.2em] text-[#a5a2f6] uppercase">
+                Transit Portal
+              </span>
+            </div>
+
+            {/* Framed Brand Hero Card */}
+            <div className="w-full my-auto py-6 px-5 rounded-2xl bg-white/[0.02] border border-white/[0.06] flex flex-col items-center text-center shadow-inner">
+              <img
+                src="/image.svg"
+                alt="Assam down town University Logo"
+                className="w-full max-w-[210px] h-auto object-contain opacity-95 mb-5 drop-shadow-sm"
+              />
+              <h2 className="text-2xl font-bold text-white tracking-tight mb-2">
+                AdtU ITMS Login
+              </h2>
+              <p className="text-xs text-zinc-400 max-w-[240px] leading-relaxed">
+                Sign in with your campus Google credentials to access the bus system
+              </p>
+            </div>
+
+            {/* Bottom Action Section */}
+            <div className="w-full mt-4 space-y-3.5 text-center">
+              {error && (
+                <div className="p-3 bg-red-950/30 border border-red-900/40 text-red-200 rounded-xl flex items-start gap-2.5 text-xs text-left">
+                  <div className="w-1.5 h-1.5 bg-red-500 rounded-full mt-1.5 shrink-0 pulse-dot"></div>
+                  <div className="flex-1 leading-relaxed">{error}</div>
+                </div>
+              )}
+
+              <Button
+                onClick={handleGoogleSignIn}
+                className="w-full h-12 text-xs font-bold bg-white hover:bg-zinc-100 !text-black border-0 rounded-xl active:scale-[0.98] transition-all duration-200 shadow-lg flex items-center justify-center cursor-pointer"
+                disabled={loading}
+              >
+                {loading ? (
+                  <>
+                    <div className="w-3.5 h-3.5 border-2 border-black/30 rounded-full animate-spin border-t-black mr-2.5"></div>
+                    Connecting...
+                  </>
+                ) : (
+                  <>
+                    <svg className="w-4.5 h-4.5 mr-2.5 shrink-0" viewBox="0 0 24 24">
+                      <path fill="#EA4335" d="M12 5.04c1.66 0 3.2.57 4.38 1.69l3.27-3.27C17.68 1.54 14.98 1 12 1 7.35 1 3.37 3.67 1.39 7.56l3.89 3.02C6.21 7.02 8.87 5.04 12 5.04z" />
+                      <path fill="#4285F4" d="M23.49 12.27c0-.81-.07-1.59-.2-2.36H12v4.51h6.46c-.29 1.48-1.14 2.73-2.4 3.58l3.73 2.89c2.18-2.01 3.7-4.99 3.7-8.62z" />
+                      <path fill="#FBBC05" d="M5.28 14.78c-.24-.72-.38-1.49-.38-2.28s.14-1.56.38-2.28L1.39 7.56C.5 9.35 0 11.35 0 13.5s.5 4.15 1.39 5.94l3.89-3.02C4.9 16.34 4.76 15.58 5.28 14.78z" />
+                      <path fill="#34A853" d="M12 23c3.24 0 5.97-1.07 7.96-2.91l-3.73-2.89c-1.1.74-2.52 1.18-4.23 1.18-3.13 0-5.79-1.98-6.72-5.04l-3.89 3.02C3.37 20.33 7.35 23 12 23z" />
+                    </svg>
+                    Sign in with Google
+                  </>
+                )}
+              </Button>
+
+              <div className="flex items-center justify-center gap-2 text-[10px] text-zinc-500 font-semibold pt-1">
+                <span className="relative flex h-1.5 w-1.5">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-500"></span>
+                </span>
+                Google OAuth Protected
+              </div>
+            </div>
+          </motion.div>
+
+          {/* Desktop Left Section - AdtU Logo Panel (hidden on mobile, shown on desktop) */}
+          <motion.div 
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: mounted ? 0.95 : 0, scale: mounted ? 1 : 0.95 }}
+            transition={{ duration: 0.8, delay: 0.2, ease: "easeOut" }}
+            className="hidden sm:flex flex-col items-center justify-center pt-2 pb-0 px-6 sm:p-6 shrink-0 select-none w-[400px]"
           >
             <img
               src="/image.svg"
               alt="Assam down town University Logo"
-              className="w-full max-w-[200px] sm:max-w-[340px] h-auto object-contain opacity-95"
+              className="w-full max-w-[340px] h-auto object-contain opacity-95"
             />
           </motion.div>
 
           {/* Separator Pipe | (hidden on mobile, shown on desktop) */}
           <motion.div
             initial={{ opacity: 0 }}
-            animate={{ opacity: isExpanded ? 1 : 0 }}
-            transition={{ duration: 0.8, ease: "easeOut", delay: 0.3 }}
-            className="hidden sm:block h-52 w-px bg-white/[0.08] shrink-0 login-child-separator"
+            animate={{ opacity: mounted ? 1 : 0 }}
+            transition={{ duration: 0.6, delay: 0.35 }}
+            className="hidden sm:block h-52 w-px bg-white/[0.08] shrink-0"
           />
 
-          {/* Right Section - Login Content Form */}
+          {/* Desktop Right Section - Login Content Form (hidden on mobile, shown on desktop) */}
           <motion.div
-            initial={{ 
-              opacity: 0, 
-              x: isMobile ? 0 : 12,
-              y: isMobile ? 16 : 0
-            }}
-            animate={{ 
-              opacity: isExpanded ? 1 : 0,
-              x: isExpanded ? 0 : (isMobile ? 0 : 12),
-              y: isExpanded ? 0 : (isMobile ? 16 : 0)
-            }}
-            transition={{ duration: 0.9, ease: "easeOut", delay: 0.2 }}
-            className="flex-none sm:flex-1 pt-1 px-6 pb-6 sm:p-10 w-full sm:min-w-[340px] flex flex-col justify-center login-child-right"
+            initial={{ opacity: 0, x: 12 }}
+            animate={{ opacity: mounted ? 1 : 0, x: mounted ? 0 : 12 }}
+            transition={{ duration: 0.8, delay: 0.2, ease: "easeOut" }}
+            className="hidden sm:flex flex-1 pt-1 p-10 min-w-[340px] flex-col justify-center"
           >
             <div className="text-center space-y-5 p-0">
-              <div className="hidden sm:flex justify-center">
+              <div className="flex justify-center">
                 <div className="relative flex items-center justify-center w-12 h-12 rounded-full bg-[#18181F] border border-white/[0.06] shadow-[inset_0_1px_2px_rgba(255,255,255,0.05)]">
                   <Bus className="h-5.5 w-5.5 text-[#5c59a5]" />
                 </div>
@@ -263,7 +311,7 @@ function LoginContent() {
 
               <Button
                 onClick={handleGoogleSignIn}
-                className="w-[88%] sm:w-full h-12 text-xs font-semibold bg-white hover:bg-zinc-100 !text-black border-0 rounded-xl active:scale-[0.98] transition-all duration-200 disabled:opacity-80 disabled:cursor-not-allowed flex items-center justify-center cursor-pointer mx-auto"
+                className="w-full h-12 text-xs font-semibold bg-white hover:bg-zinc-100 !text-black border-0 rounded-xl active:scale-[0.98] transition-all duration-200 disabled:opacity-80 disabled:cursor-not-allowed flex items-center justify-center cursor-pointer mx-auto"
                 disabled={loading}
               >
                 {loading ? (
@@ -274,22 +322,10 @@ function LoginContent() {
                 ) : (
                   <>
                     <svg className="w-4.5 h-4.5 mr-2.5 shrink-0" viewBox="0 0 24 24">
-                      <path
-                        fill="#EA4335"
-                        d="M12 5.04c1.66 0 3.2.57 4.38 1.69l3.27-3.27C17.68 1.54 14.98 1 12 1 7.35 1 3.37 3.67 1.39 7.56l3.89 3.02C6.21 7.02 8.87 5.04 12 5.04z"
-                      />
-                      <path
-                        fill="#4285F4"
-                        d="M23.49 12.27c0-.81-.07-1.59-.2-2.36H12v4.51h6.46c-.29 1.48-1.14 2.73-2.4 3.58l3.73 2.89c2.18-2.01 3.7-4.99 3.7-8.62z"
-                      />
-                      <path
-                        fill="#FBBC05"
-                        d="M5.28 14.78c-.24-.72-.38-1.49-.38-2.28s.14-1.56.38-2.28L1.39 7.56C.5 9.35 0 11.35 0 13.5s.5 4.15 1.39 5.94l3.89-3.02C4.9 16.34 4.76 15.58 5.28 14.78z"
-                      />
-                      <path
-                        fill="#34A853"
-                        d="M12 23c3.24 0 5.97-1.07 7.96-2.91l-3.73-2.89c-1.1.74-2.52 1.18-4.23 1.18-3.13 0-5.79-1.98-6.72-5.04l-3.89 3.02C3.37 20.33 7.35 23 12 23z"
-                      />
+                      <path fill="#EA4335" d="M12 5.04c1.66 0 3.2.57 4.38 1.69l3.27-3.27C17.68 1.54 14.98 1 12 1 7.35 1 3.37 3.67 1.39 7.56l3.89 3.02C6.21 7.02 8.87 5.04 12 5.04z" />
+                      <path fill="#4285F4" d="M23.49 12.27c0-.81-.07-1.59-.2-2.36H12v4.51h6.46c-.29 1.48-1.14 2.73-2.4 3.58l3.73 2.89c2.18-2.01 3.7-4.99 3.7-8.62z" />
+                      <path fill="#FBBC05" d="M5.28 14.78c-.24-.72-.38-1.49-.38-2.28s.14-1.56.38-2.28L1.39 7.56C.5 9.35 0 11.35 0 13.5s.5 4.15 1.39 5.94l3.89-3.02C4.9 16.34 4.76 15.58 5.28 14.78z" />
+                      <path fill="#34A853" d="M12 23c3.24 0 5.97-1.07 7.96-2.91l-3.73-2.89c-1.1.74-2.52 1.18-4.23 1.18-3.13 0-5.79-1.98-6.72-5.04l-3.89 3.02C3.37 20.33 7.35 23 12 23z" />
                     </svg>
                     Sign in with Google
                   </>

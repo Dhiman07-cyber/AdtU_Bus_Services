@@ -130,12 +130,14 @@ export const POST = withSecurity(
 
       // 8. Legacy Backup (Firestore) - opportunistic
       try {
-        adminDb.collection('waiting_flags').doc(flag.id).set({
+        await adminDb.collection('waiting_flags').doc(flag.id).set({
           ...flagData,
           supabaseId: flag.id,
           syncedAt: now.toISOString()
-        }).catch(() => {});
-      } catch (e) {}
+        });
+      } catch (backupErr) {
+        console.warn(`[${requestId}] Firestore backup write failed (non-critical, Supabase is source of truth):`, backupErr);
+      }
 
       const elapsed = Date.now() - startTime;
       console.log(`✅ [${requestId}] Waiting flag ${flag.id} created in ${elapsed}ms`);

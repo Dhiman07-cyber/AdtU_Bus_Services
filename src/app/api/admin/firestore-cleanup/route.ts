@@ -4,7 +4,6 @@ import { getSupabaseServer } from '@/lib/supabase-server';
 import { withSecurity } from '@/lib/security/api-security';
 import { FirestoreCleanupSchema, EmptySchema } from '@/lib/security/validation-schemas';
 import { RateLimits } from '@/lib/security/rate-limiter';
-import { createClient } from '@supabase/supabase-js';
 
 /**
  * DATABASE CLEANUP ROUTE (SUPABASE + FIRESTORE)
@@ -23,10 +22,7 @@ export const POST = withSecurity(
         console.log(`🧹 Starting Database cleanup: ${cleanupType}, older than ${cleanupDays} days`);
         
         // Initialize Supabase client
-        const supabase = createClient(
-            process.env.NEXT_PUBLIC_SUPABASE_URL!,
-            process.env.SUPABASE_SERVICE_ROLE_KEY!
-        );
+        const supabase = getSupabaseServer();
 
         let results: any = {};
 
@@ -42,7 +38,7 @@ export const POST = withSecurity(
 
             // Also clean legacy Firestore trip_sessions
             try {
-                const oldTripsSnapshot = await adminDb.collection('trip_sessions').where('endedAt', '<', cutoffDate).get();
+                const oldTripsSnapshot = await adminDb.collection('trip_sessions').where('endedAt', '<', cutoffDate).limit(400).get();
                 if (oldTripsSnapshot.size > 0) {
                     const batch = adminDb.batch();
                     oldTripsSnapshot.docs.forEach(doc => batch.delete(doc.ref));
@@ -66,7 +62,7 @@ export const POST = withSecurity(
 
             // Also clean legacy Firestore audit_logs
             try {
-                const oldAuditSnapshot = await adminDb.collection('audit_logs').where('timestamp', '<', cutoffDate).get();
+                const oldAuditSnapshot = await adminDb.collection('audit_logs').where('timestamp', '<', cutoffDate).limit(400).get();
                 if (oldAuditSnapshot.size > 0) {
                     const batch = adminDb.batch();
                     oldAuditSnapshot.docs.forEach(doc => batch.delete(doc.ref));
@@ -97,7 +93,7 @@ export const POST = withSecurity(
 
             // Also clean legacy Firestore location updates
             try {
-                const oldLocationSnapshot = await adminDb.collection('driver_location_updates').where('timestamp', '<', cutoffDate.getTime()).get();
+                const oldLocationSnapshot = await adminDb.collection('driver_location_updates').where('timestamp', '<', cutoffDate.getTime()).limit(400).get();
                 if (oldLocationSnapshot.size > 0) {
                         const batch = adminDb.batch();
                         oldLocationSnapshot.docs.forEach(doc => batch.delete(doc.ref));
@@ -150,10 +146,7 @@ export const POST = withSecurity(
 export const GET = withSecurity(
     async () => {
         // Initialize Supabase client
-        const supabase = createClient(
-            process.env.NEXT_PUBLIC_SUPABASE_URL!,
-            process.env.SUPABASE_SERVICE_ROLE_KEY!
-        );
+        const supabase = getSupabaseServer();
 
         // Get counts from Supabase
         const [

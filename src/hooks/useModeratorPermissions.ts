@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from 'react';
-import { doc, getDoc } from 'firebase/firestore';
+import { doc, onSnapshot } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { useAuth } from '@/contexts/auth-context';
 import {
@@ -89,10 +89,9 @@ function setCachedPermissions(uid: string, perms: ModeratorPermissions) {
 /**
  * Hook to fetch moderator permissions.
  *
- * QUOTA SAFETY:
- * - Uses getDoc() once per session (not onSnapshot).
- * - Results cached in localStorage with 24h TTL.
- * - No persistent listener → zero ongoing Firestore reads.
+ * REALTIME:
+ * - Uses onSnapshot for real-time updates when admin changes permissions.
+ * - Results cached in localStorage with 24h TTL to avoid flash on load.
  * - For admins: returns full permissions without any Firestore call.
  *
  * Security: This is client-side enforcement only. API routes ALSO
@@ -100,7 +99,17 @@ function setCachedPermissions(uid: string, perms: ModeratorPermissions) {
  */
 export function useModeratorPermissions(): UseModeratorPermissionsReturn {
     const { currentUser, userData } = useAuth();
-    const [permissions, setPermissions] = useState<ModeratorPermissions>(DEFAULT_MODERATOR_PERMISSIONS);
+    const [permissions, setPermissions] = useState<ModeratorPermissions>(() => {
+        if (userData?.role === 'admin') {
+            const { FULL_MODERATOR_PERMISSIONS } = require('@/lib/types/moderator-permissions');
+            return FULL_MODERATOR_PERMISSIONS;
+        }
+        if (currentUser?.uid) {
+            const cached = getCachedPermissions(currentUser.uid);
+            if (cached) return cached;
+        }
+        return DEFAULT_MODERATOR_PERMISSIONS;
+    });
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
 
@@ -122,50 +131,41 @@ export function useModeratorPermissions(): UseModeratorPermissionsReturn {
 
         const uid = currentUser.uid;
 
-        // 1. Load from cache immediately (instant UI, zero reads)
+        // 1. Load from cache immediately to avoid flash
         const cached = getCachedPermissions(uid);
         if (cached) {
             setPermissions(cached);
             setLoading(false);
-            // No early return — still refresh in background if needed
-            // but we won't re-fetch if cache is valid (already loaded)
-            return;
         }
 
-        // 2. Cache miss — fetch once from Firestore
+        // 2. Real-time listener so MOD CONFIG changes from admin apply instantly
         let isMounted = true;
-        const fetchPermissions = async () => {
-            try {
-                const modDocRef = doc(db, 'moderators', uid);
-                const snap = await getDoc(modDocRef);
-
-                if (!isMounted) return;
-
-                if (snap.exists()) {
-                    const data = snap.data();
-                    const perms = data.permissions as ModeratorPermissions | undefined;
-                    const merged = perms ? mergeWithDefaults(perms) : DEFAULT_MODERATOR_PERMISSIONS;
-                    setPermissions(merged);
-                    setCachedPermissions(uid, merged);
-                } else {
-                    setPermissions(DEFAULT_MODERATOR_PERMISSIONS);
-                    setCachedPermissions(uid, DEFAULT_MODERATOR_PERMISSIONS);
-                }
-                setError(null);
-            } catch (err: any) {
-                if (!isMounted) return;
-                console.error('[useModeratorPermissions] Fetch error:', err);
-                setError('Failed to load permissions');
-                // Fall to defaults on error
+        const modDocRef = doc(db, 'moderators', uid);
+        const unsubscribe = onSnapshot(modDocRef, (snap) => {
+            if (!isMounted) return;
+            if (snap.exists()) {
+                const data = snap.data();
+                const perms = data.permissions as ModeratorPermissions | undefined;
+                const merged = perms ? mergeWithDefaults(perms) : DEFAULT_MODERATOR_PERMISSIONS;
+                setPermissions(merged);
+                setCachedPermissions(uid, merged);
+            } else {
                 setPermissions(DEFAULT_MODERATOR_PERMISSIONS);
-            } finally {
-                if (isMounted) setLoading(false);
+                setCachedPermissions(uid, DEFAULT_MODERATOR_PERMISSIONS);
             }
+            setError(null);
+            setLoading(false);
+        }, (err: any) => {
+            if (!isMounted) return;
+            console.error('[useModeratorPermissions] Realtime listener error:', err);
+            setError('Failed to load permissions');
+            setLoading(false);
+        });
+
+        return () => {
+            isMounted = false;
+            unsubscribe();
         };
-
-        fetchPermissions();
-
-        return () => { isMounted = false; };
     }, [currentUser?.uid, userData?.role]);
 
     return {

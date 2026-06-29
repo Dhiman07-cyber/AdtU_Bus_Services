@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { supabase } from '@/lib/supabase-client';
+import { getSupabaseServer } from '@/lib/supabase-server';
 
 /**
  * Health Check API Endpoint
@@ -18,21 +18,26 @@ export async function GET() {
 
     // Check 2: Supabase connectivity
     try {
-        const supabaseStart = Date.now();
-        const { error } = await supabase.from('realtime_driver_locations').select('id').limit(1);
-        const supabaseLatency = Date.now() - supabaseStart;
-
-        if (error && !error.message.includes('Results contain 0 rows')) {
-            checks['supabase'] = {
-                status: 'error',
-                latency_ms: supabaseLatency,
-                message: 'Database connectivity error'
-            };
+        const supabase = getSupabaseServer();
+        if (!supabase) {
+            checks['supabase'] = { status: 'error', message: 'Server configuration error' };
         } else {
-            checks['supabase'] = {
-                status: 'ok',
-                latency_ms: supabaseLatency
-            };
+            const supabaseStart = Date.now();
+            const { error } = await supabase.from('realtime_driver_locations').select('id').limit(1);
+            const supabaseLatency = Date.now() - supabaseStart;
+
+            if (error && !error.message.includes('Results contain 0 rows')) {
+                checks['supabase'] = {
+                    status: 'error',
+                    latency_ms: supabaseLatency,
+                    message: 'Database connectivity error'
+                };
+            } else {
+                checks['supabase'] = {
+                    status: 'ok',
+                    latency_ms: supabaseLatency
+                };
+            }
         }
     } catch (e) {
         checks['supabase'] = {

@@ -48,7 +48,7 @@ export const POST = withSecurity(
             }
 
             if (!matchedBusId) {
-                console.log(`⚠️ Student ${student.fullName || student.id} has unknown busId: ${busId}`);
+                console.log(`⚠️ Student ${student.id.substring(0,8)}... has unknown busId: ${busId}`);
                 return;
             }
 
@@ -69,7 +69,6 @@ export const POST = withSecurity(
         });
 
         const updates: any[] = [];
-        const batch = adminDb.batch();
 
         for (const bus of buses) {
             const counts = busCounts.get(bus.id) || { morningCount: 0, eveningCount: 0, total: 0, stopCounts: {} };
@@ -95,13 +94,27 @@ export const POST = withSecurity(
                 oldCounts.eveningCount !== newCounts.eveningCount ||
                 JSON.stringify(oldCounts.stopCounts) !== JSON.stringify(newCounts.stopCounts)
             ) {
-                batch.update(busRef, {
-                    currentMembers: newCounts.currentMembers,
-                    'load.totalCount': newCounts.currentMembers, // keep canonical totalCount in sync
-                    'load.morningCount': newCounts.morningCount,
-                    'load.eveningCount': newCounts.eveningCount,
-                    stopCounts: newCounts.stopCounts,
-                    updatedAt: new Date().toISOString(),
+                // Use a transaction per bus to prevent lost updates from concurrent
+                // operations (e.g., student approval, reassignment) between the
+                // initial read and the write. Each transaction re-reads the bus
+                // and only overwrites counts that haven't been changed since the
+                // snapshot read.
+                await adminDb.runTransaction(async (transaction) => {
+                    const freshBus = await transaction.get(busRef);
+                    if (!freshBus.exists) return;
+                    const freshData = freshBus.data()!;
+                    // If the bus was modified since our snapshot read, skip to avoid
+                    // overwriting a concurrent change (best-effort reconciliation).
+                    if (freshData.currentMembers !== oldCounts.currentMembers) {
+                        return;
+                    }
+                    transaction.update(busRef, {
+                        currentMembers: newCounts.currentMembers,
+                        'load.morningCount': newCounts.morningCount,
+                        'load.eveningCount': newCounts.eveningCount,
+                        stopCounts: newCounts.stopCounts,
+                        updatedAt: new Date().toISOString(),
+                    });
                 });
 
                 updates.push({
@@ -111,11 +124,6 @@ export const POST = withSecurity(
                     new: newCounts,
                 });
             }
-        }
-
-        if (updates.length > 0) {
-            await batch.commit();
-            console.log(`✅ Updated ${updates.length} buses`);
         }
 
         return NextResponse.json({

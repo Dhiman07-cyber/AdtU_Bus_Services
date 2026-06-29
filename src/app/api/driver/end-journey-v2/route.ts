@@ -86,12 +86,10 @@ async function cleanupSupabase(
       }),
 
     // 3. Delete/expire waiting_flags (raised or acknowledged)
-    supabase
-      .from('waiting_flags')
-      .delete()
-      .eq('bus_id', busId)
-      .in('status', ['raised', 'acknowledged'])
-      .then(({ count, error }: { count: number | null, error: any }) => {
+    (tripId
+      ? supabase.from('waiting_flags').delete().eq('bus_id', busId).eq('trip_id', tripId).in('status', ['raised', 'acknowledged'])
+      : supabase.from('waiting_flags').delete().eq('bus_id', busId).in('status', ['raised', 'acknowledged'])
+    ).then(({ count, error }: { count: number | null, error: any }) => {
         if (error) console.error('❌ Error deleting waiting_flags:', error);
         else {
           stats.waitingFlags = count || 0;

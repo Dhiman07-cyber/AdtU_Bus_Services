@@ -1,7 +1,7 @@
 import { adminDb } from './firebase-admin';
 import { DeadlineConfig } from './types/deadline-config';
+import { SETTINGS_COLLECTION } from '@/config/firestore-collections';
 
-const COLLECTION_NAME = 'settings';
 const DOC_ID = 'deadline';
 
 /**
@@ -10,7 +10,7 @@ const DOC_ID = 'deadline';
  */
 export async function getDeadlineConfig(): Promise<DeadlineConfig> {
     try {
-        const doc = await adminDb.collection(COLLECTION_NAME).doc(DOC_ID).get();
+        const doc = await adminDb.collection(SETTINGS_COLLECTION).doc(DOC_ID).get();
 
         if (doc.exists) {
             return doc.data() as DeadlineConfig;
@@ -40,7 +40,7 @@ export async function updateDeadlineConfig(config: DeadlineConfig, uid?: string)
         // Remove redundant/UI-only fields if necessary, ensuring we keep the core rules
         // For deadline config, almost everything is essential logic, so we keep it structure-intact.
 
-        await adminDb.collection(COLLECTION_NAME).doc(DOC_ID).set(configToSave, { merge: true });
+        await adminDb.collection(SETTINGS_COLLECTION).doc(DOC_ID).set(configToSave, { merge: true });
 
         // Note: We do NOT write to local JSON file to avoid Vercel ephemeral issues.
         // The source of truth moves to Firestore.

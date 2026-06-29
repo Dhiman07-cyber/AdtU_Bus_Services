@@ -159,9 +159,100 @@ export async function recordOperationalEvent(entry: AuditEntry): Promise<void> {
 }
 
 /**
+ * Build a proper AuditEntry from a Phase 4 outbox record's root-level fields.
+ *
+ * Phase 4 outbox writers (payment_student_validity_sync,
+ * payment_status_dual_write_divergence, webhook_payment_sync_pending,
+ * trip_supabase_end_failure) store their data at the document root, NOT inside
+ * a `payload` field. This helper translates each kind into a valid AuditEntry
+ * so the replay creates a meaningful, admin-visible audit record in
+ * `activity_logs` instead of a near-empty garbage row.
+ */
+function buildRecoveryAuditEntry(data: Record<string, unknown>): AuditEntry {
+  const kind = (data.kind as string) || 'unknown';
+  switch (kind) {
+    case 'payment_student_validity_sync':
+      return {
+        action: 'recovery_payment_student_validity_sync',
+        actor: SYSTEM_ACTOR,
+        targetId: (data.studentUid as string) || (data.paymentId as string) || 'unknown',
+        targetType: 'student',
+        reason: (data.error as string) || 'Student validity update failed after 3 retries',
+        details: {
+          paymentId: data.paymentId,
+          studentUid: data.studentUid,
+          paymentStatus: data.paymentStatus,
+          studentValidityUpdated: data.studentValidityUpdated,
+        },
+      };
+    case 'payment_status_dual_write_divergence':
+      return {
+        action: 'recovery_payment_status_divergence',
+        actor: SYSTEM_ACTOR,
+        targetId: (data.paymentId as string) || 'unknown',
+        targetType: 'payment',
+        reason: `Supabase: ${data.supabaseSuccess}, Firestore: ${data.firestoreSuccess}`,
+        details: {
+          paymentId: data.paymentId,
+          newStatus: data.newStatus,
+          supabaseSuccess: data.supabaseSuccess,
+          firestoreSuccess: data.firestoreSuccess,
+        },
+      };
+    case 'webhook_payment_sync_pending':
+      return {
+        action: 'recovery_webhook_payment_sync_pending',
+        actor: SYSTEM_ACTOR,
+        targetId: (data.paymentId as string) || 'unknown',
+        targetType: 'payment',
+        reason: (data.error as string) || 'Webhook payment sync pending — Supabase ledger entry missing',
+        details: {
+          paymentId: data.paymentId,
+        },
+      };
+    case 'trip_supabase_end_failure':
+      return {
+        action: 'recovery_trip_supabase_end_failure',
+        actor: SYSTEM_ACTOR,
+        targetId: (data.tripId as string) || 'unknown',
+        targetType: 'trip',
+        reason: (data.error as string) || 'Supabase active_trips status update failed',
+        details: {
+          tripId: data.tripId,
+          driverId: data.driverId,
+          busId: data.busId,
+        },
+      };
+    default:
+      return {
+        action: `recovery_unknown_${kind}`,
+        actor: SYSTEM_ACTOR,
+        targetId: 'unknown',
+        targetType: 'unknown',
+        reason: `Unknown outbox kind: ${kind}`,
+        details: data as Record<string, unknown>,
+      };
+  }
+}
+
+/**
  * Recovery — replay unrecovered `audit_failures` back into `activity_logs`.
+ *
+ * Two replay strategies dispatched by `kind`:
+ *
+ *   1. `operational_event` — the original Tier B audit write failed. Replays the
+ *      stored `data.payload` (a complete AuditDoc) directly into `activity_logs`.
+ *
+ *   2. Phase 4 outbox kinds — a cross-system operation failed and the outbox
+ *      record was written at the document root (no `payload` wrapper). Builds a
+ *      proper AuditEntry from root-level fields so the admin audit trail is
+ *      complete and searchable.
+ *
  * Returns the number of events successfully replayed. Safe to run repeatedly
- * (each failure is marked `recovered: true` once its row lands).
+ * (each failure is marked `recovered: true` once its row lands). Idempotent:
+ * re-replaying a record creates a duplicate audit entry (tagged
+ * `replayedFromFailure: true`) but never corrupts state. Bounded by `limit`
+ * per invocation to prevent runaway processing.
  */
 export async function replayAuditFailures(limit = 200): Promise<{ replayed: number; remaining: number }> {
   const snap = await adminDb
@@ -174,8 +265,18 @@ export async function replayAuditFailures(limit = 200): Promise<{ replayed: numb
   for (const doc of snap.docs) {
     const data = doc.data();
     try {
-      const payload = { ...(data.payload || {}), timestamp: FieldValue.serverTimestamp(), replayedFromFailure: true };
-      await adminDb.collection(AUDIT_COLLECTION).add(payload);
+      let auditDoc: AuditDoc;
+
+      if (data.kind === 'operational_event' && data.payload) {
+        // Tier B replay: the original audit write failed; replay the stored payload as-is.
+        auditDoc = { ...(data.payload as Record<string, unknown>), timestamp: FieldValue.serverTimestamp(), replayedFromFailure: true };
+      } else {
+        // Phase 4 outbox kinds: build a proper AuditEntry from root-level fields.
+        const entry = buildRecoveryAuditEntry(data);
+        auditDoc = { ...buildAuditDoc(entry), replayedFromFailure: true, outboxKind: data.kind };
+      }
+
+      await adminDb.collection(AUDIT_COLLECTION).add(auditDoc);
       await doc.ref.update({ recovered: true, recoveredAtISO: new Date().toISOString() });
       replayed++;
     } catch (err) {

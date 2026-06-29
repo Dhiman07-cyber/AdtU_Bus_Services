@@ -50,6 +50,7 @@ import { parseFirestoreDate, formatDate, daysUntil, isDateExpired } from '@/lib/
 // SPARK PLAN SAFETY: Migrated to usePaginatedCollection
 import { usePaginatedCollection } from '@/hooks/usePaginatedCollection';
 import { safeImageSrc } from '@/lib/security/url-sanitizer';
+import ErrorBoundary from '@/components/ErrorBoundary';
 
 interface Transaction {
   studentId: string;
@@ -367,6 +368,7 @@ export default function StudentRenewalPage() {
   const daysUntilExpiry = daysUntil(validUntilDate);
 
   return (
+    <ErrorBoundary>
     <div className="relative flex-1 min-h-screen">
       <div className="fixed inset-0 bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50 dark:from-gray-950 dark:via-slate-900 dark:to-gray-950 -z-10" />
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-24 sm:pt-25 lg:pt-25 pb-20">
@@ -915,5 +917,6 @@ export default function StudentRenewalPage() {
         </div>
       </div>
     </div>
+    </ErrorBoundary>
   );
 }

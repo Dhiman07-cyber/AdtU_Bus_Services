@@ -1,15 +1,10 @@
 import { NextResponse } from 'next/server';
 import { auth } from '@/lib/firebase-admin';
 import { getSupabaseServer } from '@/lib/supabase-server';
-import { createClient } from '@supabase/supabase-js';
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
 
 export async function GET(request: Request) {
   try {
+    const supabase = getSupabaseServer();
     // Get query params
     const { searchParams } = new URL(request.url);
     const forParam = searchParams.get('for');

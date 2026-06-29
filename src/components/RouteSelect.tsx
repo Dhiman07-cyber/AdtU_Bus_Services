@@ -70,7 +70,7 @@ export default function RouteSelect({
                             role="combobox"
                             aria-expanded={open}
                             className={cn(
-                                "w-full justify-between h-9 px-3 bg-white dark:bg-gray-800 border-2 border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700/50 text-left font-normal transition-all duration-200 rounded-md shadow-sm cursor-pointer",
+                                "w-full justify-between h-9 px-3 bg-white dark:bg-gray-800 border-2 border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700/50 text-left font-normal transition-all duration-200 rounded-md shadow-sm cursor-pointer hover:cursor-pointer",
                                 "focus-visible:border-blue-500 dark:focus-visible:border-blue-400 focus-visible:ring-2 focus-visible:ring-blue-500/20",
                                 !value && "text-muted-foreground/60"
                             )}
@@ -122,7 +122,7 @@ export default function RouteSelect({
                                                 onChange("reserved");
                                                 setOpen(false);
                                             }}
-                                            className="mx-1 rounded-md aria-selected:bg-green-500/10 aria-selected:text-green-600 dark:aria-selected:text-green-400 cursor-pointer"
+                                            className="mx-1 rounded-md aria-selected:bg-green-500/10 aria-selected:text-green-600 dark:aria-selected:text-green-400 cursor-pointer hover:cursor-pointer"
                                         >
                                             <div className="flex items-center gap-3 w-full py-1">
                                                 <Sparkles className="h-4 w-4 text-green-500" />
@@ -150,7 +150,7 @@ export default function RouteSelect({
                                                 onChange(route.routeId);
                                                 setOpen(false);
                                             }}
-                                            className="mx-0.5 rounded-md aria-selected:bg-blue-500/10 aria-selected:text-blue-600 dark:aria-selected:text-blue-400 cursor-pointer"
+                                            className="mx-0.5 rounded-md aria-selected:bg-blue-500/10 aria-selected:text-blue-600 dark:aria-selected:text-blue-400 cursor-pointer hover:cursor-pointer"
                                         >
                                             <div className="flex items-center gap-3 w-full py-1">
                                                 <Route className="h-4 w-4 text-blue-500" />
@@ -188,7 +188,7 @@ export default function RouteSelect({
                             variant="outline"
                             size="icon"
                             type="button"
-                            className="h-9 w-9 shrink-0 bg-white dark:bg-gray-800 border-2 border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700/50 rounded-md transition-colors"
+                            className="h-9 w-9 shrink-0 bg-white dark:bg-gray-800 border-2 border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700/50 rounded-md transition-colors cursor-pointer hover:cursor-pointer"
                         >
                             <Info className="h-5 w-5 text-blue-500" />
                         </Button>

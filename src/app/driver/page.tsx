@@ -15,8 +15,6 @@ import {
   CheckCircle, XCircle, Loader2, Sparkles, Star,
   Crown, Award, Target, BarChart3, Hash, User, Monitor
 } from "lucide-react";
-import { collection, doc, getDoc, getDocs } from "firebase/firestore";
-import { db } from "@/lib/firebase";
 import { PremiumPageLoader } from "@/components/LoadingSpinner";
 import { supabase } from "@/lib/supabase-client";
 import { authApiFetch } from "@/lib/secure-api-client";

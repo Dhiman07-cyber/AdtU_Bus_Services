@@ -565,7 +565,7 @@ export default function SmartAllocationPage() {
         const shiftLoad = shiftFilter === "morning"
           ? (bus.load?.morningCount || 0)
           : (bus.load?.eveningCount || 0);
-        const loadPercentage = (shiftLoad / bus.capacity) * 100;
+        const loadPercentage = bus.capacity > 0 ? (shiftLoad / bus.capacity) * 100 : 0;
         return loadPercentage >= overloadThreshold;
       });
     }
@@ -579,8 +579,8 @@ export default function SmartAllocationPage() {
       const loadB = shiftFilter === "morning"
         ? (b.load?.morningCount || 0)
         : (b.load?.eveningCount || 0);
-      const percentA = (loadA / a.capacity) * 100;
-      const percentB = (loadB / b.capacity) * 100;
+      const percentA = a.capacity > 0 ? (loadA / a.capacity) * 100 : 0;
+      const percentB = b.capacity > 0 ? (loadB / b.capacity) * 100 : 0;
       return percentB - percentA;
     });
   }, [buses, shiftFilter, overloadThreshold]);
@@ -592,7 +592,7 @@ export default function SmartAllocationPage() {
       const shiftLoad = shiftFilter === "morning"
         ? (bus.load?.morningCount || 0)
         : (bus.load?.eveningCount || 0);
-      const loadPercentage = (shiftLoad / bus.capacity) * 100;
+      const loadPercentage = bus.capacity > 0 ? (shiftLoad / bus.capacity) * 100 : 0;
       return loadPercentage >= 100;
     }).length;
   }, [allBusesByLoad, shiftFilter]);
@@ -675,7 +675,7 @@ export default function SmartAllocationPage() {
       const shiftLoad = shiftFilter === "morning"
         ? (bus.load?.morningCount || 0)
         : (bus.load?.eveningCount || 0);
-      const loadPercent = (shiftLoad / bus.capacity) * 100;
+      const loadPercent = bus.capacity > 0 ? (shiftLoad / bus.capacity) * 100 : 0;
 
       return {
         "Bus Number": bus.busNumber,
@@ -955,7 +955,7 @@ export default function SmartAllocationPage() {
                       const shiftLoad = shiftFilter === "morning"
                         ? (bus.load?.morningCount || 0)
                         : (bus.load?.eveningCount || 0);
-                      const loadPercentage = (shiftLoad / bus.capacity) * 100;
+                      const loadPercentage = bus.capacity > 0 ? (shiftLoad / bus.capacity) * 100 : 0;
                       const isSelected = selectedBus?.id === bus.id;
 
                       return (

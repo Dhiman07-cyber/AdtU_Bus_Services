@@ -11,11 +11,9 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { adminAuth, adminDb } from '@/lib/firebase-admin';
-
-// PERF: Module-scoped role cache (5-min TTL) — avoids Firestore reads for repeat auth checks
-const _authRoleCache = new Map<string, { role: string; name: string; employeeId: string; expiresAt: number }>();
-const AUTH_ROLE_CACHE_TTL = 5 * 60 * 1000;
+import { adminAuth } from '@/lib/firebase-admin';
+import { resolveUserRole } from '@/lib/security/role-cache';
+import crypto from 'crypto';
 
 // ============================================================================
 // TYPES
@@ -117,59 +115,11 @@ export async function verifyApiAuth(
 
 
 
-        // 3. Look up user role from Firestore (with cache)
-        let role = '';
-        let name = '';
-        let employeeId = '';
-
-        const cached = _authRoleCache.get(uid);
-        if (cached && Date.now() < cached.expiresAt) {
-            role = cached.role;
-            name = cached.name;
-            employeeId = cached.employeeId;
-        } else if (adminDb) {
-            // PERF: Check users collection first (most common), then parallel fallback
-            const userDoc = await adminDb.collection('users').doc(uid).get();
-            if (userDoc.exists) {
-                role = userDoc.data()?.role || 'student';
-                name = userDoc.data()?.name || userDoc.data()?.fullName || '';
-            } else {
-                // Parallel lookup across all role-specific collections
-                const [adminDoc, modDoc, driverDoc, studentDoc] = await Promise.all([
-                    adminDb.collection('admins').doc(uid).get(),
-                    adminDb.collection('moderators').doc(uid).get(),
-                    adminDb.collection('drivers').doc(uid).get(),
-                    adminDb.collection('students').doc(uid).get(),
-                ]);
-
-                if (adminDoc.exists) {
-                    role = 'admin';
-                    name = adminDoc.data()?.name || adminDoc.data()?.fullName || '';
-                    employeeId = adminDoc.data()?.employeeId || '';
-                } else if (modDoc.exists) {
-                    role = 'moderator';
-                    name = modDoc.data()?.fullName || modDoc.data()?.name || '';
-                    employeeId = modDoc.data()?.employeeId || modDoc.data()?.staffId || '';
-                } else if (driverDoc.exists) {
-                    role = 'driver';
-                    name = driverDoc.data()?.fullName || driverDoc.data()?.name || '';
-                    employeeId = driverDoc.data()?.driverId || '';
-                } else if (studentDoc.exists) {
-                    role = 'student';
-                    name = studentDoc.data()?.fullName || studentDoc.data()?.name || '';
-                }
-            }
-
-            // Cache the result
-            if (role) {
-                _authRoleCache.set(uid, { role, name, employeeId, expiresAt: Date.now() + AUTH_ROLE_CACHE_TTL });
-                // Evict oldest if over 2000 entries
-                if (_authRoleCache.size > 2000) {
-                    const firstKey = _authRoleCache.keys().next().value;
-                    if (firstKey) _authRoleCache.delete(firstKey);
-                }
-            }
-        }
+        // 3. Look up user role from Firestore (using canonical role-cache)
+        const resolved = await resolveUserRole(uid);
+        const role = resolved.role;
+        const name = resolved.name;
+        const employeeId = resolved.employeeId;
 
         // 4. Check role authorization if required
         if (requiredRoles && requiredRoles.length > 0) {
@@ -241,8 +191,12 @@ export function verifyCronSecret(request: NextRequest): boolean {
 
     const authHeader = request.headers.get('Authorization') || request.headers.get('authorization');
 
-    if (authHeader === `Bearer ${cronSecret}`) {
-        return true;
+    if (authHeader?.startsWith('Bearer ')) {
+        const providedToken = authHeader.substring(7);
+        if (providedToken.length === cronSecret.length &&
+            crypto.timingSafeEqual(Buffer.from(providedToken), Buffer.from(cronSecret))) {
+            return true;
+        }
     }
 
     console.warn('⚠️ Invalid cron secret in request');

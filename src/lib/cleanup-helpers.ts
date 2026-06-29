@@ -3,7 +3,7 @@
  * Utilities for deleting data from Firestore and associated resources
  */
 
-import { adminDb } from './firebase-admin';
+import { adminAuth, adminDb } from './firebase-admin';
 import { decrementBusCapacity } from './busCapacityService';
 import { extractPublicId, deleteAsset } from './cloudinary-server';
 import { wasSeatReleased } from './config/capacity-flags';
@@ -48,7 +48,7 @@ export async function deleteUserAndData(
   userType: 'student' | 'driver' | 'moderator'
 ): Promise<{ success: boolean; error?: string }> {
   try {
-    console.log(`Deleting ${userType} with ID:`, userId);
+    console.log(`Deleting ${userType} with ID:`, userId.substring(0,8)+'...');
 
     // Get user data first to retrieve profile image URL and Firebase Auth UID
     const userDoc = await adminDb.collection(`${userType}s`).doc(userId).get();
@@ -77,9 +77,10 @@ export async function deleteUserAndData(
       // Get the student's busId before deleting to decrement capacity
       const busId = userData?.busId || userData?.currentBusId || userData?.assignedBusId || null;
 
-      // Delete student's applications
+      // Delete student's applications (batch limit: 400 to stay under Firestore's 500 cap)
       const applicationsQuery = await adminDb.collection('applications')
         .where('applicantUid', '==', userId)
+        .limit(400)
         .get();
 
       if (applicationsQuery.size > 0) {
@@ -88,12 +89,31 @@ export async function deleteUserAndData(
           batch.delete(doc.ref);
         });
         await batch.commit();
-        console.log(`Deleted ${applicationsQuery.size} applications for student:`, userId);
+        console.log(`Deleted ${applicationsQuery.size} applications for student:`, userId.substring(0,8)+'...');
+      }
+
+      // Delete profile update requests for this student
+      try {
+        const profileRequestsSnapshot = await adminDb.collection('profile_update_requests')
+          .where('studentUid', '==', userId)
+          .limit(400)
+          .get();
+        if (profileRequestsSnapshot.size > 0) {
+          const batch = adminDb.batch();
+          profileRequestsSnapshot.docs.forEach(doc => {
+            batch.delete(doc.ref);
+          });
+          await batch.commit();
+          console.log(`Deleted ${profileRequestsSnapshot.size} profile update requests for student:`, userId.substring(0,8)+'...');
+        }
+      } catch (requestsError) {
+        console.error('Error deleting profile update requests:', requestsError);
       }
 
       // Delete student's waiting flags
       const waitingFlagsQuery = await adminDb.collection('waiting_flags')
         .where('student_uid', '==', userId)
+        .limit(400)
         .get();
 
       if (waitingFlagsQuery.size > 0) {
@@ -102,7 +122,7 @@ export async function deleteUserAndData(
           batch.delete(doc.ref);
         });
         await batch.commit();
-        console.log(`Deleted ${waitingFlagsQuery.size} waiting flags for student:`, userId);
+        console.log(`Deleted ${waitingFlagsQuery.size} waiting flags for student:`, userId.substring(0,8)+'...');
       }
 
       // Delete any legacy fcm_tokens collection documents for this student
@@ -110,6 +130,7 @@ export async function deleteUserAndData(
       try {
         const fcmTokensQuery = await adminDb.collection('fcm_tokens')
           .where('userUid', '==', userId)
+          .limit(400)
           .get();
 
         if (fcmTokensQuery.size > 0) {
@@ -118,7 +139,7 @@ export async function deleteUserAndData(
             batch.delete(doc.ref);
           });
           await batch.commit();
-          console.log(`🧹 Deleted ${fcmTokensQuery.size} legacy FCM tokens for student:`, userId);
+          console.log(`🧹 Deleted ${fcmTokensQuery.size} legacy FCM tokens for student:`, userId.substring(0,8)+'...');
         }
       } catch (fcmError) {
         console.error('⚠️ Error cleaning up legacy FCM tokens:', fcmError);
@@ -138,7 +159,19 @@ export async function deleteUserAndData(
             console.log(`✅ Decremented bus capacity for bus ${busId}`);
           } catch (busError) {
             console.error(`⚠️ Error decrementing bus capacity for bus ${busId}:`, busError);
-            // Continue with deletion even if bus capacity update fails
+            try {
+              await adminDb.collection('audit_failures').add({
+                kind: 'bus_capacity_decrement',
+                studentUid: userId,
+                busId: busId,
+                shift: userData?.shift || null,
+                error: busError instanceof Error ? busError.message : String(busError),
+                recovered: false,
+                createdAtISO: new Date().toISOString(),
+              });
+            } catch (outboxErr) {
+              console.error('CRITICAL: Could not write audit_failure outbox for bus capacity decrement', outboxErr);
+            }
           }
         }
       }
@@ -158,33 +191,31 @@ export async function deleteUserAndData(
 
     // Step 3: Delete user document from Firestore
     await adminDb.collection(`${userType}s`).doc(userId).delete();
-    console.log(`Deleted ${userType} document from Firestore:`, userId);
+    console.log(`Deleted ${userType} document from Firestore:`, userId.substring(0,8)+'...');
 
     // Also delete from users collection if it exists
     try {
       await adminDb.collection('users').doc(userId).delete();
-      console.log(`Deleted user document from users collection:`, userId);
+      console.log(`Deleted user document from users collection:`, userId.substring(0,8)+'...');
     } catch (userDeleteError) {
-      console.log(`User with ID ${userId} not found in users collection or already deleted`);
+      console.log(`User with ID ${userId.substring(0,8)}... not found in users collection or already deleted`);
     }
 
     // Step 4: Delete from Firebase Authentication with enhanced Google account handling
     try {
-      const { adminAuth } = require('./firebase-admin');
-
       // First, get the user record to check for Google provider
       const userRecord = await adminAuth.getUser(firebaseAuthUid);
       const hasGoogleProvider = userRecord.providerData.some(provider => provider.providerId === 'google.com');
 
       if (hasGoogleProvider) {
-        console.log(`User ${firebaseAuthUid} has Google provider - performing enhanced deletion`);
+        console.log(`User ${firebaseAuthUid.substring(0,8)}... has Google provider - performing enhanced deletion`);
 
         // Disconnect Google provider before deletion
         try {
           await adminAuth.updateUser(firebaseAuthUid, {
             providerToDelete: 'google.com'
           });
-          console.log(`Successfully disconnected Google provider for user:`, firebaseAuthUid);
+          console.log(`Successfully disconnected Google provider for user:`, firebaseAuthUid.substring(0,8)+'...');
         } catch (disconnectError: any) {
           console.log(`Could not disconnect Google provider (user may not have Google linked):`, disconnectError.message);
         }
@@ -192,23 +223,23 @@ export async function deleteUserAndData(
 
       // Delete the user from Firebase Authentication
       await adminAuth.deleteUser(firebaseAuthUid);
-      console.log(`Successfully deleted user from Firebase Auth:`, firebaseAuthUid);
+      console.log(`Successfully deleted user from Firebase Auth:`, firebaseAuthUid.substring(0,8)+'...');
 
       // Log additional information for audit
       if (hasGoogleProvider) {
-        console.log(`User ${firebaseAuthUid} was deleted with Google account disconnection`);
+        console.log(`User ${firebaseAuthUid.substring(0,8)}... was deleted with Google account disconnection`);
       }
 
     } catch (authError: any) {
       if (authError.code === 'auth/user-not-found') {
-        console.log(`User with UID ${firebaseAuthUid} not found in Firebase Auth`);
+        console.log(`User with UID ${firebaseAuthUid.substring(0,8)}... not found in Firebase Auth`);
       } else {
         console.error('Error deleting user from Firebase Auth:', authError);
         // Don't fail the entire operation if Firebase Auth deletion fails
       }
     }
 
-    console.log(`Successfully completed deletion of ${userType} with ID:`, userId);
+    console.log(`Successfully completed deletion of ${userType} with ID:`, userId.substring(0,8)+'...');
     return { success: true };
   } catch (error: any) {
     console.error(`Error deleting ${userType}:`, error);
@@ -224,6 +255,7 @@ async function deleteUserNotifications(userId: string): Promise<void> {
     // Delete from notifications collection
     const notificationsQuery = await adminDb.collection('notifications')
       .where('toUid', '==', userId)
+      .limit(400)
       .get();
 
     const batch1 = adminDb.batch();
@@ -231,11 +263,12 @@ async function deleteUserNotifications(userId: string): Promise<void> {
       batch1.delete(doc.ref);
     });
     await batch1.commit();
-    console.log(`Deleted ${notificationsQuery.size} notifications for user:`, userId);
+    console.log(`Deleted ${notificationsQuery.size} notifications for user:`, userId.substring(0,8)+'...');
 
     // Delete from notification_read_receipts collection
     const receiptsQuery = await adminDb.collection('notification_read_receipts')
       .where('userId', '==', userId)
+      .limit(400)
       .get();
 
     const batch2 = adminDb.batch();
@@ -243,7 +276,7 @@ async function deleteUserNotifications(userId: string): Promise<void> {
       batch2.delete(doc.ref);
     });
     await batch2.commit();
-    console.log(`Deleted ${receiptsQuery.size} notification receipts for user:`, userId);
+    console.log(`Deleted ${receiptsQuery.size} notification receipts for user:`, userId.substring(0,8)+'...');
   } catch (error) {
     console.error('Error deleting user notifications:', error);
   }
@@ -257,6 +290,7 @@ async function deleteDriverTripLogs(driverId: string): Promise<void> {
     // Delete from trip_logs or similar collection
     const tripsQuery = await adminDb.collection('trip_logs')
       .where('driverId', '==', driverId)
+      .limit(400)
       .get();
 
     const batch = adminDb.batch();
@@ -264,7 +298,7 @@ async function deleteDriverTripLogs(driverId: string): Promise<void> {
       batch.delete(doc.ref);
     });
     await batch.commit();
-    console.log(`Deleted ${tripsQuery.size} trip logs for driver:`, driverId);
+    console.log(`Deleted ${tripsQuery.size} trip logs for driver:`, driverId.substring(0,8)+'...');
   } catch (error) {
     console.error('Error deleting driver trip logs:', error);
   }
@@ -286,6 +320,21 @@ export async function deleteBusAndData(
       return { success: false, error: 'Bus not found' };
     }
 
+    // Clean student references before deleting the bus
+    const studentsQuery = await adminDb.collection('students')
+      .where('busId', '==', busId)
+      .limit(400)
+      .get();
+
+    if (studentsQuery.size > 0) {
+      const batch = adminDb.batch();
+      studentsQuery.docs.forEach(doc => {
+        batch.update(doc.ref, { busId: null, routeId: null, stopId: null, updatedAt: new Date().toISOString() });
+      });
+      await batch.commit();
+      console.log(`Cleared busId/routeId/stopId from ${studentsQuery.size} students for bus:`, busId);
+    }
+
     // Delete bus document
     await adminDb.collection('buses').doc(busId).delete();
     console.log('Deleted bus document:', busId);
@@ -293,6 +342,7 @@ export async function deleteBusAndData(
     // Unassign bus from drivers
     const driversQuery = await adminDb.collection('drivers')
       .where('busId', '==', busId)
+      .limit(400)
       .get();
 
     const batch1 = adminDb.batch();
@@ -305,6 +355,7 @@ export async function deleteBusAndData(
     // Delete bus trip logs
     const tripsQuery = await adminDb.collection('trip_logs')
       .where('busId', '==', busId)
+      .limit(400)
       .get();
 
     const batch2 = adminDb.batch();
@@ -342,6 +393,7 @@ export async function deleteRouteAndData(
     // Unassign route from buses
     const busesQuery = await adminDb.collection('buses')
       .where('routeId', '==', routeId)
+      .limit(400)
       .get();
 
     const batch1 = adminDb.batch();
@@ -354,6 +406,7 @@ export async function deleteRouteAndData(
     // Unassign route from students
     const studentsQuery = await adminDb.collection('students')
       .where('routeId', '==', routeId)
+      .limit(400)
       .get();
 
     const batch2 = adminDb.batch();
@@ -387,6 +440,7 @@ export async function cleanupTripData(
     // Delete real-time location data
     const locationsQuery = await adminDb.collection('real_time_locations')
       .where('tripId', '==', tripId)
+      .limit(400)
       .get();
 
     const batch1 = adminDb.batch();
@@ -399,6 +453,7 @@ export async function cleanupTripData(
     // Delete waiting flags for this trip
     const waitingFlagsQuery = await adminDb.collection('waiting_flags')
       .where('tripId', '==', tripId)
+      .limit(400)
       .get();
 
     const batch2 = adminDb.batch();
@@ -409,7 +464,7 @@ export async function cleanupTripData(
     console.log(`Deleted ${waitingFlagsQuery.size} waiting flags for trip:`, tripId);
 
     // If using Supabase for real-time tracking, clean up there too
-    if (process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_KEY) {
+    if (process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY) {
       await cleanupSupabaseTripData(tripId, driverId);
     }
 
@@ -425,8 +480,10 @@ export async function cleanupTripData(
  */
 async function cleanupSupabaseTripData(tripId: string, driverId: string): Promise<void> {
   try {
-    const supabaseUrl = process.env.SUPABASE_URL;
-    const supabaseKey = process.env.SUPABASE_SERVICE_KEY;
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+    if (!supabaseUrl || !supabaseKey) return;
 
     // Delete from bus_locations table
     await fetch(`${supabaseUrl}/rest/v1/bus_locations?trip_id=eq.${tripId}`, {

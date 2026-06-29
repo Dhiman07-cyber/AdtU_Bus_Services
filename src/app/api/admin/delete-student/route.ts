@@ -78,19 +78,13 @@ export const POST = withSecurity(
                 }
             })(),
             (async () => {
-                const snapshot = await adminDb.collection('fcm_tokens').where('userUid', '==', uid).get();
+                const snapshot = await adminDb.collection('fcm_tokens').where('userUid', '==', uid).limit(400).get();
                 const batch = adminDb.batch();
                 snapshot.docs.forEach((doc: any) => batch.delete(doc.ref));
                 await batch.commit();
             })(),
             (async () => {
-                const snapshot = await adminDb.collection('waiting_flags').where('student_uid', '==', uid).get();
-                const batch = adminDb.batch();
-                snapshot.docs.forEach((doc: any) => batch.delete(doc.ref));
-                await batch.commit();
-            })(),
-            (async () => {
-                const snapshot = await adminDb.collection('attendance').where('studentUid', '==', uid).get();
+                const snapshot = await adminDb.collection('waiting_flags').where('student_uid', '==', uid).limit(400).get();
                 const batch = adminDb.batch();
                 snapshot.docs.forEach((doc: any) => batch.delete(doc.ref));
                 await batch.commit();

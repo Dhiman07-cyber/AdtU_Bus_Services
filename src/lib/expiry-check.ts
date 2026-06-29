@@ -78,42 +78,48 @@ export async function checkAndNotifyExpiringStudents(force: boolean = false): Pr
           .get();
 
         if (!existingReminderQuery.empty) {
-          console.log(`⏭️ Skipping ${studentData.fullName} - reminder already sent`);
+          console.log(`⏭️ Skipping ${studentDoc.id} - reminder already sent`);
           continue;
         }
 
-        // Create expiry reminder notification
+        // Create expiry reminder notification and update student atomically
         const notifRef = adminDb.collection('notifications').doc();
         const validUntilDate = new Date(studentData.validUntil);
+        const now = new Date().toISOString();
 
-        await notifRef.set({
-          notifId: notifRef.id,
-          toUid: studentUid,
-          toRole: 'student',
-          type: 'ExpiryReminder',
-          title: 'Bus Service Renewal Reminder',
-          body: `Your bus service (session ${studentData.sessionStartYear}-${studentData.sessionEndYear}) will expire on ${validUntilDate.toLocaleDateString('en-IN', { year: 'numeric', month: 'long', day: 'numeric' })}. Please renew by visiting the Bus Office or apply online to continue your service.`,
-          links: {
-            profile: '/student/profile',
-            renewPage: '/apply'
-          },
-          read: false,
-          createdAt: new Date().toISOString(),
-          expiryDetails: {
-            sessionStartYear: studentData.sessionStartYear,
-            sessionEndYear: studentData.sessionEndYear,
-            validUntil: studentData.validUntil
-          }
-        });
+        await adminDb.runTransaction(async (transaction) => {
+          const studentSnap = await transaction.get(studentDoc.ref);
+          const currentData = studentSnap.data();
+          const currentCount = currentData?.expiryReminderCount || 0;
 
-        // Update student document
-        await studentDoc.ref.update({
-          lastExpiryReminderSentAt: new Date().toISOString(),
-          expiryReminderCount: (studentData.expiryReminderCount || 0) + 1
+          transaction.set(notifRef, {
+            notifId: notifRef.id,
+            toUid: studentUid,
+            toRole: 'student',
+            type: 'ExpiryReminder',
+            title: 'Bus Service Renewal Reminder',
+            body: `Your bus service (session ${studentData.sessionStartYear}-${studentData.sessionEndYear}) will expire on ${validUntilDate.toLocaleDateString('en-IN', { year: 'numeric', month: 'long', day: 'numeric' })}. Please renew by visiting the Bus Office or apply online to continue your service.`,
+            links: {
+              profile: '/student/profile',
+              renewPage: '/apply'
+            },
+            read: false,
+            createdAt: now,
+            expiryDetails: {
+              sessionStartYear: studentData.sessionStartYear,
+              sessionEndYear: studentData.sessionEndYear,
+              validUntil: studentData.validUntil
+            }
+          });
+
+          transaction.update(studentDoc.ref, {
+            lastExpiryReminderSentAt: now,
+            expiryReminderCount: currentCount + 1
+          });
         });
 
         result.remindersSent++;
-        console.log(`✅ Sent reminder to ${studentData.fullName} (${studentData.enrollmentId})`);
+        console.log(`✅ Sent reminder to ${studentDoc.id}`);
       } catch (error: any) {
         const errorMsg = `Failed to process student ${studentDoc.id}: ${error.message}`;
         result.errors.push(errorMsg);
@@ -186,26 +192,33 @@ export async function sendMidJuneReminder(force: boolean = false): Promise<Expir
 
         const notifRef = adminDb.collection('notifications').doc();
         const validUntilDate = new Date(studentData.validUntil);
+        const now = new Date().toISOString();
 
-        await notifRef.set({
-          notifId: notifRef.id,
-          toUid: studentUid,
-          toRole: 'student',
-          type: 'ExpiryReminder',
-          title: 'Final Reminder: Bus Service Expiring Soon',
-          body: `This is a final reminder that your bus service expires on ${validUntilDate.toLocaleDateString('en-IN', { year: 'numeric', month: 'long', day: 'numeric' })}. Only 2 weeks left! Renew now to avoid service interruption.`,
-          links: {
-            profile: '/student/profile',
-            renewPage: '/apply'
-          },
-          read: false,
-          createdAt: new Date().toISOString(),
-          isSecondReminder: true
-        });
+        await adminDb.runTransaction(async (transaction) => {
+          const studentSnap = await transaction.get(studentDoc.ref);
+          const currentData = studentSnap.data();
+          const currentCount = currentData?.expiryReminderCount || 0;
 
-        await studentDoc.ref.update({
-          lastExpiryReminderSentAt: new Date().toISOString(),
-          expiryReminderCount: 2
+          transaction.set(notifRef, {
+            notifId: notifRef.id,
+            toUid: studentUid,
+            toRole: 'student',
+            type: 'ExpiryReminder',
+            title: 'Final Reminder: Bus Service Expiring Soon',
+            body: `This is a final reminder that your bus service expires on ${validUntilDate.toLocaleDateString('en-IN', { year: 'numeric', month: 'long', day: 'numeric' })}. Only 2 weeks left! Renew now to avoid service interruption.`,
+            links: {
+              profile: '/student/profile',
+              renewPage: '/apply'
+            },
+            read: false,
+            createdAt: now,
+            isSecondReminder: true
+          });
+
+          transaction.update(studentDoc.ref, {
+            lastExpiryReminderSentAt: now,
+            expiryReminderCount: currentCount + 1
+          });
         });
 
         result.remindersSent++;

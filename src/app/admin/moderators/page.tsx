@@ -54,6 +54,7 @@ import { usePaginatedCollection, invalidateCollectionCache } from '@/hooks/usePa
 import { safeImageSrc } from "@/lib/security/url-sanitizer";
 import { useEventDrivenRefresh } from '@/hooks/useEventDrivenRefresh';
 import Avatar from '@/components/Avatar';
+import { formatDateDDMMYYYY } from '@/lib/utils/date-utils';
 
 // Memoized table row — skips re-rendering for moderators whose data/handlers
 // are unchanged, keeping search/filter typing smooth with a full page of rows.
@@ -153,7 +154,7 @@ const ModeratorRow = memo(function ModeratorRow({
             <DropdownMenuItem asChild>
               <Link href={`/admin/moderators/config/${moderator.id}`} className="text-white hover:bg-gray-700 dark:hover:bg-gray-800 focus:bg-gray-700 dark:focus:bg-gray-800 px-2 py-1.5 !text-white text-[11px]">
                 <Shield className="mr-1.5 h-3 w-3 text-emerald-400" />
-                Mod Config
+                Configuration
               </Link>
             </DropdownMenuItem>
             <DropdownMenuSeparator className="bg-gray-600" />
@@ -314,18 +315,7 @@ export default function AdminModerators() {
   };
 
   // Helper function to format date
-  const formatDate = (date: any): string => {
-    if (!date) return 'N/A';
-
-    const d = new Date(date);
-    if (isNaN(d.getTime())) return 'N/A';
-
-    const day = String(d.getDate()).padStart(2, '0');
-    const month = String(d.getMonth() + 1).padStart(2, '0');
-    const year = d.getFullYear();
-
-    return `${day}-${month}-${year}`;
-  };
+  const formatDate = formatDateDDMMYYYY;
 
   if (isLoading && moderators.length === 0) {
     return <PremiumPageLoader message="Curating Moderator Directory..." subMessage="Fetching moderator profiles and status..." />;

@@ -40,7 +40,7 @@ let razorpayInstance: any = null;
 /**
  * Initialize Razorpay instance (server-side only)
  */
-async function initializeRazorpay() {
+export async function initializeRazorpay() {
   if (!razorpayInstance) {
     const Razorpay = (await import('razorpay')).default;
     const keyId = process.env.RAZORPAY_KEY_ID;

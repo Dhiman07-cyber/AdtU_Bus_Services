@@ -7,7 +7,9 @@
  * IMPORTANT: Use only with service role key on server side.
  */
 
-import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import { SupabaseClient } from '@supabase/supabase-js';
+import { getSupabaseServer } from '@/lib/supabase-server';
+import { generatePrefixedId } from '@/lib/security/random-id';
 
 // ============================================
 // TYPES
@@ -100,23 +102,11 @@ class ReassignmentLogsService {
         if (this.initAttempted) return;
         this.initAttempted = true;
 
-        const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-        const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-        if (!url || !serviceKey) {
-            // Don't log error here - credentials may not be available in client context
-            // This is expected on client side, only server side should have service key
-            this.isInitialized = false;
-            return;
-        }
-
         try {
-            this.supabase = createClient(url, serviceKey, {
-                auth: { persistSession: false }
-            });
+            this.supabase = getSupabaseServer();
             this.isInitialized = true;
         } catch (err) {
-            console.error('[ReassignmentLogsService] Initialization error:', err);
+            // Credentials may not be available in client context
             this.isInitialized = false;
         }
     }
@@ -142,14 +132,7 @@ class ReassignmentLogsService {
     }
 
     generateOperationId(type: ReassignmentType): string {
-        const timestamp = Date.now();
-        const cryptoObj = typeof window !== 'undefined' ? (window.crypto || (window as any).msCrypto) : globalThis.crypto;
-        const randomHex = cryptoObj && cryptoObj.randomUUID 
-            ? cryptoObj.randomUUID() 
-            : (cryptoObj && cryptoObj.getRandomValues 
-                ? Array.from(cryptoObj.getRandomValues(new Uint8Array(8))).map(b => (b as any).toString(16).padStart(2, '0')).join('')
-                : Date.now().toString(36));
-        return `${type}_${timestamp}_${randomHex}`;
+        return generatePrefixedId(`${type}_`, 8);
     }
 
     // ============================================

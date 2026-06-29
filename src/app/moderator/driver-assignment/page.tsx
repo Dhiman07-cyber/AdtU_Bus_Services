@@ -5,6 +5,8 @@ import { useRouter } from "next/navigation";
 import { db } from "@/lib/firebase";
 import { collection, getDocs } from "firebase/firestore";
 import { useAuth } from "@/contexts/auth-context";
+import { useModeratorPermissions } from "@/hooks/useModeratorPermissions";
+import { PermissionDeniedCard } from "@/components/PermissionDeniedCard";
 import { toast } from "react-hot-toast";
 import {
     Bus,
@@ -147,6 +149,7 @@ interface ConflictState {
 
 export default function SmartDriverAssignmentPage() {
     const { currentUser, userData, loading: authLoading } = useAuth();
+    const { canDriverReassign, loading: permsLoading } = useModeratorPermissions();
     const router = useRouter();
 
     // Refs
@@ -831,9 +834,9 @@ export default function SmartDriverAssignmentPage() {
         );
     }
 
-    // ============================================
-    // RENDER: MAIN UI
-    // ============================================
+    if (!permsLoading && !canDriverReassign) {
+        return <PermissionDeniedCard title="Driver Assignment Restricted" actionName="Reassigning Drivers" />;
+    }
 
     return (
         <TooltipProvider>

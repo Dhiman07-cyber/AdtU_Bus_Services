@@ -38,17 +38,8 @@ export async function POST(req: NextRequest) {
     const driverData = driverDoc.data();
     const oldBusId = driverData?.assignedBusId || driverData?.busId;
 
-    console.log(`🔄 Setting driver ${driverData?.fullName} as Reserved`);
+    console.log(`🔄 Setting driver ${driverUID.substring(0,8)}... as Reserved`);
     console.log(`   Old bus: ${oldBusId}`);
-
-    // Update driver to be reserved
-    await driverDoc.ref.update({
-      assignedBusId: null,
-      busId: null,
-      assignedRouteId: null,
-      routeId: null,
-      status: 'active'
-    });
 
     // Remove driver from ALL buses that reference them
     // Check both assignedDriverId and activeDriverId
@@ -62,6 +53,15 @@ export async function POST(req: NextRequest) {
 
     const batch = adminDb.batch();
     const updatedBuses: string[] = [];
+
+    // Include driver doc update in the same batch for atomicity
+    batch.update(driverDoc.ref, {
+      assignedBusId: null,
+      busId: null,
+      assignedRouteId: null,
+      routeId: null,
+      status: 'active'
+    });
 
     // Remove from assignedDriverId buses
     assignedBuses.docs.forEach((doc: any) => {
@@ -87,12 +87,10 @@ export async function POST(req: NextRequest) {
       }
     });
 
-    if (updatedBuses.length > 0) {
-      await batch.commit();
-      console.log(`   ✅ Removed driver from ${updatedBuses.length} bus(es): ${updatedBuses.join(', ')}`);
-    }
+    await batch.commit();
+    console.log(`   ✅ Removed driver from ${updatedBuses.length} bus(es): ${updatedBuses.join(', ')}`);
 
-    console.log(`✅ Driver ${driverData?.fullName} is now Reserved`);
+    console.log(`✅ Driver ${driverUID.substring(0,8)}... is now Reserved`);
 
     return NextResponse.json({
       success: true,

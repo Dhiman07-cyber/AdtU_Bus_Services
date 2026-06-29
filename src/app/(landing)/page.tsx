@@ -665,7 +665,7 @@ function InteractiveDiceSection1({
       setPrevStopIdx(stopIdx);
       setStopIdx(prev => (prev + 1) % DICE_STOPS.length);
       setIsTransitioning(true);
-      
+
       // Stop transitioning after animation duration (1200ms)
       setTimeout(() => {
         setIsTransitioning(false);
@@ -697,7 +697,7 @@ function InteractiveDiceSection1({
   return (
     <div ref={sectionRef} className="relative w-full bg-transparent h-[200vh] border-t border-white/5">
       {/* Sticky Content Container */}
-      <div className="sticky top-0 h-dvh w-full overflow-hidden z-10 flex items-center">
+      <div className="sticky top-0 h-dvh w-full overflow-hidden z-10 flex items-center pt-12">
         {/* Background: solid base + image overlay to prevent edge bleed */}
         <div className="absolute inset-0 z-0 bg-[#030a16]">
           <Image
@@ -709,13 +709,13 @@ function InteractiveDiceSection1({
           <div className="absolute inset-0 bg-gradient-to-r from-[#030a16] via-[#030a16]/70 to-[#030a16]/20" />
         </div>
 
-        <div className="relative max-w-[94rem] mx-auto px-6 sm:px-16 lg:px-24 w-full h-full flex flex-col md:flex-row items-center justify-start md:justify-between pt-6 md:pt-0 gap-32 md:gap-0 z-10">
+        <div className="relative max-w-[94rem] mx-auto px-5 sm:px-16 lg:px-24 w-full h-full flex flex-col md:flex-row items-center justify-start md:justify-between pt-2 sm:pt-6 md:pt-0 pb-16 sm:pb-24 md:pb-0 gap-8 sm:gap-10 md:gap-0 z-10">
           {/* Left Text Column */}
-          <div className="w-full md:w-1/2 flex flex-col justify-center h-auto md:h-full relative pr-0 md:pr-12 order-2 md:order-1">
-            <div className="relative h-[220px] sm:h-[260px] md:h-[450px] w-full flex items-center">
+          <div className="w-full md:w-1/2 flex flex-col justify-start md:justify-center h-auto md:h-full relative pr-0 md:pr-12 order-2 md:order-1 mt-2 md:mt-0">
+            <div className="relative h-[300px] sm:h-[320px] md:h-[450px] w-full flex items-center">
 
               {/* Stage 1 Content */}
-              <div ref={text1Ref} className="absolute inset-x-0 space-y-4 md:space-y-6 text-left transition-all duration-75">
+              <div ref={text1Ref} className="absolute inset-x-0 space-y-4 md:space-y-6 text-left transition-all duration-75 pt-10">
                 <span className="text-xs font-bold text-amber-400 tracking-widest uppercase block">
                   Platform Dynamics
                 </span>
@@ -745,7 +745,7 @@ function InteractiveDiceSection1({
               </div>
 
               {/* Stage 2 Content */}
-              <div ref={text2Ref} className="absolute inset-x-0 space-y-4 md:space-y-6 text-left opacity-0 pointer-events-none transition-all duration-75">
+              <div ref={text2Ref} className="absolute inset-x-0 space-y-4 md:space-y-6 text-left opacity-0 pointer-events-none transition-all duration-75 pt-10">
                 <span className="text-xs font-bold text-amber-400 tracking-widest uppercase block">
                   Platform Dynamics
                 </span>
@@ -789,7 +789,7 @@ function InteractiveDiceSection1({
           </div>
 
           {/* Right Cube Column */}
-          <div className="w-full md:w-1/2 flex items-center justify-center p-2 md:p-8 order-1 md:order-2">
+          <div className="w-full md:w-1/2 flex items-center justify-center p-1 sm:p-2 md:p-8 order-1 md:order-2">
             <div className="relative w-64 h-64 sm:w-72 sm:h-72 md:w-[22rem] md:h-[22rem] flex items-center justify-center [perspective:1200px] select-none">
 
               {/* Backlight Glow */}
@@ -798,7 +798,7 @@ function InteractiveDiceSection1({
               {/* 3D Cube */}
               <div
                 ref={cubeRef}
-                className="w-56 h-56 sm:w-60 sm:h-60 md:w-72 md:h-72 relative [transform-style:preserve-3d] will-change-transform"
+                className="w-60 h-60 sm:w-60 sm:h-60 md:w-72 md:h-72 relative [transform-style:preserve-3d] will-change-transform"
                 style={{
                   transform: 'rotateY(-12deg) rotateX(-90deg)',
                 }}
@@ -971,7 +971,7 @@ function InteractiveDiceSection2({
   return (
     <div ref={sectionRef} className="relative w-full bg-transparent h-[200vh] border-t border-white/5">
       {/* Sticky Content Container */}
-      <div className="sticky top-0 h-dvh w-full overflow-hidden z-10 flex items-center">
+      <div className="sticky top-0 h-dvh w-full overflow-hidden z-10 flex items-center pt-12">
         {/* Background: solid base + image overlay to prevent edge bleed */}
         <div className="absolute inset-0 z-0 bg-[#030a16]">
           <Image
@@ -983,9 +983,9 @@ function InteractiveDiceSection2({
           <div className="absolute inset-0 bg-gradient-to-l from-[#030a16] via-[#030a16]/70 to-[#030a16]/20" />
         </div>
 
-        <div className="relative max-w-[94rem] mx-auto px-6 sm:px-16 lg:px-24 w-full h-full flex flex-col md:flex-row items-center justify-start md:justify-between pt-6 md:pt-0 gap-32 md:gap-0 z-10">
+        <div className="relative max-w-[94rem] mx-auto px-5 sm:px-16 lg:px-24 w-full h-full flex flex-col md:flex-row items-center justify-start md:justify-between pt-2 sm:pt-6 md:pt-0 pb-16 sm:pb-24 md:pb-0 gap-8 sm:gap-10 md:gap-0 z-10">
           {/* Left Cube Column */}
-          <div className="w-full md:w-1/2 flex items-center justify-center p-2 md:p-8 order-1 md:order-1">
+          <div className="w-full md:w-1/2 flex items-center justify-center p-1 sm:p-2 md:p-8 order-1 md:order-1">
             <div className="relative w-64 h-64 sm:w-72 sm:h-72 md:w-[22rem] md:h-[22rem] flex items-center justify-center [perspective:1200px] select-none">
 
               {/* Backlight Glow */}
@@ -994,14 +994,14 @@ function InteractiveDiceSection2({
               {/* 3D Cube */}
               <div
                 ref={cubeRef}
-                className="w-56 h-56 sm:w-60 sm:h-60 md:w-72 md:h-72 relative [transform-style:preserve-3d] will-change-transform"
+                className="w-60 h-60 sm:w-60 sm:h-60 md:w-72 md:h-72 relative [transform-style:preserve-3d] will-change-transform"
                 style={{
                   transform: 'rotateY(-12deg) rotateX(-90deg)',
                 }}
               >
                 {/* Face 3: Commute History (Top Face) */}
                 <div
-                  className="absolute inset-0 w-full h-full bg-[#040c1e]/95 border border-indigo-500/20 rounded-2xl p-4 md:p-5 flex flex-col justify-between shadow-2xl [backface-visibility:hidden] [transform:rotateX(90deg)_translateZ(var(--cube-z,120px))]"
+                  className="absolute inset-0 w-full h-full bg-[#040c1e]/95 border border-indigo-500/20 rounded-2xl p-3 sm:p-4 md:p-5 flex flex-col justify-between shadow-2xl [backface-visibility:hidden] [transform:rotateX(90deg)_translateZ(var(--cube-z,120px))]"
                   style={{
                     boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.05), 0 20px 40px rgba(0,0,0,0.6)'
                   }}
@@ -1055,7 +1055,7 @@ function InteractiveDiceSection2({
 
                 {/* Face 4: Transit Operations (Front Face) */}
                 <div
-                  className="absolute inset-0 w-full h-full bg-[#040c1e]/95 border border-orange-500/20 rounded-2xl p-4 md:p-5 flex flex-col justify-between shadow-2xl [backface-visibility:hidden] [transform:rotateX(0deg)_translateZ(var(--cube-z,120px))]"
+                  className="absolute inset-0 w-full h-full bg-[#040c1e]/95 border border-orange-500/20 rounded-2xl p-3 sm:p-4 md:p-5 flex flex-col justify-between shadow-2xl [backface-visibility:hidden] [transform:rotateX(0deg)_translateZ(var(--cube-z,120px))]"
                   style={{
                     boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.05), 0 20px 40px rgba(0,0,0,0.6)'
                   }}
@@ -1070,7 +1070,7 @@ function InteractiveDiceSection2({
                   {/* Live Dispatch Stream Board */}
                   <div className="flex-1 py-2 flex flex-col gap-2 justify-center text-left">
                     <div className="text-[7px] font-bold text-slate-500 uppercase tracking-widest px-1">ACTIVE FLIGHTS / DISPATCHES</div>
-                    
+
                     {/* Dispatch 1 */}
                     <div className="p-2 bg-[#050d1d] hover:bg-[#071329] rounded-xl border border-white/5 flex items-center justify-between gap-2 shadow-inner transition-colors duration-300">
                       <div className="flex items-center gap-2">
@@ -1135,11 +1135,11 @@ function InteractiveDiceSection2({
           </div>
 
           {/* Right Text Column */}
-          <div className="w-full md:w-1/2 flex flex-col justify-center h-auto md:h-full relative order-2 md:order-2 pl-0 md:pl-12 md:-translate-y-8">
-            <div className="relative h-[220px] sm:h-[260px] md:h-[450px] w-full flex items-center">
+          <div className="w-full md:w-1/2 flex flex-col justify-start md:justify-center h-auto md:h-full relative order-2 md:order-2 pl-0 md:pl-12 mt-2 md:mt-0 md:-translate-y-8">
+            <div className="relative h-[300px] sm:h-[320px] md:h-[450px] w-full flex items-center">
 
               {/* Stage 3 Content */}
-              <div ref={text1Ref} className="absolute inset-x-0 space-y-4 md:space-y-6 text-left transition-all duration-75">
+              <div ref={text1Ref} className="absolute inset-x-0 space-y-4 md:space-y-6 text-left transition-all duration-75 pt-10">
                 <span className="text-xs font-bold text-amber-400 tracking-widest uppercase block">
                   Platform Dynamics
                 </span>
@@ -1169,7 +1169,7 @@ function InteractiveDiceSection2({
               </div>
 
               {/* Stage 4 Content */}
-              <div ref={text2Ref} className="absolute inset-x-0 space-y-4 md:space-y-6 text-left opacity-0 pointer-events-none transition-all duration-75">
+              <div ref={text2Ref} className="absolute inset-x-0 space-y-4 md:space-y-6 text-left opacity-0 pointer-events-none transition-all duration-75 pt-10">
                 <span className="text-xs font-bold text-amber-400 tracking-widest uppercase block">
                   Platform Dynamics
                 </span>
@@ -1199,6 +1199,8 @@ function InteractiveDiceSection2({
               </div>
 
             </div>
+
+
 
             {/* Dots */}
             <div className="hidden md:flex items-center gap-3 pt-3 md:pt-6 border-t border-white/5 max-w-md mt-3 md:mt-6 justify-center md:justify-start">
@@ -1305,7 +1307,7 @@ function LearningCarousel() {
   const getClosestReplica = (targetRealIdx: number) => {
     let closestIdx = 2 * N + targetRealIdx;
     let minDiff = Math.abs(closestIdx - slideIndex);
-    
+
     for (let k = 0; k < 5; k++) {
       const candidate = k * N + targetRealIdx;
       const diff = Math.abs(candidate - slideIndex);
@@ -1325,7 +1327,7 @@ function LearningCarousel() {
       // Instantly jump back by N slides without transition animation
       setIsTransitioning(false);
       setSlideIndex(slideIndex - N);
-      
+
       // Re-enable transitions in the next frame to support smooth subsequent movements
       setTimeout(() => {
         setIsTransitioning(true);
@@ -1334,7 +1336,7 @@ function LearningCarousel() {
       // Instantly jump forward by N slides without transition animation
       setIsTransitioning(false);
       setSlideIndex(slideIndex + N);
-      
+
       setTimeout(() => {
         setIsTransitioning(true);
       }, 50);
@@ -1356,20 +1358,20 @@ function LearningCarousel() {
   const halfCard = isMobile ? 157 : 182;
 
   // Shared hardware-accelerated transition styles
-  const containerTransition = isTransitioning 
-    ? 'transform 1500ms cubic-bezier(0.22, 1, 0.36, 1)' 
+  const containerTransition = isTransitioning
+    ? 'transform 1500ms cubic-bezier(0.22, 1, 0.36, 1)'
     : 'none';
 
-  const cardTransition = isTransitioning 
-    ? 'transform 1500ms cubic-bezier(0.22, 1, 0.36, 1), opacity 1500ms cubic-bezier(0.22, 1, 0.36, 1), border-color 1500ms cubic-bezier(0.22, 1, 0.36, 1), background-color 1500ms cubic-bezier(0.22, 1, 0.36, 1), box-shadow 1500ms cubic-bezier(0.22, 1, 0.36, 1)' 
+  const cardTransition = isTransitioning
+    ? 'transform 1500ms cubic-bezier(0.22, 1, 0.36, 1), opacity 1500ms cubic-bezier(0.22, 1, 0.36, 1), border-color 1500ms cubic-bezier(0.22, 1, 0.36, 1), background-color 1500ms cubic-bezier(0.22, 1, 0.36, 1), box-shadow 1500ms cubic-bezier(0.22, 1, 0.36, 1)'
     : 'none';
 
-  const textTransition = isTransitioning 
-    ? 'color 1500ms cubic-bezier(0.22, 1, 0.36, 1), transform 1500ms cubic-bezier(0.22, 1, 0.36, 1), opacity 1500ms cubic-bezier(0.22, 1, 0.36, 1)' 
+  const textTransition = isTransitioning
+    ? 'color 1500ms cubic-bezier(0.22, 1, 0.36, 1), transform 1500ms cubic-bezier(0.22, 1, 0.36, 1), opacity 1500ms cubic-bezier(0.22, 1, 0.36, 1)'
     : 'none';
 
-  const tagTransition = isTransitioning 
-    ? 'color 1500ms cubic-bezier(0.22, 1, 0.36, 1), background-color 1500ms cubic-bezier(0.22, 1, 0.36, 1), border-color 1500ms cubic-bezier(0.22, 1, 0.36, 1)' 
+  const tagTransition = isTransitioning
+    ? 'color 1500ms cubic-bezier(0.22, 1, 0.36, 1), background-color 1500ms cubic-bezier(0.22, 1, 0.36, 1), border-color 1500ms cubic-bezier(0.22, 1, 0.36, 1)'
     : 'none';
 
   return (
@@ -1422,15 +1424,15 @@ function LearningCarousel() {
                     border: '1px solid',
                     borderColor: isActive ? 'rgba(251, 191, 36, 0.2)' : 'rgba(255, 255, 255, 0.03)',
                     backgroundColor: isActive ? '#0b1322' : 'rgba(4, 9, 18, 0.65)',
-                    boxShadow: isActive 
-                      ? '0 20px 40px -10px rgba(0, 0, 0, 0.85), inset 0 1px 0 rgba(255, 255, 255, 0.03)' 
+                    boxShadow: isActive
+                      ? '0 20px 40px -10px rgba(0, 0, 0, 0.85), inset 0 1px 0 rgba(255, 255, 255, 0.03)'
                       : 'inset 0 2px 4px rgba(0, 0, 0, 0.6)',
                     transition: cardTransition
                   }}
                   onClick={() => handleCardClick(idx)}
                 >
                   {/* Neomorphic accent top border */}
-                  <div 
+                  <div
                     className="absolute top-0 inset-x-0 h-[2px] bg-gradient-to-r from-amber-400/80 to-yellow-500/80"
                     style={{
                       opacity: isActive ? 1 : 0,
@@ -1445,8 +1447,8 @@ function LearningCarousel() {
                       backgroundColor: isActive ? 'rgba(251, 191, 36, 0.06)' : 'rgba(0, 0, 0, 0.25)',
                       border: '1px solid',
                       borderColor: isActive ? 'rgba(251, 191, 36, 0.25)' : 'rgba(255, 255, 255, 0.02)',
-                      boxShadow: isActive 
-                        ? '0 4px 12px rgba(251, 191, 36, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.05)' 
+                      boxShadow: isActive
+                        ? '0 4px 12px rgba(251, 191, 36, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.05)'
                         : 'inset 2px 2px 5px rgba(0, 0, 0, 0.5)',
                       transform: `scale(${isActive ? 1.05 : 0.95})`,
                       transition: isTransitioning ? 'all 1500ms cubic-bezier(0.22, 1, 0.36, 1)' : 'none'
@@ -1483,7 +1485,7 @@ function LearningCarousel() {
                   </h3>
 
                   {/* Description */}
-                  <p 
+                  <p
                     className="text-xs leading-relaxed"
                     style={{
                       color: isActive ? '#cbd5e1' : '#64748b',
@@ -1507,9 +1509,8 @@ function LearningCarousel() {
                 <button
                   key={idx}
                   onClick={() => handleDotClick(idx)}
-                  className={`h-1.5 rounded-full transition-all duration-700 ease-[cubic-bezier(0.22,1,0.36,1)] relative overflow-hidden ${
-                    isActiveDot ? "w-8 bg-slate-800" : "w-1.5 bg-slate-700 hover:bg-slate-600"
-                  }`}
+                  className={`h-1.5 rounded-full transition-all duration-700 ease-[cubic-bezier(0.22,1,0.36,1)] relative overflow-hidden ${isActiveDot ? "w-8 bg-slate-800" : "w-1.5 bg-slate-700 hover:bg-slate-600"
+                    }`}
                   aria-label={`Go to slide ${idx + 1}`}
                 >
                   {isActiveDot && (

@@ -199,7 +199,7 @@ export default function HeroLiveOperations({
                   { label: 'Drivers', val: metrics.idleDrivers, sub: 'Standby' },
                   { label: 'Routes', val: metrics.idleRoutes, sub: 'Inactive' }
                 ].map((idle, i) => (
-                  <div key={i} className="bg-white/[0.02] border border-white/5 rounded-lg p-1.5 text-center transition-colors group-hover/card:bg-white/[0.03]">
+                  <div key={i} className="bg-white/[0.02] border border-white/5 rounded-lg p-1.5 text-center transition-colors group-hover/card:bg-white/[0.03] hover:cursor-pointer">
                     <div className="text-xs font-black text-white">{idle.val}</div>
                     <div className="text-[7px] font-bold text-slate-600 uppercase tracking-widest">{idle.label}</div>
                     {idle.sub && <div className="text-[5px] font-bold text-slate-700 uppercase tracking-tight">{idle.sub}</div>}
@@ -235,7 +235,7 @@ export default function HeroLiveOperations({
                 </thead>
                 <tbody className="divide-y divide-white/[0.01]">
                   {busHeat.length > 0 ? busHeat.slice(0, 4).map((bus, i) => (
-                    <tr key={bus.id} className="group/row hover:bg-white/[0.01]">
+                    <tr key={bus.id} className="group/row hover:bg-white/[0.01] hover:cursor-pointer">
                       <td className="py-2.5 text-[10px] font-bold text-slate-300 w-[45%]">
                         <div className="flex flex-col">
                           <span className="text-white font-black">{bus.busIdDisplay}</span>
@@ -274,7 +274,7 @@ export default function HeroLiveOperations({
           {/* Strategic Insight Sidebox */}
           <div className="p-5 md:w-[28%] flex flex-col justify-between bg-white/[0.005]">
             <div className="space-y-4">
-              <div className="p-4 pt-2 pb-2 rounded-3xl bg-white/[0.02] border border-white/5 group-hover/card:border-blue-500/20 transition-all duration-500 hover:bg-white/[0.03]">
+              <div className="p-4 pt-2 pb-2 rounded-3xl bg-white/[0.02] border border-white/5 group-hover/card:border-blue-500/20 transition-all duration-500 hover:bg-white/[0.03] hover:cursor-pointer">
                 <div className="flex items-center justify-between mb-3">
                   <div className="flex items-center gap-2.5">
                     <div className="p-1.5 bg-indigo-500/10 rounded-lg text-indigo-400">
@@ -396,7 +396,7 @@ export default function HeroLiveOperations({
                     initial={{ opacity: 0, x: -20 }}
                     animate={{ opacity: 1, x: 0 }}
                     transition={{ delay: idx * 0.1 }}
-                    className="group-item relative overflow-hidden bg-white/[0.02] hover:bg-white/[0.04] border border-white/5 hover:border-indigo-500/30 rounded-xl p-3 transition-all duration-300"
+                    className="group-item relative overflow-hidden bg-white/[0.02] hover:bg-white/[0.04] border border-white/5 hover:border-indigo-500/30 rounded-xl p-3 transition-all duration-300 hover:cursor-pointer"
                   >
                     <div className="flex items-center justify-between mb-2">
                       <div className="flex items-center gap-2">
@@ -459,7 +459,7 @@ export default function HeroLiveOperations({
                   <span>Latest Update</span>
                 </div>
                 {activeTrips.slice(2, 5).map((trip, idx) => (
-                  <div key={trip.id} className="flex items-center justify-between py-3 border-t border-white/5 px-2 hover:bg-white/[0.02] transition-colors group/row rounded-lg">
+                  <div key={trip.id} className="flex items-center justify-between py-3 border-t border-white/5 px-2 hover:bg-white/[0.02] transition-colors group/row rounded-lg hover:cursor-pointer">
                     <div className="flex items-center gap-4">
                       <div className="w-8 h-8 rounded-lg bg-slate-800/50 flex items-center justify-center text-slate-400 group-hover/row:text-cyan-400 transition-colors">
                         <Bus className="w-4 h-4" />

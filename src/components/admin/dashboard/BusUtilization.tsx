@@ -84,7 +84,7 @@ export default function BusUtilization({ busUtilization }: BusUtilizationProps) 
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
               transition={{ duration: 0.4, delay: idx * 0.05 }}
-              className="relative group p-4 rounded-2xl bg-white/[0.02] border border-white/5 hover:border-cyan-500/30 hover:bg-white/[0.04] transition-all duration-500 flex flex-col gap-4"
+              className="relative group p-4 rounded-2xl bg-white/[0.02] border border-white/5 hover:border-cyan-500/30 hover:bg-white/[0.04] transition-all duration-500 flex flex-col gap-4 hover:cursor-pointer"
             >
               {/* Bus Card Header */}
               <div className="flex items-start justify-between">

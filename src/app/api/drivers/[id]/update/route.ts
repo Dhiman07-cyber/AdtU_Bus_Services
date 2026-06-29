@@ -62,7 +62,26 @@ export async function PUT(request: Request, { params }: { params: Promise<{ id: 
     if (permissionDenied) return permissionDenied;
 
     const { id } = await params;
-    const updatedDriverData = await request.json();
+    const requestBody = await request.json();
+
+    // FIELD ALLOW-LIST: Only safe fields may be updated via API
+    const ALLOWED_FIELDS = new Set([
+      'fullName', 'name', 'email', 'phone', 'employeeId', 'photoURL', 'phone_number'
+    ]);
+    const BLOCKED_FIELDS = new Set([
+      'busId', 'routeId', 'role', 'status', 'assignedBusId', 'assignedRouteId'
+    ]);
+
+    const updatedDriverData: Record<string, any> = {};
+    for (const [key, value] of Object.entries(requestBody)) {
+      if (BLOCKED_FIELDS.has(key)) {
+        console.warn(`Blocked attempt to update forbidden field: ${key}`);
+        continue;
+      }
+      if (ALLOWED_FIELDS.has(key)) {
+        updatedDriverData[key] = value;
+      }
+    }
 
     // Log the incoming data for debugging
     console.log(`Updating driver with ID ${id}:`, updatedDriverData);

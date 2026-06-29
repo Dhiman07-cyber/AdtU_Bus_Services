@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { supabase } from '@/lib/supabase-client';
+import { getSupabaseServer } from '@/lib/supabase-server';
 
 /**
  * Database Health Check API Endpoint
@@ -19,27 +19,36 @@ export async function GET() {
 
     // Check Supabase
     try {
-        const supabaseStart = Date.now();
-
-        // Test read operation
-        const { error: readError } = await supabase
-            .from('realtime_driver_locations')
-            .select('id')
-            .limit(1);
-
-        const supabaseLatency = Date.now() - supabaseStart;
-
-        if (readError && !readError.message.includes('Results contain 0 rows')) {
+        const supabase = getSupabaseServer();
+        if (!supabase) {
             results['supabase'] = {
                 status: 'error',
-                latency_ms: supabaseLatency,
-                message: 'Database read error'
+                latency_ms: 0,
+                message: 'Server configuration error'
             };
         } else {
-            results['supabase'] = {
-                status: 'ok',
-                latency_ms: supabaseLatency
-            };
+            const supabaseStart = Date.now();
+
+            // Test read operation
+            const { error: readError } = await supabase
+                .from('realtime_driver_locations')
+                .select('id')
+                .limit(1);
+
+            const supabaseLatency = Date.now() - supabaseStart;
+
+            if (readError && !readError.message.includes('Results contain 0 rows')) {
+                results['supabase'] = {
+                    status: 'error',
+                    latency_ms: supabaseLatency,
+                    message: 'Database read error'
+                };
+            } else {
+                results['supabase'] = {
+                    status: 'ok',
+                    latency_ms: supabaseLatency
+                };
+            }
         }
     } catch (e) {
         results['supabase'] = {

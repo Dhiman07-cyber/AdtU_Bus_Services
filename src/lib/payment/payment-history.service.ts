@@ -4,7 +4,7 @@
  */
 
 import { adminDb } from '@/lib/firebase-admin';
-import { supabase } from '@/lib/supabase-client';
+import { getSupabaseServer } from '@/lib/supabase-server';
 import { FieldValue } from 'firebase-admin/firestore';
 import { paymentsSupabaseService } from '@/lib/services/payments-supabase';
 
@@ -107,7 +107,7 @@ export async function savePaymentToFirestore(payment: PaymentRecord): Promise<st
  */
 export async function savePaymentToSupabase(payment: PaymentRecord): Promise<string> {
   try {
-
+    const supabase = getSupabaseServer();
     const { data, error } = await supabase
       .from('payment_history')
       .insert({
@@ -149,32 +149,62 @@ export async function updatePaymentStatus(
   additionalData?: Partial<PaymentRecord>
 ): Promise<void> {
   try {
-    // Update in Firestore
-    const paymentQuery = await adminDb
-      .collection('payments')
-      .where('paymentId', '==', paymentId)
-      .limit(1)
-      .get();
-
-    if (!paymentQuery.empty) {
-      const doc = paymentQuery.docs[0];
-      await doc.ref.update({
-        status,
-        ...additionalData,
-        updatedAt: FieldValue.serverTimestamp(),
-      });
+    // Update in Supabase (primary source of truth)
+    let supabaseSuccess = false;
+    try {
+      const supabase = getSupabaseServer();
+      await supabase
+        .from('payment_history')
+        .update({
+          status,
+          updated_at: new Date(),
+        })
+        .eq('payment_id', paymentId);
+      supabaseSuccess = true;
+    } catch (supabaseErr) {
+      console.error('Supabase payment status update failed:', supabaseErr);
     }
 
-    // Update in Supabase
-    await supabase
-      .from('payment_history')
-      .update({
-        status,
-        updated_at: new Date(),
-      })
-      .eq('payment_id', paymentId);
+    // Update in Firestore (secondary/cache)
+    let firestoreSuccess = false;
+    try {
+      const paymentQuery = await adminDb
+        .collection('payments')
+        .where('paymentId', '==', paymentId)
+        .limit(1)
+        .get();
 
-    console.log('✅ Payment status updated:', paymentId, status);
+      if (!paymentQuery.empty) {
+        const doc = paymentQuery.docs[0];
+        await doc.ref.update({
+          status,
+          ...additionalData,
+          updatedAt: FieldValue.serverTimestamp(),
+        });
+      }
+      firestoreSuccess = true;
+    } catch (firestoreErr) {
+      console.error('Firestore payment status update failed:', firestoreErr);
+    }
+
+    // Detect divergence: one succeeded, the other failed
+    if (supabaseSuccess !== firestoreSuccess) {
+      try {
+        await adminDb.collection('audit_failures').add({
+          kind: 'payment_status_dual_write_divergence',
+          paymentId,
+          newStatus: status,
+          supabaseSuccess,
+          firestoreSuccess,
+          recovered: false,
+          createdAtISO: new Date().toISOString(),
+        });
+      } catch (outboxErr) {
+        console.error('CRITICAL: Could not record payment status divergence:', outboxErr);
+      }
+    }
+
+    console.log('✅ Payment status updated:', paymentId?.substring(0,8)+'...', status);
   } catch (error) {
     console.error('❌ Error updating payment status:', error);
     throw error;
@@ -203,7 +233,7 @@ export async function getPaymentByPaymentId(paymentId: string): Promise<PaymentR
     } as PaymentRecord;
   } catch (error) {
     console.error('❌ Error fetching payment:', error);
-    throw error;
+    return null;
   }
 }
 
@@ -228,7 +258,7 @@ export async function getUserPaymentHistory(
     } as PaymentRecord));
   } catch (error) {
     console.error('❌ Error fetching user payment history:', error);
-    throw error;
+    return [];
   }
 }
 
@@ -258,7 +288,14 @@ export async function getUserPaymentSummary(userId: string): Promise<PaymentSumm
     return summary;
   } catch (error) {
     console.error('❌ Error calculating payment summary:', error);
-    throw error;
+    return {
+      totalPayments: 0,
+      successfulPayments: 0,
+      failedPayments: 0,
+      totalAmount: 0,
+      refundedAmount: 0,
+      pendingAmount: 0,
+    };
   }
 }
 
@@ -280,14 +317,19 @@ export async function processRefund(
       throw new Error('Only successful payments can be refunded');
     }
 
-    // TODO: Call Razorpay refund API here
-    // const razorpay = await initializeRazorpay();
-    // const refund = await razorpay.payments.refund(paymentId, {
-    //   amount: refundAmount ? refundAmount * 100 : undefined,
-    //   notes: { reason },
-    // });
+    // Call Razorpay refund API
+    const { initializeRazorpay } = await import('./razorpay.service');
+    const razorpay = await initializeRazorpay();
+    const refundOptions: any = {};
+    if (refundAmount) {
+      refundOptions.amount = Math.round(refundAmount * 100); // Convert to paise
+    }
+    if (reason) {
+      refundOptions.notes = { reason };
+    }
+    await razorpay.payments.refund(paymentId, refundOptions);
 
-    // Update payment record
+    // Update payment record after successful Razorpay refund
     await updatePaymentStatus(paymentId, 'refunded', {
       refundAmount: refundAmount || payment.amount,
       refundStatus: 'processed',
@@ -298,7 +340,7 @@ export async function processRefund(
       },
     });
 
-    console.log('✅ Refund processed for payment:', paymentId);
+    console.log('✅ Refund processed for payment:', paymentId?.substring(0,8)+'...');
   } catch (error) {
     console.error('❌ Error processing refund:', error);
     throw error;

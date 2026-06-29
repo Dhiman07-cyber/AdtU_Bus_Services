@@ -66,6 +66,7 @@ import { useEventDrivenRefresh } from '@/hooks/useEventDrivenRefresh';
 import { useAuth } from '@/contexts/auth-context';
 import { RefreshCw } from "lucide-react";
 import { useModeratorPermissions } from '@/hooks/useModeratorPermissions';
+import { PermissionDeniedCard } from '@/components/PermissionDeniedCard';
 
 // Use local interfaces to avoid type conflicts
 interface BusItem {
@@ -126,7 +127,7 @@ export default function BusesPage() {
   const router = useRouter();
   const { addToast } = useToast();
   const { currentUser, userData, loading: authLoading } = useAuth();
-  const { canBusAdd, canBusEdit, canBusDelete, canBusReassign } = useModeratorPermissions();
+  const { canBusView, canBusAdd, canBusEdit, canBusDelete, canBusReassign, loading: permsLoading } = useModeratorPermissions();
 
   // SPARK PLAN SAFETY: Using paginated queries instead of real-time listeners
   const { data: buses, loading: loadingBuses, refresh: refreshBuses } = usePaginatedCollection('buses', {
@@ -370,6 +371,10 @@ export default function BusesPage() {
 
   if (isLoading) {
     return <div className="flex justify-center items-center h-64">Loading...</div>;
+  }
+
+  if (!permsLoading && !canBusView) {
+    return <PermissionDeniedCard title="Buses Section Restricted" actionName="Viewing Buses" showGoBack={false} />;
   }
 
   return (

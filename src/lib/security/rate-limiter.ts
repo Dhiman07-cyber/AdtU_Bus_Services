@@ -54,7 +54,9 @@ class RateLimitCache {
 const rateLimitCache = new RateLimitCache(10000);
 
 // Cleanup expired entries every 5 minutes
-setInterval(() => rateLimitCache.cleanup(), 5 * 60 * 1000);
+if (typeof setInterval !== 'undefined') {
+    setInterval(() => rateLimitCache.cleanup(), 5 * 60 * 1000);
+}
 
 const UPSTASH_URL = process.env.UPSTASH_REDIS_REST_URL;
 const UPSTASH_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN;

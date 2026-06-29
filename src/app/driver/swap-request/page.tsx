@@ -20,6 +20,7 @@ import { db } from '@/lib/firebase';
 import { collection, getDocs, doc, getDoc } from 'firebase/firestore';
 import { supabase } from '@/lib/supabase-client';
 import { format, addHours, addDays } from 'date-fns';
+import { formatDateFlexible } from '@/lib/utils/date-utils';
 import EnhancedDatePicker from '@/components/enhanced-date-picker';
 
 interface Driver {
@@ -65,34 +66,7 @@ interface BusData {
 }
 
 // Safe date formatter for Firestore Timestamps
-const formatDate = (dateValue: any): string => {
-  if (!dateValue) return 'N/A';
-
-  try {
-    // Handle Firestore Timestamp
-    if (dateValue?.toDate && typeof dateValue.toDate === 'function') {
-      return format(dateValue.toDate(), 'MMM dd, HH:mm');
-    }
-
-    // Handle seconds/nanoseconds format (Firestore Timestamp JSON)
-    if (dateValue?.seconds || dateValue?._seconds) {
-      const seconds = dateValue.seconds || dateValue._seconds;
-      return format(new Date(seconds * 1000), 'MMM dd, HH:mm');
-    }
-
-    // Handle ISO string or timestamp
-    const date = new Date(dateValue);
-    if (!isNaN(date.getTime())) {
-      return format(date, 'MMM dd, HH:mm');
-    }
-
-    console.warn('⚠️ Could not format date:', dateValue);
-    return 'N/A';
-  } catch (error) {
-    console.error('❌ Date formatting error:', error, dateValue);
-    return 'N/A';
-  }
-};
+const formatDate = formatDateFlexible;
 
 // Helper to format bus identifiers consistently: Bus-X (License Plate)
 const formatBusDisplay = (busId: string | undefined, busNumber: string | undefined): string => {

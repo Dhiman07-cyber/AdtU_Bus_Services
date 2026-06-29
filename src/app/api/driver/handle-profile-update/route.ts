@@ -107,27 +107,40 @@ export const POST = withSecurity(
         }
       }
 
-      // Update student's profile image
-      await adminDb.collection('students').doc(requestData.studentUid).update({
-        profilePhotoUrl: requestData.newImageUrl,
-        fullName: requestData.newName,
-        pendingProfileUpdate: FieldValue.delete(),
-        updatedAt: FieldValue.serverTimestamp()
-      });
+      // Atomic: re-read request status inside transaction to prevent concurrent
+      // approve/reject from both succeeding (TOCTOU race).
+      const requestRef = adminDb.collection('profile_update_requests').doc(requestId);
+      const studentRef = adminDb.collection('students').doc(requestData.studentUid);
+      let approved = false;
 
-      // Update the request status
-      await adminDb.collection('profile_update_requests').doc(requestId).update({
-        status: 'approved',
-        approvedAt: FieldValue.serverTimestamp(),
-        approvedBy: driverUid,
-        updatedAt: FieldValue.serverTimestamp()
+      await adminDb.runTransaction(async (transaction) => {
+        const freshRequest = await transaction.get(requestRef);
+        if (!freshRequest.exists || freshRequest.data()?.status !== 'pending') {
+          return; // Already processed — idempotent no-op
+        }
+
+        transaction.update(studentRef, {
+          profilePhotoUrl: requestData.newImageUrl,
+          fullName: requestData.newName,
+          pendingProfileUpdate: FieldValue.delete(),
+          updatedAt: FieldValue.serverTimestamp()
+        });
+
+        transaction.update(requestRef, {
+          status: 'approved',
+          approvedAt: FieldValue.serverTimestamp(),
+          approvedBy: driverUid,
+          updatedAt: FieldValue.serverTimestamp()
+        });
+
+        approved = true;
       });
 
       console.log(`Profile update approved for student ${requestData.studentUid}: ${requestId}`);
 
       return NextResponse.json({
         success: true,
-        message: 'Profile update approved successfully'
+        message: approved ? 'Profile update approved successfully' : 'Request already processed'
       });
     } else {
       // action === 'reject'
@@ -152,26 +165,39 @@ export const POST = withSecurity(
         }
       }
 
-      // Reject the request
-      await adminDb.collection('students').doc(requestData.studentUid).update({
-        pendingProfileUpdate: FieldValue.delete(),
-        updatedAt: FieldValue.serverTimestamp()
-      });
+      // Atomic: re-read request status inside transaction to prevent concurrent
+      // approve/reject from both succeeding (TOCTOU race).
+      const requestRef = adminDb.collection('profile_update_requests').doc(requestId);
+      const studentRef = adminDb.collection('students').doc(requestData.studentUid);
+      let rejected = false;
 
-      // Update the request status
-      await adminDb.collection('profile_update_requests').doc(requestId).update({
-        status: 'rejected',
-        rejectedAt: FieldValue.serverTimestamp(),
-        rejectedBy: driverUid,
-        rejectionReason: 'Driver rejected the request',
-        updatedAt: FieldValue.serverTimestamp()
+      await adminDb.runTransaction(async (transaction) => {
+        const freshRequest = await transaction.get(requestRef);
+        if (!freshRequest.exists || freshRequest.data()?.status !== 'pending') {
+          return; // Already processed — idempotent no-op
+        }
+
+        transaction.update(studentRef, {
+          pendingProfileUpdate: FieldValue.delete(),
+          updatedAt: FieldValue.serverTimestamp()
+        });
+
+        transaction.update(requestRef, {
+          status: 'rejected',
+          rejectedAt: FieldValue.serverTimestamp(),
+          rejectedBy: driverUid,
+          rejectionReason: 'Driver rejected the request',
+          updatedAt: FieldValue.serverTimestamp()
+        });
+
+        rejected = true;
       });
 
       console.log(`Profile update rejected for student ${requestData.studentUid}: ${requestId}`);
 
       return NextResponse.json({
         success: true,
-        message: 'Profile update request rejected'
+        message: rejected ? 'Profile update request rejected' : 'Request already processed'
       });
     }
   },

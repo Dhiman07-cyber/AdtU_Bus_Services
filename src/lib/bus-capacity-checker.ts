@@ -67,10 +67,10 @@ export async function checkBusCapacity(busId: string, shift?: string): Promise<B
     let shiftName = shift || 'unspecified';
 
     if (shift === 'Morning' || shift?.toLowerCase() === 'morning') {
-      shiftLoad = typeof busData.morningLoad === 'number' ? busData.morningLoad : 0;
+      shiftLoad = typeof busData.load?.morningCount === 'number' ? busData.load.morningCount : (typeof busData.morningLoad === 'number' ? busData.morningLoad : 0);
       shiftName = 'Morning';
     } else if (shift === 'Evening' || shift?.toLowerCase() === 'evening') {
-      shiftLoad = typeof busData.eveningLoad === 'number' ? busData.eveningLoad : 0;
+      shiftLoad = typeof busData.load?.eveningCount === 'number' ? busData.load.eveningCount : (typeof busData.eveningLoad === 'number' ? busData.eveningLoad : 0);
       shiftName = 'Evening';
     } else if (typeof busData.currentMembers === 'number') {
       // Fallback to generic currentMembers if no shift specified
@@ -270,10 +270,10 @@ export async function findBusesByStop(stopId: string, stopName: string, shift?: 
       let shiftName = shift || 'unspecified';
 
       if (shift === 'Morning' || shift?.toLowerCase() === 'morning') {
-        shiftLoad = typeof busData.morningLoad === 'number' ? busData.morningLoad : 0;
+        shiftLoad = typeof busData.load?.morningCount === 'number' ? busData.load.morningCount : (typeof busData.morningLoad === 'number' ? busData.morningLoad : 0);
         shiftName = 'Morning';
       } else if (shift === 'Evening' || shift?.toLowerCase() === 'evening') {
-        shiftLoad = typeof busData.eveningLoad === 'number' ? busData.eveningLoad : 0;
+        shiftLoad = typeof busData.load?.eveningCount === 'number' ? busData.load.eveningCount : (typeof busData.eveningLoad === 'number' ? busData.eveningLoad : 0);
         shiftName = 'Evening';
       } else if (typeof busData.currentMembers === 'number') {
         shiftLoad = busData.currentMembers;

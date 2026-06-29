@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '@/lib/supabase-client';
 import { isValidLatLng } from '@/lib/maps/location-display-guards';
 
@@ -17,6 +17,8 @@ export const useBusLocation = (busId: string) => {
   const [currentLocation, setCurrentLocation] = useState<BusLocation | null>(null);
   const [history, setHistory] = useState<BusLocation[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const isMountedRef = useRef(true);
 
   const applyIncomingLocation = useCallback((newLocation: BusLocation) => {
     if (!isValidLatLng(newLocation.lat, newLocation.lng)) return;
@@ -48,6 +50,8 @@ export const useBusLocation = (busId: string) => {
   );
 
   useEffect(() => {
+    isMountedRef.current = true;
+
     if (!busId) {
       setCurrentLocation(null);
       setHistory([]);
@@ -61,11 +65,11 @@ export const useBusLocation = (busId: string) => {
 
     const fetchInitialLocation = async () => {
       if (!supabase || !busId) {
-        setLoading(false);
+        if (isMountedRef.current) setLoading(false);
         return;
       }
 
-      setLoading(true);
+      if (isMountedRef.current) setLoading(true);
 
       try {
         const { data: locations, error: qErr } = await supabase
@@ -102,17 +106,23 @@ export const useBusLocation = (busId: string) => {
         }
       } catch (err) {
         console.error('Error fetching initial bus location:', err);
+        if (isMountedRef.current) setError('Failed to fetch bus location');
       } finally {
-        setLoading(false);
+        if (isMountedRef.current) setLoading(false);
       }
     };
 
     fetchInitialLocation();
+
+    return () => {
+      isMountedRef.current = false;
+    };
   }, [busId, applyIncomingLocation]);
 
   useEffect(() => {
     if (!supabase || !busId) return;
 
+    isMountedRef.current = true;
     const channelName = `bus_location_${busId}`;
     const channel = supabase.channel(channelName, {
       config: {
@@ -149,9 +159,23 @@ export const useBusLocation = (busId: string) => {
       }
     );
 
-    channel.subscribe();
+    channel.subscribe((status: string, err: any) => {
+      if (!isMountedRef.current) return;
+      if (status === 'SUBSCRIBED') {
+        setLoading(false);
+      } else if (status === 'CHANNEL_ERROR') {
+        console.error('Bus location channel error:', err);
+        setError('Realtime connection failed');
+        setLoading(false);
+      } else if (status === 'TIMED_OUT') {
+        console.error('Bus location channel timed out');
+        setError('Realtime connection timed out');
+        setLoading(false);
+      }
+    });
 
     return () => {
+      isMountedRef.current = false;
       supabase.removeChannel(channel);
     };
   }, [busId, handleBusLocationUpdate]);
@@ -161,7 +185,7 @@ export const useBusLocation = (busId: string) => {
     interpolatedLocation: null,
     history,
     loading,
-    error: null as string | null,
+    error,
     /** @deprecated Legacy API — returns null (no interpolation). */
     getInterpolatedPosition: (): null => null,
   };

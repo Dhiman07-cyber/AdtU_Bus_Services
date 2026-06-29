@@ -78,9 +78,13 @@ interface Driver {
   createdAt?: string;
 }
 
+import { useModeratorPermissions } from "@/hooks/useModeratorPermissions";
+import { PermissionDeniedCard } from "@/components/PermissionDeniedCard";
+
 export default function ViewRoutePage({ params }: { params: Promise<{ id: string }> }) {
   const router = useRouter();
   const { addToast } = useToast();
+  const { canRouteView, canRouteEdit, canRouteDelete, loading: permsLoading } = useModeratorPermissions();
   const { id } = use(params);
   const [route, setRoute] = useState<Route | null>(null);
   const [buses, setBuses] = useState<Bus[]>([]);
@@ -230,6 +234,10 @@ export default function ViewRoutePage({ params }: { params: Promise<{ id: string
         </div>
       </div>
     );
+  }
+
+  if (!permsLoading && !canRouteView) {
+    return <PermissionDeniedCard title="Route Details Restricted" actionName="Viewing Route Details" />;
   }
 
   return (

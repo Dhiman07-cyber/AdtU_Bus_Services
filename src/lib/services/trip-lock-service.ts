@@ -9,13 +9,16 @@
  * overrides or administrative intervention."
  */
 
-import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import { SupabaseClient } from '@supabase/supabase-js';
+import { getSupabaseServer } from '@/lib/supabase-server';
 import { db as adminDb, FieldValue } from '@/lib/firebase-admin';
 import { Timestamp } from 'firebase-admin/firestore';
 
 // Configuration from environment
-const HEARTBEAT_TIMEOUT_SECONDS = 300;
-const LOCK_TTL_SECONDS = 300;
+// 10 minutes — university buses commonly pass through connectivity dead zones.
+// 5 min was too aggressive and killed active trips during temporary network loss.
+const HEARTBEAT_TIMEOUT_SECONDS = 600;
+const LOCK_TTL_SECONDS = 600;
 const HEARTBEAT_MIN_WRITE_INTERVAL_MS = 20 * 1000;
 const heartbeatWriteCache = new Map<string, number>();
 
@@ -83,16 +86,7 @@ export class TripLockService {
     private supabase: SupabaseClient;
 
     constructor() {
-        const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-        const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-        if (!supabaseUrl || !supabaseServiceKey) {
-            throw new Error('Missing Supabase configuration');
-        }
-
-        this.supabase = createClient(supabaseUrl, supabaseServiceKey, {
-            auth: { persistSession: false }
-        });
+        this.supabase = getSupabaseServer();
     }
 
     /**
@@ -331,9 +325,20 @@ export class TripLockService {
                 return { success: false, reason: 'Active trip not found for this driver and bus' };
             }
 
-            // Update Firestore lock expiration
-            await adminDb.collection('buses').doc(busId).update({
-                'activeTripLock.expiresAt': Timestamp.fromDate(expiresAt)
+            // Update Firestore lock expiration — verify ownership inside a
+            // transaction so a stale heartbeat cannot extend a lock that was
+            // already released and reassigned to a different driver.
+            const busRef = adminDb.collection('buses').doc(busId);
+            await adminDb.runTransaction(async (transaction) => {
+                const busDoc = await transaction.get(busRef);
+                if (!busDoc.exists) return;
+                const lock = busDoc.data()?.activeTripLock;
+                // Only extend if this driver still owns the lock for this trip
+                if (lock?.active && lock?.driverId === driverId && lock?.tripId === tripId) {
+                    transaction.update(busRef, {
+                        'activeTripLock.expiresAt': Timestamp.fromDate(expiresAt)
+                    });
+                }
             });
 
             heartbeatWriteCache.set(cacheKey, now.getTime());
@@ -382,7 +387,7 @@ export class TripLockService {
 
                 // IDEMPOTENT: If already ended, return success
                 if (activeTrip.status === 'ended') {
-                    await this.releaseLock(busId);
+                    await this.releaseLockIfMatches(busId, tripId);
                     heartbeatWriteCache.delete(`${tripId}:${driverId}:${busId}`);
                     return { success: true };
                 }
@@ -401,13 +406,28 @@ export class TripLockService {
 
                 if (updateError) {
                     console.error('Error ending trip in Supabase:', updateError);
+                    // Write outbox record so the stale active_trips row is detectable
+                    // and recoverable by the next cron or reconciliation pass.
+                    try {
+                        await adminDb.collection('audit_failures').add({
+                            kind: 'trip_supabase_end_failure',
+                            tripId,
+                            driverId,
+                            busId,
+                            error: updateError.message || 'Supabase update failed',
+                            recovered: false,
+                            createdAtISO: new Date().toISOString(),
+                        });
+                    } catch (outboxErr) {
+                        console.error('CRITICAL: Could not write outbox for Supabase trip end failure:', outboxErr);
+                    }
                 }
             } else {
                 console.warn('No active trip record found for trip:', tripId);
             }
 
-            // Release Firestore lock
-            await this.releaseLock(busId);
+            // Release Firestore lock ONLY if it still matches this trip (prevents wiping newer locks)
+            await this.releaseLockIfMatches(busId, tripId);
             heartbeatWriteCache.delete(`${tripId}:${driverId}:${busId}`);
 
             return { success: true };

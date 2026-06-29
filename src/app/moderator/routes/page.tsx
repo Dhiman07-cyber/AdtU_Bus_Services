@@ -66,6 +66,7 @@ import { deleteRoute } from "@/lib/dataService";
 import { usePaginatedCollection, invalidateCollectionCache } from '@/hooks/usePaginatedCollection';
 import { useEventDrivenRefresh } from '@/hooks/useEventDrivenRefresh';
 import { useModeratorPermissions } from '@/hooks/useModeratorPermissions';
+import { PermissionDeniedCard } from '@/components/PermissionDeniedCard';
 
 // Use local interfaces to avoid type conflicts
 interface RouteItem {
@@ -115,7 +116,7 @@ interface DriverItem {
 export default function RoutesPage() {
   const router = useRouter();
   const { addToast } = useToast();
-  const { canRouteAdd, canRouteEdit, canRouteDelete } = useModeratorPermissions();
+  const { canRouteView, canRouteAdd, canRouteEdit, canRouteDelete, loading: permsLoading } = useModeratorPermissions();
 
   // Real-time data listeners
   // Fetch routes from the canonical 'routes' collection
@@ -280,6 +281,10 @@ export default function RoutesPage() {
 
   if (isLoading) {
     return <div className="flex justify-center items-center h-64">Loading...</div>;
+  }
+
+  if (!permsLoading && !canRouteView) {
+    return <PermissionDeniedCard title="Routes Section Restricted" actionName="Viewing Routes" showGoBack={false} />;
   }
 
   return (

@@ -16,7 +16,8 @@
 const https = require('https');
 const http = require('http');
 
-const ADMIN_TOKEN = process.env.ADMIN_TOKEN;
+// Canonical cron auth: the target endpoint verifies CRON_SECRET via timing-safe Bearer comparison.
+const CRON_SECRET = process.env.CRON_SECRET;
 
 function resolveBaseUrl() {
   const configuredUrl = process.env.APP_URL ||
@@ -68,8 +69,8 @@ async function makeRequest(url, options = {}) {
 }
 
 function requireAdminToken() {
-  if (!ADMIN_TOKEN) {
-    console.error('ADMIN_TOKEN environment variable not set');
+  if (!CRON_SECRET) {
+    console.error('CRON_SECRET environment variable not set');
     process.exit(1);
   }
 }
@@ -77,7 +78,7 @@ function requireAdminToken() {
 function authHeaders(extraHeaders = {}) {
   return {
     ...extraHeaders,
-    Authorization: `Bearer ${ADMIN_TOKEN}`,
+    Authorization: `Bearer ${CRON_SECRET}`,
   };
 }
 

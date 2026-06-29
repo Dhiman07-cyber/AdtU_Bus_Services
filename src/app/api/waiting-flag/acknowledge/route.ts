@@ -11,6 +11,7 @@
 import { NextResponse } from 'next/server';
 import { auth, db as adminDb } from '@/lib/firebase-admin';
 import { getSupabaseServer } from '@/lib/supabase-server';
+import { checkRateLimit, createRateLimitId } from '@/lib/security/rate-limiter';
 
 const supabase = getSupabaseServer();
 
@@ -29,6 +30,14 @@ export async function POST(request: Request) {
       );
     }
 
+    // Input length validation to prevent oversized payloads
+    if (typeof flagId !== 'string' || flagId.length > 128) {
+      return NextResponse.json(
+        { error: 'Invalid flag ID' },
+        { status: 400 }
+      );
+    }
+
     // Validate action
     if (!['acknowledge', 'boarded', 'ignore'].includes(action)) {
       return NextResponse.json(
@@ -41,9 +50,21 @@ export async function POST(request: Request) {
     const decodedToken = await auth.verifyIdToken(idToken);
     const driverUid = decodedToken.uid;
 
-    // Verify user is a driver
-    const userDoc = await adminDb.collection('users').doc(driverUid).get();
-    if (!userDoc.exists || userDoc.data()?.role !== 'driver') {
+    // Rate limiting
+    const rlId = createRateLimitId(driverUid, 'waiting-flag-ack');
+    const rl = checkRateLimit(rlId, 30, 60_000);
+    if (!rl.allowed) {
+      return NextResponse.json(
+        { error: 'Too many requests. Please wait.' },
+        { status: 429 }
+      );
+    }
+
+    // SECURITY: Verify user exists in the authoritative `drivers` collection.
+    // The `users` collection role field could be stale; a deprovisioned driver
+    // whose `users` doc hasn't been cleaned up could still pass a `users`-only check.
+    const driverDoc = await adminDb.collection('drivers').doc(driverUid).get();
+    if (!driverDoc.exists) {
       return NextResponse.json(
         { error: 'User is not authorized as a driver' },
         { status: 403 }
@@ -64,8 +85,7 @@ export async function POST(request: Request) {
       );
     }
 
-    // Verify driver is assigned to this bus
-    const driverDoc = await adminDb.collection('drivers').doc(driverUid).get();
+    // Verify driver is assigned to this bus (reuse driverDoc from auth check above)
     const driverData = driverDoc.data();
 
     if (driverData?.assignedBusId !== flag.bus_id &&
@@ -76,12 +96,32 @@ export async function POST(request: Request) {
       );
     }
 
-    // Check flag status
-    if (flag.status !== 'raised') {
-      return NextResponse.json(
-        { error: `Flag already ${flag.status}` },
-        { status: 400 }
-      );
+    // Validate state transition and check for idempotency
+    let allowedPriorStatuses: string[] = [];
+    if (action === 'acknowledge') {
+      if (flag.status === 'acknowledged') {
+        return NextResponse.json({ success: true, message: 'Flag acknowledge successfully', newStatus: 'acknowledged' });
+      }
+      if (['boarded', 'picked_up', 'cancelled', 'expired'].includes(flag.status)) {
+        return NextResponse.json({ error: `Cannot acknowledge flag that is already ${flag.status}` }, { status: 400 });
+      }
+      allowedPriorStatuses = ['raised', 'waiting'];
+    } else if (action === 'boarded') {
+      if (flag.status === 'boarded' || flag.status === 'picked_up') {
+        return NextResponse.json({ success: true, message: 'Flag boarded successfully', newStatus: flag.status });
+      }
+      if (['cancelled', 'expired'].includes(flag.status)) {
+        return NextResponse.json({ error: `Cannot mark boarded: flag is ${flag.status}` }, { status: 400 });
+      }
+      allowedPriorStatuses = ['raised', 'acknowledged', 'waiting'];
+    } else if (action === 'ignore') {
+      if (flag.status === 'cancelled' || flag.status === 'expired') {
+        return NextResponse.json({ success: true, message: 'Flag ignore successfully', newStatus: flag.status });
+      }
+      if (['boarded', 'picked_up'].includes(flag.status)) {
+        return NextResponse.json({ error: `Cannot ignore flag that is ${flag.status}` }, { status: 400 });
+      }
+      allowedPriorStatuses = ['raised', 'acknowledged', 'waiting'];
     }
 
     // Update flag status based on action
@@ -107,17 +147,26 @@ export async function POST(request: Request) {
 
     updateData.status = newStatus;
 
-    // Update in Supabase
-    const { error: updateError } = await supabase
+    // Update in Supabase atomically
+    const { data: updatedFlags, error: updateError } = await supabase
       .from('waiting_flags')
       .update(updateData)
-      .eq('id', flagId);
+      .eq('id', flagId)
+      .in('status', allowedPriorStatuses)
+      .select();
 
     if (updateError) {
       console.error('❌ Error updating flag:', updateError);
       return NextResponse.json(
         { error: 'Failed to update flag' },
         { status: 500 }
+      );
+    }
+
+    if (!updatedFlags || updatedFlags.length === 0) {
+      return NextResponse.json(
+        { error: 'Flag already processed or state transition invalid' },
+        { status: 409 }
       );
     }
 

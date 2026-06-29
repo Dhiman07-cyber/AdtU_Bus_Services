@@ -22,13 +22,17 @@ export const useWaitingFlags = (routeId: string) => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const channelRef = useRef<any>(null);
+  const isMountedRef = useRef(true);
+  const rafRef = useRef<number | null>(null);
 
   // Handle waiting flag raised event (optimized)
   const handleWaitingFlagRaised = useCallback((payload: any) => {
     const flagData = payload.payload;
     
     // Use requestAnimationFrame to avoid blocking the main thread
-    requestAnimationFrame(() => {
+    rafRef.current = requestAnimationFrame(() => {
+      rafRef.current = null;
+      if (!isMountedRef.current) return;
       console.log('Received waiting flag raised event:', flagData);
       
       setFlags(prev => {
@@ -225,6 +229,10 @@ export const useWaitingFlags = (routeId: string) => {
 
     // Cleanup function
     return () => {
+      if (rafRef.current !== null) {
+        cancelAnimationFrame(rafRef.current);
+        rafRef.current = null;
+      }
       if (channelRef.current) {
         console.log(`Unsubscribing from ${channelName} channel`);
         supabase.removeChannel(channelRef.current);
@@ -235,6 +243,8 @@ export const useWaitingFlags = (routeId: string) => {
 
   // Fetch initial waiting flags
   useEffect(() => {
+    isMountedRef.current = true;
+
     const fetchInitialFlags = async () => {
       if (!supabase || !routeId) return;
       
@@ -246,6 +256,8 @@ export const useWaitingFlags = (routeId: string) => {
           .eq('route_id', routeId)
           .eq('status', 'raised')
           .order('created_at', { ascending: false });
+        
+        if (!isMountedRef.current) return;
         
         if (error) {
           throw new Error(error.message);
@@ -269,13 +281,21 @@ export const useWaitingFlags = (routeId: string) => {
         setFlags(formattedFlags);
       } catch (err: any) {
         console.error('Error fetching initial waiting flags:', err);
-        setError(err.message || 'Failed to fetch waiting flags');
+        if (isMountedRef.current) {
+          setError(err.message || 'Failed to fetch waiting flags');
+        }
       } finally {
-        setLoading(false);
+        if (isMountedRef.current) {
+          setLoading(false);
+        }
       }
     };
     
     fetchInitialFlags();
+
+    return () => {
+      isMountedRef.current = false;
+    };
   }, [routeId]);
 
   // Fallback timeout for loading state
@@ -300,7 +320,7 @@ export const useWaitingFlags = (routeId: string) => {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          waitingFlagId: flagId
+          flagId
         })
       });
       
@@ -334,15 +354,13 @@ export const useWaitingFlags = (routeId: string) => {
   const markAsBoarded = useCallback(async (studentUid: string, busId: string, flagId: string) => {
     try {
       // Call backend API to mark student as boarded
-      const response = await fetch('/api/driver/mark-attendance', {
+      const response = await fetch('/api/driver/mark-boarded', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          flagId,
-          studentUid,
-          busId
+          flagId
         })
       });
       

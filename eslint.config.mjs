@@ -11,6 +11,14 @@ const eslintConfig = [
       "out/**",
       "build/**",
       "next-env.d.ts",
+      // Non-application code — tooling, skills, scripts, infra. Not app source.
+      ".agent/**",
+      ".agents/**",
+      "scripts/**",
+      "loadtests/**",
+      "audits/**",
+      "docs/**",
+      "supabase/**",
     ],
   },
 ];

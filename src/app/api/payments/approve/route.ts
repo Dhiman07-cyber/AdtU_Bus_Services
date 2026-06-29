@@ -67,7 +67,7 @@ export const POST = withSecurity(
             );
         }
 
-        console.log(`✅ [${requestId}] Payment ${paymentId} approved by ${approverName} (${approverEmpId})`);
+        console.log(`✅ [${requestId}] Payment ${paymentId?.substring(0,8)}... approved by ${approverName?.substring(0,8) || 'admin'}... (${approverEmpId?.substring(0,8) || 'N/A'}...)`);
 
         return NextResponse.json({
             success: true,

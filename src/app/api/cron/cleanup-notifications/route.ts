@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { deleteExpiredNotifications } from '@/lib/notification-expiry';
+import crypto from 'crypto';
 
 /**
  * Cron endpoint for notification cleanup
@@ -24,7 +25,10 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Server configuration error' }, { status: 500 });
     }
 
-    if (authHeader !== `Bearer ${cronSecret}`) {
+    const providedToken = authHeader?.startsWith('Bearer ') ? authHeader.substring(7) : '';
+    const secretsMatch = providedToken.length === cronSecret.length &&
+      crypto.timingSafeEqual(Buffer.from(providedToken), Buffer.from(cronSecret));
+    if (!secretsMatch) {
       console.warn('⚠️ Unauthorized cron request');
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }

@@ -38,11 +38,15 @@ type DriverFormData = {
   shift: string;
 };
 
+import { useModeratorPermissions } from '@/hooks/useModeratorPermissions';
+import { PermissionDeniedCard } from '@/components/PermissionDeniedCard';
+
 export default function EditDriverPage({ params }: { params: Promise<{ id: string }> }) {
   const router = useRouter();
   const { id: driverId } = use(params);
   const { addToast } = useToast();
   const { currentUser, userData, loading: authLoading } = useAuth();
+  const { canDriverEdit, loading: permsLoading } = useModeratorPermissions();
 
   const [driver, setDriver] = useState<any>(null);
   const [routes, setRoutes] = useState<Route[]>([]);
@@ -323,6 +327,10 @@ export default function EditDriverPage({ params }: { params: Promise<{ id: strin
   }
 
   if (!currentUser || !userData || !['admin', 'moderator'].includes(userData.role)) return null;
+
+  if (!permsLoading && !canDriverEdit) {
+    return <PermissionDeniedCard title="Editing Driver Restricted" actionName="Editing Drivers" />;
+  }
 
   return (
     <div className="mt-10 py-4 bg-[#010717] min-h-screen">

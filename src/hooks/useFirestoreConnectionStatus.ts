@@ -22,10 +22,7 @@ export interface ConnectionStatus {
  * 
  * This version just uses navigator.onLine for basic connectivity detection.
  */
-export function useFirestoreConnectionStatus(
-  checkInterval: number = 30000,
-  healthCheckCollection: string = 'notifications'
-) {
+export function useFirestoreConnectionStatus() {
   const [status, setStatus] = useState<ConnectionStatus>({
     isConnected: true,
     isHealthy: true,

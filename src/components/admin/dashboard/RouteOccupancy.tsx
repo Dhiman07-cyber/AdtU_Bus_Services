@@ -150,7 +150,7 @@ export default function RouteOccupancy({ routeOccupancy, busUtilization = [] }: 
                                     initial={{ opacity: 0, x: -20 }}
                                     animate={{ opacity: 1, x: 0 }}
                                     transition={{ duration: 0.4, delay: idx * 0.05 }}
-                                    className="relative group flex items-center gap-4 bg-white/[0.01] hover:bg-white/[0.04] p-3 rounded-2xl border border-white/5 hover:border-orange-500/30 transition-all duration-300"
+                                    className="relative group flex items-center gap-4 bg-white/[0.01] hover:bg-white/[0.04] p-3 rounded-2xl border border-white/5 hover:border-orange-500/30 transition-all duration-300 hover:cursor-pointer"
                                  >
                                     <div className="flex-shrink-0 w-8 h-8 rounded-lg bg-slate-800 flex items-center justify-center text-[10px] font-black text-slate-500 border border-white/5 group-hover:text-orange-400 transition-all shadow-lg">
                                        {String(startIndex + idx + 1).padStart(2, '0')}
@@ -211,7 +211,7 @@ export default function RouteOccupancy({ routeOccupancy, busUtilization = [] }: 
                         </div>
 
                         <div className="flex-1">
-                           <ResponsiveContainer width="100%" height="100%">
+                           <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
                               <BarChart data={chartData}>
                                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(255,255,255,0.03)" />
                                  <XAxis
@@ -284,7 +284,7 @@ export default function RouteOccupancy({ routeOccupancy, busUtilization = [] }: 
                               initial={{ opacity: 0, y: 10 }}
                               animate={{ opacity: 1, y: 0 }}
                               transition={{ delay: idx * 0.1 }}
-                              className="flex items-center justify-between p-4 rounded-xl bg-white/[0.02] border border-white/5 group/row hover:bg-red-500/5 hover:border-red-500/10 transition-all"
+                              className="flex items-center justify-between p-4 rounded-xl bg-white/[0.02] border border-white/5 group/row hover:bg-red-500/5 hover:border-red-500/10 transition-all hover:cursor-pointer"
                            >
                               <div className="flex flex-col">
                                  <span className="text-[11px] font-black text-white group-hover/row:text-red-400 transition-colors uppercase">{bus.name}</span>

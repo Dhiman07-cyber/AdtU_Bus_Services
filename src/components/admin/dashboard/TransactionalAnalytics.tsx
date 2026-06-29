@@ -174,7 +174,7 @@ export default function TransactionalAnalytics({
             {role === 'admin' ? (
               <Button
                 className={cn(
-                  "w-full h-[116px] p-4 flex flex-col items-start justify-start gap-1 rounded-2xl border transition-all duration-300",
+                  "w-full h-[116px] p-4 flex flex-col items-start justify-start gap-1 rounded-2xl border transition-all duration-300 hover:cursor-pointer",
                   metricType === 'revenue'
                     ? "bg-indigo-500/10 border-indigo-500/30 text-indigo-400 shadow-lg shadow-indigo-600/5 ring-1 ring-white/5"
                     : "bg-transparent border-white/5 text-slate-500 hover:border-white/10 hover:bg-white/5"
@@ -190,7 +190,7 @@ export default function TransactionalAnalytics({
                 </div>
               </Button>
             ) : (
-              <div className="w-full h-[116px] p-4 flex flex-col items-start justify-start gap-1 rounded-2xl border bg-indigo-500/10 border-indigo-500/30 text-indigo-400 shadow-lg shadow-indigo-600/5 ring-1 ring-white/5">
+              <div className="w-full h-[116px] p-4 flex flex-col items-start justify-start gap-1 rounded-2xl border bg-indigo-500/10 border-indigo-500/30 text-indigo-400 shadow-lg shadow-indigo-600/5 ring-1 ring-white/5 hover:cursor-pointer">
                 <div className="flex items-center gap-2 mb-1">
                   <BarChart3 className="w-3.5 h-3.5" />
                   <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Transaction Volume</span>
@@ -208,7 +208,7 @@ export default function TransactionalAnalytics({
               </div>
             )}
 
-            <div className="p-4 h-[116px] rounded-2xl bg-white/[0.02] border border-white/5 flex flex-col justify-between">
+            <div className="p-4 h-[116px] rounded-2xl bg-white/[0.02] border border-white/5 flex flex-col justify-between hover:cursor-pointer">
               {role === 'admin' ? (
                 <>
                   <div className="flex items-center gap-2 mb-2">
@@ -239,7 +239,7 @@ export default function TransactionalAnalytics({
                   </div>
                   <div className="flex-1 w-full mt-1 flex items-center justify-center">
                     {methodTrend.length > 0 ? (
-                      <ResponsiveContainer width="100%" height={80}>
+                      <ResponsiveContainer width="100%" height={80} minWidth={0} minHeight={0}>
                         <PieChart>
                           <Pie
                             data={methodTrend}
@@ -282,7 +282,7 @@ export default function TransactionalAnalytics({
                   transition={{ duration: 0.4 }}
                   className="w-full h-full"
                 >
-                  <ResponsiveContainer width="100%" height="100%">
+                  <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
                     <AreaChart data={currentData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
                       <defs>
                         <linearGradient id="colorMetric" x1="0" y1="0" x2="0" y2="1">
@@ -326,7 +326,7 @@ export default function TransactionalAnalytics({
 
         {/* Footer info blocks */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 pt-6 border-t border-white/5">
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 hover:cursor-pointer">
             <div className="w-8 h-8 rounded-full bg-emerald-500/10 flex items-center justify-center text-emerald-400">
               <Calendar className="w-4 h-4" />
             </div>
@@ -343,7 +343,7 @@ export default function TransactionalAnalytics({
             </div>
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 hover:cursor-pointer">
             <div className="w-8 h-8 rounded-full bg-blue-500/10 flex items-center justify-center text-blue-400">
               <CreditCard className="w-4 h-4" />
             </div>
@@ -353,7 +353,7 @@ export default function TransactionalAnalytics({
             </div>
           </div>
 
-          <div className="hidden lg:flex items-center gap-3">
+          <div className="hidden lg:flex items-center gap-3 hover:cursor-pointer">
             <div className="w-8 h-8 rounded-full bg-purple-500/10 flex items-center justify-center text-purple-400">
               <CreditCard className="w-4 h-4" />
             </div>

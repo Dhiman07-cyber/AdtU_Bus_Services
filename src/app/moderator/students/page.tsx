@@ -56,11 +56,12 @@ import Avatar from '@/components/Avatar';
 import { usePaginatedCollection, invalidateCollectionCache } from '@/hooks/usePaginatedCollection';
 import { useEventDrivenRefresh } from '@/hooks/useEventDrivenRefresh';
 import { useModeratorPermissions } from '@/hooks/useModeratorPermissions';
+import { PermissionDeniedCard } from '@/components/PermissionDeniedCard';
 
 export default function AdminStudents() {
     const { currentUser, userData, loading: authLoading } = useAuth();
     const { addToast } = useToast();
-    const { canStudentAdd, canStudentEdit, canStudentDelete, canStudentReassign } = useModeratorPermissions();
+    const { canStudentView, canStudentAdd, canStudentEdit, canStudentDelete, canStudentReassign, loading: permsLoading } = useModeratorPermissions();
     const router = useRouter();
 
     // SPARK PLAN SAFETY: Event-driven refresh - only fetches when mutations occur
@@ -322,6 +323,10 @@ export default function AdminStudents() {
 
     if (!currentUser || !userData || userData.role !== 'moderator') {
         return null;
+    }
+
+    if (!permsLoading && !canStudentView) {
+        return <PermissionDeniedCard title="Students Section Restricted" actionName="Viewing Students" showGoBack={false} />;
     }
 
     return (

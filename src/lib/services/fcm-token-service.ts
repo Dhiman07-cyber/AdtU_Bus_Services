@@ -122,7 +122,7 @@ export async function invalidateToken(
 
     await tokenDocRef.delete();
   } catch (error: any) {
-    console.error(`Error invalidating token ${tokenHash} for ${userId}:`, error.message);
+    console.error(`Error invalidating token ${tokenHash?.substring(0,8)}... for ${userId?.substring(0,8)}...:`, error.message);
   }
 }
 

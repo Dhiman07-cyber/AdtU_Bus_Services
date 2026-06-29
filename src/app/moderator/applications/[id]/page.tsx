@@ -30,8 +30,12 @@ import { PremiumPageLoader } from '@/components/LoadingSpinner';
 import { invalidateCollectionCache } from '@/hooks/usePaginatedCollection';
 import { safeImageSrc, safeMailtoHref, safeTelHref } from '@/lib/security/url-sanitizer';
 
+import { useModeratorPermissions } from '@/hooks/useModeratorPermissions';
+import { PermissionDeniedCard } from '@/components/PermissionDeniedCard';
+
 export default function ModeratorApplicationDetailPage() {
   const { currentUser, userData, loading } = useAuth();
+  const { canApplicationView, canApplicationApprove, canApplicationReject, loading: permsLoading } = useModeratorPermissions();
   const router = useRouter();
   const params = useParams();
   const { showToast } = useToast();
@@ -388,6 +392,10 @@ export default function ModeratorApplicationDetailPage() {
         <p className="text-gray-600 dark:text-gray-400">Application not found</p>
       </div>
     );
+  }
+
+  if (!permsLoading && !canApplicationView) {
+    return <PermissionDeniedCard title="Application Details Restricted" actionName="Viewing Application Details" />;
   }
 
   return (

@@ -28,6 +28,7 @@ import WaitingFlagModal from "@/components/WaitingFlagModal";
 import { useToast } from "@/contexts/toast-context";
 import { useFCMToken } from "@/hooks/useFCMToken";
 import TransportEntitlementGuard from "@/components/transport/TransportEntitlementGuard";
+import ErrorBoundary from "@/components/ErrorBoundary";
 
 function StudentBusLive() {
   const { currentUser, userData } = useAuth();
@@ -207,6 +208,7 @@ function StudentBusLive() {
 
   // Handle raising waiting flag
   const handleRaiseFlag = useCallback(async (stopId: string, stopName: string) => {
+    if (raisingFlag) return;
     if (!currentUser || !studentData?.busId || !studentData?.routeId) return;
 
     setRaisingFlag(true);
@@ -302,6 +304,7 @@ function StudentBusLive() {
   }
 
   return (
+    <ErrorBoundary>
     <div className="space-y-6">
       <div className="flex justify-between items-center">
         <div>
@@ -600,6 +603,7 @@ function StudentBusLive() {
         errorMessage={locationError?.userFriendlyMessage}
       />
     </div>
+    </ErrorBoundary>
   );
 }
 

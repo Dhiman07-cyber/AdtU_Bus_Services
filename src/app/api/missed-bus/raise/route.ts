@@ -11,7 +11,7 @@
  */
 
 import { NextResponse } from 'next/server';
-import { auth } from '@/lib/firebase-admin';
+import { auth, db as adminDb } from '@/lib/firebase-admin';
 import { missedBusService, MESSAGES } from '@/lib/services/missed-bus-service';
 import { requireTransportEntitlement } from '@/lib/entitlement/require-transport-entitlement';
 
@@ -37,6 +37,16 @@ export async function POST(request: Request) {
         // Verify Firebase token
         const decodedToken = await auth.verifyIdToken(idToken);
         const studentId = decodedToken.uid;
+
+        // SECURITY: Verify the caller is actually a student. Without this check,
+        // any authenticated user (driver, moderator) could raise missed-bus requests.
+        const studentDoc = await adminDb.collection('students').doc(studentId).get();
+        if (!studentDoc.exists) {
+            return NextResponse.json(
+                { success: false, error: 'Only students can raise missed-bus requests' },
+                { status: 403 }
+            );
+        }
 
         // Phase 3 — a missed-bus pickup is transport functionality (it consumes a
         // seat on an alternate bus). Deny unless the student owns transport access.

@@ -129,6 +129,10 @@ export async function POST(request: NextRequest) {
     // payment so a full original bus is rejected cleanly (request stays pending, no
     // payment saved, no half-state). Students whose seat was never released (marker
     // absent — early renewal or legacy/flag-off) take ZERO new capacity action.
+    const approvalTimestamp = Date.now();
+
+    // Capacity pre-check for released seats — reject BEFORE taking payment so a
+    // full bus is rejected cleanly (request stays pending, no payment saved, no half-state).
     const seatWasReleased = wasSeatReleased(savedStudentData);
     const renewalBusId = savedStudentData.busId || savedStudentData.currentBusId || savedStudentData.assignedBusId || null;
     if (seatWasReleased && renewalBusId) {
@@ -145,41 +149,10 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    const approvalTimestamp = Date.now();
-    const transactionRecord = {
-      studentId: enrollmentId,
-      studentName,
-      studentEmail: studentEmail || savedStudentData?.email || 'N/A',
-      studentPhone: studentPhone || savedStudentData?.phone || 'N/A',
-      amount: totalFee,
-      paymentMethod: (isOnlineRenewal ? 'online' : 'offline') as 'online' | 'offline',
-      paymentId,
-      offlineTransactionId: isOnlineRenewal ? '' : (transactionId || ''),
-      durationYears,
-      validUntil: newValidUntil.toISOString(),
-      newValidUntil: newValidUntil.toISOString(),
-      sessionStartYear: savedStudentData?.sessionStartYear,
-      sessionEndYear: newSessionEndYear,
-      userId: studentId,
-      status: 'completed' as const,
-      approvedBy: {
-        type: 'Manual',
-        userId: approverUserId,
-        empId: approverData.empId || approverData.employeeId || 'N/A',
-        name: approverData.fullName || 'Admin',
-        role: approverData.role as 'admin' | 'moderator',
-        email: approverData.email || 'N/A'
-      },
-      approvedByDisplay: `${approverData.fullName} (${approverData.role})`,
-      renewalRequestId: requestId,
-      timestamp: new Date().toISOString(),
-      timestampMs: approvalTimestamp,
-      approvedAtISO: new Date(approvalTimestamp).toISOString(),
-      metadata: { source: 'admin_approval', processedAt: new Date().toISOString() }
-    };
-
-    await PaymentTransactionService.saveTransaction(transactionRecord);
-
+    // The Firestore transaction below is the SINGLE SOURCE OF TRUTH for the
+    // renewal approval. Payment is saved AFTER the transaction commits to
+    // prevent partial-commit: if the transaction fails, no payment is recorded
+    // and the request stays pending (safe to retry).
     try {
       await adminDb.runTransaction(async (transaction: FirebaseFirestore.Transaction) => {
         const freshStudentDoc = await transaction.get(studentRef);
@@ -209,13 +182,22 @@ export async function POST(request: NextRequest) {
         }
 
         const freshStudentData = freshStudentDoc.data() || {};
+        const freshValidUntil = toDate(freshStudentData.validUntil);
+        let freshBaseYear = now.getFullYear();
+        if (freshValidUntil && freshValidUntil > now) {
+          freshBaseYear = freshStudentData.sessionEndYear || freshValidUntil.getFullYear();
+        }
+        const txValidUntil = calculateValidUntilDate(freshBaseYear, durationYears, deadlineConfig);
+        const finalTxValidUntil = (freshValidUntil && freshValidUntil > txValidUntil) ? freshValidUntil : txValidUntil;
+        const txSessionEndYear = freshBaseYear + durationYears;
+        const finalTxSessionEndYear = (freshStudentData.sessionEndYear && freshStudentData.sessionEndYear > txSessionEndYear) ? freshStudentData.sessionEndYear : txSessionEndYear;
         const totalDuration = (freshStudentData.durationYears || 0) + durationYears;
-        const blockDates = computeBlockDatesFromValidUntil(newValidUntil, deadlineConfig);
+        const blockDates = computeBlockDatesFromValidUntil(finalTxValidUntil, deadlineConfig);
 
         transaction.update(studentRef, {
-          validUntil: newValidUntil,
+          validUntil: finalTxValidUntil,
           status: 'active',
-          sessionEndYear: newSessionEndYear,
+          sessionEndYear: finalTxSessionEndYear,
           durationYears: totalDuration,
           paymentAmount: totalFee,
           softBlock: blockDates.softBlock,
@@ -269,10 +251,8 @@ export async function POST(request: NextRequest) {
       });
     } catch (txErr: any) {
       if (txErr instanceof CapacityFullError) {
-        // Lost the last seat to a concurrent claim after the pre-check. Payment was
-        // already recorded (system of record); surface a clear, actionable error so
-        // the admin reassigns/increases capacity and re-approves (marker still set,
-        // request still pending → safe to retry).
+        // Lost the last seat to a concurrent claim after the pre-check. Request
+        // stays pending — safe to retry after admin reassigns/increases capacity.
         return NextResponse.json({
           error: 'Original bus is full',
           message: 'The original bus filled up before this renewal completed. Reassign the student or increase capacity, then approve again.',
@@ -280,6 +260,43 @@ export async function POST(request: NextRequest) {
       }
       throw txErr;
     }
+
+    // Payment is saved AFTER the Firestore transaction succeeds — prevents
+    // partial-commit where payment is Completed but the student was never
+    // reactivated (e.g. bus full race or duplicate approval conflict).
+    const transactionRecord = {
+      studentId: enrollmentId,
+      studentName,
+      studentEmail: studentEmail || savedStudentData?.email || 'N/A',
+      studentPhone: studentPhone || savedStudentData?.phone || 'N/A',
+      amount: totalFee,
+      paymentMethod: (isOnlineRenewal ? 'online' : 'offline') as 'online' | 'offline',
+      paymentId,
+      offlineTransactionId: isOnlineRenewal ? '' : (transactionId || ''),
+      durationYears,
+      validUntil: newValidUntil.toISOString(),
+      newValidUntil: newValidUntil.toISOString(),
+      sessionStartYear: savedStudentData?.sessionStartYear,
+      sessionEndYear: newSessionEndYear,
+      userId: studentId,
+      status: 'completed' as const,
+      approvedBy: {
+        type: 'Manual',
+        userId: approverUserId,
+        empId: approverData.empId || approverData.employeeId || 'N/A',
+        name: approverData.fullName || 'Admin',
+        role: approverData.role as 'admin' | 'moderator',
+        email: approverData.email || 'N/A'
+      },
+      approvedByDisplay: `${approverData.fullName} (${approverData.role})`,
+      renewalRequestId: requestId,
+      timestamp: new Date().toISOString(),
+      timestampMs: approvalTimestamp,
+      approvedAtISO: new Date(approvalTimestamp).toISOString(),
+      metadata: { source: 'admin_approval', processedAt: new Date().toISOString() }
+    };
+
+    await PaymentTransactionService.saveTransaction(transactionRecord);
 
     // 4. Parallel Post-Approval Tasks (Audit & Notifications)
     // Parallelize non-critical secondary ops

@@ -5,8 +5,9 @@
  * Provides methods to raise, check status, and cancel requests.
  */
 
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { supabase } from '@/lib/supabase-client';
+import { generatePrefixedId } from '@/lib/security/random-id';
 
 // UI Messages (must match server-side messages - per spec)
 export const MISSED_BUS_MESSAGES = {
@@ -232,7 +233,13 @@ export function useMissedBus(
                     }
                 }
             )
-            .subscribe();
+            .subscribe((status: string, err: any) => {
+                if (status === 'CHANNEL_ERROR') {
+                    console.error('Missed bus channel error:', err);
+                } else if (status === 'TIMED_OUT') {
+                    console.error('Missed bus channel timed out');
+                }
+            });
 
         return () => {
             supabase.removeChannel(channel);
@@ -241,9 +248,19 @@ export function useMissedBus(
 
     // Initial status fetch
     useEffect(() => {
-        if (studentId) {
-            refreshStatus();
-        }
+        const isMounted = { current: true };
+
+        const fetchInitial = async () => {
+            if (studentId && isMounted.current) {
+                await refreshStatus();
+            }
+        };
+
+        fetchInitial();
+
+        return () => {
+            isMounted.current = false;
+        };
     }, [studentId, refreshStatus]);
 
     return {
@@ -258,12 +275,5 @@ export function useMissedBus(
 }
 
 export function generateOpId(): string {
-    const cryptoObj = typeof window !== 'undefined' ? (window.crypto || (window as any).msCrypto) : globalThis.crypto;
-    if (cryptoObj && cryptoObj.randomUUID) {
-        return `mbr_${Date.now()}_${cryptoObj.randomUUID().substring(0, 8)}`;
-    }
-    const randomHex = cryptoObj && cryptoObj.getRandomValues
-        ? Array.from(cryptoObj.getRandomValues(new Uint8Array(4))).map(b => (b as any).toString(16).padStart(2, '0')).join('')
-        : Math.random().toString(36).substring(2, 10);
-    return `mbr_${Date.now()}_${randomHex}`;
+    return generatePrefixedId('mbr_', 4);
 }

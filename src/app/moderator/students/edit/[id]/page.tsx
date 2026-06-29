@@ -50,9 +50,13 @@ type StudentFormData = {
   pickupPoint: string;
 };
 
+import { useModeratorPermissions } from "@/hooks/useModeratorPermissions";
+import { PermissionDeniedCard } from "@/components/PermissionDeniedCard";
+
 export default function EditStudentPage({ params }: { params: Promise<{ id: string }> }) {
   const router = useRouter();
   const { addToast } = useToast();
+  const { canStudentEdit, loading: permsLoading } = useModeratorPermissions();
   // Unwrap the params promise using React's use function
   const { id: studentId } = use(params);
 
@@ -462,6 +466,10 @@ export default function EditStudentPage({ params }: { params: Promise<{ id: stri
         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500"></div>
       </div>
     );
+  }
+
+  if (!permsLoading && !canStudentEdit) {
+    return <PermissionDeniedCard title="Editing Student Restricted" actionName="Editing Students" />;
   }
 
   return (

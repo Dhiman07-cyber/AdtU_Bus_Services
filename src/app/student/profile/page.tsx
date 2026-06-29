@@ -18,6 +18,7 @@ import ProfileImageUpdateModal from "@/components/ProfileImageUpdateModal";
 import { useToast } from "@/contexts/toast-context";
 import Image from "next/image";
 import { safeImageSrc } from "@/lib/security/url-sanitizer";
+import { formatDateFlexible } from '@/lib/utils/date-utils';
 
 export default function StudentProfilePage() {
   const { currentUser, userData } = useAuth();
@@ -111,34 +112,7 @@ export default function StudentProfilePage() {
     }
   }, [userData, router]);
 
-  const formatDate = (dateValue: any) => {
-    if (!dateValue) return 'Not provided';
-    try {
-      let date: Date;
-
-      if (typeof dateValue === 'object' && 'seconds' in dateValue && 'nanoseconds' in dateValue) {
-        date = new Date(dateValue.seconds * 1000);
-      } else if (typeof dateValue === 'string') {
-        date = new Date(dateValue);
-      } else if (dateValue instanceof Date) {
-        date = dateValue;
-      } else if (dateValue?.toDate) {
-        date = dateValue.toDate();
-      } else {
-        return 'Not provided';
-      }
-
-      if (isNaN(date.getTime())) return 'Not provided';
-
-      return date.toLocaleDateString('en-US', {
-        year: 'numeric',
-        month: 'short',
-        day: 'numeric'
-      });
-    } catch (error) {
-      return 'Not provided';
-    }
-  };
+  const formatDate = formatDateFlexible;
 
   const formatCurrency = (amount: number) => {
     if (!amount) return '₹0';

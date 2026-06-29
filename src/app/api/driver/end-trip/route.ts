@@ -110,7 +110,7 @@ export const POST = withSecurity<EndTripBody>(
             const cleanupPromises = [
                 supabase.from('driver_status').delete().eq('driver_uid', driverId).eq('bus_id', busId),
                 supabase.from('bus_locations').delete().eq('bus_id', busId).eq('trip_id', activeTripId),
-                supabase.from('waiting_flags').delete().eq('bus_id', busId),
+                supabase.from('waiting_flags').delete().eq('bus_id', busId).eq('trip_id', activeTripId),
                 supabase.from('driver_location_updates').delete().eq('driver_uid', driverId).eq('bus_id', busId),
             ];
 

@@ -68,7 +68,7 @@ export const POST = withSecurity(
             );
         }
 
-        console.log(`🗑️ [${requestId}] Payment ${paymentId} rejected by ${rejectorName} (${rejectorEmpId})`);
+        console.log(`🗑️ [${requestId}] Payment ${paymentId?.substring(0,8)}... rejected by ${rejectorName?.substring(0,8) || 'admin'}... (${rejectorEmpId?.substring(0,8) || 'N/A'}...)`);
 
         return NextResponse.json({
             success: true,

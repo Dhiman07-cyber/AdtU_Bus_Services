@@ -123,7 +123,7 @@ export default function QuickActions({ role = 'admin' }: { role?: 'admin' | 'mod
             className="flex"
           >
             <button
-              className="group relative flex flex-col items-center justify-center gap-4 w-full aspect-square bg-white/[0.02] hover:bg-white/[0.06] border border-white/5 hover:border-white/20 rounded-[32px] transition-all duration-500 overflow-hidden"
+              className="group relative flex flex-col items-center justify-center gap-4 w-full aspect-square bg-white/[0.02] hover:bg-white/[0.06] border border-white/5 hover:border-white/20 rounded-[32px] transition-all duration-500 overflow-hidden hover:cursor-pointer"
               onClick={() => handleAction(action.path)}
             >
               {/* Tile Glow Effect */}

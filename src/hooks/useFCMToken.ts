@@ -1,12 +1,13 @@
 "use client";
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { getFCMToken, requestNotificationPermission } from '@/lib/fcm-service';
 
 export const useFCMToken = () => {
     const [fcmToken, setFcmToken] = useState<string | null>(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
+    const isMountedRef = useRef(true);
 
     const requestPermission = useCallback(async () => {
         setLoading(true);
@@ -15,7 +16,7 @@ export const useFCMToken = () => {
             const granted = await requestNotificationPermission();
             if (granted) {
                 const token = await getFCMToken();
-                setFcmToken(token);
+                if (isMountedRef.current) setFcmToken(token);
                 return token;
             } else {
                 setError('Notification permission denied');
@@ -26,25 +27,31 @@ export const useFCMToken = () => {
             setError(err.message || 'Failed to get notification permission');
             return null;
         } finally {
-            setLoading(false);
+            if (isMountedRef.current) setLoading(false);
         }
     }, []);
 
     useEffect(() => {
+        isMountedRef.current = true;
+
         const fetchToken = async () => {
             try {
                 const token = await getFCMToken();
-                if (token) {
+                if (isMountedRef.current && token) {
                     setFcmToken(token);
                 }
             } catch (err) {
                 console.error('Error fetching initial FCM token:', err);
             } finally {
-                setLoading(false);
+                if (isMountedRef.current) setLoading(false);
             }
         };
 
         fetchToken();
+
+        return () => {
+            isMountedRef.current = false;
+        };
     }, []);
 
     return {

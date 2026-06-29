@@ -3,8 +3,76 @@
  * Consistent loading experience across the app
  */
 
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { Loader2 } from 'lucide-react';
+
+/**
+ * Mobile Typewriter Loader
+ * Displayed on mobile screens with centered logo, normal spinner, and typewriter text
+ */
+export function MobileTypewriterLoader({ className = "", fullScreen = true }: { className?: string; fullScreen?: boolean }) {
+  const [displayText, setDisplayText] = useState('');
+  const [phraseIndex, setPhraseIndex] = useState(0);
+  const [isDeleting, setIsDeleting] = useState(false);
+
+  useEffect(() => {
+    const phrases = ["Salvaging Details...", "Striving Information..."];
+    const currentPhrase = phrases[phraseIndex];
+    let timer: NodeJS.Timeout;
+
+    if (!isDeleting) {
+      if (displayText.length < currentPhrase.length) {
+        timer = setTimeout(() => {
+          setDisplayText(currentPhrase.slice(0, displayText.length + 1));
+        }, 70);
+      } else {
+        timer = setTimeout(() => {
+          setIsDeleting(true);
+        }, 1600);
+      }
+    } else {
+      if (displayText.length > 0) {
+        timer = setTimeout(() => {
+          setDisplayText(currentPhrase.slice(0, displayText.length - 1));
+        }, 35);
+      } else {
+        setIsDeleting(false);
+        setPhraseIndex((prev) => (prev + 1) % phrases.length);
+      }
+    }
+
+    return () => clearTimeout(timer);
+  }, [displayText, isDeleting, phraseIndex]);
+
+  return (
+    <div className={`flex flex-col items-center justify-center w-full bg-[#05060e] text-white p-6 relative overflow-hidden z-50 ${fullScreen ? 'fixed inset-0 min-h-dvh' : 'min-h-[350px] rounded-3xl'} ${className}`}>
+      {/* Ambient background glow */}
+      <div className="absolute -inset-20 bg-indigo-500/10 blur-[60px] animate-pulse rounded-full pointer-events-none" />
+
+      {/* Centered Logo */}
+      <div className="mb-8 relative z-10 flex items-center justify-center">
+        <img
+          src="/adtu-new-logo.svg"
+          alt="AdtU Logo"
+          className="w-44 h-auto max-w-[75vw] object-contain drop-shadow-[0_0_25px_rgba(99,102,241,0.25)]"
+        />
+      </div>
+
+      {/* Normal Loader Spinner */}
+      <div className="mb-6 relative z-10">
+        <div className="w-8 h-8 border-3 border-indigo-500/20 border-t-indigo-500 rounded-full animate-spin shadow-lg shadow-indigo-500/10" />
+      </div>
+
+      {/* Typewriter Text */}
+      <div className="h-6 flex items-center justify-center relative z-10 px-4">
+        <span className="text-sm font-semibold text-slate-300 tracking-wide font-mono">
+          {displayText}
+          <span className="inline-block w-1.5 h-4 ml-1 bg-indigo-400 animate-pulse align-middle" />
+        </span>
+      </div>
+    </div>
+  );
+}
 
 /**
  * Full Screen Loading Overlay
@@ -12,17 +80,22 @@ import { Loader2 } from 'lucide-react';
  */
 export function FullScreenLoader({ message = "Please wait..." }: { message?: string }) {
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm"
-      data-nextjs-scroll-focus-boundary
-    >
-      <div className="flex flex-col items-center gap-3 bg-white dark:bg-gray-900 p-6 sm:p-8 rounded-2xl shadow-2xl border border-gray-200 dark:border-gray-700">
-        <div className="relative">
-          <div className="w-10 h-10 sm:w-12 sm:h-12 border-3 sm:border-4 border-gray-200 dark:border-gray-700 rounded-full animate-spin border-t-blue-600"></div>
-        </div>
-        <p className="text-base sm:text-lg font-semibold text-gray-800 dark:text-gray-200">{message}</p>
+    <>
+      <div className="md:hidden">
+        <MobileTypewriterLoader fullScreen />
       </div>
-    </div>
+      <div
+        className="hidden md:flex fixed inset-0 z-50 items-center justify-center bg-black/50 backdrop-blur-sm"
+        data-nextjs-scroll-focus-boundary
+      >
+        <div className="flex flex-col items-center gap-3 bg-white dark:bg-gray-900 p-6 sm:p-8 rounded-2xl shadow-2xl border border-gray-200 dark:border-gray-700">
+          <div className="relative">
+            <div className="w-10 h-10 sm:w-12 sm:h-12 border-3 sm:border-4 border-gray-200 dark:border-gray-700 rounded-full animate-spin border-t-blue-600"></div>
+          </div>
+          <p className="text-base sm:text-lg font-semibold text-gray-800 dark:text-gray-200">{message}</p>
+        </div>
+      </div>
+    </>
   );
 }
 
@@ -87,12 +160,17 @@ export function MiniLoader({ className = "" }: { className?: string }) {
  */
 export function PageLoader({ message = "Please wait..." }: { message?: string }) {
   return (
-    <div className="flex flex-col items-center justify-center min-h-[400px] gap-3 sm:gap-4">
-      <div className="relative">
-        <div className="w-10 h-10 sm:w-12 sm:h-12 border-3 sm:border-4 border-gray-200 dark:border-gray-700 rounded-full animate-spin border-t-blue-600"></div>
+    <>
+      <div className="md:hidden">
+        <MobileTypewriterLoader fullScreen={false} />
       </div>
-      <p className="text-base sm:text-lg font-medium text-gray-700 dark:text-gray-300">{message}</p>
-    </div>
+      <div className="hidden md:flex flex-col items-center justify-center min-h-[400px] gap-3 sm:gap-4">
+        <div className="relative">
+          <div className="w-10 h-10 sm:w-12 sm:h-12 border-3 sm:border-4 border-gray-200 dark:border-gray-700 rounded-full animate-spin border-t-blue-600"></div>
+        </div>
+        <p className="text-base sm:text-lg font-medium text-gray-700 dark:text-gray-300">{message}</p>
+      </div>
+    </>
   );
 }
 
@@ -139,20 +217,22 @@ export function PremiumPageLoader({
     </div>
   );
 
-  if (noWrapper) {
-    return (
-      <div className="flex flex-col items-center justify-center p-8 text-center animate-in fade-in duration-300">
-        {content}
-      </div>
-    );
-  }
-
   return (
-    <div className={`flex flex-col items-center justify-center w-full p-6 text-center animate-in fade-in duration-500 relative overflow-hidden ${fullScreen ? 'min-h-dvh' : 'min-h-[calc(100vh-120px)]'} ${className}`}>
-      {/* Visual adjustment to lift the content slightly above mathematical center for better ocular balance */}
-      <div className="w-full flex flex-col items-center gap-5 mt-[-10dvh] relative z-10">
-        {content}
+    <>
+      <div className="md:hidden">
+        <MobileTypewriterLoader fullScreen={fullScreen} />
       </div>
-    </div>
+      {noWrapper ? (
+        <div className="hidden md:flex flex-col items-center justify-center p-8 text-center animate-in fade-in duration-300">
+          {content}
+        </div>
+      ) : (
+        <div className={`hidden md:flex flex-col items-center justify-center w-full p-6 text-center animate-in fade-in duration-500 relative overflow-hidden ${fullScreen ? 'min-h-dvh' : 'min-h-[calc(100vh-120px)]'} ${className}`}>
+          <div className="w-full flex flex-col items-center gap-5 mt-[-10dvh] relative z-10">
+            {content}
+          </div>
+        </div>
+      )}
+    </>
   );
 }

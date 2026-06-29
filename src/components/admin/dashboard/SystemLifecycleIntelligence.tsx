@@ -81,7 +81,7 @@ export default function SystemLifecycleIntelligence({ stats }: SystemLifecycleIn
                            initial={{ opacity: 0, y: 10 }}
                            animate={{ opacity: 1, y: 0 }}
                            transition={{ delay: idx * 0.1 }}
-                           className="relative z-10 flex flex-col items-center gap-2 group cursor-default"
+                           className="relative z-10 flex flex-col items-center gap-2 group hover:cursor-pointer"
                         >
                            <div className={`w-8 h-8 rounded-full ${milestone.bg} border-2 ${milestone.critical ? 'border-red-500/30' : 'border-slate-800 group-hover:border-indigo-500/40'} flex items-center justify-center transition-all`}>
                               <milestone.icon className={`w-3.5 h-3.5 ${milestone.color}`} />
@@ -97,7 +97,7 @@ export default function SystemLifecycleIntelligence({ stats }: SystemLifecycleIn
 
                {/* Section 2: Reservation Analytics */}
                <div className="grid grid-cols-2 gap-4">
-                  <div className="p-5 rounded-3xl bg-emerald-500/[0.03] border border-emerald-500/10 flex flex-col gap-3 group hover:border-emerald-500/30 transition-all">
+                  <div className="p-5 rounded-3xl bg-emerald-500/[0.03] border border-emerald-500/10 flex flex-col gap-3 group hover:border-emerald-500/30 transition-all hover:cursor-pointer">
                      <div className="flex items-center justify-between">
                         <div className="w-8 h-8 rounded-xl bg-emerald-500/10 flex items-center justify-center">
                            <UserPlus className="w-4 h-4 text-emerald-400" />
@@ -110,7 +110,7 @@ export default function SystemLifecycleIntelligence({ stats }: SystemLifecycleIn
                      </div>
                   </div>
 
-                  <div className="p-5 rounded-3xl bg-red-500/[0.03] border border-red-500/10 flex flex-col gap-3 group hover:border-red-500/30 transition-all">
+                  <div className="p-5 rounded-3xl bg-red-500/[0.03] border border-red-500/10 flex flex-col gap-3 group hover:border-red-500/30 transition-all hover:cursor-pointer">
                      <div className="flex items-center justify-between">
                         <div className="w-8 h-8 rounded-xl bg-red-500/10 flex items-center justify-center">
                            <ShieldAlert className="w-4 h-4 text-red-500" />

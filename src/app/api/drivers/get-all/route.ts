@@ -1,18 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { adminAuth, adminDb } from '@/lib/firebase-admin';
+import { adminDb } from '@/lib/firebase-admin';
+import { withSecurity } from '@/lib/security/api-security';
+import { EmptySchema } from '@/lib/security/validation-schemas';
+import { RateLimits } from '@/lib/security/rate-limiter';
 
-export async function GET(request: NextRequest) {
-    try {
-        console.log('📋 Drivers Get-All API called');
-        const token = request.headers.get('Authorization')?.replace('Bearer ', '');
-
-        if (!token) {
-            console.error('❌ No token provided');
-            return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
-        }
-
-        const decodedToken = await adminAuth.verifyIdToken(token);
-        console.log('✅ Token verified for user:', decodedToken.uid);
+export const GET = withSecurity(
+    async (request, { auth, requestId }) => {
+        console.log('📋 Drivers Get-All API called by:', auth.uid.substring(0,8)+'...', '(' + auth.role + ')');
 
         // Check if adminDb is available
         if (!adminDb) {
@@ -59,11 +53,10 @@ export async function GET(request: NextRequest) {
             success: true,
             drivers
         });
-    } catch (error: any) {
-        console.error('Error fetching drivers:', error);
-        return NextResponse.json(
-            { success: false, error: 'Failed to fetch drivers' },
-            { status: 500 }
-        );
+    },
+    {
+        requiredRoles: ['admin', 'moderator'],
+        schema: EmptySchema,
+        rateLimit: RateLimits.READ,
     }
-}
+);

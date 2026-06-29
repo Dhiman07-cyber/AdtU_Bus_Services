@@ -147,14 +147,11 @@ export const POST = withSecurity(
                         } catch (e) {}
                     }
 
-                    const fcmTokens = await adminDb.collection('fcm_tokens').where('userUid', '==', student.uid).get();
+                    const fcmTokens = await adminDb.collection('fcm_tokens').where('userUid', '==', student.uid).limit(400).get();
                     if (!fcmTokens.empty) { const b = adminDb.batch(); fcmTokens.docs.forEach((d: any) => b.delete(d.ref)); await b.commit(); }
 
-                    const waitingFlags = await adminDb.collection('waiting_flags').where('student_uid', '==', student.uid).get();
+                    const waitingFlags = await adminDb.collection('waiting_flags').where('student_uid', '==', student.uid).limit(400).get();
                     if (!waitingFlags.empty) { const b = adminDb.batch(); waitingFlags.docs.forEach((d: any) => b.delete(d.ref)); await b.commit(); }
-
-                    const attendance = await adminDb.collection('attendance').where('studentUid', '==', student.uid).get();
-                    if (!attendance.empty) { const b = adminDb.batch(); attendance.docs.forEach((d: any) => b.delete(d.ref)); await b.commit(); }
 
                     // DEDUP GUARD: skip decrement if the seat was already released at soft block.
                     const busId = studentData?.busId || studentData?.currentBusId || studentData?.assignedBusId;

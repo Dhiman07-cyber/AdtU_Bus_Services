@@ -56,11 +56,13 @@ import { useEventDrivenRefresh } from '@/hooks/useEventDrivenRefresh';
 import { exportToExcel } from '@/lib/export-helpers';
 import { ExportButton } from '@/components/ExportButton';
 import { useModeratorPermissions } from '@/hooks/useModeratorPermissions';
+import { PermissionDeniedCard } from '@/components/PermissionDeniedCard';
+import { formatDateDDMMYYYY } from '@/lib/utils/date-utils';
 
 export default function AdminDrivers() {
   const { currentUser, userData, loading: authLoading } = useAuth();
   const { addToast } = useToast();
-  const { canDriverAdd, canDriverEdit, canDriverDelete, canDriverReassign } = useModeratorPermissions();
+  const { canDriverView, canDriverAdd, canDriverEdit, canDriverDelete, canDriverReassign, loading: permsLoading } = useModeratorPermissions();
   const router = useRouter();
 
   // SPARK PLAN SAFETY: Event-driven refresh - only fetches when mutations occur
@@ -137,15 +139,7 @@ export default function AdminDrivers() {
   };
 
   // Helper function to format date
-  const formatDate = (date: any): string => {
-    if (!date) return 'N/A';
-    const d = new Date(date);
-    if (isNaN(d.getTime())) return 'N/A';
-    const day = String(d.getDate()).padStart(2, '0');
-    const month = String(d.getMonth() + 1).padStart(2, '0');
-    const year = d.getFullYear();
-    return `${day}-${month}-${year}`;
-  };
+  const formatDate = formatDateDDMMYYYY;
 
   // Export drivers data
   const handleExportDrivers = async () => {
@@ -251,6 +245,10 @@ export default function AdminDrivers() {
 
   if (!currentUser || !userData || (userData.role !== 'admin' && userData.role !== 'moderator')) {
     return null;
+  }
+
+  if (!permsLoading && !canDriverView) {
+    return <PermissionDeniedCard title="Drivers Section Restricted" actionName="Viewing Drivers" showGoBack={false} />;
   }
 
 

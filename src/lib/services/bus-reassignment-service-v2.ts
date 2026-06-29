@@ -52,60 +52,10 @@ import {
   Transaction,
   limit
 } from 'firebase/firestore';
-import { auth } from '@/lib/firebase';
 import { toast } from 'react-hot-toast';
 import { ChangeRecord } from './reassignment-logs-supabase';
-
-// ============================================
-// HELPER: Write to Supabase via API route
-// ============================================
-
-async function writeToSupabaseViaAPI(payload: {
-  operationId: string;
-  type: string;
-  actorId: string;
-  actorLabel: string;
-  status: string;
-  summary: string;
-  changes: ChangeRecord[];
-  meta: Record<string, any>;
-}): Promise<boolean> {
-  // console.log('[writeToSupabaseViaAPI] 🚀 Writing to Supabase...');
-
-  try {
-    // Get current user token
-    const user = auth.currentUser;
-    if (!user) {
-      console.error('[writeToSupabaseViaAPI] ❌ No authenticated user');
-      return false;
-    }
-
-    const token = await user.getIdToken();
-
-    // Use the correct endpoint
-    const response = await fetch('/api/reassignment-logs', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(payload),
-    });
-
-    const result = await response.json();
-
-    if (!response.ok) {
-      console.error('[writeToSupabaseViaAPI] ❌ API error:', result.error);
-      return false;
-    }
-
-    // console.log('[writeToSupabaseViaAPI] ✅ SUCCESS - Log ID:', result.data?.id);
-    return true;
-  } catch (err: any) {
-    console.error('[writeToSupabaseViaAPI] ❌ Exception:', err.message);
-    return false;
-  }
-}
+import { generatePrefixedId } from '@/lib/security/random-id';
+import { writeToSupabaseViaAPI } from './reassignment-log-writer';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // TYPE DEFINITIONS
@@ -121,7 +71,6 @@ export type BusShift = 'Morning' | 'Evening' | 'Both';
 export interface BusLoad {
   morningCount: number;
   eveningCount: number;
-  totalCount?: number; // Optional, for backward compatibility
 }
 
 /**
@@ -275,12 +224,16 @@ export interface SplitAssignment {
  * - Evening student → Both bus ONLY ✓
  */
 export function isShiftCompatible(studentShift: StudentShift, busShift: BusShift): boolean {
-  if (studentShift === 'Morning') {
-    return busShift === 'Morning' || busShift === 'Both';
+  // Normalize both shifts for comparison
+  const normalizedStudentShift = (studentShift || 'Morning').toLowerCase().trim();
+  const normalizedBusShift = (busShift || 'morning').toLowerCase().trim();
+
+  if (normalizedStudentShift === 'morning') {
+    return normalizedBusShift === 'morning' || normalizedBusShift === 'both';
   }
 
-  if (studentShift === 'Evening') {
-    return busShift === 'Both'; // Evening students can ONLY go to Both buses
+  if (normalizedStudentShift === 'evening') {
+    return normalizedBusShift === 'both'; // Evening students can ONLY go to Both buses
   }
 
   return false;
@@ -509,14 +462,11 @@ export class BusReassignmentServiceV2 {
           // NOTE: This is a 'use client' module (client Firestore SDK) and therefore
           // cannot import buildCapacityDelta() from busCapacityService.ts (admin SDK).
           // It enforces the SAME invariant by construction:
-          //   currentMembers === morningCount + eveningCount === load.totalCount
-          // Previously currentMembers/load.totalCount were left stale here, diverging
-          // the canonical field on every reassignment — now kept consistent.
+          //   currentMembers === morningCount + eveningCount
           const newTotalCount = newMorningCount + newEveningCount;
           transaction.update(doc(db, 'buses', busId), {
             'load.morningCount': newMorningCount,
             'load.eveningCount': newEveningCount,
-            'load.totalCount': newTotalCount,
             currentMembers: newTotalCount,
             updatedAt: serverTimestamp()
           });
@@ -902,11 +852,7 @@ export class BusReassignmentServiceV2 {
       });
       */
 
-      const cryptoObj = typeof window !== 'undefined' ? (window.crypto || (window as any).msCrypto) : globalThis.crypto;
-      const randomHex = cryptoObj && cryptoObj.getRandomValues
-        ? Array.from(cryptoObj.getRandomValues(new Uint8Array(4))).map(b => (b as any).toString(16).padStart(2, '0')).join('')
-        : Math.random().toString(36).substring(2, 10);
-      const operationId = `bus_reassignment_${Date.now()}_${randomHex}`;
+      const operationId = generatePrefixedId('bus_reassignment_', 8);
       const changes: ChangeRecord[] = [];
 
       // Add bus changes
@@ -918,13 +864,11 @@ export class BusReassignmentServiceV2 {
           before: {
             'load.morningCount': update.morningCountBefore,
             'load.eveningCount': update.eveningCountBefore,
-            'load.totalCount': update.morningCountBefore + update.eveningCountBefore,
             currentMembers: update.morningCountBefore + update.eveningCountBefore
           },
           after: {
             'load.morningCount': update.morningCountAfter,
             'load.eveningCount': update.eveningCountAfter,
-            'load.totalCount': update.morningCountAfter + update.eveningCountAfter,
             currentMembers: update.morningCountAfter + update.eveningCountAfter
           }
         });
@@ -1067,7 +1011,6 @@ export class BusReassignmentServiceV2 {
         batch.update(busRef, {
           'load.morningCount': counts.morning,
           'load.eveningCount': counts.evening,
-          'load.totalCount': counts.morning + counts.evening,
           'currentMembers': counts.morning + counts.evening,
           updatedAt: serverTimestamp()
         });
@@ -1075,7 +1018,6 @@ export class BusReassignmentServiceV2 {
         results.set(busId, {
           morningCount: counts.morning,
           eveningCount: counts.evening,
-          totalCount: counts.morning + counts.evening
         });
       }
 

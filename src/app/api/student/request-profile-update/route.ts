@@ -44,14 +44,23 @@ export const POST = withSecurity(
             updatedAt: FieldValue.serverTimestamp()
         };
 
-        // Save the request and update student ref
-        await Promise.all([
-            adminDb.collection('profile_update_requests').doc(requestId).set(requestData),
-            adminDb.collection('students').doc(studentUid).update({
+        // Save the request and update student ref atomically
+        await adminDb.runTransaction(async (transaction) => {
+            const requestRef = adminDb.collection('profile_update_requests').doc(requestId);
+            const studentRef = adminDb.collection('students').doc(studentUid);
+
+            // Read student inside transaction for consistency
+            const freshStudent = await transaction.get(studentRef);
+            if (!freshStudent.exists) {
+                throw new Error('Student record not found');
+            }
+
+            transaction.set(requestRef, requestData);
+            transaction.update(studentRef, {
                 pendingProfileUpdate: requestId,
                 updatedAt: FieldValue.serverTimestamp()
-            })
-        ]);
+            });
+        });
 
         console.log(`Profile update request created for student ${studentUid}: ${requestId}`);
 

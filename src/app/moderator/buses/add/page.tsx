@@ -30,8 +30,12 @@ type BusFormData = {
   eveningLoad: string;
 };
 
+import { useModeratorPermissions } from "@/hooks/useModeratorPermissions";
+import { PermissionDeniedCard } from "@/components/PermissionDeniedCard";
+
 export default function AddBusPage() {
   const { currentUser, userData, loading: authLoading } = useAuth();
+  const { canBusAdd, loading: permsLoading } = useModeratorPermissions();
   const router = useRouter();
   const { addToast } = useToast();
 
@@ -241,6 +245,10 @@ export default function AddBusPage() {
   }
 
   if (!currentUser || !userData || !['admin', 'moderator'].includes(userData.role)) return null;
+
+  if (!permsLoading && !canBusAdd) {
+    return <PermissionDeniedCard title="Adding Bus Restricted" actionName="Adding Buses" />;
+  }
 
   return (
     <div className="mt-10 py-4 bg-[#010717] min-h-screen text-white">

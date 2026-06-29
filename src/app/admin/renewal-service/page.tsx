@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useAuth } from '@/contexts/auth-context';
+import { useModeratorPermissions } from '@/hooks/useModeratorPermissions';
 import { useRouter } from 'next/navigation';
 import { safeImageSrc } from '@/lib/security/url-sanitizer';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -123,6 +124,7 @@ interface EnrichedTransaction extends Transaction {
 
 export default function AdminRenewalServicePage() {
   const { currentUser, userData, loading } = useAuth();
+  const { canApproveOfflinePayment, canRejectOfflinePayment } = useModeratorPermissions();
   const router = useRouter();
   const isAdmin = userData?.role === 'admin';
 
@@ -377,7 +379,7 @@ export default function AdminRenewalServicePage() {
               }
               return request;
             } catch (error) {
-              console.error(`Error fetching student data for ${request.enrollmentId}:`, error);
+              console.error(`Error fetching student data for request ${request.id?.substring(0,8)}...:`, error);
               return request;
             }
           })
@@ -517,6 +519,11 @@ export default function AdminRenewalServicePage() {
   const handleApproveRequest = async () => {
     if (!selectedRequest || !currentUser) return;
 
+    if (userData?.role === 'moderator' && !canApproveOfflinePayment) {
+      toast.error('This moderator account is not allowed to approve offline payments');
+      return;
+    }
+
     setProcessing(true);
     try {
       const token = await currentUser.getIdToken();
@@ -554,6 +561,11 @@ export default function AdminRenewalServicePage() {
   const handleRejectRequest = async () => {
     if (!selectedRequest || !currentUser || !rejectionReason.trim()) {
       toast.error('Please provide a rejection reason');
+      return;
+    }
+
+    if (userData?.role === 'moderator' && !canRejectOfflinePayment) {
+      toast.error('This moderator account is not allowed to reject offline payments');
       return;
     }
 
@@ -853,7 +865,7 @@ export default function AdminRenewalServicePage() {
                       <CardContent className="pt-0">
                         {dashboardStats?.monthlyData && dashboardStats.monthlyData.some(d => d.amount > 0) ? (
                           <div className="h-[220px] w-full">
-                            <ResponsiveContainer width="100%" height={220}>
+                            <ResponsiveContainer width="100%" height={220} minWidth={0} minHeight={0}>
                               <AreaChart data={dashboardStats.monthlyData}>
                                 <defs>
                                   <linearGradient id="dashRevGrad" x1="0" y1="0" x2="0" y2="1">

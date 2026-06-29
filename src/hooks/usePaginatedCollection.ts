@@ -216,6 +216,7 @@ export function usePaginatedCollection<T = DocumentData>(
 
     // Refs for stable callbacks
     const retryCountRef = useRef(0);
+    const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const maxRetries = 3;
     const isMountedRef = useRef(true);
     const lastFetchRef = useRef<number>(0);
@@ -312,7 +313,8 @@ export function usePaginatedCollection<T = DocumentData>(
                 const backoffMs = Math.min(1000 * Math.pow(2, retryCountRef.current), 30000);
                 console.log(`[usePaginatedCollection] Retrying in ${backoffMs}ms (attempt ${retryCountRef.current}/${maxRetries})`);
 
-                setTimeout(() => {
+                retryTimerRef.current = setTimeout(() => {
+                    retryTimerRef.current = null;
                     if (isMountedRef.current) {
                         fetchPage(isNextPage);
                     }
@@ -349,6 +351,10 @@ export function usePaginatedCollection<T = DocumentData>(
 
         return () => {
             isMountedRef.current = false;
+            if (retryTimerRef.current) {
+                clearTimeout(retryTimerRef.current);
+                retryTimerRef.current = null;
+            }
         };
     }, [fetchOnMount, enabled, currentUser?.uid]); // eslint-disable-line react-hooks/exhaustive-deps
 

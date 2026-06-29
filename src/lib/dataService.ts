@@ -26,12 +26,6 @@ import type {
   Invitation
 } from '@/lib/types';
 import CryptoJS from 'crypto-js';
-import {
-  getOfflineBusRoutes,
-  getOfflineFaculties,
-  getOfflineNotifications,
-  getOfflineRouteById
-} from '@/lib/offline-service';
 import { createRandomId } from '@/lib/security/random-id';
 
 // Add proper typing for db

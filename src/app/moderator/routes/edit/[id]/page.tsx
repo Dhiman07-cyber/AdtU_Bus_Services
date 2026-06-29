@@ -26,8 +26,12 @@ type RouteFormData = {
   status: string;
 };
 
+import { useModeratorPermissions } from "@/hooks/useModeratorPermissions";
+import { PermissionDeniedCard } from "@/components/PermissionDeniedCard";
+
 export default function EditRoutePage({ params }: { params: Promise<{ id: string }> }) {
   const { currentUser, userData, loading: authLoading } = useAuth();
+  const { canRouteEdit, loading: permsLoading } = useModeratorPermissions();
   const router = useRouter();
   const { addToast } = useToast();
   const { id } = use(params);
@@ -237,6 +241,10 @@ export default function EditRoutePage({ params }: { params: Promise<{ id: string
   }
 
   if (!currentUser || !userData || !['admin', 'moderator'].includes(userData.role)) return null;
+
+  if (!permsLoading && !canRouteEdit) {
+    return <PermissionDeniedCard title="Editing Route Restricted" actionName="Editing Routes" />;
+  }
 
   return (
     <div className="mt-10 py-4 bg-[#010717] min-h-screen text-white">

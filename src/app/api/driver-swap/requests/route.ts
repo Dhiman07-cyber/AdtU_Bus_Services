@@ -2,16 +2,10 @@ import { NextResponse } from 'next/server';
 import { auth, db as adminDb } from '@/lib/firebase-admin';
 import { DriverSwapSupabaseService } from '@/lib/driver-swap-supabase';
 import { getSupabaseServer } from '@/lib/supabase-server';
-import { createClient } from '@supabase/supabase-js';
-
-// Server-side Supabase client
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
 
 export async function POST(request: Request) {
   try {
+    const supabase = getSupabaseServer();
     const body = await request.json();
     const {
       idToken,
@@ -45,6 +39,16 @@ export async function POST(request: Request) {
     if (requesterUID !== fromDriverUID) {
       return NextResponse.json(
         { error: 'You can only create swap requests for yourself' },
+        { status: 403 }
+      );
+    }
+
+    // SECURITY: Verify the requester is actually a driver in the authoritative collection.
+    // The ownership check above prevents impersonation, but doesn't verify the caller's role.
+    const requesterDriverDoc = await adminDb.collection('drivers').doc(requesterUID).get();
+    if (!requesterDriverDoc.exists) {
+      return NextResponse.json(
+        { error: 'Only drivers can create swap requests' },
         { status: 403 }
       );
     }

@@ -11,7 +11,7 @@
  */
 
 import { NextResponse } from 'next/server';
-import { auth } from '@/lib/firebase-admin';
+import { auth, db as adminDb } from '@/lib/firebase-admin';
 import { missedBusService } from '@/lib/services/missed-bus-service';
 
 export async function POST(request: Request) {
@@ -47,6 +47,15 @@ export async function POST(request: Request) {
         // Verify Firebase token
         const decodedToken = await auth.verifyIdToken(idToken);
         const driverId = decodedToken.uid;
+
+        // SECURITY: Verify the caller is actually a driver.
+        const driverDoc = await adminDb.collection('drivers').doc(driverId).get();
+        if (!driverDoc.exists) {
+            return NextResponse.json(
+                { success: false, error: 'Only drivers can respond to missed-bus requests' },
+                { status: 403 }
+            );
+        }
 
         // Call the service
         const result = await missedBusService.driverResponse({

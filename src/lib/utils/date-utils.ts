@@ -63,6 +63,66 @@ export function formatDate(date: Date | null, fallback: string = 'Not Set'): str
 }
 
 /**
+ * Format a Firestore-compatible date value (ISO string, Timestamp, or Date) for display.
+ * Handles Firestore Timestamp objects with seconds/nanoseconds, ISO strings, and Date objects.
+ */
+export function formatDateFlexible(dateValue: any, fallback: string = 'Not provided'): string {
+  if (!dateValue) return fallback;
+  try {
+    let date: Date;
+    if (dateValue instanceof Date) {
+      date = dateValue;
+    } else if (typeof dateValue === 'object' && typeof dateValue.toDate === 'function') {
+      date = dateValue.toDate();
+    } else if (typeof dateValue === 'object' && ('seconds' in dateValue || '_seconds' in dateValue)) {
+      const seconds = dateValue.seconds || dateValue._seconds;
+      const nanoseconds = dateValue.nanoseconds || dateValue._nanoseconds || 0;
+      date = new Date(seconds * 1000 + nanoseconds / 1000000);
+    } else if (typeof dateValue === 'string') {
+      date = new Date(dateValue);
+    } else if (typeof dateValue === 'number') {
+      const ts = dateValue > 10000000000 ? dateValue : dateValue * 1000;
+      date = new Date(ts);
+    } else {
+      return fallback;
+    }
+    if (isNaN(date.getTime())) return fallback;
+    return date.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
+  } catch {
+    return fallback;
+  }
+}
+
+/**
+ * Format a date for short display (month + day + hour + minute).
+ * Used in feedback pages, transaction cards, etc.
+ */
+export function formatDateTimeShort(dateString: string | Date): string {
+  const date = typeof dateString === 'string' ? new Date(dateString) : dateString;
+  if (isNaN(date.getTime())) return 'N/A';
+  return new Intl.DateTimeFormat('en-US', {
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(date);
+}
+
+/**
+ * Format a date as DD-MM-YYYY.
+ * Used in driver/moderator pages and exports.
+ */
+export function formatDateDDMMYYYY(date: Date | string | null | undefined): string {
+  if (!date) return 'N/A';
+  const d = typeof date === 'string' ? new Date(date) : date;
+  if (isNaN(d.getTime())) return 'N/A';
+  const day = String(d.getDate()).padStart(2, '0');
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const year = d.getFullYear();
+  return `${day}-${month}-${year}`;
+}
+
+/**
  * Calculate days until a date
  */
 export function daysUntil(date: Date | null): number {

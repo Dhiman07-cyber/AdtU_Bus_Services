@@ -12,7 +12,8 @@ export function calculateNotificationExpiry(startDate: Date, daysToLive: number 
 }
 /**
  * Delete expired notifications (run at midnight)
- * Deletes notifications where expiry date is before current date
+ * Deletes notifications where expiry date is before current date.
+ * Uses pagination to avoid loading the entire collection into memory.
  */
 export async function deleteExpiredNotifications(): Promise<{
   deletedNotifications: number;
@@ -24,74 +25,91 @@ export async function deleteExpiredNotifications(): Promise<{
     deletedNotifications: 0,
     deletedReceipts: 0,
     errors: [] as string[],
-    debug: { method: 'client-side-filtering', scanned: 0 }
+    debug: { method: 'paginated-filtering', scanned: 0 }
   };
 
   try {
     const nowMs = Date.now();
     console.log(`🧹 Starting Robust Cleanup at ${new Date().toISOString()}`);
 
-    // Fetch ALL notifications (robust fallback)
-    // Indexes might be missing for mixed types, so we do client-side filtering
-    const snapshot = await adminDb.collection('notifications').get();
-    result.debug.scanned = snapshot.size;
+    // Paginate through notifications instead of loading all into memory.
+    // Firestore limits `in` queries to 30 items, so we batch deletes
+    // and use cursor-based pagination for reads.
+    const PAGE_SIZE = 500;
+    let lastDoc: any = null;
+    let hasMore = true;
 
-    console.log(`   Scanned ${snapshot.size} total notifications. Checking expiry...`);
+    while (hasMore) {
+      let query = adminDb.collection('notifications')
+        .orderBy('__name__')
+        .limit(PAGE_SIZE);
 
-    const idsToDelete: string[] = [];
+      if (lastDoc) {
+        query = query.startAfter(lastDoc);
+      }
 
-    snapshot.docs.forEach((doc: any) => {
-      const data = doc.data();
-      let expiryMillis = 0;
+      const snapshot = await query.get();
+      result.debug.scanned += snapshot.size;
 
-      // Normalize expiry from various possible formats
-      if (data.expiryAt) {
-        if (typeof data.expiryAt.toMillis === 'function') {
-          expiryMillis = data.expiryAt.toMillis();
-        } else if (typeof data.expiryAt === 'number') {
-          expiryMillis = data.expiryAt;
-        } else if (typeof data.expiryAt === 'string') {
-          expiryMillis = new Date(data.expiryAt).getTime();
-        } else if (data.expiryAt instanceof Date) {
-          expiryMillis = data.expiryAt.getTime();
+      if (snapshot.empty || snapshot.size < PAGE_SIZE) {
+        hasMore = false;
+      }
+
+      if (snapshot.docs.length > 0) {
+        lastDoc = snapshot.docs[snapshot.docs.length - 1];
+      }
+
+      // Identify expired docs in this page
+      const idsToDelete: string[] = [];
+
+      for (const doc of snapshot.docs) {
+        const data = doc.data();
+        let expiryMillis = 0;
+
+        if (data.expiryAt) {
+          if (typeof data.expiryAt.toMillis === 'function') {
+            expiryMillis = data.expiryAt.toMillis();
+          } else if (typeof data.expiryAt === 'number') {
+            expiryMillis = data.expiryAt;
+          } else if (typeof data.expiryAt === 'string') {
+            expiryMillis = new Date(data.expiryAt).getTime();
+          } else if (data.expiryAt instanceof Date) {
+            expiryMillis = data.expiryAt.getTime();
+          }
+        } else if (data.expiresAt) {
+          expiryMillis = new Date(data.expiresAt).getTime();
         }
-      } else if (data.expiresAt) {
-        // Legacy support for ISO strings
-        expiryMillis = new Date(data.expiresAt).getTime();
+
+        if (expiryMillis > 0 && expiryMillis <= nowMs) {
+          idsToDelete.push(doc.id);
+        }
       }
 
-      // Check if expired
-      if (expiryMillis > 0 && expiryMillis <= nowMs) {
-        idsToDelete.push(doc.id);
+      if (idsToDelete.length > 0) {
+        console.log(`   Found ${idsToDelete.length} expired notifications in this page.`);
+
+        // Batch delete in chunks of 400
+        const chunkSize = 400;
+        for (let i = 0; i < idsToDelete.length; i += chunkSize) {
+          const batch = adminDb.batch();
+          const chunk = idsToDelete.slice(i, i + chunkSize);
+
+          chunk.forEach(id => {
+            const ref = adminDb.collection('notifications').doc(id);
+            batch.delete(ref);
+          });
+
+          await batch.commit();
+        }
+
+        result.deletedNotifications += idsToDelete.length;
+
+        // Delete receipts for this page's expired notifications
+        await deleteAssociatedReceipts(idsToDelete, result);
       }
-    });
-
-    if (idsToDelete.length > 0) {
-      console.log(`   Identified ${idsToDelete.length} expired notifications to delete.`);
-
-      // Batch delete in chunks of 400
-      const chunkSize = 400;
-      for (let i = 0; i < idsToDelete.length; i += chunkSize) {
-        const batch = adminDb.batch();
-        const chunk = idsToDelete.slice(i, i + chunkSize);
-
-        chunk.forEach(id => {
-          const ref = adminDb.collection('notifications').doc(id);
-          batch.delete(ref);
-        });
-
-        await batch.commit();
-        console.log(`   Committed batch delete for ${chunk.length} items.`);
-      }
-
-      result.deletedNotifications = idsToDelete.length;
-
-      // Delete receipts
-      await deleteAssociatedReceipts(idsToDelete, result);
-    } else {
-      console.log('   No expired notifications found after scanning all docs.');
     }
 
+    console.log(`   Scanned ${result.debug.scanned} total notifications. Deleted ${result.deletedNotifications}.`);
     return result;
   } catch (error: any) {
     console.error('❌ Fatal error in notification expiry cleanup:', error);
@@ -103,29 +121,39 @@ export async function deleteExpiredNotifications(): Promise<{
 
 
 /**
- * Helper to delete receipts for a batch of notifications
+ * Helper to delete receipts for a batch of notifications.
+ * Processes in batches to avoid N+1 query overhead.
  */
 async function deleteAssociatedReceipts(
   notificationIds: string[],
   result: { deletedReceipts: number; errors: string[] }
 ) {
-  for (const notifId of notificationIds) {
+  // Firestore `in` queries support up to 30 values. Process in chunks.
+  const IN_CHUNK = 30;
+  const DELETE_CHUNK = 400;
+
+  for (let i = 0; i < notificationIds.length; i += IN_CHUNK) {
+    const chunk = notificationIds.slice(i, i + IN_CHUNK);
     try {
       const receiptsQuery = await adminDb.collection('notification_read_receipts')
-        .where('notificationId', '==', notifId)
+        .where('notificationId', 'in', chunk)
         .get();
 
       if (!receiptsQuery.empty) {
-        const batch = adminDb.batch();
-        receiptsQuery.docs.forEach((doc: { ref: any; }) => {
-          batch.delete(doc.ref);
-        });
-        await batch.commit();
+        // Batch delete in chunks of 400
+        for (let j = 0; j < receiptsQuery.docs.length; j += DELETE_CHUNK) {
+          const batch = adminDb.batch();
+          const deleteChunk = receiptsQuery.docs.slice(j, j + DELETE_CHUNK);
+          deleteChunk.forEach((doc: { ref: any }) => {
+            batch.delete(doc.ref);
+          });
+          await batch.commit();
+        }
         result.deletedReceipts += receiptsQuery.size;
       }
     } catch (error: any) {
-      console.error(`   Error deleting receipts for notification ${notifId}:`, error);
-      result.errors.push(`Failed to delete receipts for ${notifId}: ${error.message}`);
+      console.error(`   Error deleting receipts for batch starting at index ${i}:`, error);
+      result.errors.push(`Failed to delete receipts batch at index ${i}: ${error.message}`);
     }
   }
 }

@@ -28,8 +28,12 @@ type RouteFormData = {
   status: string;
 };
 
+import { useModeratorPermissions } from "@/hooks/useModeratorPermissions";
+import { PermissionDeniedCard } from "@/components/PermissionDeniedCard";
+
 export default function AddRoutePage() {
   const { currentUser, userData, loading: authLoading } = useAuth();
+  const { canRouteAdd, loading: permsLoading } = useModeratorPermissions();
   const router = useRouter();
   const { addToast } = useToast();
 
@@ -257,6 +261,10 @@ export default function AddRoutePage() {
 
   if (!currentUser || !userData || userData.role !== 'moderator') {
     return null;
+  }
+
+  if (!permsLoading && !canRouteAdd) {
+    return <PermissionDeniedCard title="Adding Route Restricted" actionName="Adding Routes" />;
   }
 
   return (

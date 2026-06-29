@@ -88,9 +88,13 @@ interface BusData {
   updatedAt: any;
 }
 
+import { useModeratorPermissions } from '@/hooks/useModeratorPermissions';
+import { PermissionDeniedCard } from '@/components/PermissionDeniedCard';
+
 export default function ViewBusPage({ params }: { params: Promise<{ id: string }> }) {
   const router = useRouter();
   const { addToast } = useToast();
+  const { canBusView, canBusEdit, canBusDelete, loading: permsLoading } = useModeratorPermissions();
   const { id } = use(params);
   const [bus, setBus] = useState<BusData | null>(null);
   const [route, setRoute] = useState<Route | null>(null);
@@ -273,6 +277,10 @@ export default function ViewBusPage({ params }: { params: Promise<{ id: string }
     }
   };
 
+  if (!permsLoading && !canBusView) {
+    return <PermissionDeniedCard title="Bus Details Restricted" actionName="Viewing Bus Details" />;
+  }
+
   return (
     <div className="mt-7 min-h-screen bg-transparent py-8 w-full overflow-x-hidden">
       {/* Header */}
@@ -289,20 +297,24 @@ export default function ViewBusPage({ params }: { params: Promise<{ id: string }
             >
               &lt;- Back
             </Link>
-            <Button
-              onClick={handleEdit}
-              className="hidden md:inline-flex bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition-all duration-200 hover:shadow-lg px-3 py-1.5 h-auto"
-            >
-              <Edit className="mr-1.5 h-3.5 w-3.5" />
-              Edit Bus
-            </Button>
-            <Button
-              onClick={handleDelete}
-              className="hidden md:inline-flex bg-red-600 hover:bg-red-700 text-white text-sm font-medium rounded-lg transition-all duration-200 hover:shadow-lg px-3 py-1.5 h-auto"
-            >
-              <Trash2 className="mr-1.5 h-3.5 w-3.5" />
-              Delete Bus
-            </Button>
+            {canBusEdit && (
+              <Button
+                onClick={handleEdit}
+                className="hidden md:inline-flex bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition-all duration-200 hover:shadow-lg px-3 py-1.5 h-auto"
+              >
+                <Edit className="mr-1.5 h-3.5 w-3.5" />
+                Edit Bus
+              </Button>
+            )}
+            {canBusDelete && (
+              <Button
+                onClick={handleDelete}
+                className="hidden md:inline-flex bg-red-600 hover:bg-red-700 text-white text-sm font-medium rounded-lg transition-all duration-200 hover:shadow-lg px-3 py-1.5 h-auto"
+              >
+                <Trash2 className="mr-1.5 h-3.5 w-3.5" />
+                Delete Bus
+              </Button>
+            )}
           </div>
         </div>
       </div>

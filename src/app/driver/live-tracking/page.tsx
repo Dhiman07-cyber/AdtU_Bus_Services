@@ -14,6 +14,7 @@ import { useToast } from "@/contexts/toast-context";
 import { PremiumPageLoader } from "@/components/LoadingSpinner";
 import { useSystemConfig } from "@/contexts/SystemConfigContext";
 import { formatIdForDisplay } from "@/lib/utils";
+import ErrorBoundary from "@/components/ErrorBoundary";
 import {
   checkDeviceSession,
   registerDeviceSession,
@@ -93,6 +94,7 @@ export default function DriverLiveTrackingPage() {
   const lastBroadcastSampleRef = useRef<{ lat: number; lng: number; t: number } | null>(null);
   const manuallyEndedTripRef = useRef<boolean>(false); // Track if trip was manually ended
   const wakeLockRef = useRef<any>(null); // Screen wake lock to prevent screen from turning off
+  const tripBroadcastChannelsRef = useRef<ReturnType<typeof supabase.channel>[]>([]); // Track broadcast channels for cleanup
 
   // Map center
   const [mapCenter, setMapCenter] = useState<[number, number]>([0, 0]); // Default center
@@ -443,6 +445,11 @@ export default function DriverLiveTrackingPage() {
   useEffect(() => {
     return () => {
       stopLocationTracking();
+      // Clean up any lingering broadcast channels
+      tripBroadcastChannelsRef.current.forEach((ch) => {
+        supabase.removeChannel(ch);
+      });
+      tripBroadcastChannelsRef.current = [];
     };
   }, [stopLocationTracking]);
 
@@ -970,7 +977,7 @@ export default function DriverLiveTrackingPage() {
     if (!tripActive || !currentLocation) return;
 
     // Update map center when location changes during active trip
-    setMapCenter([0, 0]); // Default center
+    setMapCenter([26.1445, 91.7362]); // Guwahati campus coordinates
   }, [tripActive, currentLocation]);
 
   // Store addToast in ref to avoid recreating channel on every render
@@ -1376,8 +1383,8 @@ export default function DriverLiveTrackingPage() {
 
     // Remove flags for picked up students
     if (flagsToRemove.length > 0) {
-      // Call API to mark as boarded/picked_up
-      flagsToRemove.forEach(async (flagId) => {
+      // Call API to mark as boarded/picked_up (fire-and-forget)
+      Promise.allSettled(flagsToRemove.map(async (flagId) => {
         try {
           const idToken = await currentUser?.getIdToken();
           await fetch("/api/driver/mark-boarded", {
@@ -1394,7 +1401,7 @@ export default function DriverLiveTrackingPage() {
         } catch (error) {
           console.error("Error auto-marking student as boarded:", error);
         }
-      });
+      }));
 
       // Update local state
       setWaitingFlags((prev) => prev.filter((flag) => !flagsToRemove.includes(flag.id)));
@@ -1409,6 +1416,7 @@ export default function DriverLiveTrackingPage() {
 
   // Start trip
   const handleStartTrip = async () => {
+    if (loading) return;
     if (!busData || !routeData || !currentUser) return;
 
     if (busData.status === 'Inactive') {
@@ -1553,6 +1561,7 @@ export default function DriverLiveTrackingPage() {
       // Broadcast trip started event to all students
       try {
         const broadcastChannel = supabase.channel(`trip-status-${busData.busId}`);
+        tripBroadcastChannelsRef.current.push(broadcastChannel);
         broadcastChannel.subscribe(async (status) => {
           if (status === 'SUBSCRIBED') {
             await broadcastChannel.send({
@@ -1568,6 +1577,7 @@ export default function DriverLiveTrackingPage() {
             });
             console.log("📢 Trip started broadcast sent to students");
             supabase.removeChannel(broadcastChannel);
+            tripBroadcastChannelsRef.current = tripBroadcastChannelsRef.current.filter(ch => ch !== broadcastChannel);
           }
         });
       } catch (broadcastError) {
@@ -1588,6 +1598,7 @@ export default function DriverLiveTrackingPage() {
 
   // End trip
   const handleEndTrip = async () => {
+    if (loading) return;
     if (!busData || !routeData || !currentUser) {
       addToast("Missing required data to end trip", "error");
       return;
@@ -1663,6 +1674,7 @@ export default function DriverLiveTrackingPage() {
         // Broadcast trip ended event
         try {
           const channel = supabase.channel(`trip-status-${busData.busId}`);
+          tripBroadcastChannelsRef.current.push(channel);
           channel.subscribe(async (status) => {
             if (status === 'SUBSCRIBED') {
               await channel.send({
@@ -1671,6 +1683,7 @@ export default function DriverLiveTrackingPage() {
                 payload: { busId: busData.busId, timestamp: Date.now() },
               });
               await supabase.removeChannel(channel);
+              tripBroadcastChannelsRef.current = tripBroadcastChannelsRef.current.filter(ch => ch !== channel);
             }
           });
         } catch (e) {
@@ -2204,6 +2217,7 @@ export default function DriverLiveTrackingPage() {
   }
 
   return (
+    <ErrorBoundary>
     <div className="flex-1 bg-[#0A0D16] min-h-screen pb-24 md:pb-6 text-white font-sans">
       {/* WAIT REQUEST OVERLAY */}
       {activeWaitRequest && (
@@ -2600,5 +2614,6 @@ export default function DriverLiveTrackingPage() {
         }}
       />
     </div>
+    </ErrorBoundary>
   );
 }

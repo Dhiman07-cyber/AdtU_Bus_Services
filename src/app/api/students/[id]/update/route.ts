@@ -62,7 +62,34 @@ export async function PUT(request: Request, { params }: { params: Promise<{ id: 
     if (permissionDenied) return permissionDenied;
 
     const { id } = await params;
-    const updatedStudentData = await request.json();
+    const requestBody = await request.json();
+
+    // FIELD ALLOW-LIST: Only safe fields may be updated via API
+    const ALLOWED_FIELDS = new Set([
+      'fullName', 'name', 'email', 'phone', 'enrollmentId', 'photoURL',
+      'faculty', 'department', 'yearOfStudy',
+      'stopId', 'stopName', 'stopLat', 'stopLng',
+      'shift'
+    ]);
+    const BLOCKED_FIELDS = new Set([
+      'status', 'validUntil', 'busId', 'routeId', 'role', 'paymentAmount',
+      'seatReleasedAt', 'softBlock', 'hardBlock', 'approvedBy'
+    ]);
+
+    const updatedStudentData: Record<string, any> = {};
+    for (const [key, value] of Object.entries(requestBody)) {
+      if (BLOCKED_FIELDS.has(key)) {
+        console.warn(`Blocked attempt to update forbidden field: ${key}`);
+        continue;
+      }
+      if (ALLOWED_FIELDS.has(key)) {
+        if (key === 'shift' && value !== 'Morning' && value !== 'Evening') {
+          console.warn(`Invalid shift value rejected: ${value}`);
+          continue;
+        }
+        updatedStudentData[key] = value;
+      }
+    }
 
     // Log the incoming data for debugging
     console.log(`Updating student with ID ${id}:`, updatedStudentData);

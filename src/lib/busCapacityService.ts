@@ -48,7 +48,7 @@ export interface CapacityDelta {
  * Pure & side-effect free: it does NOT read or write Firestore. Callers fetch the
  * bus inside a transaction, pass `busDoc.data()` here, and apply `updates`.
  *
- * Invariant produced: currentMembers === load.totalCount, and a single-shift
+ * Invariant produced: currentMembers === morningCount + eveningCount, and a single-shift
  * student moves exactly one of morningCount/eveningCount.
  */
 export function buildCapacityDelta(
@@ -62,7 +62,6 @@ export function buildCapacityDelta(
 
   const updates: Record<string, unknown> = {
     currentMembers: newMembers,
-    'load.totalCount': newMembers,
     updatedAt: new Date().toISOString()
   };
 
@@ -339,19 +338,27 @@ export async function sendBusFullAlert(busId: string, busNumber: string, routeId
       createdAt: new Date().toISOString()
     };
 
-    // Send notification to all admins
-    const batch = adminDb.batch();
-    adminsSnapshot.docs.forEach((adminDoc: any) => {
-      const notifRef = adminDb.collection('notifications').doc();
-      batch.set(notifRef, {
-        notifId: notifRef.id,
-        toUid: adminDoc.id,
-        toRole: 'admin',
-        ...notificationData
-      });
-    });
+    // Send notification to all admins (chunk batches to avoid >500 limit)
+    const allDocs = adminsSnapshot.docs.map((adminDoc: any) => ({
+      doc: adminDoc,
+      role: 'admin'
+    }));
 
-    await batch.commit();
+    for (let i = 0; i < allDocs.length; i += 490) {
+      const chunk = allDocs.slice(i, i + 490);
+      const batch = adminDb.batch();
+      chunk.forEach(({ doc }) => {
+        const notifRef = adminDb.collection('notifications').doc();
+        batch.set(notifRef, {
+          notifId: notifRef.id,
+          toUid: doc.id,
+          toRole: 'admin',
+          ...notificationData
+        });
+      });
+      await batch.commit();
+    }
+
     console.log(`📢 Bus full alert sent to ${adminsSnapshot.size} admin(s) for bus ${busId}`);
   } catch (error) {
     console.error('Error sending bus full alert:', error);
@@ -381,30 +388,27 @@ async function sendHighDemandAlert(routeId: string, stopId: string): Promise<voi
       createdAt: new Date().toISOString()
     };
 
-    // Send to all admins and moderators
-    const batch = adminDb.batch();
+    // Send to all admins and moderators (chunk batches to avoid >500 limit)
+    const allStaff = [
+      ...adminsSnapshot.docs.map((doc: any) => ({ doc, role: 'admin' })),
+      ...moderatorsSnapshot.docs.map((doc: any) => ({ doc, role: 'moderator' }))
+    ];
 
-    adminsSnapshot.docs.forEach((doc: any) => {
-      const notifRef = adminDb.collection('notifications').doc();
-      batch.set(notifRef, {
-        notifId: notifRef.id,
-        toUid: doc.id,
-        toRole: 'admin',
-        ...notificationData
+    for (let i = 0; i < allStaff.length; i += 490) {
+      const chunk = allStaff.slice(i, i + 490);
+      const batch = adminDb.batch();
+      chunk.forEach(({ doc, role }) => {
+        const notifRef = adminDb.collection('notifications').doc();
+        batch.set(notifRef, {
+          notifId: notifRef.id,
+          toUid: doc.id,
+          toRole: role,
+          ...notificationData
+        });
       });
-    });
+      await batch.commit();
+    }
 
-    moderatorsSnapshot.docs.forEach((doc: any) => {
-      const notifRef = adminDb.collection('notifications').doc();
-      batch.set(notifRef, {
-        notifId: notifRef.id,
-        toUid: doc.id,
-        toRole: 'moderator',
-        ...notificationData
-      });
-    });
-
-    await batch.commit();
     console.log(`📢 High-demand alert sent to ${adminsSnapshot.size + moderatorsSnapshot.size} staff member(s)`);
   } catch (error) {
     console.error('Error sending high-demand alert:', error);

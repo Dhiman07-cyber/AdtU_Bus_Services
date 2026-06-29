@@ -39,8 +39,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Database unavailable' }, { status: 503 });
     }
 
-    // Generate a unique ID
-    const studentId = Date.now().toString();
+    // Generate a unique, non-deterministic ID via Firestore
+    const studentId = adminDb.collection('students').doc().id;
     
     // CRITICAL: Extract session information from application data
     // Students can apply for current year or next year, so we use the sessionInfo from application
@@ -81,31 +81,33 @@ export async function POST(request: NextRequest) {
       validUntil
     };
 
-    // Save to Firestore with the role field (server-controlled)
-    const studentDocRef = adminDb.doc(`users/${studentId}`);
-    await studentDocRef.set({
-      ...newStudent,
-      uid: studentId,
-      role: 'student',
-      createdAt: new Date().toISOString(),
-      createdBy: auth.uid,
-      status: 'active' // Ensure new students start as active
-    });
-    
-    // Also save to students collection for consistency
+    // ATOMIC WRITE: Both documents must commit or fail together
+    const userDocRef = adminDb.doc(`users/${studentId}`);
     const studentsCollectionRef = adminDb.doc(`students/${studentId}`);
-    await studentsCollectionRef.set({
-      ...newStudent,
-      uid: studentId,
-      role: 'student',
-      createdAt: new Date().toISOString(),
-      createdBy: auth.uid,
-      status: 'active',
-      fullName: newStudentData.name || newStudentData.fullName,
-      // Ensure session fields are properly stored
-      sessionStartYear,
-      sessionEndYear,
-      validUntil
+    const createdAt = new Date().toISOString();
+
+    await adminDb.runTransaction(async (transaction) => {
+      transaction.set(userDocRef, {
+        ...newStudent,
+        uid: studentId,
+        role: 'student',
+        createdAt,
+        createdBy: auth.uid,
+        status: 'active'
+      });
+
+      transaction.set(studentsCollectionRef, {
+        ...newStudent,
+        uid: studentId,
+        role: 'student',
+        createdAt,
+        createdBy: auth.uid,
+        status: 'active',
+        fullName: newStudentData.name || newStudentData.fullName,
+        sessionStartYear,
+        sessionEndYear,
+        validUntil
+      });
     });
 
     return NextResponse.json(newStudent, { status: 201 });

@@ -14,7 +14,7 @@
     },
     {
       "path": "/api/cron/cleanup-expired-students",
-      "schedule": "0 0 31 8 *"
+      "schedule": "0 0 * * *"
     },
     {
       "path": "/api/cron/cleanup-swaps",

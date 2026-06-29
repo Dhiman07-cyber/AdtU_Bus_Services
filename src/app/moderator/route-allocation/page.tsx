@@ -5,6 +5,8 @@ import { useRouter } from "next/navigation";
 import { db } from "@/lib/firebase";
 import { collection, getDocs } from "firebase/firestore";
 import { useAuth } from "@/contexts/auth-context";
+import { useModeratorPermissions } from "@/hooks/useModeratorPermissions";
+import { PermissionDeniedCard } from "@/components/PermissionDeniedCard";
 import { toast } from "react-hot-toast";
 import {
     Bus,
@@ -121,6 +123,7 @@ interface RouteData {
 
 export default function SmartRouteAllocationPage() {
     const { currentUser, userData, loading: authLoading } = useAuth();
+    const { canBusReassign, loading: permsLoading } = useModeratorPermissions();
     const router = useRouter();
 
     // Refs
@@ -566,9 +569,9 @@ export default function SmartRouteAllocationPage() {
         );
     }
 
-    // ============================================
-    // RENDER: MAIN UI
-    // ============================================
+    if (!permsLoading && !canBusReassign) {
+        return <PermissionDeniedCard title="Route Allocation Restricted" actionName="Reassigning Bus Routes" />;
+    }
 
     return (
         <TooltipProvider>

@@ -32,18 +32,32 @@ export const POST = withSecurity(
             return NextResponse.json({ error: 'Waiting flag not found' }, { status: 404 });
         }
 
+        if (flagData.status === 'picked_up' || flagData.status === 'boarded') {
+            return NextResponse.json({ success: true, message: 'Student already boarded', data: { flagId, studentUid: flagData.student_uid } });
+        }
+
+        if (flagData.status === 'cancelled' || flagData.status === 'expired') {
+            return NextResponse.json({ error: `Cannot mark boarded: flag is ${flagData.status}` }, { status: 400 });
+        }
+
         // 2. Atomic update in Supabase
-        const { error: updateError } = await supabase
+        const { data: updatedData, error: updateError } = await supabase
             .from('waiting_flags')
             .update({
                 status: 'picked_up',
                 boarded_at: new Date().toISOString(),
                 ack_by_driver_uid: driverUid
             })
-            .eq('id', flagId);
+            .eq('id', flagId)
+            .in('status', ['raised', 'acknowledged', 'waiting'])
+            .select();
 
         if (updateError) {
             return NextResponse.json({ error: 'Failed to update flag status' }, { status: 500 });
+        }
+
+        if (!updatedData || updatedData.length === 0) {
+            return NextResponse.json({ success: true, message: 'Student already boarded or processed', data: { flagId, studentUid: flagData.student_uid } });
         }
 
         // 3. Parallel Broadcasts for instant UI feedback

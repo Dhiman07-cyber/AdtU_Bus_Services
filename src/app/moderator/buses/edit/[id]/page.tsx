@@ -46,10 +46,14 @@ type BusFormData = {
   eveningLoad: string;
 };
 
+import { useModeratorPermissions } from "@/hooks/useModeratorPermissions";
+import { PermissionDeniedCard } from "@/components/PermissionDeniedCard";
+
 export default function EditBusPage({ params }: { params: Promise<{ id: string }> }) {
   const router = useRouter();
   const { addToast } = useToast();
   const { currentUser, userData, loading: authLoading } = useAuth();
+  const { canBusEdit, loading: permsLoading } = useModeratorPermissions();
   const { id } = use(params);
 
   const [loading, setLoading] = useState(true);
@@ -237,6 +241,10 @@ export default function EditBusPage({ params }: { params: Promise<{ id: string }
   }
 
   if (!currentUser || !userData || !['admin', 'moderator'].includes(userData.role)) return null;
+
+  if (!permsLoading && !canBusEdit) {
+    return <PermissionDeniedCard title="Editing Bus Restricted" actionName="Editing Buses" />;
+  }
 
   return (
     <div className="mt-10 py-4 bg-[#010717] min-h-screen">

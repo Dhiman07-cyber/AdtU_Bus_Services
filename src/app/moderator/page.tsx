@@ -40,42 +40,16 @@ const StudentDistribution = dynamic(() => import('@/components/admin/dashboard/S
 import { useSystemConfig } from '@/contexts/SystemConfigContext';
 import { authApiFetch } from '@/lib/secure-api-client';
 import HighLoadAlert from '@/components/HighLoadAlert';
+import { createDashboardCache } from '@/lib/dashboard-cache';
 
-const DASHBOARD_CACHE_KEY = 'adtu_moderator_dashboard_cache_v2';
-const DASHBOARD_CACHE_EXPIRY_KEY = 'adtu_moderator_dashboard_expiry_v2';
-const DASHBOARD_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+const dashboardCache = createDashboardCache<any>('moderator');
 
-interface DashboardCache {
-  realCounts: any;
-  paymentTrends: { days: any[]; months: any[]; methodTrend: any[] };
+function getCachedDashboard() {
+  return dashboardCache.getCached();
 }
 
-function getCachedDashboard(): DashboardCache | null {
-  try {
-    if (typeof window === 'undefined') return null;
-    const cached = localStorage.getItem(DASHBOARD_CACHE_KEY);
-    const expiry = localStorage.getItem(DASHBOARD_CACHE_EXPIRY_KEY);
-    if (!cached || !expiry) return null;
-    if (Date.now() > parseInt(expiry)) {
-      localStorage.removeItem(DASHBOARD_CACHE_KEY);
-      localStorage.removeItem(DASHBOARD_CACHE_EXPIRY_KEY);
-      return null;
-    }
-    return JSON.parse(cached);
-  } catch (error) {
-    console.warn('Failed to read moderator dashboard cache:', error);
-    return null;
-  }
-}
-
-function setCachedDashboard(data: DashboardCache): void {
-  try {
-    if (typeof window === 'undefined') return;
-    localStorage.setItem(DASHBOARD_CACHE_KEY, JSON.stringify(data));
-    localStorage.setItem(DASHBOARD_CACHE_EXPIRY_KEY, (Date.now() + DASHBOARD_CACHE_TTL).toString());
-  } catch (error) {
-    console.warn('Failed to cache moderator dashboard:', error);
-  }
+function setCachedDashboard(data: Parameters<typeof dashboardCache.setCached>[0]): void {
+  dashboardCache.setCached(data);
 }
 
 export default function EnhancedModeratorDashboard() {
@@ -91,7 +65,7 @@ export default function EnhancedModeratorDashboard() {
   const cachedData = typeof window !== 'undefined' ? getCachedDashboard() : null;
 
   const [paymentTrends, setPaymentTrends] = useState<{ days: any[], months: any[], methodTrend: any[] }>(
-    cachedData?.paymentTrends || { days: [], months: [], methodTrend: [] }
+    cachedData?.paymentTrends ? { days: cachedData.paymentTrends.days || [], months: cachedData.paymentTrends.months || [], methodTrend: cachedData.paymentTrends.methodTrend || [] } : { days: [], months: [], methodTrend: [] }
   );
 
   const [realCounts, setRealCounts] = useState(cachedData?.realCounts || {

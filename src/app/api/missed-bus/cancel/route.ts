@@ -5,7 +5,7 @@
  */
 
 import { NextResponse } from 'next/server';
-import { auth } from '@/lib/firebase-admin';
+import { auth, db as adminDb } from '@/lib/firebase-admin';
 import { missedBusService } from '@/lib/services/missed-bus-service';
 
 export async function POST(request: Request) {
@@ -30,6 +30,15 @@ export async function POST(request: Request) {
         // Verify Firebase token
         const decodedToken = await auth.verifyIdToken(idToken);
         const studentId = decodedToken.uid;
+
+        // SECURITY: Verify the caller is actually a student.
+        const studentDoc = await adminDb.collection('students').doc(studentId).get();
+        if (!studentDoc.exists) {
+            return NextResponse.json(
+                { success: false, error: 'Only students can cancel missed-bus requests' },
+                { status: 403 }
+            );
+        }
 
         // Call the service
         const result = await missedBusService.cancelRequest({

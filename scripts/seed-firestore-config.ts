@@ -54,8 +54,8 @@ async function seedConfig() {
         await db.doc('config/runtime').set({
             firestoreRealtimeEnabled: false, // Start with realtime DISABLED for safety
             maxQueryLimit: 50,
-            pollingIntervalMs: 120000,
-            notificationPollingIntervalMs: 60000,
+            pollingIntervalMs: 86400000, // 24 hours (effectively off, rely on manual refresh)
+            notificationPollingIntervalMs: 120000, // 2 minutes
             visibilityDebounceMs: 3000,
             updateDebounceMs: 2000,
             createdAt: FieldValue.serverTimestamp(),

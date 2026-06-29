@@ -195,7 +195,7 @@ export default function PlatformAnalytics() {
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: idx * 0.05 }}
-              className="p-3.5 rounded-2xl bg-white/[0.02] border border-white/5 hover:bg-white/[0.04] transition-all duration-300"
+              className="p-3.5 rounded-2xl bg-white/[0.02] border border-white/5 hover:bg-white/[0.04] transition-all duration-300 hover:cursor-pointer"
             >
               <div className="flex items-center justify-between mb-2">
                 <div className={`p-1.5 ${metric.bg} rounded-lg`}>
@@ -225,7 +225,7 @@ export default function PlatformAnalytics() {
             </div>
           </div>
           
-          <ResponsiveContainer width="100%" height="100%">
+          <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
             <LineChart data={data?.chartData}>
               <CartesianGrid strokeDasharray="3 3" stroke="#ffffff03" vertical={false} />
               <XAxis 

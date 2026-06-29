@@ -175,13 +175,11 @@ export class ReassignmentService {
 
           const newMorningCount = Math.max(0, (currentLoad.morningCount || 0) + changes.morningDelta);
           const newEveningCount = Math.max(0, (currentLoad.eveningCount || 0) + changes.eveningDelta);
-          const newTotalCount = Math.max(0, (currentLoad.totalCount || busData.currentMembers || 0) + changes.totalDelta);
 
           transaction.update(busInfo.ref, {
             'load.morningCount': newMorningCount,
             'load.eveningCount': newEveningCount,
-            'load.totalCount': newTotalCount,
-            currentMembers: newTotalCount,
+            currentMembers: newMorningCount + newEveningCount,
             updatedAt: serverTimestamp()
           });
 

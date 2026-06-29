@@ -23,12 +23,18 @@ import crypto from 'crypto';
 // These should be environment variables in production
 let encryptionKeySource = process.env.ENCRYPTION_SECRET_KEY || process.env.NEXTAUTH_SECRET;
 if (!encryptionKeySource) {
+    if (process.env.NODE_ENV === 'production') {
+        throw new Error('ENCRYPTION_SECRET_KEY must be set in production');
+    }
     encryptionKeySource = crypto.randomBytes(32).toString('hex');
 }
 const ENCRYPTION_KEY = encryptionKeySource;
 
 let signingKeySource = process.env.SIGNING_SECRET_KEY || process.env.NEXTAUTH_SECRET;
 if (!signingKeySource) {
+    if (process.env.NODE_ENV === 'production') {
+        throw new Error('SIGNING_SECRET_KEY must be set in production');
+    }
     signingKeySource = crypto.randomBytes(32).toString('hex');
 }
 const SIGNING_KEY = signingKeySource;

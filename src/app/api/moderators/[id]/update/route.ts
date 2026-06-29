@@ -59,7 +59,26 @@ export async function PUT(request: Request, { params }: { params: Promise<{ id: 
     if (!auth.authenticated) return auth.response;
 
     const { id } = await params;
-    const updatedModeratorData = await request.json();
+    const requestBody = await request.json();
+
+    // FIELD ALLOW-LIST: Only safe fields may be updated via API
+    const ALLOWED_FIELDS = new Set([
+      'fullName', 'name', 'email', 'phone', 'employeeId', 'photoURL'
+    ]);
+    const BLOCKED_FIELDS = new Set([
+      'role', 'permissions', 'status'
+    ]);
+
+    const updatedModeratorData: Record<string, any> = {};
+    for (const [key, value] of Object.entries(requestBody)) {
+      if (BLOCKED_FIELDS.has(key)) {
+        console.warn(`Blocked attempt to update forbidden field: ${key}`);
+        continue;
+      }
+      if (ALLOWED_FIELDS.has(key)) {
+        updatedModeratorData[key] = value;
+      }
+    }
 
     // Log the incoming data for debugging
     console.log(`Updating moderator with ID ${id}:`, updatedModeratorData);

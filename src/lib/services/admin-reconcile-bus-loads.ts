@@ -5,7 +5,7 @@
  *
  * The single authoritative reconciliation for bus capacity counters. Recounts the
  * actual seat-owning students per bus and rewrites ALL FOUR counters consistently:
- *   currentMembers, load.totalCount, load.morningCount, load.eveningCount.
+ *   currentMembers, load.morningCount, load.eveningCount.
  *
  * WHY THIS EXISTS (vs. the older `reconcile-bus-loads.ts`):
  *   - That file uses the CLIENT SDK (`@/lib/firebase`) and cannot run inside a
@@ -37,7 +37,6 @@ export interface BusCounterSnapshot {
   currentMembers: number;
   morningCount: number;
   eveningCount: number;
-  totalCount: number;
 }
 
 export interface BusReconcileReport {
@@ -155,20 +154,17 @@ export async function adminReconcileBusLoads(options: ReconcileOptions = {}): Pr
       currentMembers: busData.currentMembers || 0,
       morningCount: busData.load?.morningCount || 0,
       eveningCount: busData.load?.eveningCount || 0,
-      totalCount: busData.load?.totalCount ?? (busData.currentMembers || 0),
     };
     const after: BusCounterSnapshot = {
       currentMembers: c.currentMembers,
       morningCount: c.morningCount,
       eveningCount: c.eveningCount,
-      totalCount: c.currentMembers, // canonical: load.totalCount === currentMembers
     };
 
     const hadDiscrepancy =
       before.currentMembers !== after.currentMembers ||
       before.morningCount !== after.morningCount ||
-      before.eveningCount !== after.eveningCount ||
-      before.totalCount !== after.totalCount;
+      before.eveningCount !== after.eveningCount;
     const delta = Math.abs(before.currentMembers - after.currentMembers);
 
     let corrected = false;
@@ -177,9 +173,10 @@ export async function adminReconcileBusLoads(options: ReconcileOptions = {}): Pr
       try {
         const busRef = adminDb.collection('buses').doc(busId);
         await adminDb.runTransaction(async (txn) => {
+          const busSnap = await txn.get(busRef);
+          if (!busSnap.exists) return;
           txn.update(busRef, {
             currentMembers: after.currentMembers,
-            'load.totalCount': after.totalCount,
             'load.morningCount': after.morningCount,
             'load.eveningCount': after.eveningCount,
             updatedAt: new Date().toISOString(),

@@ -147,72 +147,77 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Notify all admins and moderators
-    const adminsQuery = await adminDb.collection('admins').get();
-    const moderatorsQuery = await adminDb.collection('moderators').get();
+    // Notify all admins and moderators — non-blocking: notification failure
+    // must NOT fail the submission (the application is already committed).
+    try {
+      const adminsQuery = await adminDb.collection('admins').get();
+      const moderatorsQuery = await adminDb.collection('moderators').get();
 
-    const notificationPromises = [];
+      const notificationPromises = [];
 
-    // Notify admins
-    for (const adminDoc of adminsQuery.docs) {
-      const notifRef = adminDb.collection('notifications').doc();
-      notificationPromises.push(
-        notifRef.set({
-          notifId: notifRef.id,
-          toUid: adminDoc.id,
-          toRole: 'admin',
-          type: 'Submitted',
-          title: 'New Application Submitted',
-          body: `${formData.fullName} (${formData.enrollmentId}) has submitted a new bus service application.`,
-          links: {
-            applicationId,
-            reviewPage: `/admin/applications/${applicationId}`
-          },
-          read: false,
-          createdAt: submittedAt
-        })
-      );
+      // Notify admins
+      for (const adminDoc of adminsQuery.docs) {
+        const notifRef = adminDb.collection('notifications').doc();
+        notificationPromises.push(
+          notifRef.set({
+            notifId: notifRef.id,
+            toUid: adminDoc.id,
+            toRole: 'admin',
+            type: 'Submitted',
+            title: 'New Application Submitted',
+            body: `${formData.fullName} (${formData.enrollmentId}) has submitted a new bus service application.`,
+            links: {
+              applicationId,
+              reviewPage: `/admin/applications/${applicationId}`
+            },
+            read: false,
+            createdAt: submittedAt
+          }).catch(err => console.warn('Failed to notify admin:', err))
+        );
+      }
+
+      // Notify moderators
+      for (const modDoc of moderatorsQuery.docs) {
+        const notifRef = adminDb.collection('notifications').doc();
+        notificationPromises.push(
+          notifRef.set({
+            notifId: notifRef.id,
+            toUid: modDoc.id,
+            toRole: 'moderator',
+            type: 'Submitted',
+            title: 'New Application Submitted',
+            body: `${formData.fullName} (${formData.enrollmentId}) has submitted a new bus service application.`,
+            links: {
+              applicationId,
+              reviewPage: `/moderator/applications/${applicationId}`
+            },
+            read: false,
+            createdAt: submittedAt
+          }).catch(err => console.warn('Failed to notify moderator:', err))
+        );
+      }
+
+      await Promise.allSettled(notificationPromises);
+
+      // Send confirmation to student
+      const studentNotifRef = adminDb.collection('notifications').doc();
+      await studentNotifRef.set({
+        notifId: studentNotifRef.id,
+        toUid: uid,
+        toRole: 'student',
+        type: 'Submitted',
+        title: 'Application Submitted',
+        body: 'Your bus service application has been submitted successfully. You will be notified once it is reviewed.',
+        links: {
+          applicationId,
+          statusPage: `/apply/status/${applicationId}`
+        },
+        read: false,
+        createdAt: submittedAt
+      }).catch(err => console.warn('Failed to notify student of submission:', err));
+    } catch (notifErr) {
+      console.warn('Non-critical: notification batch failed after application submit:', notifErr);
     }
-
-    // Notify moderators
-    for (const modDoc of moderatorsQuery.docs) {
-      const notifRef = adminDb.collection('notifications').doc();
-      notificationPromises.push(
-        notifRef.set({
-          notifId: notifRef.id,
-          toUid: modDoc.id,
-          toRole: 'moderator',
-          type: 'Submitted',
-          title: 'New Application Submitted',
-          body: `${formData.fullName} (${formData.enrollmentId}) has submitted a new bus service application.`,
-          links: {
-            applicationId,
-            reviewPage: `/moderator/applications/${applicationId}`
-          },
-          read: false,
-          createdAt: submittedAt
-        })
-      );
-    }
-
-    await Promise.all(notificationPromises);
-
-    // Send confirmation to student
-    const studentNotifRef = adminDb.collection('notifications').doc();
-    await studentNotifRef.set({
-      notifId: studentNotifRef.id,
-      toUid: uid,
-      toRole: 'student',
-      type: 'Submitted',
-      title: 'Application Submitted',
-      body: 'Your bus service application has been submitted successfully. You will be notified once it is reviewed.',
-      links: {
-        applicationId,
-        statusPage: `/apply/status/${applicationId}`
-      },
-      read: false,
-      createdAt: submittedAt
-    });
 
     return NextResponse.json({
       success: true,

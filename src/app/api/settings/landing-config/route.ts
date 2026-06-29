@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { adminAuth, adminDb } from '@/lib/firebase-admin';
+import { SETTINGS_COLLECTION } from '@/config/firestore-collections';
 
 export const dynamic = 'force-dynamic';
 
-const COLLECTION_NAME = 'settings';
 const DOC_ID = 'landing';
 
 const DEFAULT_CONFIG = {
@@ -21,7 +21,7 @@ export async function GET(req: NextRequest) {
         let config = DEFAULT_CONFIG;
 
         if (adminDb) {
-            const doc = await adminDb.collection(COLLECTION_NAME).doc(DOC_ID).get();
+            const doc = await adminDb.collection(SETTINGS_COLLECTION).doc(DOC_ID).get();
             if (doc.exists) {
                 const data = doc.data();
                 config = { ...DEFAULT_CONFIG, ...data };
@@ -63,7 +63,7 @@ export async function POST(req: NextRequest) {
             return NextResponse.json({ success: false, error: 'Invalid data' }, { status: 400 });
         }
 
-        await adminDb.collection(COLLECTION_NAME).doc(DOC_ID).set({
+        await adminDb.collection(SETTINGS_COLLECTION).doc(DOC_ID).set({
             ...config,
             lastUpdated: new Date().toISOString(),
         }, { merge: true });

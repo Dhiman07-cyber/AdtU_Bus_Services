@@ -34,7 +34,6 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { getAuth } from "firebase/auth";
 import Link from "next/link";
 import { useToast } from '@/contexts/toast-context';
-import { toast } from 'sonner';
 import { QRCodeCanvas } from 'qrcode.react';
 import {
   Dialog,
@@ -45,7 +44,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { getStudentById, deleteStudent, getPaymentsByStudentUid } from '@/lib/dataService';
-import { isDateExpired } from '@/lib/utils/date-utils';
+import { isDateExpired, formatDateFlexible } from '@/lib/utils/date-utils';
 import { safeImageSrc } from "@/lib/security/url-sanitizer";
 import {
   Table,
@@ -56,32 +55,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 
-const formatDate = (dateValue: any) => {
-  if (!dateValue) return 'Not provided';
-  try {
-    let date: Date;
-
-    if (typeof dateValue === 'object' && 'seconds' in dateValue && 'nanoseconds' in dateValue) {
-      date = new Date(dateValue.seconds * 1000);
-    } else if (typeof dateValue === 'string') {
-      date = new Date(dateValue);
-    } else if (dateValue instanceof Date) {
-      date = dateValue;
-    } else {
-      return 'Not provided';
-    }
-
-    if (isNaN(date.getTime())) return 'Not provided';
-
-    return date.toLocaleDateString('en-US', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric'
-    });
-  } catch (error) {
-    return 'Not provided';
-  }
-};
+const formatDate = formatDateFlexible;
 
 const calculateAgeFromDob = (dobValue: any): string => {
   if (!dobValue) return 'N/A';
@@ -210,13 +184,11 @@ export default function ViewStudentPage({ params }: { params: Promise<{ id: stri
 
   const handleDownloadReceipt = async (paymentId: string) => {
     setDownloadingReceiptId(paymentId);
-    const loadingToastId = toast.loading('Preparing receipt...');
     try {
       const auth = getAuth();
       const currentUser = auth.currentUser;
       if (!currentUser) {
-        toast.dismiss(loadingToastId);
-        toast.error('Authentication required');
+        addToast('Authentication required', 'error');
         setDownloadingReceiptId(null);
         return;
       }
@@ -240,12 +212,10 @@ export default function ViewStudentPage({ params }: { params: Promise<{ id: stri
       window.URL.revokeObjectURL(url);
       document.body.removeChild(a);
 
-      toast.dismiss(loadingToastId);
-      toast.success('Receipt downloaded successfully');
+      addToast('Receipt downloaded successfully', 'success');
     } catch (error) {
       console.error('Error downloading receipt:', error);
-      toast.dismiss(loadingToastId);
-      toast.error('Failed to download receipt');
+      addToast('Failed to download receipt', 'error');
     } finally {
       setDownloadingReceiptId(null);
     }
@@ -389,10 +359,10 @@ export default function ViewStudentPage({ params }: { params: Promise<{ id: stri
       link.download = `BusPass_${(student.fullName || student.name)?.replace(/\s+/g, '_')}.png`;
       link.href = canvas.toDataURL('image/png', 1.0);
       link.click();
-      toast.success('Bus pass saved successfully!');
+      addToast('Bus pass saved successfully!', 'success');
     } catch (e) {
       console.error(e);
-      toast.error('Failed to save bus pass');
+      addToast('Failed to save bus pass', 'error');
     }
   }, [student]);
 
@@ -406,10 +376,10 @@ export default function ViewStudentPage({ params }: { params: Promise<{ id: stri
         await navigator.share({ title: 'AdtU Digital Bus Pass', text });
       } else {
         await navigator.clipboard.writeText(text);
-        toast.success('Details copied!');
+        addToast('Details copied!', 'success');
       }
     } catch (e) {
-      if ((e as Error).name !== 'AbortError') toast.error('Sharing failed');
+      if ((e as Error).name !== 'AbortError') addToast('Sharing failed', 'error');
     }
   }, [student]);
 

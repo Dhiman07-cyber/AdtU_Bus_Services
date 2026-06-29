@@ -103,6 +103,14 @@ describe('FCM Notification Service', () => {
     });
 
     it('supports trip-ended topic payloads', async () => {
+      mockRunTransaction.mockImplementationOnce(async (fn: (tx: unknown) => Promise<void>) => fn({
+        get: vi.fn().mockResolvedValue({
+          exists: true,
+          data: () => ({ activeTripLock: { tripId: 't3' } }),
+        }),
+        update: vi.fn(),
+      }));
+
       const result = await notifyRoute({
         routeId: 'r1',
         tripId: 't3',

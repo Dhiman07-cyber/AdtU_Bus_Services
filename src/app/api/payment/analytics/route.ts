@@ -1,18 +1,12 @@
 
 import { NextRequest, NextResponse } from 'next/server';
-import { verifyToken } from '@/lib/firebase-admin';
 import { paymentsSupabaseService } from '@/lib/services/payments-supabase';
+import { withSecurity } from '@/lib/security/api-security';
+import { EmptySchema } from '@/lib/security/validation-schemas';
+import { RateLimits } from '@/lib/security/rate-limiter';
 
-export async function GET(request: NextRequest) {
-    try {
-        const token = request.headers.get('Authorization')?.replace('Bearer ', '');
-        if (!token) {
-            return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-        }
-
-        const decodedToken = await verifyToken(token);
-        // basic role check could be added here if needed, but verifyToken ensures validity
-
+export const GET = withSecurity(
+    async (request) => {
         // Get mode from query parameter: 'days' (default) or 'months'
         const { searchParams } = new URL(request.url);
         const mode = searchParams.get('mode') || 'days';
@@ -35,9 +29,10 @@ export async function GET(request: NextRequest) {
                 methodTrend
             }
         });
-
-    } catch (error) {
-        console.error('Error fetching payment analytics:', error);
-        return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+    },
+    {
+        requiredRoles: ['admin', 'moderator'],
+        schema: EmptySchema,
+        rateLimit: RateLimits.READ,
     }
-}
+);

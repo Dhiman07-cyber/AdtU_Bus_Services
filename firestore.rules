@@ -28,42 +28,27 @@ service cloud.firestore {
     
     match /unauthUsers/{userId} {
       // Users can read only their own document
-      // Admins can read all documents
+      // Admins and moderators can read all documents
       allow read: if request.auth != null && (
         request.auth.uid == userId ||
-        isAdmin(request.auth.uid)
+        isAdmin(request.auth.uid) ||
+        isModerator(request.auth.uid)
       );
 
       // Users can create/update their own document (needed if client does it, though API handles it mostly)
-      allow write: if request.auth != null && (
+      // Moderators and admins can update/delete (for application approval/rejection)
+      allow create: if request.auth != null && (
         request.auth.uid == userId ||
         isAdmin(request.auth.uid)
       );
-    }
-    
-    // UnauthUsers collection (pending applications from students)
-    match /UnauthUsers/{userId} {
-      // Users can read their own document
-      // Moderators and admins can read all documents
-      allow read: if request.auth != null && (
-        request.auth.uid == userId ||
-        isModerator(request.auth.uid) ||
-        isAdmin(request.auth.uid)
-      );
-
-      // Users cannot create directly (only via server/API)
-      allow create: if false;
-
-      // Only moderators/admins can update (status changes)
       allow update: if request.auth != null && (
-        isModerator(request.auth.uid) ||
-        isAdmin(request.auth.uid)
+        request.auth.uid == userId ||
+        isAdmin(request.auth.uid) ||
+        isModerator(request.auth.uid)
       );
-
-      // Only moderators/admins can delete (on approval/rejection)
       allow delete: if request.auth != null && (
-        isModerator(request.auth.uid) ||
-        isAdmin(request.auth.uid)
+        isAdmin(request.auth.uid) ||
+        isModerator(request.auth.uid)
       );
     }
     
@@ -177,7 +162,10 @@ service cloud.firestore {
     // ============================================================================
     
     match /admins/{adminId} {
-      allow read: if request.auth != null;
+      allow read: if request.auth != null && (
+        request.auth.uid == adminId ||
+        isAdmin(request.auth.uid)
+      );
       allow write: if request.auth != null && isAdmin(request.auth.uid);
     }
     
@@ -342,8 +330,11 @@ service cloud.firestore {
     // ============================================================================
     
     match /notification_read_receipts/{receiptId} {
-      // Users can read their own read receipts (allow queries)
-      allow read: if request.auth != null;
+      // Users can read their own read receipts
+      allow read: if request.auth != null && (
+        resource.data.userId == request.auth.uid ||
+        isAdmin(request.auth.uid)
+      );
       
       // Users can create/update their own read receipts
       allow create, update: if request.auth != null && 
@@ -358,8 +349,13 @@ service cloud.firestore {
     // ============================================================================
     
     match /applications/{applicationId} {
-      // All authenticated users can read (for moderator/admin review)
-      allow read: if request.auth != null;
+      // SECURITY FIX: Students can only read their own applications
+      // Moderators and admins can read all (for review)
+      allow read: if request.auth != null && (
+        resource.data.applicantUid == request.auth.uid ||
+        isModerator(request.auth.uid) || 
+        isAdmin(request.auth.uid)
+      );
       
       // Students can create their own applications
       allow create: if request.auth != null && 
@@ -410,7 +406,10 @@ service cloud.firestore {
     // ============================================================================
     
     match /invitations/{invitationId} {
-      allow read: if request.auth != null;
+      allow read: if request.auth != null && (
+        isAdmin(request.auth.uid) ||
+        isModerator(request.auth.uid)
+      );
       allow write: if request.auth != null && isModerator(request.auth.uid);
     }
     
@@ -430,11 +429,16 @@ service cloud.firestore {
     
     match /waiting_flags/{flagId} {
       allow read: if request.auth != null;
-      allow write: if request.auth != null && 
+      allow create: if request.auth != null && 
+        request.resource.data.student_uid == request.auth.uid;
+      allow update: if request.auth != null && 
         (resource.data.student_uid == request.auth.uid || 
          request.auth.uid == flagId ||
          isModerator(request.auth.uid) ||
-         isDriver(request.auth.uid)); // Drivers can update flags (acknowledge, board)
+         isDriver(request.auth.uid));
+      allow delete: if request.auth != null && 
+        (isModerator(request.auth.uid) ||
+         isDriver(request.auth.uid));
     }
     
     // ============================================================================
@@ -526,7 +530,9 @@ service cloud.firestore {
     
     match /fcmTokens/{tokenId} {
       // Users can read and write their own FCM tokens
-      allow read, write: if request.auth != null && 
+      allow read: if request.auth != null && 
+        resource.data.uid == request.auth.uid;
+      allow write: if request.auth != null && 
         request.resource.data.uid == request.auth.uid;
     }
     

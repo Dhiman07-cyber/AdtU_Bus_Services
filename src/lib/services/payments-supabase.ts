@@ -8,7 +8,8 @@
  * IMPORTANT: Use only with service role key on server side.
  */
 
-import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import { SupabaseClient } from '@supabase/supabase-js';
+import { getSupabaseServer } from '@/lib/supabase-server';
 import { encryptData, decryptData } from '@/lib/security/encryption.service';
 import { DocumentCryptoService, buildDocumentPayloadFromPayment } from '@/lib/security/document-crypto.service';
 
@@ -90,19 +91,14 @@ class PaymentsSupabaseService {
     private isInitialized: boolean = false;
 
     constructor() {
-        const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-        const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-        if (!url || !serviceKey) {
+        try {
+            this.supabase = getSupabaseServer();
+            this.isInitialized = true;
+        } catch (err) {
             console.error('[PaymentsSupabaseService] Missing Supabase credentials');
             this.supabase = null as unknown as SupabaseClient;
-            return;
+            this.isInitialized = false;
         }
-
-        this.supabase = createClient(url, serviceKey, {
-            auth: { persistSession: false }
-        });
-        this.isInitialized = true;
     }
 
     isReady(): boolean {

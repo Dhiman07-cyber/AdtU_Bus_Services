@@ -1153,6 +1153,7 @@ function ApplicationFormContent() {
   };
 
   const handleSubmitApplication = async () => {
+    if (submitting) return;
     console.log('ðŸš€ Starting application submission...');
     console.log('ðŸ“‹ Current state:', {
       applicationState,

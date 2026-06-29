@@ -1,0 +1,15 @@
+<svg width="192" height="192" viewBox="0 0 192 192" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Bright Amber / Gold background for DEV mode -->
+  <rect width="192" height="192" rx="36" fill="#F59E0B"/>
+  
+  <!-- Outer glowing border ring -->
+  <rect x="6" y="6" width="180" height="180" rx="30" stroke="#FEF08A" stroke-width="6" stroke-opacity="0.8"/>
+
+  <!-- Center Bus emblem in crisp white -->
+  <path d="M96 28L120 70H144L120 112L96 142L72 112L48 70H72L96 28Z" fill="#FFFFFF"/>
+  <circle cx="96" cy="85" r="9" fill="#F59E0B"/>
+
+  <!-- Bold dark DEV badge at the bottom -->
+  <rect x="20" y="142" width="152" height="36" rx="10" fill="#0F172A"/>
+  <text x="96" y="166" font-family="system-ui, -apple-system, sans-serif" font-weight="900" font-size="20" fill="#F59E0B" text-anchor="middle" letter-spacing="3">DEV TEST</text>
+</svg>

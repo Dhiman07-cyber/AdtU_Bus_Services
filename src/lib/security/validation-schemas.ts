@@ -41,7 +41,7 @@ export const ReassignStudentsSchema = z.object({
         fromBusId: z.string().min(1).max(100),
         toBusId: z.string().min(1).max(100),
         toBusNumber: z.string().min(1).max(50),
-        shift: z.enum(['Morning', 'Evening']),
+        shift: z.enum(['Morning', 'Evening', 'Morning & Evening', 'Both']),
         stopId: z.string().max(100).optional(),
         stopName: z.string().max(200).optional(),
     })),
@@ -449,8 +449,45 @@ export const LocationUpdateBodySchema = z.object({
 });
 
 // ============================================================================
-// Admin/Moderator Schemas
+// Admin/Moderator & Application Schemas
 // ============================================================================
+
+export const SubmitApplicationSchema = z.object({
+    formData: z.record(z.string(), z.any()),
+    needsCapacityReview: z.boolean().optional(),
+    applicationId: z.string().optional(),
+});
+
+export const SaveDraftSchema = z.object({
+    formData: z.record(z.string(), z.any()),
+    applicationId: z.string().optional(),
+});
+
+export const AddModeratorSchema = z.object({
+    email: z.string().email(),
+    name: z.string().min(1).max(200),
+    phone: z.string().max(20).optional(),
+    faculty: z.string().max(100).optional(),
+    employeeId: z.string().max(100).optional(),
+    role: z.literal('moderator').default('moderator'),
+});
+
+export const UpdateModeratorSchema = z.object({
+    fullName: z.string().max(200).optional(),
+    phone: z.string().max(20).optional(),
+    profilePhotoUrl: z.string().url().nullable().optional(),
+}).passthrough();
+
+export const UpdatePermissionsSchema = z.object({
+    permissions: z.object({
+        students: z.object({ canView: z.boolean(), canAdd: z.boolean(), canEdit: z.boolean(), canDelete: z.boolean(), canReassign: z.boolean() }),
+        drivers: z.object({ canView: z.boolean(), canAdd: z.boolean(), canEdit: z.boolean(), canDelete: z.boolean(), canReassign: z.boolean() }),
+        buses: z.object({ canView: z.boolean(), canAdd: z.boolean(), canEdit: z.boolean(), canDelete: z.boolean(), canReassign: z.boolean() }),
+        routes: z.object({ canView: z.boolean(), canAdd: z.boolean(), canEdit: z.boolean(), canDelete: z.boolean() }),
+        applications: z.object({ canView: z.boolean(), canApprove: z.boolean(), canReject: z.boolean(), canGenerateVerificationCode: z.boolean(), canAppearInModeratorList: z.boolean() }),
+        payments: z.object({ canApproveOfflinePayment: z.boolean(), canRejectOfflinePayment: z.boolean() }),
+    }),
+});
 
 export const ApproveRenewalSchema = z.object({
     requestId: z.string().max(100),
@@ -529,14 +566,18 @@ export function validateInput<T>(
             const issues = zodError
                 ? zodError.issues.map((i) => `${i.path.map(String).join('.')}: ${i.message}`)
                 : (errorLike.issues || []).map((i) => `${(i.path || []).join('.')}: ${i.message || 'Invalid value'}`);
-            console.error('[validateInput] ❌ Validation failed:', issues);
+            if (process.env.NODE_ENV !== 'test') {
+                console.error('[validateInput] ❌ Validation failed:', issues);
+            }
             return {
                 success: false,
                 error: `Validation failed: ${issues.join(', ')}`,
                 details: zodError || undefined
             };
         }
-        console.error('[validateInput] ❌ Non-Zod error:', error);
+        if (process.env.NODE_ENV !== 'test') {
+            console.error('[validateInput] ❌ Non-Zod error:', error);
+        }
         return { success: false, error: 'Invalid input' };
     }
 }

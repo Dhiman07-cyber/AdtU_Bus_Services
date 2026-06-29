@@ -41,12 +41,6 @@ const nextConfig: NextConfig = {
     // Faster builds in development
     serverActions: {
       bodySizeLimit: '10mb',
-      // allowedOrigins: [
-      //   '8g4fmnb9-3000.inc1.devtunnels.ms',
-      //   'https://8g4fmnb9-3000.inc1.devtunnels.ms',
-      //   'localhost:3000',
-      //   'http://localhost:3000'
-      // ]
     },
 
     // Note: optimizeCss can cause issues with Turbopack, disable for dev
@@ -161,7 +155,7 @@ const nextConfig: NextConfig = {
     // Image optimization settings - prioritize quality
     formats: ['image/webp', 'image/avif'],
     minimumCacheTTL: 3600,
-    dangerouslyAllowSVG: true,
+    dangerouslyAllowSVG: false,
     contentSecurityPolicy: "default-src 'self'; script-src 'none'; sandbox;",
     // Disable automatic optimization for Cloudinary URLs to preserve quality
     unoptimized: false,
@@ -246,19 +240,19 @@ const nextConfig: NextConfig = {
         ],
       },
       // ── Health endpoint: Short cache for monitoring tools ──
+      // Note: This overrides the /api/:path* Cache-Control for /api/health specifically
       {
         source: '/api/health',
         headers: [
-          ...securityHeaders,
           { key: 'Cache-Control', value: 'no-cache, max-age=0, must-revalidate' },
         ],
       },
-      // ── All page routes: Security headers + short SWR for HTML pages ──
+      // ── Page routes (excluding API): Security headers + no-cache for HTML pages ──
+      // Uses negative lookahead to avoid applying to /api/* routes
       {
-        source: '/:path*',
+        source: '/((?!api|_next/static|_next/image|favicon.ico).*)',
         headers: [
           ...securityHeaders,
-          // Pages use stale-while-revalidate for faster perceived load
           { key: 'Cache-Control', value: 'private, no-cache, must-revalidate' },
         ],
       },

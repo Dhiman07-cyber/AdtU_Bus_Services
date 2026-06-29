@@ -67,17 +67,9 @@ export default function ModeratorDashboard() {
           setDriverStatuses(statusData || []);
         }
 
-        const { data: notificationData, error: notificationError } = await supabase
-          .from('notifications')
-          .select('*')
-          .order('created_at', { ascending: false })
-          .limit(10);
-
-        if (notificationError) {
-          console.error('Error fetching notifications:', notificationError);
-        } else {
-          setNotifications(notificationData || []);
-        }
+        // Notifications are managed via Firestore (not Supabase).
+        // The main /moderator page handles notifications properly.
+        setNotifications([]);
       } catch (err) {
         console.error('Error fetching data:', err);
         setError('Failed to fetch data');

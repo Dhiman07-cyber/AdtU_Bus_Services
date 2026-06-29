@@ -16,14 +16,13 @@ This single file contains everything you need - no other SQL files are required.
 
 ## What COMPLETE_SCHEMA.sql Contains
 
-### Tables (12 total)
+### Tables (11 total)
 | Table | Purpose |
 |-------|---------|
 | `bus_locations` | Real-time GPS tracking |
 | `driver_status` | Driver operational status |
 | `waiting_flags` | Student waiting signals |
 | `driver_location_updates` | Historical location breadcrumbs |
-| `route_cache` | ORS geometry cache |
 | `driver_swap_requests` | Driver swap requests |
 | `temporary_assignments` | Active driver swaps |
 | `reassignment_logs` | Audit logs for assignments |

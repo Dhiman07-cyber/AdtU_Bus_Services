@@ -356,7 +356,7 @@ export default function CreateNotificationModal({ open, onClose }: CreateNotific
                             }
                           }}
                         />
-                        <label htmlFor={route.routeId} className="text-sm cursor-pointer">
+                        <label htmlFor={route.routeId} className="text-sm cursor-pointer hover:cursor-pointer">
                           {route.routeName}
                         </label>
                       </div>
@@ -383,7 +383,7 @@ export default function CreateNotificationModal({ open, onClose }: CreateNotific
                     checked={sendMode === 'per-route'}
                     onCheckedChange={(checked) => setSendMode(checked ? 'per-route' : 'aggregated')}
                   />
-                  <label htmlFor="sendMode" className="text-sm cursor-pointer">
+                  <label htmlFor="sendMode" className="text-sm cursor-pointer hover:cursor-pointer">
                     Send per-route messages (one notification per route)
                   </label>
                 </div>

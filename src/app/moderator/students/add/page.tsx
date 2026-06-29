@@ -59,8 +59,12 @@ type StudentFormData = {
   pickupPoint: string; // Stop ID from route
 };
 
+import { useModeratorPermissions } from '@/hooks/useModeratorPermissions';
+import { PermissionDeniedCard } from '@/components/PermissionDeniedCard';
+
 export default function AddStudentForm() {
   const { currentUser, userData, loading } = useAuth();
+  const { canStudentAdd, loading: permsLoading } = useModeratorPermissions();
   const { addToast } = useToast();
   const router = useRouter();
 
@@ -773,6 +777,10 @@ export default function AddStudentForm() {
 
     addToast('Form reset successfully', 'info');
   };
+
+  if (!permsLoading && !canStudentAdd) {
+    return <PermissionDeniedCard title="Adding Student Restricted" actionName="Adding Students" />;
+  }
 
   return (
     <div className="mt-10 py-4">

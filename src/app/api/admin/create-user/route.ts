@@ -119,12 +119,14 @@ export const POST = withSecurity<CreateUserBody>(
 
         // 2. Auth management
         let uid: string;
+        let authUserCreated = false;
         try {
             const userRecord = await adminAuth.getUserByEmail(email);
             uid = userRecord.uid;
         } catch {
             const userRecord = await adminAuth.createUser({ email, emailVerified: true });
             uid = userRecord.uid;
+            authUserCreated = true;
         }
 
         const now = new Date().toISOString();
@@ -290,17 +292,29 @@ export const POST = withSecurity<CreateUserBody>(
                 status: 'active', createdAt: now, updatedAt: now,
             };
 
-            const driverTasks: Promise<unknown>[] = [
-                adminDb.collection('drivers').doc(uid).set(driverDocData),
-                adminDb.collection('users').doc(uid).set({ createdAt: now, email, name, role: 'driver', uid })
-            ];
+            const driverRef = adminDb.collection('drivers').doc(uid);
+            const driverUserRef = adminDb.collection('users').doc(uid);
 
-            if (busId) {
-                driverTasks.push(adminDb.collection('buses').doc(busId).update({
-                    activeDriverId: uid, assignedDriverId: uid, activeTripId: null, updatedAt: now
-                }).catch(() => null));
+            try {
+                await adminDb.runTransaction(async (transaction) => {
+                    transaction.set(driverRef, driverDocData);
+                    transaction.set(driverUserRef, { createdAt: now, email, name, role: 'driver', uid });
+
+                    if (busId) {
+                        const busRef = adminDb.collection('buses').doc(busId);
+                        transaction.update(busRef, {
+                            activeDriverId: uid, assignedDriverId: uid, activeTripId: null, updatedAt: now
+                        });
+                    }
+                });
+            } catch (firestoreError) {
+                if (authUserCreated) {
+                    try { await adminAuth.deleteUser(uid); } catch (cleanupErr) {
+                        console.error('Failed to cleanup Auth user after Firestore failure:', cleanupErr);
+                    }
+                }
+                throw firestoreError;
             }
-            await Promise.all(driverTasks);
         } else {
             // Moderator or Admin
             const col = role === 'moderator' ? 'moderators' : 'admins';
@@ -311,10 +325,23 @@ export const POST = withSecurity<CreateUserBody>(
                 profilePhotoUrl: profilePhotoUrl || '', approvedBy: approvedByDisplay,
                 address: address || '', status: status || 'active', createdAt: now, updatedAt: now,
             };
-            await Promise.all([
-                adminDb.collection(col).doc(uid).set(docData),
-                adminDb.collection('users').doc(uid).set({ createdAt: now, email, name, role, uid })
-            ]);
+
+            const profileRef = adminDb.collection(col).doc(uid);
+            const profileUserRef = adminDb.collection('users').doc(uid);
+
+            try {
+                await adminDb.runTransaction(async (transaction) => {
+                    transaction.set(profileRef, docData);
+                    transaction.set(profileUserRef, { createdAt: now, email, name, role, uid });
+                });
+            } catch (firestoreError) {
+                if (authUserCreated) {
+                    try { await adminAuth.deleteUser(uid); } catch (cleanupErr) {
+                        console.error('Failed to cleanup Auth user after Firestore failure:', cleanupErr);
+                    }
+                }
+                throw firestoreError;
+            }
         }
 
         return NextResponse.json({

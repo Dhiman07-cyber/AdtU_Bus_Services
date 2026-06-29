@@ -33,12 +33,24 @@ export const POST = withSecurity(
 
         const toBusData = toBusSnap.data()!;
 
-        // 2. Atomic Batch Update
-        const batch = adminDb.batch();
-        batch.update(routeSnap.ref, { currentBusId: toBusId });
-        batch.update(fromBusSnap.ref, { status: 'maintenance' });
-        batch.update(toBusSnap.ref, { status: 'active', routeId: routeId });
-        await batch.commit();
+        // 2. Atomic Transaction: re-read route inside transaction to verify
+        // currentBusId hasn't changed since the initial read. Prevents two
+        // concurrent swap-bus calls from both succeeding (TOCTOU race).
+        const routeRef = adminDb.collection('routes').doc(routeId);
+        const fromBusRef = adminDb.collection('buses').doc(fromBusId);
+        const toBusRef = adminDb.collection('buses').doc(toBusId);
+
+        await adminDb.runTransaction(async (transaction) => {
+            const freshRoute = await transaction.get(routeRef);
+            if (!freshRoute.exists) throw new Error('Route not found');
+            // Verify no concurrent swap changed the route's bus assignment
+            if (freshRoute.data()?.currentBusId !== fromBusId) {
+                throw new Error('Route bus assignment changed by concurrent operation');
+            }
+            transaction.update(routeRef, { currentBusId: toBusId });
+            transaction.update(fromBusRef, { status: 'maintenance' });
+            transaction.update(toBusRef, { status: 'active', routeId: routeId });
+        });
 
         // 3. Parallelized Realtime & Notifications (Non-blocking response)
         const postTasks = [

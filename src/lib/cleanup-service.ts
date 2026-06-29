@@ -1,10 +1,7 @@
 import { db as adminDb, FieldValue } from './firebase-admin';
-import { createClient } from '@supabase/supabase-js';
+import { getSupabaseServer } from '@/lib/supabase-server';
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
+const supabase = getSupabaseServer();
 
 /**
  * Event-Driven Cleanup Service
@@ -22,10 +19,11 @@ export class CleanupService {
       let cleaned = 0;
       let reverted = 0;
 
-      // Find all active swaps where endTime has passed
+      // Find all active swaps where endTime has passed (limit to stay under Firestore's 500 batch cap)
       const activeSwapsSnapshot = await adminDb
         .collection('driver_swap_requests')
         .where('status', '==', 'accepted')
+        .limit(300)
         .get();
 
       const batch = adminDb.batch();
@@ -58,9 +56,6 @@ export class CleanupService {
           updatedAt: FieldValue.serverTimestamp()
         });
         reverted++;
-
-        // Send notification to students
-        await this.notifySwapReverted(busId, originalDriverId);
       }
 
       // Clean up old pending/rejected/cancelled requests (>7 days old)
@@ -77,8 +72,18 @@ export class CleanupService {
         cleaned++;
       });
 
-      // Commit all changes
+      // Commit all changes FIRST — notifications are non-critical
       await batch.commit();
+
+      // Send notifications AFTER successful commit — failure here does NOT
+      // prevent the swap revert from being persisted.
+      for (const [busId, originalDriverId] of busUpdates.entries()) {
+        try {
+          await this.notifySwapReverted(busId, originalDriverId);
+        } catch (notifErr) {
+          console.error(`Non-critical: notification failed for bus ${busId} revert:`, notifErr);
+        }
+      }
 
       console.log(`✅ Cleanup: ${cleaned} swaps cleaned, ${reverted} buses reverted`);
       return { cleaned, reverted };
@@ -168,6 +173,8 @@ export class CleanupService {
           // Revert the swap
           await adminDb.runTransaction(async (transaction: any) => {
             const busRef = adminDb.collection('buses').doc(busId);
+            const busSnap = await transaction.get(busRef);
+            if (!busSnap.exists) return false;
 
             transaction.update(busRef, {
               activeDriverId: swap.fromDriverUID,

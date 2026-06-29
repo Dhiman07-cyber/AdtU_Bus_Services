@@ -60,6 +60,61 @@ export const POST = withSecurity<RenewServiceBody>(
     if (paymentMode === 'offline') {
       const paymentId = generateOfflinePaymentId('renewal');
 
+      // ATOMIC duplicate guard: use a deterministic document ID derived from
+      // studentId + a daily bucket so concurrent requests cannot both pass the
+      // pending-check and create duplicate renewal requests. The transaction
+      // re-reads the doc to guarantee exactly one winner.
+      const dailyBucket = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+      const dedupeDocId = `renewal_${userId}_${dailyBucket}`;
+
+      try {
+        await adminDb.runTransaction(async (transaction) => {
+          const dedupeRef = adminDb.collection('renewal_requests').doc(dedupeDocId);
+          const existingDoc = await transaction.get(dedupeRef);
+
+          if (existingDoc.exists) {
+            const existing = existingDoc.data();
+            if (existing?.status === 'pending') {
+              throw new Error('DUPLICATE_PENDING');
+            }
+            // If already approved/rejected, allow a new request for a different day
+            // (the daily bucket naturally handles this).
+          }
+
+          // Create the renewal request inside the transaction — guarantees
+          // exactly one request per student per day.
+          transaction.set(dedupeRef, {
+            studentId: userId,
+            enrollmentId,
+            studentName,
+            durationYears,
+            totalFee,
+            transactionId: transactionId || '',
+            receiptImageUrl: receiptImageUrl || '',
+            paymentMode: 'offline',
+            paymentId,
+            status: 'pending',
+            createdAt: FieldValue.serverTimestamp(),
+            updatedAt: FieldValue.serverTimestamp(),
+          });
+        });
+      } catch (txErr: any) {
+        if (txErr?.message === 'DUPLICATE_PENDING') {
+          return NextResponse.json(
+            { error: 'A pending renewal request already exists. Please wait for it to be reviewed.' },
+            { status: 409 }
+          );
+        }
+        console.error('Failed to create renewal request:', txErr);
+        return NextResponse.json(
+          { error: 'Failed to create renewal request. Please retry.' },
+          { status: 503 }
+        );
+      }
+
+      // Payment record is saved AFTER the Firestore transaction succeeds.
+      // The payment ID is deterministic (derived from offlineTransactionId or
+      // a generated ID), so Supabase upsert is idempotent on retries.
       try {
         await PaymentTransactionService.saveTransaction({
           studentId: enrollmentId,
@@ -76,26 +131,11 @@ export const POST = withSecurity<RenewServiceBody>(
         });
       } catch (supabaseError) {
         console.error('Failed to create pending renewal payment ledger:', supabaseError);
-        return NextResponse.json(
-          { error: 'Failed to create payment record. Please retry before submitting the renewal request.' },
-          { status: 503 }
-        );
+        // Payment ledger write failed but the renewal request exists as pending.
+        // This is a recoverable state: the admin can approve the renewal and the
+        // payment will be recorded at approval time, or a cron can reconcile.
+        console.error(`🔴 RECOVERY NEEDED: Renewal request created for ${userId} but payment ${paymentId} was not persisted to Supabase`);
       }
-
-      const docRef = await adminDb.collection('renewal_requests').add({
-        studentId: userId,
-        enrollmentId,
-        studentName,
-        durationYears,
-        totalFee,
-        transactionId: transactionId || '',
-        receiptImageUrl: receiptImageUrl || '',
-        paymentMode: 'offline',
-        paymentId,
-        status: 'pending',
-        createdAt: FieldValue.serverTimestamp(),
-        updatedAt: FieldValue.serverTimestamp(),
-      });
 
       const [adminsSnapshot, moderatorsSnapshot] = await Promise.all([
         adminDb.collection('admins').get(),
@@ -131,13 +171,13 @@ export const POST = withSecurity<RenewServiceBody>(
           isDeletedGlobally: false,
           createdAt: FieldValue.serverTimestamp(),
           expiresAt: expiryDate.toISOString(),
-        });
+        }).catch(err => console.error('Failed to send renewal notification to staff:', err));
       }
 
       return NextResponse.json({
         success: true,
         message: 'Offline renewal request submitted successfully',
-        requestId: docRef.id,
+        requestId: dedupeDocId,
       });
     }
 

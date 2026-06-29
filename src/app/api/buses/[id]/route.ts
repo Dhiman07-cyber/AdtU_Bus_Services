@@ -58,7 +58,26 @@ export async function PUT(request: Request, { params }: { params: Promise<{ id: 
       return NextResponse.json({ error: 'Firebase Admin not initialized' }, { status: 500 });
     }
 
-    const busData = await request.json();
+    const requestBody = await request.json();
+
+    // FIELD ALLOW-LIST: Only safe fields may be updated via API
+    const ALLOWED_FIELDS = new Set([
+      'busNumber', 'busName', 'routeId', 'capacity', 'status', 'notes'
+    ]);
+    const BLOCKED_FIELDS = new Set([
+      'activeDriverId', 'assignedDriverId'
+    ]);
+
+    const busData: Record<string, any> = {};
+    for (const [key, value] of Object.entries(requestBody)) {
+      if (BLOCKED_FIELDS.has(key)) {
+        console.warn(`Blocked attempt to update forbidden field: ${key}`);
+        continue;
+      }
+      if (ALLOWED_FIELDS.has(key)) {
+        busData[key] = value;
+      }
+    }
     
     // Update bus document
     const updatedBus = {

@@ -143,19 +143,14 @@ export function getBusNumericId(busId: string): number {
     return numMatch ? parseInt(numMatch[1], 10) : 0;
 }
 
+import { generatePrefixedId } from '@/lib/security/random-id';
+
 // ============================================
 // UUID GENERATOR
 // ============================================
 
 export function generateStagingId(): string {
-    const cryptoObj = typeof window !== 'undefined' ? (window.crypto || (window as any).msCrypto) : globalThis.crypto;
-    if (cryptoObj && cryptoObj.randomUUID) {
-        return `staged_${Date.now()}_${cryptoObj.randomUUID().substring(0, 8)}`;
-    }
-    const randomHex = cryptoObj && cryptoObj.getRandomValues
-        ? Array.from(cryptoObj.getRandomValues(new Uint8Array(4))).map(b => (b as any).toString(16).padStart(2, '0')).join('')
-        : Math.random().toString(36).substring(2, 10);
-    return `staged_${Date.now()}_${randomHex}`;
+    return generatePrefixedId('staged_');
 }
 
 // ============================================

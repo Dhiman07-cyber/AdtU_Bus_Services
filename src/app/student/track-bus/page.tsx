@@ -34,6 +34,7 @@ import { useBusLocation } from '@/hooks/useBusLocation';
 import TransportEntitlementGuard from "@/components/transport/TransportEntitlementGuard";
 import { useSystemConfig } from "@/contexts/SystemConfigContext";
 import { formatIdForDisplay } from "@/lib/utils";
+import ErrorBoundary from "@/components/ErrorBoundary";
 
 const LiveTrackingBusMap = dynamic(() => import("@/components/maps/LiveTrackingBusMap"), {
   ssr: false,
@@ -158,6 +159,7 @@ function TrackBusLive() {
     if (tripActive && distanceToBus !== null && distanceToBus < 0.1) {
       console.log("🛑 Bus is nearby (<100m) and active. Requesting driver to wait...");
 
+      let responseChannel: ReturnType<typeof supabase.channel> | null = null;
       try {
         setWaitRequestPending(true);
         setWaitRequestStatus('pending');
@@ -165,7 +167,7 @@ function TrackBusLive() {
         const idToken = await currentUser.getIdToken();
 
         // Subscribe to response channel FIRST to ensure we don't miss the reply
-        const responseChannel = supabase.channel(`student_wait_response_${currentUser.uid}`);
+        responseChannel = supabase.channel(`student_wait_response_${currentUser.uid}`);
 
         responseChannel
           .on('broadcast', { event: 'wait_accepted' }, async () => {
@@ -174,7 +176,7 @@ function TrackBusLive() {
             setWaitRequestPending(false);
             addToast("Driver agreed to wait! Hurry up and board the bus!", "success");
             // Clean up channel after short delay
-            setTimeout(() => supabase.removeChannel(responseChannel), 5000);
+            setTimeout(() => supabase.removeChannel(responseChannel!), 5000);
           })
           .on('broadcast', { event: 'wait_rejected' }, async () => {
             console.log("❌ Driver REJECTED the wait request.");
@@ -186,7 +188,7 @@ function TrackBusLive() {
             await proceedWithStandardMissedBusRequest();
 
             // Clean up channel
-            setTimeout(() => supabase.removeChannel(responseChannel), 5000);
+            setTimeout(() => supabase.removeChannel(responseChannel!), 5000);
           })
           .subscribe();
 
@@ -219,7 +221,7 @@ function TrackBusLive() {
             if (current === 'pending') {
               console.log("⏱️ Wait request timed out. Proceeding with standard logic.");
               setWaitRequestPending(false);
-              supabase.removeChannel(responseChannel);
+              if (responseChannel) supabase.removeChannel(responseChannel);
               // Fire-and-forget the fallback — we can't await inside setState
               proceedWithStandardMissedBusRequest();
               return 'rejected';
@@ -235,6 +237,11 @@ function TrackBusLive() {
         setWaitRequestPending(false);
         // On error, just fallback
         await proceedWithStandardMissedBusRequest();
+      } finally {
+        // Ensure channel is always cleaned up on all exit paths
+        if (responseChannel) {
+          supabase.removeChannel(responseChannel);
+        }
       }
       return;
     }
@@ -295,6 +302,7 @@ function TrackBusLive() {
   const hasShownLocationErrorRef = useRef(false);
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
   const hasShownArrivalToastRef = useRef(false); // Track if 100m arrival toast shown
+  const waitFlagBroadcastChannelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
 
   // Calculate distance between two points (Haversine formula)
   const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
@@ -392,6 +400,16 @@ function TrackBusLive() {
       }
     };
   }, []); // Run once on mount
+
+  // Cleanup wait flag broadcast channel on unmount
+  useEffect(() => {
+    return () => {
+      if (waitFlagBroadcastChannelRef.current) {
+        supabase.removeChannel(waitFlagBroadcastChannelRef.current);
+        waitFlagBroadcastChannelRef.current = null;
+      }
+    };
+  }, []);
 
   // Fetch student data
   useEffect(() => {
@@ -971,6 +989,7 @@ function TrackBusLive() {
 
       // Broadcast removal to driver
       const channel = supabase.channel(`waiting_flags_${busData.busId}`);
+      waitFlagBroadcastChannelRef.current = channel;
       const broadcastResult = await channel.send({
         type: "broadcast",
         event: "waiting_flag_removed",
@@ -986,6 +1005,7 @@ function TrackBusLive() {
 
       // Remove the one-shot broadcast channel so it doesn't leak on repeated cancels.
       supabase.removeChannel(channel);
+      waitFlagBroadcastChannelRef.current = null;
 
       setIsWaiting(false);
       setCurrentFlagId(null);
@@ -1003,6 +1023,11 @@ function TrackBusLive() {
       console.error("Error removing waiting flag:", error);
       addToast("Failed to remove waiting flag", "error");
     } finally {
+      // Ensure broadcast channel is always cleaned up
+      if (waitFlagBroadcastChannelRef.current) {
+        supabase.removeChannel(waitFlagBroadcastChannelRef.current);
+        waitFlagBroadcastChannelRef.current = null;
+      }
       setSubmittingFlag(false);
     }
   };
@@ -1125,6 +1150,7 @@ function TrackBusLive() {
   }
 
   return (
+    <ErrorBoundary>
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50/30 to-purple-50/20 dark:from-gray-950 dark:via-blue-950/20 dark:to-purple-950/10">
       <div className="container mx-auto px-4 pb-4 pt-20 md:px-6 md:pb-6 md:pt-24 space-y-6">
         {/* Optimized Header */}
@@ -1571,6 +1597,7 @@ function TrackBusLive() {
         }
       </div>
     </div>
+    </ErrorBoundary>
   );
 }
 
