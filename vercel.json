@@ -31,6 +31,10 @@
     {
       "path": "/api/cron/integrity-sweep",
       "schedule": "17 3 * * *"
+    },
+    {
+      "path": "/api/cron/session-activation",
+      "schedule": "23 2 * * *"
     }
   ]
 }

@@ -5,5 +5,24 @@
  * MUST import the name from here to prevent silent drift.
  */
 
-/** Top-level settings document collection (deadline, ui, system config, etc.) */
+// ── User / Entity collections ──────────────────────────────────
+export const USERS_COLLECTION = 'users';
+export const STUDENTS_COLLECTION = 'students';
+export const DRIVERS_COLLECTION = 'drivers';
+export const MODERATORS_COLLECTION = 'moderators';
+export const ADMINS_COLLECTION = 'admins';
+export const BUSES_COLLECTION = 'buses';
+export const ROUTES_COLLECTION = 'routes';
+export const APPLICATIONS_COLLECTION = 'applications';
+export const NOTIFICATIONS_COLLECTION = 'notifications';
+
+// ── Operational collections ─────────────────────────────────────
+export const ACTIVITY_LOGS_COLLECTION = 'activity_logs';
+export const ADMIN_ACTIONS_COLLECTION = 'adminActions';
+export const RENEWAL_REQUESTS_COLLECTION = 'renewal_requests';
+export const DRIVER_SWAP_REQUESTS_COLLECTION = 'driver_swap_requests';
+export const DRIVER_SWAP_AUDIT_COLLECTION = 'driver_swap_audit';
+export const SYSTEM_SIGNALS_COLLECTION = 'systemSignals';
+
+// ── Settings ───────────────────────────────────────────────────
 export const SETTINGS_COLLECTION = 'settings';

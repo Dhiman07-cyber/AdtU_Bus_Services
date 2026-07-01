@@ -5,20 +5,19 @@ import { getCurrentBusFee } from '@/lib/bus-fee-service';
 import { withSecurity } from '@/lib/security/api-security';
 import { RenewServiceV2Schema } from '@/lib/security/validation-schemas';
 import { RateLimits } from '@/lib/security/rate-limiter';
-import { generateOfflinePaymentId } from '@/lib/types/payment';
-import { PaymentTransactionService } from '@/lib/payment/payment-transaction.service';
 
 type RenewServiceBody = {
   durationYears: number;
   paymentMode: 'online' | 'offline';
   transactionId?: string;
   receiptImageUrl?: string;
+  paidAt?: string; // ISO timestamp of when student claims payment was made (offline only)
 };
 
 export const POST = withSecurity<RenewServiceBody>(
   async (_request, { auth, body }) => {
     const userId = auth.uid;
-    const { durationYears, paymentMode, transactionId, receiptImageUrl } = body;
+    const { durationYears, paymentMode, transactionId, receiptImageUrl, paidAt } = body;
 
     const studentDoc = await adminDb.collection('students').doc(userId).get();
     if (!studentDoc.exists) {
@@ -58,8 +57,6 @@ export const POST = withSecurity<RenewServiceBody>(
     }
 
     if (paymentMode === 'offline') {
-      const paymentId = generateOfflinePaymentId('renewal');
-
       // ATOMIC duplicate guard: use a deterministic document ID derived from
       // studentId + a daily bucket so concurrent requests cannot both pass the
       // pending-check and create duplicate renewal requests. The transaction
@@ -77,12 +74,8 @@ export const POST = withSecurity<RenewServiceBody>(
             if (existing?.status === 'pending') {
               throw new Error('DUPLICATE_PENDING');
             }
-            // If already approved/rejected, allow a new request for a different day
-            // (the daily bucket naturally handles this).
           }
 
-          // Create the renewal request inside the transaction — guarantees
-          // exactly one request per student per day.
           transaction.set(dedupeRef, {
             studentId: userId,
             enrollmentId,
@@ -91,8 +84,8 @@ export const POST = withSecurity<RenewServiceBody>(
             totalFee,
             transactionId: transactionId || '',
             receiptImageUrl: receiptImageUrl || '',
+            paidAt: paidAt || '',
             paymentMode: 'offline',
-            paymentId,
             status: 'pending',
             createdAt: FieldValue.serverTimestamp(),
             updatedAt: FieldValue.serverTimestamp(),
@@ -112,30 +105,10 @@ export const POST = withSecurity<RenewServiceBody>(
         );
       }
 
-      // Payment record is saved AFTER the Firestore transaction succeeds.
-      // The payment ID is deterministic (derived from offlineTransactionId or
-      // a generated ID), so Supabase upsert is idempotent on retries.
-      try {
-        await PaymentTransactionService.saveTransaction({
-          studentId: enrollmentId,
-          studentName,
-          userId,
-          amount: totalFee,
-          paymentMethod: 'offline',
-          paymentId,
-          timestamp: new Date().toISOString(),
-          durationYears,
-          validUntil: '',
-          status: 'pending',
-          offlineTransactionId: transactionId || '',
-        });
-      } catch (supabaseError) {
-        console.error('Failed to create pending renewal payment ledger:', supabaseError);
-        // Payment ledger write failed but the renewal request exists as pending.
-        // This is a recoverable state: the admin can approve the renewal and the
-        // payment will be recorded at approval time, or a cron can reconcile.
-        console.error(`🔴 RECOVERY NEEDED: Renewal request created for ${userId} but payment ${paymentId} was not persisted to Supabase`);
-      }
+      // OFFLINE PAYMENT: No Supabase payment row is created at submission time.
+      // Financial ledger records are created ONLY after admin/moderator verification
+      // and approval. The student's submitted payment details (transactionId,
+      // receiptImageUrl) are stored in the renewal request for review.
 
       const [adminsSnapshot, moderatorsSnapshot] = await Promise.all([
         adminDb.collection('admins').get(),

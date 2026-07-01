@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { verifyToken, adminDb } from '@/lib/firebase-admin';
 import { paymentsSupabaseService } from '@/lib/services/payments-supabase';
 import { decryptData } from '@/lib/security/encryption.service';
+import { getDeadlineConfig } from '@/lib/deadline-config-service';
 
 export async function GET(request: NextRequest) {
   try {
@@ -32,9 +33,17 @@ export async function GET(request: NextRequest) {
     const startYear = parseInt(startYearStr);
     const endYear = parseInt(endYearStr);
 
-    // Academic cycle is from July to June
-    const startDate = new Date(Date.UTC(startYear, 6, 1, 0, 0, 0)); // July 1st of startYear
-    const endDate = new Date(Date.UTC(endYear, 5, 30, 23, 59, 59, 999)); // June 30th of endYear
+    // Fetch dynamic deadline config
+    const config = await getDeadlineConfig();
+    const anchorMonth = config.academicYear.anchorMonth;
+    const anchorDay = config.academicYear.anchorDay;
+
+    // The academic cycle ending in endYear starts the day after the anchor in (endYear - 1)
+    const startDate = new Date(Date.UTC(endYear - 1, anchorMonth, anchorDay, 0, 0, 0));
+    startDate.setUTCDate(startDate.getUTCDate() + 1);
+
+    // The academic cycle ends on the anchor date of endYear
+    const endDate = new Date(Date.UTC(endYear, anchorMonth, anchorDay, 23, 59, 59, 999));
 
     const payments = await paymentsSupabaseService.getPaymentsForExport(startDate, endDate);
 

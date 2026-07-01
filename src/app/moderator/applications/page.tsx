@@ -387,6 +387,16 @@ export default function ModeratorApplicationsPage() {
     busNumber: string;
     shift: string;
   } => {
+    // Upcoming applications do not check capacity or occupy seats until activation
+    if (isUpcomingApplication(item)) {
+      return {
+        needsCapacityReview: false,
+        reassignmentReason: 'no_issue',
+        busNumber: item.formData?.busAssigned || 'Unknown',
+        shift: item.formData?.shift || 'Morning'
+      };
+    }
+
     // If stored data already has capacity review info, use it
     if (item.needsCapacityReview && item.reassignmentReason) {
       return {
@@ -896,28 +906,14 @@ export default function ModeratorApplicationsPage() {
                           </div>
                         </div>
 
-                        {/* Upcoming (future-session) lifecycle banner — derived from the
-                            frozen eligibleApproval date. Waiting = not yet approvable;
-                            Eligible = the existing approval flow is unlocked. */}
+                        {/* Upcoming (future-session) lifecycle banner — indicates verification status */}
                         {isUpcoming && (
-                          <div className={cn(
-                            "mt-3 rounded-lg p-3 border flex items-start gap-2.5",
-                            isEligibleNow
-                              ? "bg-emerald-500/5 border-emerald-500/20"
-                              : "bg-purple-500/5 border-purple-500/20"
-                          )}>
-                            {isEligibleNow ? (
-                              <Check className="h-4 w-4 text-emerald-400 shrink-0 mt-0.5" />
-                            ) : (
-                              <Clock className="h-4 w-4 text-purple-400 shrink-0 mt-0.5" />
-                            )}
+                          <div className="mt-3 rounded-lg p-3 border bg-indigo-500/5 border-indigo-500/20 flex items-start gap-2.5">
+                            <Clock className="h-4 w-4 text-indigo-400 shrink-0 mt-0.5" />
                             <div className="flex-1">
                               <div className="flex items-center gap-2 flex-wrap">
-                                <h4 className={cn(
-                                  "font-semibold text-xs",
-                                  isEligibleNow ? "text-emerald-400" : "text-purple-300"
-                                )}>
-                                  {isEligibleNow ? "Eligible for Approval" : "Waiting for Eligibility"}
+                                <h4 className="font-semibold text-xs text-indigo-300">
+                                  Upcoming Session Application
                                 </h4>
                                 {item.targetSession && (
                                   <Badge variant="outline" className="text-[9px] h-4 px-1.5 border-white/10 text-zinc-400">
@@ -926,9 +922,7 @@ export default function ModeratorApplicationsPage() {
                                 )}
                               </div>
                               <p className="text-[11px] text-zinc-400 mt-1 leading-relaxed">
-                                {isEligibleNow
-                                  ? "Seats for the upcoming session are now available. This application can be approved through the normal flow."
-                                  : `This future-session application becomes approvable on ${item.eligibleApproval ? new Date(item.eligibleApproval).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : 'its eligibility date'}. It does not occupy a seat or affect capacity until approved.`}
+                                This application is for the upcoming session and will transition to verified status upon review. It does not occupy a seat or affect capacity until session activation.
                               </p>
                             </div>
                           </div>
@@ -1101,18 +1095,15 @@ export default function ModeratorApplicationsPage() {
                             <Button
                               className={cn(
                                 "w-full h-10 gap-2 font-medium shadow-lg shadow-emerald-900/20 hover:shadow-emerald-900/40 hover:scale-[1.02] active:scale-[0.98] transition-all",
-                                (needsCapacityReview || (isUpcoming && !isEligibleNow))
+                                needsCapacityReview
                                   ? "bg-emerald-600/50 text-white/50 cursor-not-allowed"
                                   : "bg-emerald-600 hover:bg-emerald-500 text-white"
                               )}
                               onClick={() => handleApprove(item.applicationId)}
-                              disabled={needsCapacityReview || (isUpcoming && !isEligibleNow) || approving === item.applicationId}
-                              title={isUpcoming && !isEligibleNow && item.eligibleApproval
-                                ? `Approvable from ${new Date(item.eligibleApproval).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}`
-                                : undefined}
+                              disabled={needsCapacityReview || approving === item.applicationId}
                             >
-                              {approving === item.applicationId ? <Loader2 className="h-4 w-4 animate-spin" /> : (isUpcoming && !isEligibleNow) ? <Clock className="h-4 w-4" /> : <Check className="h-4 w-4" />}
-                              {isUpcoming && !isEligibleNow ? "Not Yet Eligible" : "Approve"}
+                              {approving === item.applicationId ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
+                              {isUpcoming ? "Verify" : "Approve"}
                             </Button>
                           )}
 

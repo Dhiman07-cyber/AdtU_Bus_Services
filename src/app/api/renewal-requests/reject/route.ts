@@ -80,26 +80,12 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Student ID not found in request' }, { status: 400 });
     }
 
-    if (requestData?.paymentId) {
-      try {
-        const { paymentsSupabaseService } = await import('@/lib/services/payments-supabase');
-        await paymentsSupabaseService.updatePaymentStatus(requestData.paymentId, 'Rejected', {
-          userId: uid,
-          name: rejectorData?.fullName || rejectorData?.name || rejectorName,
-          empId: rejectorData?.employeeId || rejectorData?.staffId || '',
-          role: adminDoc.exists ? 'Admin' : 'Moderator',
-        });
-      } catch (paymentError) {
-        console.error('Failed to reject pending renewal payment:', paymentError);
-      }
-    }
-
     console.log('\n🚫 REJECTING RENEWAL REQUEST');
     console.log('Request ID:', requestId);
     console.log('Student ID:', studentId);
     console.log('Reason:', reason);
 
-    // Fetch student email if not in request
+    // Fetch student email if not in request (read-only, safe before transaction)
     let studentEmail = requestData?.studentEmail;
     if (!studentEmail && studentId) {
       try {
@@ -121,32 +107,12 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Send Rejection Email via Service
-    if (studentEmail) {
-      try {
-        const { sendApplicationRejectedNotification } = await import('@/lib/services/admin-email.service');
-
-        console.log(`📧 Notification: Queuing renewal rejection email for request ${requestId}`);
-
-        await sendApplicationRejectedNotification({
-          studentName: requestData?.studentName || 'Student',
-          studentEmail: studentEmail,
-          reason: reason,
-          rejectedBy: rejectorName || 'Administrator'
-        });
-
-        console.log(`📧 Rejection email sent for request ${requestId}`);
-      } catch (emailError) {
-        console.error('❌ Failed to send rejection email:', emailError);
-        // Continue with deletion even if email fails
-      }
-    } else {
-      console.warn('⚠️ Student email not found. Notification skipped.');
-    }
-
     // ── Tier A: a rejection PERMANENTLY destroys the renewal request. Delete it
     //    and write the audit (who/when/WHY/snapshot of WHAT) in ONE transaction,
     //    re-reading status inside for idempotency (concurrent double-reject).
+    //    Payment update and email are sent ONLY after this transaction succeeds
+    //    to prevent partial-commit where student is notified of a rejection
+    //    that never actually happened.
     try {
       const destroyedSnapshot = {
         studentId,
@@ -183,6 +149,48 @@ export async function POST(request: NextRequest) {
       }
       console.error('❌ Failed to delete renewal request:', deleteError);
       return NextResponse.json({ error: 'Failed to reject renewal request' }, { status: 500 });
+    }
+
+    // ── Post-commit: payment update + email + Cloudinary cleanup.
+    //    These are non-critical side effects that run ONLY after the transaction
+    //    guarantees the renewal request was actually deleted.
+
+    // Update payment status to Rejected (post-commit, non-critical)
+    if (requestData?.paymentId) {
+      try {
+        const { paymentsSupabaseService } = await import('@/lib/services/payments-supabase');
+        await paymentsSupabaseService.updatePaymentStatus(requestData.paymentId, 'Rejected', {
+          userId: uid,
+          name: rejectorData?.fullName || rejectorData?.name || rejectorName,
+          empId: rejectorData?.employeeId || rejectorData?.staffId || '',
+          role: adminDoc.exists ? 'Admin' : 'Moderator',
+        });
+      } catch (paymentError) {
+        console.error('Failed to reject pending renewal payment (non-critical):', paymentError);
+      }
+    }
+
+    // Send Rejection Email (post-commit, non-critical)
+    if (studentEmail) {
+      try {
+        const { sendApplicationRejectedNotification } = await import('@/lib/services/admin-email.service');
+
+        console.log(`📧 Notification: Queuing renewal rejection email for request ${requestId}`);
+
+        await sendApplicationRejectedNotification({
+          studentName: requestData?.studentName || 'Student',
+          studentEmail: studentEmail,
+          reason: reason,
+          rejectedBy: rejectorName || 'Administrator'
+        });
+
+        console.log(`📧 Rejection email sent for request ${requestId}`);
+      } catch (emailError) {
+        console.error('❌ Failed to send rejection email:', emailError);
+        // Non-critical: rejection is already committed
+      }
+    } else {
+      console.warn('⚠️ Student email not found. Notification skipped.');
     }
 
     // Invariant 7: Delete assets ONLY after transaction commit succeeds

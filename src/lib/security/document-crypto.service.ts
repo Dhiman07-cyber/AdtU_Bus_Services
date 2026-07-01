@@ -94,7 +94,9 @@ function getKeyPair(): { privateKey: string; publicKey: string } {
         });
 
         cachedKeyPair = { privateKey, publicKey };
-        console.warn('Document signing keys are generated in-memory for development. Configure DOCUMENT_PRIVATE_KEY and DOCUMENT_PUBLIC_KEY before production.');
+        if (process.env.NODE_ENV !== 'test' && !process.env.VITEST) {
+            console.warn('Document signing keys are generated in-memory for development. Configure DOCUMENT_PRIVATE_KEY and DOCUMENT_PUBLIC_KEY before production.');
+        }
         return cachedKeyPair;
     } catch (error) {
         console.error('Failed to generate key pair:', error);

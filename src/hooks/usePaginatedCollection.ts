@@ -50,8 +50,9 @@ interface CacheEntry<T> {
 }
 
 const dataCache = new Map<string, CacheEntry<any>>();
+const MAX_CACHE_ENTRIES = 100;
 
-export function getDefaultTTL(collectionName: string): number {
+function getDefaultTTL(collectionName: string): number {
     switch (collectionName) {
         case 'payments':
         case 'applications':
@@ -92,6 +93,11 @@ function getCachedData<T>(key: string, ttl: number): T[] | null {
 }
 
 function setCachedData<T>(key: string, data: T[]): void {
+    // Evict oldest entries when cache is full
+    if (dataCache.size >= MAX_CACHE_ENTRIES) {
+        const oldestKey = dataCache.keys().next().value;
+        if (oldestKey) dataCache.delete(oldestKey);
+    }
     dataCache.set(key, { data, timestamp: Date.now() });
 }
 
@@ -108,10 +114,7 @@ export function invalidateCollectionCache(collectionName: string): void {
     });
 }
 
-// Clear all cache (use sparingly)
-export function clearAllCache(): void {
-    dataCache.clear();
-}
+
 
 
 // ============================================================================
@@ -172,16 +175,6 @@ export interface UsePaginatedCollectionResult<T> {
  *   'students',
  *   { pageSize: 50, orderByField: 'updatedAt', orderDirection: 'desc' }
  * );
- * 
- * // With constraints
- * const { data } = usePaginatedCollectionWithQuery<Student>(
- *   () => query(
- *     collection(db, 'students'), 
- *     where('status', '==', 'active'),
- *     orderBy('updatedAt', 'desc')
- *   ),
- *   { pageSize: 50 }
- * );
  * ```
  */
 export function usePaginatedCollection<T = DocumentData>(
@@ -220,6 +213,7 @@ export function usePaginatedCollection<T = DocumentData>(
     const maxRetries = 3;
     const isMountedRef = useRef(true);
     const lastFetchRef = useRef<number>(0);
+    const fetchPageRef = useRef<(isNextPage?: boolean, bypassCache?: boolean) => Promise<void>>(undefined);
 
     // Memoized query factory
     const createQuery = useCallback(() => {
@@ -315,8 +309,8 @@ export function usePaginatedCollection<T = DocumentData>(
 
                 retryTimerRef.current = setTimeout(() => {
                     retryTimerRef.current = null;
-                    if (isMountedRef.current) {
-                        fetchPage(isNextPage);
+                    if (isMountedRef.current && fetchPageRef.current) {
+                        fetchPageRef.current(isNextPage);
                     }
                 }, backoffMs);
             }
@@ -326,6 +320,9 @@ export function usePaginatedCollection<T = DocumentData>(
             }
         }
     }, [currentUser, enabled, createQuery, effectivePageSize, cursor, collectionName]);
+
+    // Keep ref current so retry timer always calls the latest fetchPage
+    fetchPageRef.current = fetchPage;
 
     // Public methods
     const fetchNextPage = useCallback(async () => {
@@ -387,154 +384,6 @@ export function usePaginatedCollection<T = DocumentData>(
         isAutoRefreshing: autoRefresh && isVisible && isOnline,
         setAutoRefresh,
     };
-}
-
-// ============================================================================
-// ADVANCED HOOK WITH CUSTOM QUERY
-// ============================================================================
-
-/**
- * Paginated collection hook that accepts a custom query factory.
- * Use this when you need WHERE clauses or complex ordering.
- * 
- * IMPORTANT: Your query MUST include orderBy() for pagination to work correctly.
- */
-export function usePaginatedCollectionWithQuery<T = DocumentData>(
-    queryFactory: () => Query<DocumentData>,
-    options: Omit<UsePaginatedCollectionOptions, 'orderByField' | 'orderDirection'> = {}
-): UsePaginatedCollectionResult<T> {
-    const {
-        pageSize = DEFAULT_PAGE_SIZE,
-        autoRefresh: initialAutoRefresh = false,
-        autoRefreshInterval = POLLING_INTERVAL_MS,
-        fetchOnMount = true,
-        enabled = true,
-    } = options;
-
-    const effectivePageSize = Math.min(pageSize, MAX_QUERY_LIMIT);
-
-    const { currentUser } = useAuth();
-    const { isVisible, isOnline } = useVisibilityAwareListener();
-
-    const [pages, setPages] = useState<T[][]>([]);
-    const [cursor, setCursor] = useState<QueryDocumentSnapshot | null>(null);
-    const [loading, setLoading] = useState(false);
-    const [error, setError] = useState<Error | null>(null);
-    const [hasMore, setHasMore] = useState(true);
-    const [autoRefresh, setAutoRefresh] = useState(initialAutoRefresh);
-
-    const isMountedRef = useRef(true);
-    const retryCountRef = useRef(0);
-
-    const fetchPage = useCallback(async (isNextPage: boolean = false, bypassCache: boolean = false) => {
-        if (!currentUser || !enabled) {
-            setLoading(false);
-            return;
-        }
-
-        setLoading(true);
-        setError(null);
-
-        try {
-            let q = queryFactory();
-
-            const constraints: QueryConstraint[] = [limit(effectivePageSize)];
-            if (isNextPage && cursor) {
-                constraints.push(startAfter(cursor));
-            }
-
-            q = query(q, ...constraints);
-
-            const fetcher = bypassCache ? getDocsFromServer : getDocs;
-            const snapshot = await fetcher(q);
-
-            if (!isMountedRef.current) return;
-
-            const docs = snapshot.docs.map(doc => ({
-                id: doc.id,
-                ...doc.data()
-            })) as T[];
-
-            const lastDoc = snapshot.docs[snapshot.docs.length - 1] || null;
-            setCursor(lastDoc);
-            setHasMore(snapshot.docs.length === effectivePageSize);
-            setPages(prev => isNextPage ? [...prev, docs] : [docs]);
-            retryCountRef.current = 0;
-
-        } catch (err) {
-            console.error('[usePaginatedCollectionWithQuery] Fetch error:', err);
-            if (isMountedRef.current) {
-                setError(err as Error);
-            }
-        } finally {
-            if (isMountedRef.current) {
-                setLoading(false);
-            }
-        }
-    }, [currentUser, enabled, queryFactory, effectivePageSize, cursor]);
-
-    const fetchNextPage = useCallback(async () => {
-        if (!hasMore || loading) return;
-        await fetchPage(true);
-    }, [hasMore, loading, fetchPage]);
-
-    const refresh = useCallback(async () => {
-        setCursor(null);
-        setHasMore(true);
-        // SPARK PLAN FIX: Don't clear pages immediately to prevent UI flash
-        // setPages([]);
-        await fetchPage(false, true);
-    }, [fetchPage]);
-
-    useEffect(() => {
-        isMountedRef.current = true;
-        if (fetchOnMount && enabled && currentUser) {
-            fetchPage(false);
-        }
-        return () => { isMountedRef.current = false; };
-    }, [fetchOnMount, enabled, currentUser?.uid]); // eslint-disable-line react-hooks/exhaustive-deps
-
-    useEffect(() => {
-        if (!autoRefresh || !enabled || !isVisible || !isOnline) return;
-        const id = setInterval(() => {
-            if (isVisible && isOnline && isMountedRef.current) {
-                refresh();
-            }
-        }, autoRefreshInterval);
-        return () => clearInterval(id);
-    }, [autoRefresh, enabled, isVisible, isOnline, autoRefreshInterval, refresh]);
-
-    const data = useMemo(() => pages.flat(), [pages]);
-
-    return {
-        data,
-        loading,
-        error,
-        fetchNextPage,
-        refresh,
-        hasMore,
-        totalFetched: data.length,
-        isAutoRefreshing: autoRefresh && isVisible && isOnline,
-        setAutoRefresh,
-    };
-}
-
-// ============================================================================
-// DEPRECATED COMPATIBILITY EXPORT
-// ============================================================================
-
-/**
- * @deprecated Use usePaginatedCollection instead. This export exists only
- * for migration compatibility and will be removed in a future version.
- * 
- * This function THROWS an error to force migration away from unbounded listeners.
- */
-export function useRealtimeCollection(): never {
-    throw new Error(
-        '[FIRESTORE SAFETY] useRealtimeCollection has been disabled to prevent quota exhaustion. ' +
-        'Please migrate to usePaginatedCollection or usePaginatedCollectionWithQuery. ' +
-        'See: https://firebase.google.com/docs/firestore/quotas'
-    );
 }
 
 export default usePaginatedCollection;

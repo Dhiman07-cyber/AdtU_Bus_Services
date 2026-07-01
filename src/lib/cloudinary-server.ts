@@ -24,10 +24,12 @@ const API_KEY = process.env.CLOUDINARY_API_KEY;
 const API_SECRET = process.env.CLOUDINARY_API_SECRET;
 
 if (!CLOUD_NAME || !API_KEY || !API_SECRET) {
-    console.error(
-        '[cloudinary-server] ⚠️ Missing env var(s): ' +
-        'CLOUDINARY_CLOUD_NAME | CLOUDINARY_API_KEY | CLOUDINARY_API_SECRET'
-    );
+    if (process.env.NODE_ENV !== 'test' && !process.env.VITEST) {
+        console.error(
+            '[cloudinary-server] ⚠️ Missing env var(s): ' +
+            'CLOUDINARY_CLOUD_NAME | CLOUDINARY_API_KEY | CLOUDINARY_API_SECRET'
+        );
+    }
 }
 
 // ── Configure SDK (idempotent — safe to call multiple times) ────────────────

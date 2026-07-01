@@ -31,6 +31,11 @@ export interface DeadlineConfig {
     lastUpdated: string;
     lastUpdatedBy?: string;
 
+    academicSessionStart: {
+        month: number; // 0-indexed (e.g. 6 = July)
+        day: number;   // Day of month (1-31)
+    };
+
     /**
      * Academic Year Anchor
      * The date when each academic year's bus service expires
@@ -108,7 +113,6 @@ export interface DeadlineConfig {
     /**
      * @deprecated These fields are deprecated. Payment exports now use explicit date parameters.
      * Payments are stored permanently in Supabase and never deleted.
-     * Use GET /api/cron/annual-export?year=2024 to specify export year.
      */
     paymentExportStartYear?: number; // DEPRECATED - not used
     paymentExportInterval?: number;  // DEPRECATED - not used

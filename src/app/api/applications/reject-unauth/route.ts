@@ -5,8 +5,7 @@ import { sendApplicationRejectedNotification } from '@/lib/services/admin-email.
 import { requireModeratorPermission } from '@/lib/security/moderator-permissions';
 import { writeAuditInTransaction } from '@/lib/audit/audit-service';
 import { Application } from '@/lib/types/application';
-
-class ApplicationGoneError extends Error {}
+import { ApplicationGoneError } from '@/lib/errors/sentinel-errors';
 
 // Configure Cloudinary
 if (process.env.CLOUDINARY_API_KEY && process.env.CLOUDINARY_API_SECRET && process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME) {
@@ -70,10 +69,11 @@ export async function POST(request: NextRequest) {
     const formData = appData.formData;
     const now = new Date().toISOString();
 
-    // Validate state - must be submitted
-    if (appData.state !== 'submitted') {
+    // Allow rejection from any pre-activation live state.
+    const REJECTABLE_STATES = new Set(['submitted', 'verified_upcoming', 'pending_seat_allocation']);
+    if (!REJECTABLE_STATES.has(appData.state)) {
       return NextResponse.json({
-        error: 'Application must be submitted before rejection'
+        error: 'Application is not in a rejectable state'
       }, { status: 400 });
     }
 
@@ -103,7 +103,7 @@ export async function POST(request: NextRequest) {
       };
       await adminDb.runTransaction(async (transaction) => {
         const fresh = await transaction.get(applicationRef);
-        if (!fresh.exists || (fresh.data() as Application).state !== 'submitted') {
+        if (!fresh.exists || !REJECTABLE_STATES.has((fresh.data() as Application).state)) {
           throw new ApplicationGoneError();
         }
         transaction.delete(applicationRef);

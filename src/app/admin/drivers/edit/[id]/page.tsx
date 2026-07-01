@@ -814,7 +814,7 @@ export default function EditDriverPage({ params }: { params: Promise<{ id: strin
                     </Label>
                     <div
                       onClick={() => addToast('To reassign drivers to a different route, please visit the Driver Reassignment page.', 'info')}
-                      className="cursor-pointer"
+                      className="cursor-default"
                     >
                       <Input
                         type="text"
@@ -836,7 +836,7 @@ export default function EditDriverPage({ params }: { params: Promise<{ id: strin
                     </Label>
                     <div
                       onClick={() => addToast('To reassign drivers to a different bus, please visit the Driver Reassignment page.', 'info')}
-                      className="cursor-pointer"
+                      className="cursor-default"
                     >
                       <Input
                         type="text"

@@ -114,8 +114,8 @@ export default function StudentProfilePage() {
 
   const formatDate = formatDateFlexible;
 
-  const formatCurrency = (amount: number) => {
-    if (!amount) return '₹0';
+  const formatCurrency = (amount: number | undefined) => {
+    if (amount === undefined || amount === null) return '₹0';
     return `₹${amount.toLocaleString()}`;
   };
 

@@ -4,6 +4,7 @@ import { calculateRenewalDate } from '@/lib/utils/renewal-utils';
 import { buildCapacityDelta, sendBusFullAlert } from '@/lib/busCapacityService';
 import { generateOfflinePaymentId } from '@/lib/types/payment';
 import { computeBlockDatesFromValidUntil } from '@/lib/utils/deadline-computation';
+import { DEFAULT_BUS_FEE } from '@/config/runtime';
 import {
     sendStudentAddedNotification,
     getAdminEmailRecipients,
@@ -143,7 +144,7 @@ export const POST = withSecurity<CreateUserBody>(
             }
 
             const blockDates = computeBlockDatesFromValidUntil(finalValidUntil, deadlineConfig);
-            const busFeeAmount = systemConfig?.busFee?.amount || 5000;
+            const busFeeAmount = systemConfig?.busFee?.amount || DEFAULT_BUS_FEE;
             const totalAmount = busFeeAmount * finalDuration;
             const paymentId = totalAmount > 0 ? generateOfflinePaymentId('new_registration') : null;
 

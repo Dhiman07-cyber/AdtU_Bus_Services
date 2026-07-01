@@ -547,32 +547,7 @@ class PaymentsSupabaseService {
         }
     }
 
-    /**
-     * Get payments by student ID (Enrollment ID) with pagination
-     */
-    async getPaymentsByStudentId(
-        studentId: string,
-        options?: { limit?: number; offset?: number }
-    ): Promise<PaymentRecord[]> {
-        if (!this.isReady()) return [];
 
-        const limit = options?.limit || 100;
-        const offset = options?.offset || 0;
-
-        try {
-            const { data, error } = await this.supabase
-                .from('payments')
-                .select('*')
-                .eq('student_id', studentId)
-                .order('created_at', { ascending: false })
-                .range(offset, offset + limit - 1);
-
-            if (error) return [];
-            return (data || []).map(p => this.decryptRecord(p as PaymentRecord));
-        } catch {
-            return [];
-        }
-    }
 
     /**
      * Get all payments for a date range (for export/reporting)

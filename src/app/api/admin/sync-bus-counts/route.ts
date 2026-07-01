@@ -3,6 +3,7 @@ import { adminDb } from '@/lib/firebase-admin';
 import { withSecurity } from '@/lib/security/api-security';
 import { EmptySchema } from '@/lib/security/validation-schemas';
 import { RateLimits } from '@/lib/security/rate-limiter';
+import { wasSeatReleased } from '@/lib/config/capacity-flags';
 
 export const POST = withSecurity(
     async () => {
@@ -17,17 +18,25 @@ export const POST = withSecurity(
 
         console.log(`📊 Found ${buses.length} buses to process`);
 
-        // Get all active students
+        // Get all students who might occupy seats: active students always occupy,
+        // soft_blocked/pending_deletion occupy ONLY when seatReleasedAt is absent
+        // (legacy mode). Query all three statuses and filter below.
         const studentsSnapshot = await adminDb.collection('students')
-            .where('status', '==', 'active')
+            .where('status', 'in', ['active', 'soft_blocked', 'pending_deletion'])
             .get();
 
         const students = studentsSnapshot.docs.map((doc: any) => ({
             id: doc.id,
             ...doc.data()
-        }));
+        })).filter((student: any) => {
+            // In legacy mode (seatReleasedAt absent), all statuses occupy seats.
+            // In new architecture (seatReleasedAt present), only active students occupy.
+            // Active students always occupy; soft_blocked/pending_deletion only if no release marker.
+            if (student.status === 'active') return true;
+            return !wasSeatReleased(student);
+        });
 
-        console.log(`👥 Found ${students.length} active students`);
+        console.log(`👥 Found ${students.length} seat-occupying students`);
 
         const busCounts = new Map<string, { morningCount: number; eveningCount: number; total: number; stopCounts: Record<string, number> }>();
 

@@ -1,9 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { adminAuth, adminDb } from '@/lib/firebase-admin';
-import { generateOfflinePaymentId } from '@/lib/types/payment';
-import { PaymentTransactionService } from '@/lib/payment/payment-transaction.service';
 import { getDeadlineConfig } from '@/lib/deadline-config-service';
 import { deriveCreationCategorisation } from '@/lib/utils/application-eligibility';
+import { checkBusCapacity } from '@/lib/busCapacityService';
 
 type JsonRecord = Record<string, unknown>;
 
@@ -36,7 +35,7 @@ export async function POST(request: NextRequest) {
     if ('age' in rawFormData) {
       delete rawFormData.age;
     }
-    const needsCapacityReview = body.needsCapacityReview === true;
+    const needsCapacityReview = body.needsCapacityReview === true; // ignored — computed server-side below
 
     if (Object.keys(rawFormData).length === 0) {
       return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
@@ -57,7 +56,14 @@ export async function POST(request: NextRequest) {
     const existingAppSnap = await adminDb.collection('applications').doc(uid).get();
     if (existingAppSnap.exists) {
       const existingState = asString(existingAppSnap.data()?.state);
-      const LIVE_STATES = ['submitted', 'approved', 'verified', 'awaiting_verification'];
+      const LIVE_STATES = [
+        'submitted',
+        'approved',
+        'verified',
+        'awaiting_verification',
+        'verified_upcoming',
+        'pending_seat_allocation',
+      ];
       if (LIVE_STATES.includes(existingState)) {
         return NextResponse.json(
           {
@@ -71,7 +77,7 @@ export async function POST(request: NextRequest) {
     }
     const paymentId = isOnlinePayment
       ? asString(paymentInfo.razorpayPaymentId)
-      : generateOfflinePaymentId('new_registration');
+      : '';
     const amountPaid = Number(paymentInfo.amountPaid || 0);
 
     // Phase 2: categorise the application (fresh vs future) and freeze its
@@ -85,27 +91,20 @@ export async function POST(request: NextRequest) {
       now
     );
 
-    if (!isOnlinePayment && amountPaid > 0) {
+    // OFFLINE PAYMENT: No Supabase payment row is created at submission time.
+    // Financial ledger records are created ONLY after admin/moderator verification
+    // and approval. The student's submitted payment details (transaction reference,
+    // paid date/time, receipt) are stored in the application's formData for review.
+
+    // Server-side capacity review check — ignore client-trusted value.
+    let serverNeedsCapacityReview = false;
+    const submitBusId = asString(rawFormData.busId) || asString(rawFormData.busAssigned);
+    if (submitBusId) {
       try {
-        await PaymentTransactionService.saveTransaction({
-          studentId: asString(rawFormData.enrollmentId) || 'N/A',
-          studentName: asString(rawFormData.fullName) || 'N/A',
-          userId: uid,
-          amount: amountPaid,
-          paymentMethod: 'offline',
-          paymentId,
-          timestamp: now,
-          durationYears: Number(sessionInfo.durationYears || 1),
-          validUntil: '',
-          status: 'pending',
-          offlineTransactionId: asString(paymentInfo.paymentReference),
-        });
-      } catch (supabaseError) {
-        console.error('Failed to create pending application payment ledger:', supabaseError);
-        return NextResponse.json(
-          { error: 'Failed to create payment record. Please retry before submitting the application.' },
-          { status: 503 }
-        );
+        const capacityInfo = await checkBusCapacity(submitBusId);
+        serverNeedsCapacityReview = !capacityInfo.available;
+      } catch {
+        // If bus not found or capacity check fails, default to no alert
       }
     }
 
@@ -132,7 +131,7 @@ export async function POST(request: NextRequest) {
       verificationCodeId: '',
       verifiedBy: isOnlinePayment ? 'system_online_payment' : 'system_offline_submission_bypass',
       verifiedAt: now,
-      needsCapacityReview,
+      needsCapacityReview: serverNeedsCapacityReview,
       // Phase 2 categorisation (fresh/future + frozen eligibility date)
       applicationType: categorisation.applicationType,
       targetSession: categorisation.targetSession,
@@ -141,7 +140,7 @@ export async function POST(request: NextRequest) {
 
     await adminDb.collection('applications').doc(uid).set(applicationData);
 
-    if (needsCapacityReview) {
+    if (serverNeedsCapacityReview) {
       try {
         const [adminsSnapshot, modsSnapshot] = await Promise.all([
           adminDb.collection('admins').get(),

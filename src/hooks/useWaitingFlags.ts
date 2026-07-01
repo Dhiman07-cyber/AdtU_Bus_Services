@@ -17,7 +17,7 @@ interface WaitingFlag {
   ackByDriverUid?: string;
 }
 
-export const useWaitingFlags = (routeId: string) => {
+export const useWaitingFlags = (routeId: string, getIdToken?: () => Promise<string | null>) => {
   const [flags, setFlags] = useState<WaitingFlag[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -313,12 +313,18 @@ export const useWaitingFlags = (routeId: string) => {
   // Acknowledge a waiting flag
   const acknowledgeFlag = useCallback(async (flagId: string, driverUid: string) => {
     try {
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+      };
+      if (getIdToken) {
+        const token = await getIdToken();
+        if (token) headers['Authorization'] = `Bearer ${token}`;
+      }
+
       // Call backend API to acknowledge flag
       const response = await fetch('/api/driver/ack-flag', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers,
         body: JSON.stringify({
           flagId
         })
@@ -348,17 +354,23 @@ export const useWaitingFlags = (routeId: string) => {
       console.error('Error acknowledging flag:', err);
       return { success: false, error: err.message || 'Unknown error' };
     }
-  }, []);
+  }, [getIdToken]);
 
   // Mark a student as boarded
   const markAsBoarded = useCallback(async (studentUid: string, busId: string, flagId: string) => {
     try {
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+      };
+      if (getIdToken) {
+        const token = await getIdToken();
+        if (token) headers['Authorization'] = `Bearer ${token}`;
+      }
+
       // Call backend API to mark student as boarded
       const response = await fetch('/api/driver/mark-boarded', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers,
         body: JSON.stringify({
           flagId
         })
@@ -380,7 +392,7 @@ export const useWaitingFlags = (routeId: string) => {
       console.error('Error marking as boarded:', err);
       return { success: false, error: err.message || 'Unknown error' };
     }
-  }, []);
+  }, [getIdToken]);
 
   return {
     flags,

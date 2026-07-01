@@ -36,9 +36,11 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
       }
 
-      if (appData.state !== 'draft' && appData.state !== 'noDoc') {
-        return NextResponse.json({ 
-          error: 'Cannot edit application in current state' 
+      // Prevent editing once verified or beyond
+      const immutableStates = ['verified', 'submitted', 'verified_upcoming', 'pending_seat_allocation', 'approved', 'rejected'];
+      if (immutableStates.includes(appData.state)) {
+        return NextResponse.json({
+          error: 'Cannot edit application in current state. Application is locked after verification.'
         }, { status: 400 });
       }
 

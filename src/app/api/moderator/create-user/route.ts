@@ -233,7 +233,7 @@ export async function POST(request: Request) {
 
         // Create role-specific document
         if (role === 'student') {
-          const finalValidUntilStr = validUntil || calculateValidUntilDate(sessionStartYear || new Date().getFullYear(), parseInt(sessionDuration || '1'), deadlineConfig).toISOString();
+          const finalValidUntilStr = validUntil || calculateValidUntilDate(sessionStartYear || new Date().getUTCFullYear(), parseInt(sessionDuration || '1'), deadlineConfig).toISOString();
           const blockDates = computeBlockDatesFromValidUntil(finalValidUntilStr, deadlineConfig);
 
           const studentDocData: any = {

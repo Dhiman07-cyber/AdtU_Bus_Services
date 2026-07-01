@@ -25,7 +25,6 @@ import {
     OnlinePaymentDocument,
     OfflinePaymentDocument,
     CreateOnlinePaymentRequest,
-    CreateOfflinePaymentRequest,
     ApprovePaymentRequest,
     RejectPaymentRequest,
     PaymentQueryFilters,
@@ -87,7 +86,7 @@ export async function createOnlinePayment(
         paymentId,
         studentId: request.studentId,
         studentUid: request.studentUid,
-        studentName: request.studentName || 'Null', // Fallback for missing name
+        studentName: request.studentName || 'Unknown', // Fallback for missing name
         amount: request.amount,
         method: 'Online',
         status: 'Completed',
@@ -119,13 +118,43 @@ export async function createOnlinePayment(
 }
 
 /**
- * Create an offline payment record (pending approval)
- * Called when student submits offline payment request
+ * Create a completed offline payment record AT APPROVAL TIME.
  * 
- * ✅ WRITES TO SUPABASE (not Firestore)
+ * ⚠️ CRITICAL: This is the ONLY way offline payments enter the financial ledger.
+ * 
+ * Offline workflow:
+ *   Student submits application → NO payment row
+ *   Admin verifies & approves → THIS function creates payment row (status=completed)
+ * 
+ * The financial ledger contains ONLY verified financial events, not user claims.
+ * 
+ * @param request - Verified payment details from admin/moderator review
+ * @returns The created payment document
  */
-export async function createOfflinePayment(
-    request: CreateOfflinePaymentRequest
+export async function createOfflinePaymentAtApproval(
+    request: {
+        studentId: string;
+        studentUid: string;
+        studentName: string;
+        amount: number;
+        durationYears: number;
+        sessionStartYear: number;
+        sessionEndYear: number;
+        validUntil: string;
+        /** Student's submitted transaction reference (verified by admin) */
+        transactionId: string;
+        /** Student's submitted payment date/time (verified by admin) */
+        paidAt: Date;
+        /** Receipt URL (verified by admin) */
+        receipt?: string;
+        /** Approver details */
+        approverUserId: string;
+        approverName: string;
+        approverEmpId: string;
+        approverRole: string;
+        /** Purpose: new_registration or renewal */
+        purpose: 'new_registration' | 'renewal';
+    }
 ): Promise<OfflinePaymentDocument> {
     const paymentId = generateOfflinePaymentId(request.purpose);
     const now = new Date();
@@ -139,16 +168,24 @@ export async function createOfflinePayment(
         amount: request.amount,
         durationYears: request.durationYears,
         method: 'Offline',
-        status: 'Pending',
+        status: 'Completed',
         sessionStartYear: request.sessionStartYear,
         sessionEndYear: request.sessionEndYear,
         validUntil: request.validUntil,
         createdAt: now,
         updatedAt: now,
-        offlineTransactionId: request.offlineTransactionId,
+        offlineTransactionId: request.transactionId,
+        approvedBy: {
+            type: 'Manual',
+            userId: request.approverUserId,
+            name: request.approverName,
+            empId: request.approverEmpId,
+            role: request.approverRole as 'Admin' | 'Moderator',
+        },
+        approvedAt: now,
     };
 
-    // ✅ Write to SUPABASE (IMMUTABLE - cannot be deleted later)
+    // Write COMPLETED payment to Supabase (immutable financial record)
     const result = await paymentsSupabaseService.createPayment({
         paymentId,
         studentId: request.studentId,
@@ -156,21 +193,25 @@ export async function createOfflinePayment(
         studentName: request.studentName,
         amount: request.amount,
         method: 'Offline',
-        status: 'Pending',
+        status: 'Completed',
         sessionStartYear: request.sessionStartYear,
         sessionEndYear: request.sessionEndYear,
         durationYears: request.durationYears,
-        validUntil: typeof request.validUntil === 'string' ? new Date(request.validUntil) : undefined,
-        transactionDate: now,
-        offlineTransactionId: request.offlineTransactionId,
+        validUntil: new Date(request.validUntil),
+        transactionDate: request.paidAt,
+        offlineTransactionId: request.transactionId,
+        approvedBy: {
+            type: 'Manual',
+            userId: request.approverUserId,
+            name: request.approverName,
+            empId: request.approverEmpId,
+            role: request.approverRole,
+        },
+        approvedAt: now,
     });
 
     if (!result) {
-        console.error(`❌ Failed to create offline payment in Supabase: ${paymentId}`);
-    }
-
-    if (!result) {
-        throw new Error(`Failed to create offline payment ledger record: ${paymentId}`);
+        throw new Error(`Failed to create offline payment ledger record at approval: ${paymentId}`);
     }
 
     return paymentDoc;
@@ -481,15 +522,30 @@ export async function getPaymentsByStudent(studentUid: string, studentId?: strin
         }
     }
 
-    // 2. Fetch by Enrollment ID if available
+    // 2. Fetch by Enrollment ID if available (resolved via Firestore UID)
     if (studentId) {
-        const paymentsById = await paymentsSupabaseService.getPaymentsByStudentId(studentId);
-        const mappedById = paymentsById.map(mapSupabaseToFirestoreFormat);
+        let resolvedUid: string | null = null;
+        try {
+            const studentQuery = await adminDb.collection('students')
+                .where('enrollmentId', '==', studentId)
+                .limit(1)
+                .get();
+            if (!studentQuery.empty) {
+                resolvedUid = studentQuery.docs[0].id;
+            }
+        } catch (e) {
+            console.error('Error resolving studentId in getPaymentsByStudent:', e);
+        }
 
-        for (const p of mappedById) {
-            if (!fetchedPaymentIds.has(p.paymentId)) {
-                fetchedPaymentIds.add(p.paymentId);
-                allPayments.push(p);
+        if (resolvedUid && resolvedUid !== studentUid) {
+            const paymentsById = await paymentsSupabaseService.getPaymentsByStudentUid(resolvedUid);
+            const mappedById = paymentsById.map(mapSupabaseToFirestoreFormat);
+
+            for (const p of mappedById) {
+                if (!fetchedPaymentIds.has(p.paymentId)) {
+                    fetchedPaymentIds.add(p.paymentId);
+                    allPayments.push(p);
+                }
             }
         }
     }
@@ -532,15 +588,30 @@ export async function getAllPayments(
             }
         }
 
-        // 2. Fetch by Enrollment ID if available
+        // 2. Fetch by Enrollment ID if available (resolved via Firestore UID)
         if (filters.studentId) {
-            const paymentsById = await paymentsSupabaseService.getPaymentsByStudentId(filters.studentId);
-            const mappedById = paymentsById.map(mapSupabaseToFirestoreFormat);
+            let resolvedUid: string | null = null;
+            try {
+                const studentQuery = await adminDb.collection('students')
+                    .where('enrollmentId', '==', filters.studentId)
+                    .limit(1)
+                    .get();
+                if (!studentQuery.empty) {
+                    resolvedUid = studentQuery.docs[0].id;
+                }
+            } catch (e) {
+                console.error('Error resolving studentId in getAllPayments:', e);
+            }
 
-            for (const p of mappedById) {
-                if (!fetchedPaymentIds.has(p.paymentId)) {
-                    fetchedPaymentIds.add(p.paymentId);
-                    allPayments.push(p);
+            if (resolvedUid && resolvedUid !== filters.studentUid) {
+                const paymentsById = await paymentsSupabaseService.getPaymentsByStudentUid(resolvedUid);
+                const mappedById = paymentsById.map(mapSupabaseToFirestoreFormat);
+
+                for (const p of mappedById) {
+                    if (!fetchedPaymentIds.has(p.paymentId)) {
+                        fetchedPaymentIds.add(p.paymentId);
+                        allPayments.push(p);
+                    }
                 }
             }
         }
@@ -674,22 +745,12 @@ export async function getPaymentDetails(paymentId: string): Promise<PaymentDetai
 }
 
 // ============================================================================
-// DEPRECATED OPERATIONS (Payments are immutable)
+// IDEMPOTENCY CHECK
 // ============================================================================
 
 /**
- * @deprecated Payments are immutable financial records and cannot be deleted.
- * This function is kept for backward compatibility but does nothing.
- */
-export async function deletePaymentsForStudent(studentUid: string): Promise<number> {
-    console.warn(`⚠️ [BLOCKED] deletePaymentsForStudent(${studentUid}) called`);
-    console.warn(`   Payments are IMMUTABLE and cannot be deleted.`);
-    console.warn(`   Payment records remain in Supabase permanently.`);
-    return 0; // No payments deleted
-}
-
-/**
- * Check if a payment has already been processed (idempotency check)
+ * Check if a payment has already been processed (idempotency check).
+ * Canonical implementation — used by webhook and verify-payment routes.
  */
 export async function isPaymentProcessed(paymentId: string): Promise<boolean> {
     // 1. Check by Primary ID (Supabase)
@@ -701,50 +762,6 @@ export async function isPaymentProcessed(paymentId: string): Promise<boolean> {
     if (paymentByRazorpay?.status === 'Completed') return true;
 
     return false;
-}
-
-// ============================================================================
-// STATISTICS & REPORTING
-// ============================================================================
-
-/**
- * Get payment statistics for a time period from Supabase
- */
-export async function getPaymentStatistics(
-    startDate?: Date,
-    endDate?: Date
-): Promise<{
-    totalPayments: number;
-    completedPayments: number;
-    pendingPayments: number;
-    totalAmount: number;
-    onlinePayments: number;
-    offlinePayments: number;
-}> {
-    // Use Supabase to get all payments (can be optimized with date filters)
-    const payments = await paymentsSupabaseService.getRecentTransactions(1000);
-
-    // Apply date filters if provided
-    let filtered = payments;
-    if (startDate) {
-        filtered = filtered.filter(p => new Date(p.transaction_date || 0) >= startDate);
-    }
-    if (endDate) {
-        filtered = filtered.filter(p => new Date(p.transaction_date || 0) <= endDate);
-    }
-
-    const stats = {
-        totalPayments: filtered.length,
-        completedPayments: filtered.filter(p => p.status === 'Completed').length,
-        pendingPayments: filtered.filter(p => p.status === 'Pending').length,
-        totalAmount: filtered
-            .filter(p => p.status === 'Completed')
-            .reduce((sum, p) => sum + (p.amount || 0), 0),
-        onlinePayments: filtered.filter(p => p.method === 'Online').length,
-        offlinePayments: filtered.filter(p => p.method === 'Offline').length,
-    };
-
-    return stats;
 }
 
 // ============================================================================

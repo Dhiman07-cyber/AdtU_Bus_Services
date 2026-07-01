@@ -392,7 +392,7 @@ export default function Step5Review({
             <DetailItem label="Academic Session" value={`${formData.sessionInfo.sessionStartYear} - ${formData.sessionInfo.sessionEndYear}`} />
             <DetailItem label="Duration" value={`${formData.sessionInfo.durationYears} Year(s)`} />
             <DetailItem label="Payment Mode" value={formData.paymentInfo.paymentMode ? formData.paymentInfo.paymentMode.charAt(0).toUpperCase() + formData.paymentInfo.paymentMode.slice(1) : 'Not Selected'} />
-            <DetailItem label="Expiry Date" value={formData.sessionInfo.validUntil ? new Date(formData.sessionInfo.validUntil).toLocaleDateString() : (formData.sessionInfo.sessionStartYear && formData.sessionInfo.durationYears ? new Date(formData.sessionInfo.sessionStartYear + formData.sessionInfo.durationYears, 6, 1).toLocaleDateString() : 'Set after approval')} />
+            <DetailItem label="Expiry Date" value={formData.sessionInfo.validUntil ? new Date(formData.sessionInfo.validUntil).toLocaleDateString() : 'Set after approval'} />
           </ReviewSection>
         </div>
 

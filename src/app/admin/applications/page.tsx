@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import { PageHeader } from "@/components/application/page-header";
 import { StatusBadge } from "@/components/application/status-badge";
+import { isUpcomingApplication } from "@/lib/utils/application-eligibility";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -82,13 +83,76 @@ export default function AdminApplicationsPage() {
     }
   }, [userData, router]);
 
-  // Filter submitted applications only (from APPLICATIONS collection).
-  // Memoized so downstream filteredData/cardMeta memos aren't invalidated by a
-  // fresh array reference on every render.
-  const applicationApplications = useMemo(
-    () => pendingApplications.filter((app: any) => app.state === 'submitted'),
-    [pendingApplications]
+  // Filter applications relevant to the admin queue:
+  // - 'submitted'                 → awaiting initial review/approval
+  // - 'verified_upcoming'         → admin already approved for the upcoming session, waiting for activation
+  // - 'pending_seat_allocation'   → activation reached this app but capacity was full; needs manual resolution
+  const LIVE_QUEUE_STATES = useMemo(
+    () => new Set<string>(['submitted', 'verified_upcoming', 'pending_seat_allocation']),
+    []
   );
+  const applicationApplications = useMemo(
+    () => pendingApplications.filter((app: any) => LIVE_QUEUE_STATES.has(app.state)),
+    [pendingApplications, LIVE_QUEUE_STATES]
+  );
+
+  // Trigger the canonical session-activation service. Activates ALL eligible
+  // verified_upcoming applications for the current session (idempotent, safe to
+  // call any number of times — see session-activation.service.ts).
+  const [activating, setActivating] = useState(false);
+  const handleRunSessionActivation = async () => {
+    if (!currentUser || activating) return;
+    setActivating(true);
+    try {
+      const token = await currentUser.getIdToken();
+      const response = await fetch('/api/admin/run-session-activation', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      });
+      if (response.ok) {
+        await handleRefresh();
+        setError('');
+      } else {
+        const data = await response.json().catch(() => ({}));
+        setError(data.error || 'Session activation failed');
+      }
+    } catch (err) {
+      console.error('Session activation error:', err);
+      setError('Session activation failed');
+    } finally {
+      setActivating(false);
+    }
+  };
+
+  const handleRetryActivation = async (applicationId: string) => {
+    if (!currentUser) return;
+    setApproving(applicationId);
+    try {
+      const token = await currentUser.getIdToken();
+      const response = await fetch('/api/admin/run-session-activation', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ applicationId }),
+      });
+      if (response.ok) {
+        setProcessedIds((prev) => {
+          const next = new Set(prev);
+          next.add(applicationId);
+          return next;
+        });
+        await handleRefresh();
+        setError('');
+      } else {
+        const data = await response.json().catch(() => ({}));
+        setError(data.error || 'Activation retry failed');
+      }
+    } catch (err) {
+      console.error('Retry activation error:', err);
+      setError('Activation retry failed');
+    } finally {
+      setApproving(null);
+    }
+  };
 
   // Function to get bus display from route information
   const getBusDisplayFromRoute = (routeId: string) => {
@@ -130,6 +194,16 @@ export default function AdminApplicationsPage() {
     busNumber: string;
     shift: string;
   } => {
+    // Upcoming applications do not check capacity or occupy seats until activation
+    if (isUpcomingApplication(item)) {
+      return {
+        needsCapacityReview: false,
+        reassignmentReason: 'no_issue',
+        busNumber: item.formData?.busAssigned || 'Unknown',
+        shift: item.formData?.shift || 'Morning'
+      };
+    }
+
     // If stored data already has capacity review info, use it
     if (item.needsCapacityReview && item.reassignmentReason) {
       return {
@@ -399,15 +473,31 @@ export default function AdminApplicationsPage() {
               </Badge>
             </div>
           </div>
-          <Button
-            size="sm"
-            className="group h-8 px-4 bg-white hover:bg-gray-50 text-black hover:text-purple-600 border border-gray-200 hover:border-purple-200 shadow-sm hover:shadow-lg hover:shadow-purple-500/10 font-bold text-[10px] uppercase tracking-widest rounded-lg transition-all duration-300 active:scale-95 cursor-pointer shrink-0"
-            onClick={handleRefresh}
-            disabled={isRefreshing}
-          >
-            <RefreshCw className={cn(`mr-2 h-3.5 w-3.5 transition-transform duration-500`, isRefreshing ? "animate-spin" : "group-hover:rotate-180")} />
-            Refresh
-          </Button>
+          <div className="flex items-center gap-2 shrink-0">
+            <Button
+              size="sm"
+              className="group h-8 px-4 bg-indigo-600 hover:bg-indigo-500 text-white border border-indigo-700 shadow-sm font-bold text-[10px] uppercase tracking-widest rounded-lg transition-all duration-300 active:scale-95 cursor-pointer"
+              onClick={handleRunSessionActivation}
+              disabled={activating}
+              title="Activate all verified upcoming-session applications for the current session"
+            >
+              {activating ? (
+                <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Calendar className="mr-2 h-3.5 w-3.5" />
+              )}
+              Run Session Activation
+            </Button>
+            <Button
+              size="sm"
+              className="group h-8 px-4 bg-white hover:bg-gray-50 text-black hover:text-purple-600 border border-gray-200 hover:border-purple-200 shadow-sm hover:shadow-lg hover:shadow-purple-500/10 font-bold text-[10px] uppercase tracking-widest rounded-lg transition-all duration-300 active:scale-95 cursor-pointer"
+              onClick={handleRefresh}
+              disabled={isRefreshing}
+            >
+              <RefreshCw className={cn(`mr-2 h-3.5 w-3.5 transition-transform duration-500`, isRefreshing ? "animate-spin" : "group-hover:rotate-180")} />
+              Refresh
+            </Button>
+          </div>
         </div>
         <p className="text-zinc-400 text-sm max-w-2xl">
           Review and manage all student bus service applications
@@ -776,41 +866,91 @@ export default function AdminApplicationsPage() {
                           )}
                         </div>
 
-                        {/* Footer: Actions - Equal Length Grid */}
-                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-3">
-                          <Button
-                            variant="outline"
-                            className="w-full bg-white hover:bg-gray-100 text-black border-transparent shadow-sm font-medium h-10 gap-2 hover:scale-[1.02] active:scale-[0.98] transition-all"
-                            onClick={() => router.push(`/admin/applications/${item.applicationId}`)}
-                          >
-                            <Eye className="h-4 w-4" />
-                            View
-                          </Button>
+                        {/* Footer: Actions — vary by lifecycle state. */}
+                        {item.state === 'verified_upcoming' ? (
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-3">
+                            <Button
+                              variant="outline"
+                              className="w-full bg-white hover:bg-gray-100 text-black border-transparent shadow-sm font-medium h-10 gap-2 hover:scale-[1.02] active:scale-[0.98] transition-all"
+                              onClick={() => router.push(`/admin/applications/${item.applicationId}`)}
+                            >
+                              <Eye className="h-4 w-4" />
+                              View
+                            </Button>
+                            <Button
+                              disabled
+                              className="w-full h-10 gap-2 font-medium bg-indigo-600/40 text-white/70 cursor-not-allowed"
+                              title={item.eligibleApproval ? `Activates on ${new Date(item.eligibleApproval).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}` : 'Awaiting new academic session'}
+                            >
+                              <Calendar className="h-4 w-4" />
+                              Awaiting Activation
+                            </Button>
+                          </div>
+                        ) : item.state === 'pending_seat_allocation' ? (
+                          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-3">
+                            <Button
+                              variant="outline"
+                              className="w-full bg-white hover:bg-gray-100 text-black border-transparent shadow-sm font-medium h-10 gap-2 hover:scale-[1.02] active:scale-[0.98] transition-all"
+                              onClick={() => router.push(`/admin/applications/${item.applicationId}`)}
+                            >
+                              <Eye className="h-4 w-4" />
+                              View
+                            </Button>
+                            <Button
+                              className="w-full h-10 gap-2 font-medium bg-amber-600 hover:bg-amber-500 text-white shadow-lg"
+                              onClick={() => handleRetryActivation(item.applicationId)}
+                              disabled={approving === item.applicationId}
+                              title="Retry activation now — succeeds if a seat has freed up"
+                            >
+                              {approving === item.applicationId ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
+                              Retry Allocation
+                            </Button>
+                            <Button
+                              variant="outline"
+                              className="w-full h-10 gap-2 border-red-500/20 text-red-400 bg-red-500/5 hover:bg-red-500/10 hover:text-red-300 hover:border-red-500/30 transition-all hover:scale-[1.02] active:scale-[0.98]"
+                              onClick={() => handleRejectClick(item.applicationId)}
+                              disabled={rejecting === item.applicationId}
+                            >
+                              {rejecting === item.applicationId ? <Loader2 className="h-4 w-4 animate-spin" /> : <X className="h-4 w-4" />}
+                              Reject
+                            </Button>
+                          </div>
+                        ) : (
+                          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-3">
+                            <Button
+                              variant="outline"
+                              className="w-full bg-white hover:bg-gray-100 text-black border-transparent shadow-sm font-medium h-10 gap-2 hover:scale-[1.02] active:scale-[0.98] transition-all"
+                              onClick={() => router.push(`/admin/applications/${item.applicationId}`)}
+                            >
+                              <Eye className="h-4 w-4" />
+                              View
+                            </Button>
 
-                          <Button
-                            className={cn(
-                              "w-full h-10 gap-2 font-medium shadow-lg shadow-emerald-900/20 hover:shadow-emerald-900/40 hover:scale-[1.02] active:scale-[0.98] transition-all",
-                              needsCapacityReview
-                                ? "bg-emerald-600/50 text-white/50 cursor-not-allowed"
-                                : "bg-emerald-600 hover:bg-emerald-500 text-white"
-                            )}
-                            onClick={() => handleApprove(item.applicationId)}
-                            disabled={needsCapacityReview || approving === item.applicationId}
-                          >
-                            {approving === item.applicationId ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
-                            Approve
-                          </Button>
+                            <Button
+                              className={cn(
+                                "w-full h-10 gap-2 font-medium shadow-lg shadow-emerald-900/20 hover:shadow-emerald-900/40 hover:scale-[1.02] active:scale-[0.98] transition-all",
+                                needsCapacityReview
+                                  ? "bg-emerald-600/50 text-white/50 cursor-not-allowed"
+                                  : "bg-emerald-600 hover:bg-emerald-500 text-white"
+                              )}
+                              onClick={() => handleApprove(item.applicationId)}
+                              disabled={needsCapacityReview || approving === item.applicationId}
+                            >
+                              {approving === item.applicationId ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
+                              {isUpcomingApplication(item) ? "Verify" : "Approve"}
+                            </Button>
 
-                          <Button
-                            variant="outline"
-                            className="w-full h-10 gap-2 border-red-500/20 text-red-400 bg-red-500/5 hover:bg-red-500/10 hover:text-red-300 hover:border-red-500/30 transition-all hover:scale-[1.02] active:scale-[0.98]"
-                            onClick={() => handleRejectClick(item.applicationId)}
-                            disabled={rejecting === item.applicationId}
-                          >
-                            {rejecting === item.applicationId ? <Loader2 className="h-4 w-4 animate-spin" /> : <X className="h-4 w-4" />}
-                            Reject
-                          </Button>
-                        </div>
+                            <Button
+                              variant="outline"
+                              className="w-full h-10 gap-2 border-red-500/20 text-red-400 bg-red-500/5 hover:bg-red-500/10 hover:text-red-300 hover:border-red-500/30 transition-all hover:scale-[1.02] active:scale-[0.98]"
+                              onClick={() => handleRejectClick(item.applicationId)}
+                              disabled={rejecting === item.applicationId}
+                            >
+                              {rejecting === item.applicationId ? <Loader2 className="h-4 w-4 animate-spin" /> : <X className="h-4 w-4" />}
+                              Reject
+                            </Button>
+                          </div>
+                        )}
                       </div>
                     </CardContent>
                   </Card>

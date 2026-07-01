@@ -4,13 +4,32 @@
  */
 
 // Application States (State Machine)
+//
+// Lifecycle for a "fresh" (current-session) application:
+//   draft → awaiting_verification → verified → submitted → (approved | rejected)
+//
+// Lifecycle for a "future" (next-session) application:
+//   draft → ... → submitted → verified_upcoming → (activated by cron) → student created
+//                                              ↘ (capacity full) → pending_seat_allocation
+//
+// 'verified_upcoming': admin has reviewed and approved the application BEFORE the
+//   academic-session activation date. No student doc, no seat, no entitlement.
+//   The daily session-activation cron (and matching admin manual trigger) runs the
+//   canonical approval pipeline on these once the new academic session begins.
+//
+// 'pending_seat_allocation': activation reached this application but no seat was
+//   available on the target bus. Payment remains valid in Supabase; the student is
+//   notified; the application is surfaced for manual seat allocation by an admin.
+//   The same canonical approval pipeline can be retried from this state.
 export type ApplicationState =
   | 'noDoc'                  // User logged in but no user doc found
   | 'draft'                  // User started/saved application
   | 'awaiting_verification'  // Verification code sent to moderator
   | 'verified'               // Moderator verified & student entered correct code
   | 'submitted'              // Application submitted to admin queue
-  | 'approved'               // Admin/moderator approved
+  | 'verified_upcoming'      // Future-session application approved by admin, awaiting activation
+  | 'pending_seat_allocation'// Future-session application activated but seat unavailable
+  | 'approved'               // Admin/moderator approved (legacy; current pipeline deletes on approve)
   | 'rejected'               // Admin/moderator rejected
   | 'cancelled'              // User cancelled
   | 'expired';               // Application expired
@@ -19,9 +38,10 @@ export type ApplicationState =
 // A single `applications` collection holds all three categories. Behaviour at
 // approval time keys off this field:
 //   - 'fresh'   : new applicant for the current session  → create student now
-//   - 'renewal' : soft-blocked student re-entering        → reactivate existing student
+//   - 'renewal' : soft-blocked student re-entering (before seat released) → reactivate existing student
+//   - 'renewal_after_soft_block' : soft-blocked student renewing after seat was released → reactivate + reclaim seat
 //   - 'future'  : applicant for the NEXT session          → not approvable until eligibleApproval
-export type ApplicationType = 'fresh' | 'renewal' | 'future';
+export type ApplicationType = 'fresh' | 'renewal' | 'renewal_after_soft_block' | 'future';
 
 // The academic session an application targets.
 export interface TargetSession {
@@ -41,6 +61,7 @@ export interface PaymentInfo {
   paymentReference?: string; // UPI Transaction ID / Payment Reference (offline only)
   paymentEvidenceUrl?: string; // Receipt image URL (offline only)
   paymentEvidenceProvided: boolean; // True if receipt uploaded
+  paidAt?: string; // ISO timestamp of when student claims payment was made (offline only)
 
   // Online Payment Transaction Details (Razorpay - only for online payments)
   razorpayPaymentId?: string; // Razorpay payment ID

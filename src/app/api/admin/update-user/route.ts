@@ -5,6 +5,9 @@ import { withSecurity } from '@/lib/security/api-security';
 import { UpdateStudentSchema } from '@/lib/security/validation-schemas';
 import { RateLimits } from '@/lib/security/rate-limiter';
 import { wasSeatReleased } from '@/lib/config/capacity-flags';
+import { safeErrorMessage } from '@/lib/security/safe-error';
+import { computeBlockDatesFromValidUntil } from '@/lib/utils/deadline-computation';
+import { getDeadlineConfig } from '@/lib/deadline-config-service';
 
 /**
  * POST /api/admin/update-user
@@ -39,6 +42,7 @@ export const POST = withSecurity(
         }
 
         try {
+            const deadlineConfig = await getDeadlineConfig();
             await adminDb.runTransaction(async (transaction: Transaction) => {
                 const studentRef = adminDb.collection('students').doc(uid) as any;
                 const studentDoc = (await transaction.get(studentRef)) as any as DocumentSnapshot;
@@ -105,15 +109,22 @@ export const POST = withSecurity(
                     return acc;
                 }, { updatedAt: new Date().toISOString() } as any);
 
+                if (updateData.validUntil) {
+                    const blockDates = computeBlockDatesFromValidUntil(updateData.validUntil, deadlineConfig);
+                    cleanedUpdateData.softBlock = blockDates.softBlock;
+                    cleanedUpdateData.hardBlock = blockDates.hardBlock;
+                }
+
                 transaction.update(studentRef, cleanedUpdateData);
             });
 
             return NextResponse.json({ success: true, message: 'Student updated successfully' });
         } catch (error: any) {
+            const msg = error instanceof Error ? error.message : '';
             return NextResponse.json({
                 success: false,
-                error: error.message || 'Internal Server Error'
-            }, { status: error.message === 'Student not found' ? 404 : 500 });
+                error: safeErrorMessage(error, 'Internal Server Error')
+            }, { status: msg === 'Student not found' ? 404 : 500 });
         }
     },
     {

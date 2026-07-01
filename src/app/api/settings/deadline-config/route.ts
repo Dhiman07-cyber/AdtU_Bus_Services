@@ -6,12 +6,46 @@ import { DeadlineConfig } from '@/lib/types/deadline-config';
 import { safeGetNested, stripUnsafeObjectKeys } from '@/lib/security/object-safety';
 
 /**
- * GET: Retrieve deadline config from Firestore
+ * Check if dependent lifecycle records exist in the system
+ */
+async function checkDependencies(): Promise<boolean> {
+    try {
+        const studentsSnap = await adminDb.collection('students').limit(1).get();
+        if (!studentsSnap.empty) {
+            return true;
+        }
+
+        const verifiedUpcomingSnap = await adminDb.collection('applications')
+            .where('state', '==', 'verified_upcoming')
+            .limit(1)
+            .get();
+        if (!verifiedUpcomingSnap.empty) {
+            return true;
+        }
+
+        const pendingSeatSnap = await adminDb.collection('applications')
+            .where('state', '==', 'pending_seat_allocation')
+            .limit(1)
+            .get();
+        if (!pendingSeatSnap.empty) {
+            return true;
+        }
+
+        return false;
+    } catch (error) {
+        console.error('Error checking dependencies:', error);
+        return true; // Safe fallback
+    }
+}
+
+/**
+ * GET: Retrieve deadline config and check if it is locked by dependencies
  */
 export async function GET(req: NextRequest) {
     try {
         const config = await getDeadlineConfig();
-        return NextResponse.json({ config });
+        const hasDependencies = await checkDependencies();
+        return NextResponse.json({ config, hasDependencies });
     } catch (error: any) {
         console.error('Error fetching deadline config:', error);
         return NextResponse.json(
@@ -67,6 +101,25 @@ export async function POST(req: NextRequest) {
             );
         }
 
+        // Validate dependency rules: block updates to Academic Session Start if active records exist
+        const hasDependencies = await checkDependencies();
+        if (hasDependencies) {
+            const currentConfig = await getDeadlineConfig();
+            const currentStart = currentConfig.academicSessionStart;
+            const submittedStart = config.academicSessionStart;
+
+            if (
+                currentStart &&
+                submittedStart &&
+                (currentStart.month !== submittedStart.month || currentStart.day !== submittedStart.day)
+            ) {
+                return NextResponse.json(
+                    { message: 'Cannot modify Academic Session Start once dependent student or application records exist in the system.' },
+                    { status: 400 }
+                );
+            }
+        }
+
         // Validate date fields
         const validationError = validateDateConfig(config);
         if (validationError) {
@@ -80,8 +133,6 @@ export async function POST(req: NextRequest) {
         await updateDeadlineConfig(config, uid);
 
         // 2. Sync concrete dates to System Config
-        // This ensures that when rules change (e.g. Soft Block moved to July 15),
-        // the concrete dates in system-config (e.g. 2026-07-15) are updated for the current cycle.
         await syncSystemConfigDates(config as DeadlineConfig, uid);
 
         return NextResponse.json({
@@ -102,113 +153,36 @@ export async function POST(req: NextRequest) {
  * Syncs the abstract rules from DeadlineConfig to concrete dates in SystemConfig
  */
 async function syncSystemConfigDates(deadlineConfig: DeadlineConfig, uid: string) {
-    try {
-        const systemConfig = await getSystemConfig();
-        if (!systemConfig) return;
-
-        const updates: any = {};
-        const now = new Date();
-        const currentYear = now.getFullYear();
-
-        // Helper to construct date string (YYYY-MM-DD) preserving year from existing config if possible
-        const constructDate = (existingDateStr: string | undefined, month: number, day: number) => {
-            let year = currentYear;
-            if (existingDateStr) {
-                const date = new Date(existingDateStr);
-                if (!isNaN(date.getTime())) {
-                    year = date.getFullYear();
-                }
-            }
-            // Create date object (Month is 0-indexed in JS Date, but config sends 0-indexed month)
-            const newDate = new Date(year, month, day);
-            // Adjust to local date string YYYY-MM-DD (simplified)
-            // We use the year/month/day directly to avoid timezone shifts
-            const m = (month + 1).toString().padStart(2, '0');
-            const d = day.toString().padStart(2, '0');
-            return `${year}-${m}-${d}`;
-        };
-
-        // 1. Academic Year End
-        updates.academicYearEnd = constructDate(
-            systemConfig.academicYearEnd,
-            deadlineConfig.academicYear.anchorMonth,
-            deadlineConfig.academicYear.anchorDay
-        );
-
-        // 2. Renewal Reminder
-        updates.renewalReminder = constructDate(
-            systemConfig.renewalReminder,
-            deadlineConfig.renewalNotification.month,
-            deadlineConfig.renewalNotification.day
-        );
-
-        // 3. Renewal Deadline
-        updates.renewalDeadline = constructDate(
-            systemConfig.renewalDeadline,
-            deadlineConfig.renewalDeadline.month,
-            deadlineConfig.renewalDeadline.day
-        );
-
-        // 4. Soft Block
-        updates.softBlock = constructDate(
-            systemConfig.softBlock,
-            deadlineConfig.softBlock.month,
-            deadlineConfig.softBlock.day
-        );
-
-        // 5. Hard Block (mapped to hardDelete)
-        updates.hardBlock = constructDate(
-            systemConfig.hardBlock,
-            deadlineConfig.hardDelete.month,
-            deadlineConfig.hardDelete.day
-        );
-
-        // Merge updates into system config
-        const newSystemConfig = {
-            ...systemConfig,
-            ...updates
-        };
-
-        await updateSystemConfig(newSystemConfig, uid);
-        console.log('🔄 Synced System Config dates with new Deadline rules');
-
-    } catch (error) {
-        console.error('Error syncing system config dates:', error);
-        // Don't fail the request if sync fails, just log it
-    }
+    // Deprecated: Concrete lifecycle dates are no longer synced to system_config to prevent dual sources of truth.
+    // Consumers must query the canonical /api/settings/deadline-config endpoint directly.
+    console.log('ℹ️ syncSystemConfigDates is deprecated and bypassed to maintain a single canonical source of truth.');
 }
 
 /**
- * Validate date configurations for valid month/day combinations
+ * Validate date configurations for valid month/day combinations.
  */
 function validateDateConfig(config: any): string | null {
-    const dateFields = [
-        { field: 'academicYear', monthKey: 'anchorMonth', dayKey: 'anchorDay' },
-        { field: 'renewalNotification', monthKey: 'month', dayKey: 'day' },
-        { field: 'renewalDeadline', monthKey: 'month', dayKey: 'day' },
-        { field: 'softBlock', monthKey: 'month', dayKey: 'day' },
-        { field: 'hardDelete', monthKey: 'month', dayKey: 'day' }
-    ];
+    const start = config.academicSessionStart;
+    if (!start) {
+        return 'Academic Session Start is required.';
+    }
 
-    for (const { field, monthKey, dayKey } of dateFields) {
-        const section = safeGetNested(config, [field]);
-        if (!section || typeof section !== 'object' || Array.isArray(section)) continue;
+    const month = start.month;
+    const day = start.day;
 
-        const month = (section as Record<string, unknown>)[monthKey];
-        const day = (section as Record<string, unknown>)[dayKey];
+    if (month === undefined || day === undefined) {
+        return 'Academic Session Start month and day are required.';
+    }
 
-        if (month === undefined || day === undefined) continue;
+    if (typeof month !== 'number' || !Number.isInteger(month) || month < 0 || month > 11) {
+        return `Invalid month: ${month}. Must be 0-11.`;
+    }
 
-        if (typeof month !== 'number' || !Number.isInteger(month) || month < 0 || month > 11) {
-            return `Invalid month in ${field}: ${month}. Must be 0-11.`;
-        }
-
-        const maxDay = getMaxDayForMonth(month);
-        if (typeof day !== 'number' || !Number.isInteger(day) || day < 1 || day > maxDay) {
-            const monthNames = ['January', 'February', 'March', 'April', 'May', 'June',
-                'July', 'August', 'September', 'October', 'November', 'December'];
-            return `Invalid day ${day} for ${monthNames[month]} in ${field}. Max is ${maxDay}.`;
-        }
+    const maxDay = getMaxDayForMonth(month);
+    if (typeof day !== 'number' || !Number.isInteger(day) || day < 1 || day > maxDay) {
+        const monthNames = ['January', 'February', 'March', 'April', 'May', 'June',
+            'July', 'August', 'September', 'October', 'November', 'December'];
+        return `Invalid day ${day} for ${monthNames[month]}. Max is ${maxDay}.`;
     }
 
     return null;

@@ -86,7 +86,6 @@ const PUBLIC_API_ROUTES = [
     '/api/settings/landing-config',
     '/api/settings/system-config',
     '/api/payment/webhook/razorpay', // Webhooks verify their own signatures
-    '/api/faculties',
     '/api/moderators/get-all',
     '/api/moderators-list',
     '/api/applications/check',

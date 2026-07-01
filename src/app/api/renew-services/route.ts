@@ -7,9 +7,7 @@ import { buildCapacityDelta } from '@/lib/busCapacityService';
 import { wasSeatReleased } from '@/lib/config/capacity-flags';
 import { paymentsSupabaseService } from '@/lib/services/payments-supabase';
 import crypto from 'crypto';
-
-/** Thrown inside a per-student renewal transaction when the target bus is full. */
-class CapacityFullError extends Error {}
+import { CapacityFullError } from '@/lib/errors/sentinel-errors';
 
 /**
  * POST /api/renew-services
@@ -368,10 +366,24 @@ export async function POST(request: NextRequest) {
 
     // Finalize the idempotency record so an identical resubmit replays this exact
     // result instead of re-applying (and double-extending) the renewals.
-    await opRef.set(
-      { status: 'completed', completedAt: new Date().toISOString(), results, summary },
-      { merge: true }
-    ).catch((err) => console.error('Failed to finalize renewal idempotency record:', err));
+    try {
+      await opRef.set(
+        { status: 'completed', completedAt: new Date().toISOString(), results, summary },
+        { merge: true }
+      );
+    } catch (finalErr) {
+      // The renewals have already been committed. If finalization fails, the
+      // idempotency record stays `in_progress` and a staleness retry could
+      // double-extend. Return an error so the client knows the operation
+      // completed in Firestore but the idempotency guard was not finalized.
+      console.error('CRITICAL: Renewal idempotency finalization failed — renewals committed but record not finalized:', finalErr);
+      return NextResponse.json({
+        success: true,
+        warning: 'Renewals processed but operation record could not be finalized. Do NOT retry — contact administrator.',
+        results,
+        summary
+      });
+    }
 
     return NextResponse.json({
       success: true,

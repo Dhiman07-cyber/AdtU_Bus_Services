@@ -17,6 +17,7 @@ import {
 import Link from "next/link";
 import { useToast } from '@/contexts/toast-context';
 import RouteJourney from "@/components/RouteJourney";
+import { formatDateFlexible } from '@/lib/utils/date-utils';
 import {
   Dialog,
   DialogContent,
@@ -182,46 +183,7 @@ export default function ViewRoutePage({ params }: { params: Promise<{ id: string
   }
 
   // Helper function to format Firestore timestamp
-  const formatTimestamp = (timestamp: any): string => {
-    if (!timestamp) return 'N/A';
-
-    try {
-      // Handle Firestore Timestamp object
-      if (timestamp.toDate && typeof timestamp.toDate === 'function') {
-        return timestamp.toDate().toLocaleDateString('en-US', {
-          year: 'numeric',
-          month: 'long',
-          day: 'numeric'
-        });
-      }
-
-      // Handle timestamp with seconds property (JSON format)
-      if (timestamp.seconds || timestamp._seconds) {
-        const seconds = timestamp.seconds || timestamp._seconds;
-        const date = new Date(seconds * 1000);
-        return date.toLocaleDateString('en-US', {
-          year: 'numeric',
-          month: 'long',
-          day: 'numeric'
-        });
-      }
-
-      // Handle ISO string or Date object
-      const date = new Date(timestamp);
-      if (!isNaN(date.getTime())) {
-        return date.toLocaleDateString('en-US', {
-          year: 'numeric',
-          month: 'long',
-          day: 'numeric'
-        });
-      }
-
-      return 'N/A';
-    } catch (error) {
-      console.error('Error formatting timestamp:', error);
-      return 'N/A';
-    }
-  };
+  const formatTimestamp = (timestamp: any): string => formatDateFlexible(timestamp, 'N/A');
 
   if (!route) {
     return (

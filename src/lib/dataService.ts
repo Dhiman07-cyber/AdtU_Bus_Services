@@ -282,13 +282,6 @@ export const getStudentById = async (id: string): Promise<any | null> => {
       const data = studentDoc.data();
 
       // Handle Firestore Timestamps
-      const formatTimestamp = (timestamp: any) => {
-        if (!timestamp) return null;
-        if (timestamp.toDate) return timestamp.toDate().toISOString();
-        if (timestamp instanceof Date) return timestamp.toISOString();
-        return timestamp;
-      };
-
       const result = {
         id: studentDoc.id,
         uid: studentDoc.id,

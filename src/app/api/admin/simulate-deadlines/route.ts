@@ -7,6 +7,7 @@ import { isSeatReleaseAtSoftBlockEnabled, wasSeatReleased } from '@/lib/config/c
 import { withSecurity } from '@/lib/security/api-security';
 import { SimulateDeadlinesSchema } from '@/lib/security/validation-schemas';
 import { RateLimits } from '@/lib/security/rate-limiter';
+import { deriveAcademicLifecycle } from '@/lib/utils/deadline-computation';
 
 if (process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME) {
     cloudinary.config({
@@ -57,8 +58,12 @@ export const POST = withSecurity(
                 return;
             }
 
-            const studentSoftBlockDate = data.softBlock ? new Date(data.softBlock) : new Date(sessionEndYear, config.softBlock.month, config.softBlock.day, config.softBlock.hour || 0, config.softBlock.minute || 0);
-            const studentHardDeleteDate = data.hardBlock ? new Date(data.hardBlock) : new Date(sessionEndYear + 1, config.hardDelete.month, config.hardDelete.day, config.hardDelete.hour || 0, config.hardDelete.minute || 0);
+            const startMonth = config.academicSessionStart?.month ?? 6;
+            const startDay = config.academicSessionStart?.day ?? 1;
+            const lifecycle = deriveAcademicLifecycle(startMonth, startDay, sessionEndYear);
+
+            const studentSoftBlockDate = data.softBlock ? new Date(data.softBlock) : lifecycle.softBlock;
+            const studentHardDeleteDate = data.hardBlock ? new Date(data.hardBlock) : lifecycle.hardDelete;
 
             const isPastSoftBlock = simDate >= studentSoftBlockDate;
             const isPastHardDelete = simDate >= studentHardDeleteDate;

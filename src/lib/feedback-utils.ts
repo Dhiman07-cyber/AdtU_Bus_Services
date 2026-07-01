@@ -193,8 +193,6 @@ export function sanitizeMessage(message: string): string {
  * Check for duplicate feedback (same message in last 24 hours) via Firestore Query
  */
 export async function checkDuplicate(
-  // entries argument is deprecated/unused now as we query DB directly
-  _unused: FeedbackEntry[],
   userId: string,
   message: string
 ): Promise<boolean> {

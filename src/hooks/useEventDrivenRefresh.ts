@@ -103,21 +103,4 @@ export function signalCollectionRefresh(collectionName: string): void {
     console.log(`[EventDrivenRefresh] Signaled refresh for ${collectionName}`);
 }
 
-/**
- * Utility to signal refresh and navigate to the list page.
- * Use this in add/edit pages after successful operations.
- * 
- * @param collectionName - The collection that was modified
- * @param listPath - The path to the list page
- * @param router - Next.js router instance
- */
-export function signalRefreshAndNavigate(
-    collectionName: string,
-    listPath: string,
-    router: ReturnType<typeof useRouter>
-): void {
-    signalCollectionRefresh(collectionName);
-    router.push(listPath);
-}
-
 export default useEventDrivenRefresh;

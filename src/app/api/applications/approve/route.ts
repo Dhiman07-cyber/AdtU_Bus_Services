@@ -1,15 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { adminAuth, adminDb } from '@/lib/firebase-admin';
-import { Application, AuditLogEntry } from '@/lib/types/application';
+import { Application } from '@/lib/types/application';
 import { validateAndSuggestBus, buildCapacityDelta, sendBusFullAlert } from '@/lib/busCapacityService';
-import { calculateRenewalDate } from '@/lib/utils/renewal-utils';
+import { calculateValidUntilDate } from '@/lib/utils/date-utils';
 import { computeBlockDatesFromValidUntil } from '@/lib/utils/deadline-computation';
 import { getDeadlineConfig } from '@/lib/deadline-config-service';
 import { deleteAsset, extractPublicId } from '@/lib/cloudinary-server';
 import { requireModeratorPermission } from '@/lib/security/moderator-permissions';
-import { PaymentTransactionService } from '@/lib/payment/payment-transaction.service';
-import { isApprovalEligible } from '@/lib/utils/application-eligibility';
+import { createOfflinePaymentAtApproval } from '@/lib/payment/payment.service';
+import { isUpcomingApplication } from '@/lib/utils/application-eligibility';
 import { writeAuditInTransaction, type AuditActorRole } from '@/lib/audit/audit-service';
+import { CapacityFullError, ApprovalConflictError } from '@/lib/errors/sentinel-errors';
+import { safeErrorMessage } from '@/lib/security/safe-error';
 
 /**
  * Optimized Application Approval API
@@ -20,11 +22,6 @@ import { writeAuditInTransaction, type AuditActorRole } from '@/lib/audit/audit-
  * - Backgrounded heavy Cloudinary and Supabase tasks
  * - Integrated hardened Cloudinary server helper
  */
-
-/** Thrown inside the approval transaction when the application was already consumed (duplicate / retry). */
-class ApprovalConflictError extends Error {}
-/** Thrown inside the approval transaction when the target bus has no free seat (lost the last-seat race). */
-class CapacityFullError extends Error {}
 
 function normalizeShift(shift: string | undefined): string {
   if (!shift) return 'Morning';
@@ -78,16 +75,76 @@ export async function POST(request: NextRequest) {
     const appData = appSnap.data() as Application;
     if (appData.state !== 'submitted') return NextResponse.json({ error: 'Application already processed' }, { status: 400 });
 
-    // Phase 2 eligibility gate (server-enforced; UI also disables the button).
-    // A future-session application may not be approved before its frozen
-    // eligibleApproval date (= softBlock(targetSession.startYear) + 1 day).
-    // Legacy/absent eligibleApproval ⇒ immediately eligible.
-    if (!isApprovalEligible(appData)) {
+    const approverName = approverData?.fullName || approverData?.name || 'Admin';
+    const approverEmpId = approverData?.employeeId || approverData?.staffId || (adminSnap.exists ? 'ADMIN' : 'MOD');
+    const approverRole = adminSnap.exists ? 'admin' : 'moderator';
+
+    // Future-session approval: an admin verifying a future-session application
+    // must NOT activate the student directly. It always transitions the application
+    // to `verified_upcoming`, where it waits for activation by the Session Activation
+    // Service. No student doc, no seat, no capacity decrement, no bus pass is generated
+    // at this stage — only the verification of identity, docs, payment, and eligibility.
+    if (isUpcomingApplication(appData)) {
+      const nowIsoVU = new Date().toISOString();
+      try {
+        await adminDb.runTransaction(async (transaction) => {
+          const freshSnap = await transaction.get(adminDb.collection('applications').doc(applicationId));
+          if (!freshSnap.exists || (freshSnap.data() as Application).state !== 'submitted') {
+            throw new ApprovalConflictError('Application already processed');
+          }
+          const freshData = freshSnap.data() as Application;
+          const approverNameVU = approverData?.fullName || approverData?.name || 'Admin';
+          const approverEmpIdVU = approverData?.employeeId || approverData?.staffId || (adminSnap.exists ? 'ADMIN' : 'MOD');
+          transaction.update(freshSnap.ref, {
+            state: 'verified_upcoming',
+            verifiedUpcomingAt: nowIsoVU,
+            verifiedUpcomingBy: `${approverNameVU} (${adminSnap.exists ? 'Admin' : approverEmpIdVU})`,
+            verifiedUpcomingById: uid,
+            updatedAt: nowIsoVU,
+            stateHistory: [...(freshData.stateHistory || []), { state: 'verified_upcoming', timestamp: nowIsoVU, actor: uid }],
+          });
+          writeAuditInTransaction(transaction, {
+            action: 'application_verified_upcoming',
+            actor: { id: uid, role: approverRole as AuditActorRole, name: approverNameVU },
+            targetId: appData.applicantUid,
+            targetType: 'application',
+            targetName: appData.formData?.fullName || '',
+            reason: 'future_session_verified_pre_activation',
+            before: { applicationId, state: 'submitted' },
+            after: { applicationId, state: 'verified_upcoming', eligibleApproval: appData.eligibleApproval, targetSession: appData.targetSession },
+            details: { applicationId, notes: notes || null },
+            correlationId: applicationId,
+          });
+        });
+      } catch (vuErr: any) {
+        if (vuErr instanceof ApprovalConflictError) {
+          return NextResponse.json({ error: vuErr.message }, { status: 409 });
+        }
+        throw vuErr;
+      }
+      // Notify the student that their application is verified and waiting.
+      try {
+        const notifRef = adminDb.collection('notifications').doc();
+        await notifRef.set({
+          notifId: notifRef.id,
+          toUid: appData.applicantUid,
+          toRole: 'student',
+          type: 'VerifiedUpcoming',
+          title: 'Application verified — awaiting new session',
+          body: 'Your application has been verified and will become active when the new academic session begins.',
+          links: { applicationId, statusPage: `/apply/status/${applicationId}` },
+          read: false,
+          createdAt: nowIsoVU,
+        });
+      } catch (notifErr) {
+        console.warn('verified_upcoming notify failed:', notifErr);
+      }
       return NextResponse.json({
-        error: 'Application is not yet eligible for approval',
-        message: `This future-session application becomes eligible on ${new Date(appData.eligibleApproval as string).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}.`,
+        success: true,
+        message: 'Application verified for the upcoming academic session. It will activate when the session begins.',
+        state: 'verified_upcoming',
         eligibleApproval: appData.eligibleApproval,
-      }, { status: 409 });
+      });
     }
 
     const formData = appData.formData;
@@ -141,23 +198,18 @@ export async function POST(request: NextRequest) {
 
     // 3. Prepare data for atomic creation
     const approvedAt = new Date().toISOString();
-    const approverName = approverData?.fullName || approverData?.name || 'Admin';
-    const approverEmpId = approverData?.employeeId || approverData?.staffId || (adminSnap.exists ? 'ADMIN' : 'MOD');
     const approvedByDisplay = `${approverName} (${adminSnap.exists ? 'Admin' : approverEmpId})`;
-    const approverRole = adminSnap.exists ? 'admin' : 'moderator';
 
     // Check for overridden session start/end years (Part 2 & 3)
     const overrideStartYear = body.sessionStartYear ? Number(body.sessionStartYear) : null;
     const overrideEndYear = body.sessionEndYear ? Number(body.sessionEndYear) : null;
 
     // Compute final start year, duration, and end year based on overrides
-    const finalStartYear = overrideStartYear !== null ? overrideStartYear : Number(formData.sessionInfo?.sessionStartYear || new Date().getFullYear());
+    const finalStartYear = overrideStartYear !== null ? overrideStartYear : Number(formData.sessionInfo?.sessionStartYear || new Date().getUTCFullYear());
     const finalEndYear = overrideEndYear !== null ? overrideEndYear : (Number(formData.sessionInfo?.sessionEndYear) || (finalStartYear + 1));
     const finalDurationYears = overrideStartYear !== null && overrideEndYear !== null ? (overrideEndYear - overrideStartYear) : Number(formData.sessionInfo?.durationYears || 1);
 
-    const anchorMonth = deadlineConfig.academicYear.anchorMonth;
-    const anchorDay = deadlineConfig.academicYear.anchorDay;
-    const validUntilDate = new Date(finalEndYear, anchorMonth, anchorDay, 23, 59, 59, 999);
+    const validUntilDate = calculateValidUntilDate(finalEndYear - finalDurationYears, finalDurationYears, deadlineConfig);
     const validUntil = validUntilDate.toISOString();
     const sessionEndYear = finalEndYear;
 
@@ -332,32 +384,33 @@ export async function POST(request: NextRequest) {
           }
         }
       } else {
-        // Deterministic offline payment id keyed by applicationId — stable across
-        // retries so re-running the approval never creates a duplicate ledger entry.
-        const paymentId = (appData as any).paymentId || formData.paymentId || formData.paymentInfo?.paymentReference || `OADF_APP_${applicationId}`;
-        await PaymentTransactionService.saveTransaction({
-          paymentId,
+        // OFFLINE PAYMENT: Create completed payment record AT APPROVAL TIME.
+        // Financial ledger contains ONLY verified financial events.
+        // The student's submitted payment details are verified by the admin
+        // and become the authoritative financial record.
+        const transactionId = formData.paymentInfo?.paymentReference || '';
+        const paidAtFromStudent = formData.paymentInfo?.paidAt
+          ? new Date(formData.paymentInfo.paidAt)
+          : new Date(approvedAt);
+        const receipt = formData.paymentInfo?.paymentEvidenceUrl || '';
+
+        await createOfflinePaymentAtApproval({
           studentId: formData.enrollmentId,
+          studentUid: appData.applicantUid,
           studentName: formData.fullName,
-          userId: appData.applicantUid,
           amount,
-          paymentMethod: 'offline',
-          status: 'completed',
+          durationYears: finalDurationYears,
           sessionStartYear: finalStartYear,
           sessionEndYear: sessionEndYear,
-          durationYears: finalDurationYears,
-          validUntil: validUntil,
-          timestamp: approvedAt,
-          offlineTransactionId: formData.paymentInfo?.paymentReference || `app_fee_${applicationId}`,
-          approvedBy: {
-            userId: uid,
-            empId: approverEmpId,
-            name: approverName,
-            role: approverRole,
-            email: decodedToken.email || '',
-          },
-          approvedByDisplay,
-          approvedAtISO: approvedAt,
+          validUntil,
+          transactionId,
+          paidAt: paidAtFromStudent,
+          receipt,
+          approverUserId: uid,
+          approverName,
+          approverEmpId,
+          approverRole,
+          purpose: 'new_registration',
         });
       }
     }
@@ -388,6 +441,6 @@ export async function POST(request: NextRequest) {
 
   } catch (error: any) {
     console.error('Approval error:', error);
-    return NextResponse.json({ error: error.message || 'Failed to approve application' }, { status: 500 });
+    return NextResponse.json({ error: safeErrorMessage(error, 'Failed to approve application') }, { status: 500 });
   }
 }

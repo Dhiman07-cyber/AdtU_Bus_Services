@@ -170,7 +170,7 @@ export const POST = withSecurity<ReassignStudentsBody>(
                     const newEvening = Math.max(0, (currentLoad.eveningCount || 0) + deltas.eveningDelta);
                     const capacity = Number(busData.capacity || busData.capacitySeats || 0);
 
-                    if (capacity > 0 && (newMorning > capacity || newEvening > capacity)) {
+                    if (capacity > 0 && (newMorning + newEvening) > capacity) {
                         throw new ReassignmentValidationError(`Bus ${busId} would exceed capacity`, 409);
                     }
 

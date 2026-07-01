@@ -84,14 +84,6 @@ export function buildCapacityDelta(
 }
 
 /**
- * Get capacity display string (deprecated - use inline template)
- * @deprecated Use `${currentMembers}/${capacity}` directly in templates
- */
-export function formatCapacityDisplay(currentMembers: number, capacity: number): string {
-  return `${currentMembers}/${capacity}`;
-}
-
-/**
  * Check if bus has available seats
  */
 export async function checkBusCapacity(busId: string): Promise<{

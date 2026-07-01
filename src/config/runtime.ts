@@ -99,3 +99,13 @@ export const READS_PER_STUDENT_MOUNT = 1;
  * Estimated daily reconnects per client (conservative)
  */
 export const ESTIMATED_DAILY_RECONNECTS = 10;
+
+// ============================================================================
+// BUSINESS CONSTANTS
+// ============================================================================
+
+/**
+ * Default bus fee amount (INR) used as fallback when system config is unavailable.
+ * The authoritative value is in Firestore `config/system` → busFee.amount.
+ */
+export const DEFAULT_BUS_FEE = 10_000;

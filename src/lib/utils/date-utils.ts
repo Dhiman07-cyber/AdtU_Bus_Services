@@ -1,3 +1,4 @@
+import { deriveAcademicLifecycle } from './deadline-computation';
 
 /**
  * Safely parse a date from various formats
@@ -173,11 +174,21 @@ export function toFirestoreDate(date: Date): string {
 export function calculateValidUntilDate(
   startYear: number,
   durationYears: number,
-  deadline: { month: number; day: number } | any
+  deadline: any
 ): Date {
   if (!deadline) throw new Error("Deadline config required for calculateValidUntilDate");
 
-  // Extract month/day from DeadlineConfig if provided, else use directly
+  const endYear = startYear + durationYears;
+
+  // If deadline has academicSessionStart, use the canonical deriveAcademicLifecycle engine
+  if (deadline.academicSessionStart) {
+    const startMonth = deadline.academicSessionStart.month;
+    const startDay = deadline.academicSessionStart.day;
+    const lifecycle = deriveAcademicLifecycle(startMonth, startDay, endYear);
+    return lifecycle.expiry;
+  }
+
+  // Extract month/day from DeadlineConfig (anchor) if provided, else use directly
   const month = deadline.academicYear ? deadline.academicYear.anchorMonth : deadline.month;
   const day = deadline.academicYear ? deadline.academicYear.anchorDay : deadline.day;
 
@@ -185,10 +196,6 @@ export function calculateValidUntilDate(
     throw new Error("Invalid deadline configuration: month or day missing");
   }
 
-  const endYear = startYear + durationYears;
-
-  // Create date with deadline from config
-  const validUntil = new Date(endYear, month, day);
-
-  return validUntil;
+  // Create date with deadline from config in UTC to prevent timezone leaks
+  return new Date(Date.UTC(endYear, month, day, 23, 59, 59, 999));
 }

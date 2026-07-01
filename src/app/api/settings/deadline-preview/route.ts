@@ -6,7 +6,7 @@ import {
     formatDateWithOrdinal,
     daysBetween
 } from '@/lib/utils/deadline-computation';
-import { DEADLINE_CONFIG } from '@/lib/types/deadline-config-defaults';
+import { getDeadlineConfig } from '@/lib/deadline-config-service';
 
 /**
  * POST /api/settings/deadline-preview
@@ -74,9 +74,10 @@ export async function POST(req: NextRequest) {
             );
         }
 
-        // Use provided config or default
-        const config = configOverride || DEADLINE_CONFIG;
-        const simMode = simulationMode || { enabled: config.testingMode?.enabled, customYear: config.testingMode?.customYear };
+        // Use provided config or fetch dynamic database config
+        const dbConfig = await getDeadlineConfig();
+        const config = configOverride || dbConfig;
+        const simMode = simulationMode || { enabled: (config as any).testingMode?.enabled, customYear: (config as any).testingMode?.customYear };
 
         // Fetch students
         const previews: any[] = [];
@@ -164,27 +165,27 @@ export async function POST(req: NextRequest) {
                 wouldSoftBlock,
                 wouldHardDelete,
                 previewDate: today.toISOString(),
-                configVersion: config.version || DEADLINE_CONFIG.version,
-                simulationMode: simMode.enabled,
-                simulationYear: simMode.enabled ? simMode.customYear : null
-            },
-            // Configuration used for preview
-            configUsed: {
-                academicYear: {
-                    anchorMonth: config.academicYear?.anchorMonth ?? DEADLINE_CONFIG.academicYear.anchorMonth,
-                    anchorDay: config.academicYear?.anchorDay ?? DEADLINE_CONFIG.academicYear.anchorDay
-                },
-                softBlock: {
-                    month: config.softBlock?.month ?? DEADLINE_CONFIG.softBlock.month,
-                    day: config.softBlock?.day ?? DEADLINE_CONFIG.softBlock.day
-                },
-                hardDelete: {
-                    month: config.hardDelete?.month ?? DEADLINE_CONFIG.hardDelete.month,
-                    day: config.hardDelete?.day ?? DEADLINE_CONFIG.hardDelete.day,
-                    note: 'Hard delete always occurs in sessionEndYear + 1'
-                },
-                urgentWarningDays: config.urgentWarningThreshold?.days ?? DEADLINE_CONFIG.urgentWarningThreshold.days
-            }
+                 configVersion: config.version || dbConfig.version,
+                 simulationMode: simMode.enabled,
+                 simulationYear: simMode.enabled ? simMode.customYear : null
+             },
+             // Configuration used for preview
+             configUsed: {
+                 academicYear: {
+                     anchorMonth: config.academicYear?.anchorMonth ?? dbConfig.academicYear.anchorMonth,
+                     anchorDay: config.academicYear?.anchorDay ?? dbConfig.academicYear.anchorDay
+                 },
+                 softBlock: {
+                     month: config.softBlock?.month ?? dbConfig.softBlock.month,
+                     day: config.softBlock?.day ?? dbConfig.softBlock.day
+                 },
+                 hardDelete: {
+                     month: config.hardDelete?.month ?? dbConfig.hardDelete.month,
+                     day: config.hardDelete?.day ?? dbConfig.hardDelete.day,
+                     note: 'Hard delete always occurs in sessionEndYear + 1'
+                 },
+                 urgentWarningDays: config.urgentWarningThreshold?.days ?? dbConfig.urgentWarningThreshold.days
+             }
         });
 
     } catch (error: any) {
@@ -257,9 +258,10 @@ export async function GET(req: NextRequest) {
             });
         }
 
+        const dbConfig = await getDeadlineConfig();
         // Use current config with simulation mode if enabled
-        const simMode = DEADLINE_CONFIG.testingMode?.enabled
-            ? { enabled: true, customYear: DEADLINE_CONFIG.testingMode.customYear }
+        const simMode = (dbConfig as any).testingMode?.enabled
+            ? { enabled: true, customYear: (dbConfig as any).testingMode.customYear }
             : undefined;
 
         const preview = generateDatePreview(
@@ -271,7 +273,7 @@ export async function GET(req: NextRequest) {
                 sessionEndYear: studentData.sessionEndYear,
                 status: studentData.status
             },
-            DEADLINE_CONFIG,
+            dbConfig,
             simMode
         );
 
@@ -292,7 +294,7 @@ export async function GET(req: NextRequest) {
                 urgentWarning: formatDateWithOrdinal(new Date(preview.computedDates.urgentWarningDate))
             },
             validUntil: studentData.validUntil,
-            configVersion: DEADLINE_CONFIG.version,
+            configVersion: dbConfig.version,
             note: 'Hard delete occurs in the NEXT academic cycle (sessionEndYear + 1)'
         });
 

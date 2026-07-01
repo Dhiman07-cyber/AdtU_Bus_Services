@@ -3,6 +3,7 @@ import { withSecurity } from '@/lib/security/api-security';
 import { RateLimits } from '@/lib/security/rate-limiter';
 import { adminDb } from '@/lib/firebase-admin';
 import { getSupabaseServer } from '@/lib/supabase-server';
+import { getDeadlineConfig } from '@/lib/deadline-config-service';
 
 /**
  * GET /api/admin/dashboard-counts
@@ -43,7 +44,7 @@ export const GET = withSecurity(
         statusSnap,
         paymentsSnap,
         sysSnap,
-        dlSnap
+        deadlineConfig
       ] = await Promise.all([
         adminDb.collection('students').count().get(),
         adminDb.collection('students').where('status', '==', 'active').count().get(),
@@ -60,7 +61,7 @@ export const GET = withSecurity(
         supabase.from('driver_status').select('*').in('status', ['enroute', 'on_trip']),
         supabase.from('payments').select('amount, method').or('status.eq.Completed,status.eq.completed'),
         adminDb.collection('settings').doc('config').get(),
-        adminDb.collection('system').doc('deadline_config').get()
+        getDeadlineConfig()
       ]);
 
       // ── 2. Process Routes & Buses ──
@@ -119,11 +120,10 @@ export const GET = withSecurity(
 
       // ── 6. Config Dates ──
       const systemData = sysSnap.exists ? sysSnap.data() : null;
-      const dlData = dlSnap.exists ? dlSnap.data() : null;
       const configDates = {
-        academicYearEnd: dlData?.academicYear ? `${dlData.academicYear.anchorYear || new Date().getFullYear()}-${String((dlData.academicYear.anchorMonth || 0) + 1).padStart(2, '0')}-${String(dlData.academicYear.anchorDay || 1).padStart(2, '0')}` : systemData?.academicYearEnd || null,
-        softBlock: dlData?.softBlock ? `${new Date().getFullYear()}-${String((dlData.softBlock.month || 0) + 1).padStart(2, '0')}-${String(dlData.softBlock.day || 1).padStart(2, '0')}` : systemData?.softBlock || null,
-        hardBlock: dlData?.hardDelete ? `${new Date().getFullYear()}-${String((dlData.hardDelete.month || 0) + 1).padStart(2, '0')}-${String(dlData.hardDelete.day || 1).padStart(2, '0')}` : systemData?.hardBlock || null,
+        academicYearEnd: `${new Date().getFullYear()}-${String(deadlineConfig.academicYear.anchorMonth + 1).padStart(2, '0')}-${String(deadlineConfig.academicYear.anchorDay).padStart(2, '0')}`,
+        softBlock: `${new Date().getFullYear()}-${String(deadlineConfig.softBlock.month + 1).padStart(2, '0')}-${String(deadlineConfig.softBlock.day).padStart(2, '0')}`,
+        hardBlock: `${new Date().getFullYear()}-${String(deadlineConfig.hardDelete.month + 1).padStart(2, '0')}-${String(deadlineConfig.hardDelete.day).padStart(2, '0')}`,
         busFee: Number(systemData?.busFee?.amount || systemData?.busFee || systemData?.amount || 0)
       };
 

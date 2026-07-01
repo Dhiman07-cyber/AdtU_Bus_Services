@@ -129,6 +129,92 @@ export interface ComputedDates {
     isSimulated: boolean;
 }
 
+export interface DerivedLifecycle {
+    sessionStart: Date;
+    expiry: Date;
+    reminder1: Date;
+    reminder2: Date;
+    finalReminder: Date;
+    deadline: Date;
+    softBlock: Date;
+    activation: Date;
+    hardDelete: Date;
+}
+
+/**
+ * Derives all lifecycle dates programmatically from the single Academic Session Start month and day.
+ * Applies leap year normalization across all derived dates.
+ */
+export function deriveAcademicLifecycle(
+    startMonth: number,
+    startDay: number,
+    effectiveYear: number
+): DerivedLifecycle {
+    // Session Start date in the previous calendar year relative to sessionEndYear (effectiveYear)
+    const sessionStart = new Date(Date.UTC(effectiveYear - 1, startMonth, startDay, 0, 0, 0, 0));
+
+    // Expiry date is 1 day before the next session start of the effectiveYear
+    const expiry = new Date(Date.UTC(effectiveYear, startMonth, startDay, 0, 0, 0, 0));
+    expiry.setUTCDate(expiry.getUTCDate() - 1);
+    expiry.setUTCHours(23, 59, 59, 999);
+
+    // Reminder 1 is 3 months before expiry (1st of that month)
+    const reminder1 = new Date(expiry);
+    reminder1.setUTCMonth(reminder1.getUTCMonth() - 3);
+    reminder1.setUTCDate(1);
+    reminder1.setUTCHours(0, 0, 0, 0);
+
+    // Reminder 2 is 2 months before expiry (1st of that month)
+    const reminder2 = new Date(expiry);
+    reminder2.setUTCMonth(reminder2.getUTCMonth() - 2);
+    reminder2.setUTCDate(1);
+    reminder2.setUTCHours(0, 0, 0, 0);
+
+    // Final Reminder is 15 days before expiry
+    const finalReminder = new Date(expiry);
+    finalReminder.setUTCDate(finalReminder.getUTCDate() - 15);
+    finalReminder.setUTCHours(0, 0, 0, 0);
+
+    // Renewal Deadline is equal to expiry
+    const deadline = new Date(expiry);
+
+    // Soft Block is exactly when next session starts (e.g. July 1, 2026 at 00:00:00)
+    const softBlock = new Date(Date.UTC(effectiveYear, startMonth, startDay, 0, 0, 0, 0));
+
+    // Future Session Activation starts on the same day as soft block (July 1st)
+    const activation = new Date(Date.UTC(effectiveYear, startMonth, startDay, 0, 0, 0, 0));
+
+    // Hard Delete is two sessions after expiry (e.g. July 1, 2028)
+    const hardDelete = new Date(Date.UTC(effectiveYear + 2, startMonth, startDay, 0, 0, 0, 0));
+
+    // Apply consistency normalization to all leap years
+    const normalizeLeap = (d: Date) => {
+        const y = d.getUTCFullYear();
+        const m = d.getUTCMonth();
+        const day = d.getUTCDate();
+        if (m === 1 && day === 29) { // Feb 29
+            const isLeapYear = (y % 4 === 0 && y % 100 !== 0) || (y % 400 === 0);
+            if (!isLeapYear) {
+                d.setUTCMonth(1, 28);
+            }
+        }
+    };
+
+    [sessionStart, expiry, reminder1, reminder2, finalReminder, deadline, softBlock, activation, hardDelete].forEach(normalizeLeap);
+
+    return {
+        sessionStart,
+        expiry,
+        reminder1,
+        reminder2,
+        finalReminder,
+        deadline,
+        softBlock,
+        activation,
+        hardDelete
+    };
+}
+
 /**
  * Compute all deadline dates for a specific student
  * 
@@ -150,67 +236,25 @@ export function computeDatesForStudent(params: ComputeDateParams): ComputedDates
         ? simulationMode!.customYear
         : studentSessionEndYear;
 
-    // =====================
-    // CORE DATE COMPUTATIONS
-    // =====================
+    const startMonth = config.academicSessionStart?.month ?? 6; // default July
+    const startDay = config.academicSessionStart?.day ?? 1;
 
-    // Service Expiry Date
-    const serviceExpiryDate = new Date(
-        effectiveYear,
-        config.academicYear.anchorMonth,
-        config.academicYear.anchorDay,
-        23, 59, 59, 999
-    );
-
-    // Renewal Notification Date
-    const renewalNotificationDate = new Date(
-        effectiveYear,
-        config.renewalNotification.month,
-        config.renewalNotification.day,
-        0, 0, 0
-    );
-
-    // Renewal Deadline Date
-    const renewalDeadlineDate = new Date(
-        effectiveYear,
-        config.renewalDeadline.month,
-        config.renewalDeadline.day,
-        23, 59, 59, 999
-    );
-
-    // Soft Block Date
-    const softBlockDate = new Date(
-        effectiveYear,
-        config.softBlock.month,
-        config.softBlock.day,
-        23, 59, 59, 999
-    );
-
-    // =====================
-    // CRITICAL: Hard Delete 2 YEARS after session ends (per config: 792 days)
-    // =====================
-    const hardDeleteYear = effectiveYear + 2;
-    const hardDeleteDate = normalizeLeapYearDate(
-        hardDeleteYear,
-        config.hardDelete.month,
-        config.hardDelete.day
-    );
-    // Set to end of day
-    hardDeleteDate.setHours(23, 59, 59, 999);
+    const lifecycle = deriveAcademicLifecycle(startMonth, startDay, effectiveYear);
 
     // Urgent Warning Date: X days before hard delete
-    const urgentWarningDate = new Date(hardDeleteDate);
-    urgentWarningDate.setDate(
-        urgentWarningDate.getDate() - config.urgentWarningThreshold.days
+    const urgentWarningDays = config.urgentWarningThreshold?.days ?? 15;
+    const urgentWarningDate = new Date(lifecycle.hardDelete);
+    urgentWarningDate.setUTCDate(
+        urgentWarningDate.getUTCDate() - urgentWarningDays
     );
-    urgentWarningDate.setHours(0, 0, 0, 0);
+    urgentWarningDate.setUTCHours(0, 0, 0, 0);
 
     return {
-        serviceExpiryDate,
-        renewalNotificationDate,
-        renewalDeadlineDate,
-        softBlockDate,
-        hardDeleteDate,
+        serviceExpiryDate: lifecycle.expiry,
+        renewalNotificationDate: lifecycle.reminder1,
+        renewalDeadlineDate: lifecycle.deadline,
+        softBlockDate: lifecycle.softBlock,
+        hardDeleteDate: lifecycle.hardDelete,
         urgentWarningDate,
         effectiveYear,
         isSimulated
@@ -222,9 +266,9 @@ export function computeDatesForStudent(params: ComputeDateParams): ComputedDates
  */
 export function isSameDay(date1: Date, date2: Date): boolean {
     return (
-        date1.getFullYear() === date2.getFullYear() &&
-        date1.getMonth() === date2.getMonth() &&
-        date1.getDate() === date2.getDate()
+        date1.getUTCFullYear() === date2.getUTCFullYear() &&
+        date1.getUTCMonth() === date2.getUTCMonth() &&
+        date1.getUTCDate() === date2.getUTCDate()
     );
 }
 
@@ -232,8 +276,8 @@ export function isSameDay(date1: Date, date2: Date): boolean {
  * Check if date1 is on or after date2 (ignoring time)
  */
 export function isOnOrAfter(date1: Date, date2: Date): boolean {
-    const d1 = new Date(date1.getFullYear(), date1.getMonth(), date1.getDate());
-    const d2 = new Date(date2.getFullYear(), date2.getMonth(), date2.getDate());
+    const d1 = Date.UTC(date1.getUTCFullYear(), date1.getUTCMonth(), date1.getUTCDate());
+    const d2 = Date.UTC(date2.getUTCFullYear(), date2.getUTCMonth(), date2.getUTCDate());
     return d1 >= d2;
 }
 
@@ -241,8 +285,8 @@ export function isOnOrAfter(date1: Date, date2: Date): boolean {
  * Check if date1 is strictly after date2 (ignoring time)
  */
 export function isAfter(date1: Date, date2: Date): boolean {
-    const d1 = new Date(date1.getFullYear(), date1.getMonth(), date1.getDate());
-    const d2 = new Date(date2.getFullYear(), date2.getMonth(), date2.getDate());
+    const d1 = Date.UTC(date1.getUTCFullYear(), date1.getUTCMonth(), date1.getUTCDate());
+    const d2 = Date.UTC(date2.getUTCFullYear(), date2.getUTCMonth(), date2.getUTCDate());
     return d1 > d2;
 }
 
@@ -250,8 +294,8 @@ export function isAfter(date1: Date, date2: Date): boolean {
  * Check if date1 is on or before date2 (ignoring time)
  */
 export function isOnOrBefore(date1: Date, date2: Date): boolean {
-    const d1 = new Date(date1.getFullYear(), date1.getMonth(), date1.getDate());
-    const d2 = new Date(date2.getFullYear(), date2.getMonth(), date2.getDate());
+    const d1 = Date.UTC(date1.getUTCFullYear(), date1.getUTCMonth(), date1.getUTCDate());
+    const d2 = Date.UTC(date2.getUTCFullYear(), date2.getUTCMonth(), date2.getUTCDate());
     return d1 <= d2;
 }
 
@@ -476,9 +520,6 @@ export function computedDatesToStorable(
     };
 }
 
-/**
- * Compute softBlock and hardBlock dates for a student based on their validUntil date.
- */
 export function computeBlockDatesFromValidUntil(
     validUntil: string | Date,
     config: DeadlineConfig // REQUIRED
@@ -487,36 +528,16 @@ export function computeBlockDatesFromValidUntil(
 
     // Parse validUntil to get the year
     const validUntilDate = typeof validUntil === 'string' ? new Date(validUntil) : validUntil;
-    const validUntilYear = validUntilDate.getFullYear();
+    const validUntilYear = validUntilDate.getUTCFullYear();
 
-    // Soft Block: Same year as validUntil, using config month/day/time
-    const softBlockDate = new Date(
-        validUntilYear,
-        config.softBlock.month,
-        config.softBlock.day,
-        config.softBlock.hour ?? 23,
-        config.softBlock.minute ?? 59,
-        59,
-        999
-    );
+    const startMonth = config.academicSessionStart?.month ?? 6;
+    const startDay = config.academicSessionStart?.day ?? 1;
 
-    // Hard Block: TWO years after validUntil year, using config month/day/time
-    const hardBlockYear = validUntilYear + 2;
-    const hardBlockDate = normalizeLeapYearDate(
-        hardBlockYear,
-        config.hardDelete.month,
-        config.hardDelete.day
-    );
-    hardBlockDate.setHours(
-        config.hardDelete.hour ?? 23,
-        config.hardDelete.minute ?? 59,
-        59,
-        999
-    );
+    const lifecycle = deriveAcademicLifecycle(startMonth, startDay, validUntilYear);
 
     return {
-        softBlock: softBlockDate.toISOString(),
-        hardBlock: hardBlockDate.toISOString()
+        softBlock: lifecycle.softBlock.toISOString(),
+        hardBlock: lifecycle.hardDelete.toISOString()
     };
 }
 

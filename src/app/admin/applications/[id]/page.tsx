@@ -737,7 +737,7 @@ export default function AdminApplicationDetailPage() {
 
                   <InfoRow 
                     label="Valid Until" 
-                    value={sessionStartYear && sessionEndYear ? `31 July ${sessionEndYear}` : '—'} 
+                    value="Set after approval" 
                   />
 
                   <InfoRow

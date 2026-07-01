@@ -12,72 +12,97 @@ export class CleanupService {
   /**
    * Clean up expired driver swaps and revert bus assignments
    * Called opportunistically when system is active
+   *
+   * Firestore hard limit: 500 operations per batch.
+   * Each expired swap requires 2 operations (1 delete + 1 bus update).
+   * We cap at 200 swaps per batch (400 ops) to stay safely under the limit.
+   * Stale request cleanup runs in a separate batch.
    */
   static async cleanExpiredSwaps(): Promise<{ cleaned: number; reverted: number }> {
     try {
       const now = new Date();
       let cleaned = 0;
       let reverted = 0;
+      const allBusUpdates: Map<string, string> = new Map(); // busId -> originalDriverId
 
-      // Find all active swaps where endTime has passed (limit to stay under Firestore's 500 batch cap)
-      const activeSwapsSnapshot = await adminDb
-        .collection('driver_swap_requests')
-        .where('status', '==', 'accepted')
-        .limit(300)
-        .get();
+      // Phase 1: Process expired swaps in chunked batches
+      // Each swap = 1 delete + 1 bus update = 2 ops. Cap at 200 swaps = 400 ops.
+      const SWAP_BATCH_SIZE = 200;
+      let hasMoreSwaps = true;
 
-      const batch = adminDb.batch();
-      const busUpdates: Map<string, string> = new Map(); // busId -> originalDriverId
+      while (hasMoreSwaps) {
+        const activeSwapsSnapshot = await adminDb
+          .collection('driver_swap_requests')
+          .where('status', '==', 'accepted')
+          .limit(SWAP_BATCH_SIZE)
+          .get();
 
-      for (const doc of activeSwapsSnapshot.docs) {
-        const swap = doc.data();
+        if (activeSwapsSnapshot.empty) {
+          hasMoreSwaps = false;
+          break;
+        }
 
-        // Check if swap time period has ended
-        if (swap.timePeriod?.endTime) {
-          const endTime = new Date(swap.timePeriod.endTime);
+        const batch = adminDb.batch();
+        const batchBusUpdates: Map<string, string> = new Map();
 
-          if (endTime <= now) {
-            // DELETE the swap document immediately
-            batch.delete(doc.ref);
+        for (const doc of activeSwapsSnapshot.docs) {
+          const swap = doc.data();
 
-            // Queue bus revert (assignedDriverId back to fromDriverUID)
-            busUpdates.set(swap.busId, swap.fromDriverUID);
+          if (swap.timePeriod?.endTime) {
+            const endTime = new Date(swap.timePeriod.endTime);
 
-            cleaned++;
+            if (endTime <= now) {
+              batch.delete(doc.ref);
+              batchBusUpdates.set(swap.busId, swap.fromDriverUID);
+              cleaned++;
+            }
           }
         }
+
+        // Revert bus assignments for this chunk
+        for (const [busId, originalDriverId] of batchBusUpdates.entries()) {
+          const busRef = adminDb.collection('buses').doc(busId);
+          batch.update(busRef, {
+            activeDriverId: originalDriverId,
+            updatedAt: FieldValue.serverTimestamp()
+          });
+          reverted++;
+        }
+
+        // Commit this chunk — max 200 deletes + 200 updates = 400 ops
+        await batch.commit();
+
+        // Collect bus updates for post-commit notifications
+        for (const [busId, driverId] of batchBusUpdates.entries()) {
+          allBusUpdates.set(busId, driverId);
+        }
+
+        // If we got fewer than SWAP_BATCH_SIZE docs, there are no more
+        hasMoreSwaps = activeSwapsSnapshot.size === SWAP_BATCH_SIZE;
       }
 
-      // Revert bus assignments
-      for (const [busId, originalDriverId] of busUpdates.entries()) {
-        const busRef = adminDb.collection('buses').doc(busId);
-        batch.update(busRef, {
-          activeDriverId: originalDriverId,
-          updatedAt: FieldValue.serverTimestamp()
-        });
-        reverted++;
-      }
-
-      // Clean up old pending/rejected/cancelled requests (>7 days old)
+      // Phase 2: Clean up old pending/rejected/cancelled requests (>7 days old)
+      // Separate batch — max 100 ops, well under limit.
       const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
       const staleRequestsSnapshot = await adminDb
         .collection('driver_swap_requests')
         .where('status', 'in', ['pending', 'rejected', 'cancelled', 'expired'])
         .where('createdAt', '<', sevenDaysAgo)
-        .limit(100)
+        .limit(400)
         .get();
 
-      staleRequestsSnapshot.docs.forEach((doc: any) => {
-        batch.delete(doc.ref);
-        cleaned++;
-      });
+      if (staleRequestsSnapshot.size > 0) {
+        const staleBatch = adminDb.batch();
+        staleRequestsSnapshot.docs.forEach((doc: any) => {
+          staleBatch.delete(doc.ref);
+        });
+        await staleBatch.commit();
+        cleaned += staleRequestsSnapshot.size;
+      }
 
-      // Commit all changes FIRST — notifications are non-critical
-      await batch.commit();
-
-      // Send notifications AFTER successful commit — failure here does NOT
+      // Send notifications AFTER all commits — failure here does NOT
       // prevent the swap revert from being persisted.
-      for (const [busId, originalDriverId] of busUpdates.entries()) {
+      for (const [busId, originalDriverId] of allBusUpdates.entries()) {
         try {
           await this.notifySwapReverted(busId, originalDriverId);
         } catch (notifErr) {

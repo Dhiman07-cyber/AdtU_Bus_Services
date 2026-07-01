@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { useAuth } from '@/contexts/auth-context';
+import { DEFAULT_BUS_FEE } from '@/config/runtime';
 import FacultyDepartmentSelector from '@/components/faculty-department-selector';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -70,7 +71,7 @@ export default function AddStudentForm() {
 
   // Helper function to get initial form data from localStorage
   const getInitialFormData = (): StudentFormData => {
-    const currentYear = new Date().getFullYear();
+    const currentYear = new Date().getUTCFullYear();
     // Use a transient default for the very first render, it will be updated by the useEffect once config is fetched
     const defaultValidUntil = calculateValidUntilDate(currentYear, 1, { month: 5, day: 30 }).toISOString();
 
@@ -157,7 +158,7 @@ export default function AddStudentForm() {
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Get bus fee from system config dynamically
-  const [busFee, setBusFee] = useState<number>(5000);
+  const [busFee, setBusFee] = useState<number>(DEFAULT_BUS_FEE);
   const [academicDeadline, setAcademicDeadline] = useState<{ month: number; day: number }>({ month: 5, day: 30 }); // Default June 30
 
   useEffect(() => {
@@ -170,16 +171,22 @@ export default function AddStudentForm() {
             setBusFee(data.config.busFee.amount);
             console.log('💰 [Moderator] Fetched dynamic bus fee:', data.config.busFee.amount);
           }
-          if (data.config?.academicYearEnd) {
-            const date = new Date(data.config.academicYearEnd);
-            if (!isNaN(date.getTime())) {
-              setAcademicDeadline({ month: date.getMonth(), day: date.getDate() });
-              console.log('📅 [Moderator] Fetched dynamic academic deadline:', date.toDateString());
-            }
+        }
+
+        // Fetch academic deadline from canonical deadline config endpoint
+        const dlResponse = await fetch('/api/settings/deadline-config');
+        if (dlResponse.ok) {
+          const dlData = await dlResponse.json();
+          if (dlData.config?.academicYear) {
+            setAcademicDeadline({
+              month: dlData.config.academicYear.anchorMonth,
+              day: dlData.config.academicYear.anchorDay
+            });
+            console.log('📅 [Moderator] Fetched academic deadline from canonical config:', dlData.config.academicYear.anchorMonth, dlData.config.academicYear.anchorDay);
           }
         }
       } catch (error) {
-        console.error('Failed to fetch system config:', error);
+        console.error('Failed to fetch config:', error);
       }
     };
     fetchSystemConfig();
@@ -348,7 +355,7 @@ export default function AddStudentForm() {
   // Calculate session end year and validUntil date using deadline-config.json
   const calculateSessionEnd = (startYear: number, durationYears: number) => {
     // Ensure valid numbers
-    const validStartYear = isNaN(startYear) ? new Date().getFullYear() : startYear;
+    const validStartYear = isNaN(startYear) ? new Date().getUTCFullYear() : startYear;
     const validDuration = isNaN(durationYears) ? 1 : durationYears;
 
     const endYear = validStartYear + validDuration;
@@ -373,7 +380,7 @@ export default function AddStudentForm() {
   // Handle session start year change
   const handleSessionStartYearChange = (year: number | string) => {
     const yearNum = typeof year === 'string' ? parseInt(year) : year;
-    const validYear = isNaN(yearNum) ? new Date().getFullYear() : yearNum;
+    const validYear = isNaN(yearNum) ? new Date().getUTCFullYear() : yearNum;
     const durationNum = parseInt(formData.sessionDuration) || 1;
     const { endYear, validUntil } = calculateSessionEnd(validYear, durationNum);
 
@@ -735,7 +742,7 @@ export default function AddStudentForm() {
     }
     const approvedByValue = approverName ? `${approverName} (${idSuffix})` : '';
 
-    const currentYear = new Date().getFullYear();
+    const currentYear = new Date().getUTCFullYear();
     const { endYear, validUntil } = calculateSessionEnd(currentYear, 1);
 
     setFormData({

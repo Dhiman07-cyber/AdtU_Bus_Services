@@ -66,6 +66,10 @@ export default function ApplicationStatusPage() {
     switch (state) {
       case 'approved':
         return <CheckCircle className="h-8 w-8 text-green-600" />;
+      case 'verified_upcoming':
+        return <Clock className="h-8 w-8 text-indigo-600" />;
+      case 'pending_seat_allocation':
+        return <AlertCircle className="h-8 w-8 text-amber-600" />;
       case 'submitted':
         return <Clock className="h-8 w-8 text-blue-600" />;
       case 'verified':
@@ -86,6 +90,18 @@ export default function ApplicationStatusPage() {
           title: 'Application Approved!',
           message: 'Congratulations! Your bus service application has been approved. You can now access your student dashboard.',
           color: 'green'
+        };
+      case 'verified_upcoming':
+        return {
+          title: 'Verified — Awaiting New Academic Session',
+          message: 'Your application has been verified and will become active when the new academic session begins.',
+          color: 'indigo'
+        };
+      case 'pending_seat_allocation':
+        return {
+          title: 'Awaiting Seat Assignment',
+          message: 'Your application has been approved and payment is verified, but all seats are currently occupied. You are in the Seat Allocation Queue and will be notified as soon as a seat becomes available.',
+          color: 'amber'
         };
       case 'submitted':
         return {

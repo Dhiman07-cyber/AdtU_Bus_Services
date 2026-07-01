@@ -19,6 +19,7 @@ export const useBusLocation = (busId: string) => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const isMountedRef = useRef(true);
+  const isMountedChannelRef = useRef(true);
 
   const applyIncomingLocation = useCallback((newLocation: BusLocation) => {
     if (!isValidLatLng(newLocation.lat, newLocation.lng)) return;
@@ -122,7 +123,7 @@ export const useBusLocation = (busId: string) => {
   useEffect(() => {
     if (!supabase || !busId) return;
 
-    isMountedRef.current = true;
+    isMountedChannelRef.current = true;
     const channelName = `bus_location_${busId}`;
     const channel = supabase.channel(channelName, {
       config: {
@@ -160,7 +161,7 @@ export const useBusLocation = (busId: string) => {
     );
 
     channel.subscribe((status: string, err: any) => {
-      if (!isMountedRef.current) return;
+      if (!isMountedChannelRef.current) return;
       if (status === 'SUBSCRIBED') {
         setLoading(false);
       } else if (status === 'CHANNEL_ERROR') {
@@ -175,18 +176,15 @@ export const useBusLocation = (busId: string) => {
     });
 
     return () => {
-      isMountedRef.current = false;
+      isMountedChannelRef.current = false;
       supabase.removeChannel(channel);
     };
   }, [busId, handleBusLocationUpdate]);
 
   return {
     currentLocation,
-    interpolatedLocation: null,
     history,
     loading,
     error,
-    /** @deprecated Legacy API — returns null (no interpolation). */
-    getInterpolatedPosition: (): null => null,
   };
 };

@@ -129,12 +129,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const [isExpired, setIsExpired] = useState(false);
   const listenerUnsubscribe = useRef<Unsubscribe | null>(null);
+  const signOutTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Cleanup listener on unmount
+  // Cleanup listener and timers on unmount
   useEffect(() => {
     return () => {
       if (listenerUnsubscribe.current) {
         listenerUnsubscribe.current();
+      }
+      if (signOutTimerRef.current) {
+        clearTimeout(signOutTimerRef.current);
       }
     };
   }, []);
@@ -379,12 +383,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
 
       // Reset the flag after a longer delay to allow any pending errors to be suppressed
-      setTimeout(() => setSigningOut(false), 2000);
+      if (signOutTimerRef.current) clearTimeout(signOutTimerRef.current);
+      signOutTimerRef.current = setTimeout(() => {
+        setSigningOut(false);
+        signOutTimerRef.current = null;
+      }, 2000);
 
       return { success: true };
     } catch (error) {
       // Reset flag on error
-      setTimeout(() => setSigningOut(false), 2000);
+      if (signOutTimerRef.current) clearTimeout(signOutTimerRef.current);
+      signOutTimerRef.current = setTimeout(() => {
+        setSigningOut(false);
+        signOutTimerRef.current = null;
+      }, 2000);
       return { success: false, error: (error as Error).message };
     }
   }, []);

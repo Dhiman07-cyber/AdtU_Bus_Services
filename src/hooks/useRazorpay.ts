@@ -85,14 +85,15 @@ export function useRazorpay() {
 
   // Load Razorpay script with mobile-specific handling and zombie script recovery
   useEffect(() => {
+    let script: HTMLScriptElement | null = null;
+
     const loadScript = () => {
       // Check if already in document
       if (document.querySelector('script[src="https://checkout.razorpay.com/v1/checkout.js"]')) {
         return;
       }
 
-
-      const script = document.createElement('script');
+      script = document.createElement('script');
       script.setAttribute('src', 'https://checkout.razorpay.com/v1/checkout.js');
       script.async = true;
 
@@ -112,6 +113,12 @@ export function useRazorpay() {
     } else {
       loadScript();
     }
+
+    return () => {
+      if (script && script.parentNode) {
+        script.parentNode.removeChild(script);
+      }
+    };
   }, []);
 
   /**

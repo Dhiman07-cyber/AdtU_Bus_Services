@@ -110,7 +110,7 @@ export async function POST(request: NextRequest) {
 
     // Note: checking duplicate using the public ID is fine because it's unique per user anyway
     // (We changed checkDuplicate to use the publicId instead of auth userId)
-    const isDuplicate = await checkDuplicate([], publicId, sanitized);
+    const isDuplicate = await checkDuplicate(publicId, sanitized);
     if (isDuplicate) {
       return NextResponse.json(
         { error: 'You have already submitted this feedback recently' },

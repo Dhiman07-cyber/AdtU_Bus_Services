@@ -3,6 +3,7 @@ import path from "path";
 
 const nextConfig: NextConfig = {
   /* config options here */
+  output: 'standalone',
   // Performance optimizations
   serverExternalPackages: ['cloudinary', 'razorpay'],
 
@@ -20,9 +21,7 @@ const nextConfig: NextConfig = {
       '@radix-ui/react-scroll-area',
       '@radix-ui/react-avatar',
       '@radix-ui/react-checkbox',
-      '@radix-ui/react-switch',
       '@radix-ui/react-label',
-      '@radix-ui/react-separator',
       '@radix-ui/react-slot',
       '@supabase/supabase-js',
       'qrcode.react',
@@ -260,4 +259,4 @@ const nextConfig: NextConfig = {
   },
 };
 
-export default nextConfig; // Trigger dev server reload
+export default nextConfig;

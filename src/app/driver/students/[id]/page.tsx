@@ -29,6 +29,7 @@ import {
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { getStudentById as getStudentByUid } from "@/lib/dataService";
 import { safeImageSrc } from "@/lib/security/url-sanitizer";
+import { formatDateFlexible } from '@/lib/utils/date-utils';
 
 const StatusBadge = ({ status }: { status: string }) => {
   const statusConfig: Record<string, { bg: string; text: string; dot: string }> = {
@@ -45,25 +46,7 @@ const StatusBadge = ({ status }: { status: string }) => {
   );
 };
 
-const formatDate = (dateValue: any) => {
-  if (!dateValue) return 'Not provided';
-  try {
-    let date: Date;
-    if (typeof dateValue === 'object' && 'seconds' in dateValue && 'nanoseconds' in dateValue) {
-      date = new Date(dateValue.seconds * 1000);
-    } else if (typeof dateValue === 'string') {
-      date = new Date(dateValue);
-    } else if (dateValue instanceof Date) {
-      date = dateValue;
-    } else {
-      return 'Not provided';
-    }
-    if (isNaN(date.getTime())) return 'Not provided';
-    return date.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
-  } catch (error) {
-    return 'Not provided';
-  }
-};
+const formatDate = formatDateFlexible;
 
 const calculateAgeFromDob = (dobValue: any): string => {
   if (!dobValue) return 'N/A';

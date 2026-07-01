@@ -594,19 +594,6 @@ export function formatDate(date: Date | null | undefined): string {
 }
 
 /**
- * Format date to DD-MM-YYYY
- */
-export function formatDateSlash(date: Date | null | undefined): string {
-  if (!date) return 'Not provided';
-  
-  const d = String(date.getDate()).padStart(2, '0');
-  const m = String(date.getMonth() + 1).padStart(2, '0');
-  const y = date.getFullYear();
-  
-  return `${d}-${m}-${y}`;
-}
-
-/**
  * Check if session is expired
  */
 export function isSessionExpired(validUntil: Date | null | undefined): boolean {

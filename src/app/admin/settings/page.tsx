@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/contexts/auth-context';
+import { DEFAULT_BUS_FEE } from '@/config/runtime';
 import { useToast } from '@/contexts/toast-context';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -15,7 +16,7 @@ export default function AdminSettingsPage() {
   const { showToast } = useToast();
   const router = useRouter();
 
-  const [busFees, setBusFees] = useState<number>(1200);
+  const [busFees, setBusFees] = useState<number>(DEFAULT_BUS_FEE);
   const [loadingFees, setLoadingFees] = useState(true);
   const [savingFees, setSavingFees] = useState(false);
 

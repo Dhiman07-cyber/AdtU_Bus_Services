@@ -386,8 +386,8 @@ export default function DeadlineTestingPage() {
                                 <p>1. <strong>Set "Simulated Today"</strong> - This date acts as the current date for the simulation</p>
                                 <p>2. <strong>Configure Deadline Dates</strong> - Month/day for when soft block and hard delete occur</p>
                                 <p>3. <strong>Soft Block</strong>: If simulated year = student's session end year AND simulated date ≥ soft block date</p>
-                                <p>4. <strong>Hard Delete</strong>: If simulated year ≥ session end year + 1 AND simulated date ≥ hard delete date</p>
-                                <p className="text-blue-400 italic">Example: Student valid until Jun 30, 2025 → Soft block Jul 31, 2025 → Hard delete Aug 31, 2026</p>
+                                <p>4. <strong>Hard Delete</strong>: If simulated year ≥ session end year + 2 AND simulated date ≥ hard delete date</p>
+                                <p className="text-blue-400 italic">Example: Student valid until Jun 30, 2025 → Soft block Jul 31, 2025 → Hard delete Aug 31, 2027</p>
                             </div>
                         </div>
                     </CardContent>
@@ -414,7 +414,7 @@ export default function DeadlineTestingPage() {
                         </Card>
                         <Card className="bg-red-900/20 border-red-700/50">
                             <CardContent className="p-3">
-                                <p className="text-[10px] text-red-400 font-medium">Hard Delete (Next Year)</p>
+                                <p className="text-[10px] text-red-400 font-medium">Hard Delete (+2 Years)</p>
                                 <p className="text-sm font-bold text-white">
                                     {MONTHS[useCustomDeadlines ? customHardDeleteMonth : config.hardDelete.month]} {useCustomDeadlines ? customHardDeleteDay : config.hardDelete.day}
                                 </p>
@@ -607,13 +607,13 @@ export default function DeadlineTestingPage() {
                                     size="sm"
                                     className="text-xs h-6 border-red-500/50 text-red-400"
                                     onClick={() => {
-                                        const year = new Date().getFullYear() + 1;
+                                        const year = new Date().getFullYear() + 2;
                                         const month = useCustomDeadlines ? customHardDeleteMonth : config.hardDelete.month;
                                         const day = useCustomDeadlines ? customHardDeleteDay : config.hardDelete.day;
                                         setSimulatedDate(`${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`);
                                     }}
                                 >
-                                    Hard Delete Day (Next Year)
+                                    Hard Delete Day (+2 Years)
                                 </Button>
                             </div>
                         )}

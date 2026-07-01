@@ -7,9 +7,7 @@
 import { Timestamp } from 'firebase/firestore';
 import { SimulationConfig } from '@/lib/types/simulation-config';
 import { DeadlineConfig } from '@/lib/types/deadline-config';
-
-// NOTE: Top-level constants removed to enforce dynamic configuration usage.
-// Consumers must fetch configuration first and pass it to these utilities.
+import { deriveAcademicLifecycle } from './deadline-computation';
 
 /**
  * Calculate new validUntil date for renewal
@@ -28,38 +26,29 @@ export function calculateRenewalDate(
   if (!config) throw new Error("Configuration required for calculateRenewalDate");
 
   const today = new Date();
-  const currentYear = today.getFullYear();
+  const currentYear = today.getUTCFullYear();
 
-  // Use provided config
   const anchorMonth = config.academicYear.anchorMonth;
   const anchorDay = config.academicYear.anchorDay;
 
   let baseYear: number;
   let oldValidUntil: string | null = currentValidUntil || null;
 
-  // Check if current validUntil exists and is in the future
   if (currentValidUntil) {
     const validUntilDate = new Date(currentValidUntil);
 
     if (validUntilDate > today) {
-      // Student has active service - extend from current validUntil year
-      baseYear = validUntilDate.getFullYear();
+      baseYear = validUntilDate.getUTCFullYear();
     } else {
-      // Expired - treat as new enrollment from current year
       oldValidUntil = null;
       baseYear = currentYear;
     }
   } else {
-    // No existing validUntil - new enrollment
-    // Always use current year as base for new enrollments
     baseYear = currentYear;
   }
 
-  // Calculate new year by adding duration
   const newYear = baseYear + durationYears;
-
-  // Set to anchor date of the new year at end of day
-  const newValidUntil = new Date(newYear, anchorMonth, anchorDay, 23, 59, 59, 999);
+  const newValidUntil = new Date(Date.UTC(newYear, anchorMonth, anchorDay, 23, 59, 59, 999));
 
   return {
     newValidUntil: newValidUntil.toISOString(),
@@ -75,65 +64,9 @@ export function formatRenewalDate(dateString: string): string {
   return date.toLocaleDateString('en-GB', {
     day: '2-digit',
     month: 'short',
-    year: 'numeric'
+    year: 'numeric',
+    timeZone: 'UTC'
   });
-}
-
-/**
- * Check if a validUntil date is too far in the future (warning threshold)
- */
-export function isExcessivelyLongValidity(validUntil: string): boolean {
-  const date = new Date(validUntil);
-  const today = new Date();
-  const yearsDifference = (date.getFullYear() - today.getFullYear());
-
-  return yearsDifference > 10;
-}
-
-/**
- * Validate renewal parameters
- */
-export function validateRenewalParams(durationYears: number): {
-  valid: boolean;
-  error?: string;
-} {
-  if (!Number.isInteger(durationYears) || durationYears < 1 || durationYears > 4) {
-    return {
-      valid: false,
-      error: 'Duration must be 1, 2, 3, or 4 years'
-    };
-  }
-
-  return { valid: true };
-}
-
-/**
- * Calculate total price for renewal
- */
-export function calculateRenewalPrice(durationYears: number, baseFee: number): number {
-  return baseFee * durationYears;
-}
-
-/**
- * Get days until expiry
- */
-export function getDaysUntilExpiry(validUntil: string | null): number {
-  if (!validUntil) return 0;
-
-  const expiryDate = new Date(validUntil);
-  const now = new Date();
-  const diffTime = expiryDate.getTime() - now.getTime();
-  const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-
-  return Math.max(0, diffDays);
-}
-
-/**
- * Check if service is expired
- */
-export function isServiceExpired(validUntil: string | null): boolean {
-  if (!validUntil) return true;
-  return new Date(validUntil) <= new Date();
 }
 
 /**
@@ -144,162 +77,109 @@ export function toFirestoreTimestamp(isoString: string): Timestamp {
 }
 
 /**
- * Get renewal summary text for display
- */
-export function getRenewalSummary(
-  studentName: string,
-  oldValidUntil: string | null,
-  newValidUntil: string,
-  amount: number
-): string {
-  const oldDisplay = oldValidUntil
-    ? formatRenewalDate(oldValidUntil)
-    : 'Expired/New';
-  const newDisplay = formatRenewalDate(newValidUntil);
-
-  return `${studentName}: ${oldDisplay} → ${newDisplay} (₹${amount})`;
-}
-
-/**
  * Check if student should be soft-blocked (after soft block date, not renewed)
+ * Used internally by shouldBlockAccessFromStoredDates
  */
-export function shouldBlockAccess(
+function shouldBlockAccess(
   validUntil: string | null,
   lastRenewalDate?: string | null,
   simulationConfig?: SimulationConfig | null,
   status?: string,
-  config?: any // REQUIRED parameter now
+  config?: any
 ): boolean {
   if (!config) throw new Error("Config required for shouldBlockAccess");
 
-  // Explicit status check: if manually blocked, always return true
   if (status === 'soft_blocked' || status === 'hard_blocked' || status === 'pending_deletion') {
     return true;
   }
 
-  if (!validUntil) return true; // No validity = blocked
+  if (!validUntil) return true;
 
-  // REFERENCE DATE: Use simulated date if enabled, otherwise real today
   let currentDate = new Date();
   if (simulationConfig?.enabled) {
-    currentDate = new Date(
+    currentDate = new Date(Date.UTC(
       simulationConfig.customYear,
       simulationConfig.customMonth,
       simulationConfig.customDay
-    );
+    ));
   }
 
   const validDate = new Date(validUntil);
-  let sessionEndYear = validDate.getFullYear();
+  let sessionEndYear = validDate.getUTCFullYear();
   if (simulationConfig?.enabled && (simulationConfig.syncSessionWithSimulatedDate || true)) {
     sessionEndYear = simulationConfig.customYear;
   }
 
-  const currentYear = currentDate.getFullYear();
   const isExpired = (simulationConfig?.enabled)
-    ? true // In simulation mode, we are testing the post-expiry behavior
+    ? true
     : validDate < currentDate;
 
   if (!isExpired) {
-    return false; // Still valid, don't block
+    return false;
   }
 
-  // Soft block only happens in the SAME year as session end
-  if (currentYear !== sessionEndYear) {
-    return currentYear > sessionEndYear;
-  }
-
-  // We're in the same year as session end - check soft block date
-  const softBlockDate = new Date(
-    sessionEndYear,
-    config.softBlock.month,
-    config.softBlock.day,
-    config.softBlock.hour || 0,
-    config.softBlock.minute || 0,
-    0
-  );
+  const startMonth = config.academicSessionStart?.month ?? 6;
+  const startDay = config.academicSessionStart?.day ?? 1;
+  const lifecycle = deriveAcademicLifecycle(startMonth, startDay, sessionEndYear);
+  const softBlockDate = lifecycle.softBlock;
 
   if (currentDate >= softBlockDate) {
-    // Past soft block date - check if renewed after expiry
     if (lastRenewalDate) {
       const renewalDate = new Date(lastRenewalDate);
       if (renewalDate > validDate) {
         return false;
       }
     }
-    return true; // Block access
+    return true;
   }
 
-  return false; // Before soft block date
+  return false;
 }
 
 /**
  * Check if student should be hard-deleted (after hard delete date, not renewed)
+ * Used internally by shouldHardDeleteFromStoredDates
  */
-export function shouldHardDelete(
+function shouldHardDelete(
   validUntil: string | null,
   lastRenewalDate?: string | null,
   simulationConfig?: SimulationConfig | null,
-  config?: any // REQUIRED
+  config?: any
 ): boolean {
   if (!config) throw new Error("Config required for shouldHardDelete");
 
   if (!validUntil) {
-    return true; // No validity = should be deleted
+    return true;
   }
 
-  // REFERENCE DATE: Use simulated date if enabled, otherwise real today
   let currentDate = new Date();
   if (simulationConfig?.enabled) {
-    currentDate = new Date(
+    currentDate = new Date(Date.UTC(
       simulationConfig.customYear,
       simulationConfig.customMonth,
       simulationConfig.customDay
-    );
+    ));
   }
 
   const validDate = new Date(validUntil);
+  let sessionEndYear = validDate.getUTCFullYear();
 
-  // SESSION END YEAR
-  let sessionEndYear = validDate.getFullYear();
-  if (simulationConfig?.enabled) {
-    sessionEndYear = validDate.getFullYear();
-  }
-
-  const hardDeleteYear = sessionEndYear + 2; // Hard delete is 2 YEARS after session ends (per config: 792 days)
-  const currentYear = currentDate.getFullYear();
-
-  // Hard delete only happens in years AFTER session end year
-  if (currentYear < hardDeleteYear) {
-    return false; // Not yet in the hard delete year
-  }
-
-  const hardDeleteDate = new Date(
-    hardDeleteYear,
-    config.hardDelete.month,
-    config.hardDelete.day,
-    config.hardDelete.hour || 0,
-    config.hardDelete.minute || 0,
-    0
-  );
+  const startMonth = config.academicSessionStart?.month ?? 6;
+  const startDay = config.academicSessionStart?.day ?? 1;
+  const lifecycle = deriveAcademicLifecycle(startMonth, startDay, sessionEndYear);
+  const hardDeleteDate = lifecycle.hardDelete;
 
   if (currentDate >= hardDeleteDate) {
-    // Past hard delete date - check if renewed after expiry
     if (lastRenewalDate) {
       const renewalDate = new Date(lastRenewalDate);
       if (renewalDate > validDate) {
         return false;
       }
     }
-    return true; // Should be deleted
-  }
-
-  // If we're in a year past hardDeleteYear, they should definitely be deleted
-  if (currentYear > hardDeleteYear) {
     return true;
   }
 
-  return false; // Before hard delete date
+  return false;
 }
 
 /**
@@ -308,13 +188,13 @@ export function shouldHardDelete(
 export function getBlockingMessage(
   validUntil: string | null,
   simulationConfig?: SimulationConfig | null,
-  config?: any // REQUIRED
+  config?: any
 ): string {
   if (!config) throw new Error("Config required for getBlockingMessage");
 
   const referenceYear = (simulationConfig?.enabled)
     ? simulationConfig.customYear
-    : (validUntil ? new Date(validUntil).getFullYear() : new Date().getFullYear());
+    : (validUntil ? new Date(validUntil).getUTCFullYear() : new Date().getUTCFullYear());
 
   const nextYear = referenceYear + 1;
 
@@ -339,35 +219,31 @@ export function shouldBlockAccessFromStoredDates(
     sessionEndYear?: number;
   },
   simulationConfig?: SimulationConfig | null,
-  config?: any // REQUIRED
+  config?: any
 ): boolean {
   if (!config) throw new Error("Config required for shouldBlockAccessFromStoredDates");
 
-  // Explicit status check: if already blocked, return true
   if (studentData.status === 'soft_blocked' || studentData.status === 'hard_blocked' || studentData.status === 'pending_deletion') {
     return true;
   }
 
-  if (!studentData.validUntil) return true; // No validity = blocked
+  if (!studentData.validUntil) return true;
 
-  // REFERENCE DATE: Use simulated date if enabled, otherwise real today
   let currentDate = new Date();
   if (simulationConfig?.enabled) {
-    currentDate = new Date(
+    currentDate = new Date(Date.UTC(
       simulationConfig.customYear,
       simulationConfig.customMonth,
       simulationConfig.customDay
-    );
+    ));
   }
 
   const validDate = new Date(studentData.validUntil);
 
-  // If still valid, don't block
   if (validDate > currentDate && !simulationConfig?.enabled) {
     return false;
   }
 
-  // Use stored softBlock date if available
   if (studentData.softBlock) {
     const softBlockDate = new Date(studentData.softBlock);
 
@@ -378,12 +254,11 @@ export function shouldBlockAccessFromStoredDates(
           return false;
         }
       }
-      return true; // Block access
+      return true;
     }
-    return false; // Before soft block date
+    return false;
   }
 
-  // Fallback to computed logic if no stored softBlock
   return shouldBlockAccess(
     studentData.validUntil,
     studentData.lastRenewalDate,
@@ -404,30 +279,26 @@ export function shouldHardDeleteFromStoredDates(
     sessionEndYear?: number;
   },
   simulationConfig?: SimulationConfig | null,
-  config?: any // REQUIRED
+  config?: any
 ): boolean {
   if (!config) throw new Error("Config required for shouldHardDeleteFromStoredDates");
 
   if (!studentData.validUntil) {
-    // SAFETY: Students without validUntil are incomplete profiles - they should NOT be auto-deleted
-    // These students need manual review or completion of their profile
     console.warn(`⚠️ Student ${studentData.sessionEndYear || 'unknown'} has no validUntil date - incomplete profile, skipping auto-deletion`);
-    return false; // No validity = DON'T delete (incomplete profile safety)
+    return false;
   }
 
-  // REFERENCE DATE
   let currentDate = new Date();
   if (simulationConfig?.enabled) {
-    currentDate = new Date(
+    currentDate = new Date(Date.UTC(
       simulationConfig.customYear,
       simulationConfig.customMonth,
       simulationConfig.customDay
-    );
+    ));
   }
 
   const validDate = new Date(studentData.validUntil);
 
-  // Use stored hardBlock date if available
   if (studentData.hardBlock) {
     const hardBlockDate = new Date(studentData.hardBlock);
 
@@ -438,12 +309,11 @@ export function shouldHardDeleteFromStoredDates(
           return false;
         }
       }
-      return true; // Should be deleted
+      return true;
     }
-    return false; // Before hard delete date
+    return false;
   }
 
-  // Fallback to computed logic
   return shouldHardDelete(
     studentData.validUntil,
     studentData.lastRenewalDate,
@@ -458,31 +328,24 @@ export function shouldHardDeleteFromStoredDates(
 export function getDaysUntilHardDelete(
   validUntil: string | null,
   simulationConfig?: SimulationConfig | null,
-  config?: any // REQUIRED
+  config?: any
 ): number {
   if (!config) throw new Error("Config required for getDaysUntilHardDelete");
 
   const today = simulationConfig?.enabled
-    ? new Date(simulationConfig.customYear, simulationConfig.customMonth, simulationConfig.customDay)
+    ? new Date(Date.UTC(simulationConfig.customYear, simulationConfig.customMonth, simulationConfig.customDay))
     : new Date();
 
-  // If no validUntil, we can't calculate accurate specific deadline
-  let sessionEndYear = today.getFullYear();
+  let sessionEndYear = today.getUTCFullYear();
 
   if (validUntil) {
-    sessionEndYear = new Date(validUntil).getFullYear();
+    sessionEndYear = new Date(validUntil).getUTCFullYear();
   }
 
-  const hardDeleteYear = sessionEndYear + 1;
-
-  const hardDeleteDate = new Date(
-    hardDeleteYear,
-    config.hardDelete.month,
-    config.hardDelete.day,
-    config.hardDelete.hour || 0,
-    config.hardDelete.minute || 0,
-    0
-  );
+  const startMonth = config.academicSessionStart?.month ?? 6;
+  const startDay = config.academicSessionStart?.day ?? 1;
+  const lifecycle = deriveAcademicLifecycle(startMonth, startDay, sessionEndYear);
+  const hardDeleteDate = lifecycle.hardDelete;
 
   const diffTime = hardDeleteDate.getTime() - today.getTime();
   const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
@@ -496,46 +359,23 @@ export function getDaysUntilHardDelete(
 export function getHardDeleteDate(
   validUntil: string | null,
   simulationConfig?: SimulationConfig | null,
-  config?: any // REQUIRED
+  config?: any
 ): Date {
   if (!config) throw new Error("Config required for getHardDeleteDate");
 
   const today = simulationConfig?.enabled
-    ? new Date(simulationConfig.customYear, simulationConfig.customMonth, simulationConfig.customDay)
+    ? new Date(Date.UTC(simulationConfig.customYear, simulationConfig.customMonth, simulationConfig.customDay))
     : new Date();
 
-  let sessionEndYear = today.getFullYear();
+  let sessionEndYear = today.getUTCFullYear();
   if (validUntil) {
-    sessionEndYear = new Date(validUntil).getFullYear();
+    sessionEndYear = new Date(validUntil).getUTCFullYear();
   }
 
-  const hardDeleteYear = sessionEndYear + 1;
-
-  return new Date(
-    hardDeleteYear,
-    config.hardDelete.month,
-    config.hardDelete.day,
-    config.hardDelete.hour || 0,
-    config.hardDelete.minute || 0,
-    0
-  );
-}
-
-/**
- * Get formatted timeline events with current year
- */
-export function getTimelineEvents(simulationConfig: SimulationConfig | null, config: any) {
-  if (!config) throw new Error("Config required for getTimelineEvents");
-
-  const currentYear = (simulationConfig?.enabled && simulationConfig.customYear)
-    ? simulationConfig.customYear
-    : new Date().getFullYear();
-
-  return config.timeline.events.map((event: any) => ({
-    ...event,
-    dateFormatted: `${event.date.month + 1}/${event.date.day}/${currentYear}`,
-    dateObject: new Date(currentYear, event.date.month, event.date.day)
-  }));
+  const startMonth = config.academicSessionStart?.month ?? 6;
+  const startDay = config.academicSessionStart?.day ?? 1;
+  const lifecycle = deriveAcademicLifecycle(startMonth, startDay, sessionEndYear);
+  return lifecycle.hardDelete;
 }
 
 /**

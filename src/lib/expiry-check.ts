@@ -1,5 +1,6 @@
 import { adminDb } from './firebase-admin';
 import { getDeadlineConfig } from '@/lib/deadline-config-service';
+import { deriveAcademicLifecycle } from './utils/deadline-computation';
 
 interface ExpiryCheckResult {
   totalChecked: number;
@@ -8,10 +9,6 @@ interface ExpiryCheckResult {
   skipped?: boolean;
 }
 
-/**
- * Main function to check for expiring students and send reminders
- * Dynamically scheduled based on deadline-config from Firestore
- */
 export async function checkAndNotifyExpiringStudents(force: boolean = false): Promise<ExpiryCheckResult> {
   const result: ExpiryCheckResult = {
     totalChecked: 0,
@@ -22,34 +19,37 @@ export async function checkAndNotifyExpiringStudents(force: boolean = false): Pr
   try {
     const deadlineConfig = await getDeadlineConfig();
     const now = new Date();
-    const currentYear = now.getFullYear();
-    const currentMonth = now.getMonth(); // 0-indexed
-    const currentDay = now.getDate();
+    const currentYear = now.getUTCFullYear();
+    const currentMonth = now.getUTCMonth(); // 0-indexed
+    const currentDay = now.getUTCDate();
 
-    // Configuration from Firestore
-    const notifMonth = deadlineConfig.renewalNotification.month; // e.g., 5 (June)
-    const notifDay = deadlineConfig.renewalNotification.day; // e.g., 1
+    const startMonth = deadlineConfig.academicSessionStart?.month ?? 6; // default July
+    const startDay = deadlineConfig.academicSessionStart?.day ?? 1;
 
-    // Check Schedule: Only run on the configured notification start day
-    if (!force && (currentMonth !== notifMonth || currentDay !== notifDay)) {
-      console.log(`⏭️ Main Expiry check skipped. Configured for: ${deadlineConfig.renewalNotification.monthName} ${notifDay}, Today: ${now.toDateString()}`);
+    // Derive dates for the current year
+    const lifecycle = deriveAcademicLifecycle(startMonth, startDay, currentYear);
+
+    const isR1 = currentMonth === lifecycle.reminder1.getUTCMonth() && currentDay === lifecycle.reminder1.getUTCDate();
+    const isR2 = currentMonth === lifecycle.reminder2.getUTCMonth() && currentDay === lifecycle.reminder2.getUTCDate();
+    const isFinal = currentMonth === lifecycle.finalReminder.getUTCMonth() && currentDay === lifecycle.finalReminder.getUTCDate();
+
+    let runR1 = force || isR1;
+    let runR2 = isR2;
+    let runFinal = isFinal;
+
+    if (!force && !isR1 && !isR2 && !isFinal) {
+      console.log(`⏭️ Expiry check skipped. Today: ${now.toDateString()}`);
       result.skipped = true;
       return result;
     }
 
-    // Determine Expiry Window (Target Deadline)
-    // We are looking for students expiring around the configured renewal deadline of THIS year
-    const deadlineMonth = deadlineConfig.renewalDeadline.month; // e.g., 6 (July)
-    const deadlineDay = deadlineConfig.renewalDeadline.day; // e.g., 1
-
-    const deadlineFirst = new Date(currentYear, deadlineMonth, deadlineDay);
-    const deadlineNext = new Date(currentYear, deadlineMonth, deadlineDay + 1);
+    const deadlineFirst = new Date(lifecycle.expiry);
+    deadlineFirst.setHours(0, 0, 0, 0);
+    const deadlineNext = new Date(deadlineFirst);
+    deadlineNext.setDate(deadlineNext.getDate() + 1);
 
     console.log(`🔍 Checking for students expiring on: ${deadlineFirst.toDateString()}`);
 
-    // Query students whose validUntil is EXACTLY on the deadline date
-    // Note: Depends on how validUntil is stored (ISO string usually). 
-    // We check strictly for the deadline date as defined in config.
     const studentsQuery = await adminDb.collection('students')
       .where('status', '==', 'active')
       .where('validUntil', '>=', deadlineFirst.toISOString())
@@ -59,52 +59,51 @@ export async function checkAndNotifyExpiringStudents(force: boolean = false): Pr
     result.totalChecked = studentsQuery.size;
     console.log(`📊 Found ${result.totalChecked} students expiring on ${deadlineFirst.toDateString()}`);
 
-    // Process each expiring student
     for (const studentDoc of studentsQuery.docs) {
       try {
         const studentData = studentDoc.data();
         const studentUid = studentDoc.id;
+        const currentCount = studentData.expiryReminderCount || 0;
 
-        // Check if reminder already sent THIS YEAR (in the notification month)
-        const checkStart = new Date(currentYear, notifMonth, 1);
-        const checkEnd = new Date(currentYear, notifMonth + 1, 1);
+        let shouldSend = false;
+        let title = "Bus Service Renewal Reminder";
+        let body = "";
 
-        const existingReminderQuery = await adminDb.collection('notifications')
-          .where('toUid', '==', studentUid)
-          .where('type', '==', 'ExpiryReminder')
-          .where('createdAt', '>=', checkStart.toISOString())
-          .where('createdAt', '<', checkEnd.toISOString())
-          .limit(1)
-          .get();
-
-        if (!existingReminderQuery.empty) {
-          console.log(`⏭️ Skipping ${studentDoc.id} - reminder already sent`);
-          continue;
+        if (runR1 && currentCount === 0) {
+          shouldSend = true;
+          body = `Your bus service (session ${studentData.sessionStartYear}-${studentData.sessionEndYear}) will expire on ${new Date(studentData.validUntil).toLocaleDateString('en-IN', { year: 'numeric', month: 'long', day: 'numeric' })}. Please renew by visiting the Bus Office or apply online to continue your service.`;
+        } else if (runR2 && currentCount === 1) {
+          shouldSend = true;
+          body = `This is your second reminder that your bus service (session ${studentData.sessionStartYear}-${studentData.sessionEndYear}) will expire on ${new Date(studentData.validUntil).toLocaleDateString('en-IN', { year: 'numeric', month: 'long', day: 'numeric' })}. Please apply online to renew.`;
+        } else if (runFinal && currentCount === 2) {
+          shouldSend = true;
+          title = "Final Reminder: Bus Service Expiring Soon";
+          body = `This is a final reminder that your bus service expires on ${new Date(studentData.validUntil).toLocaleDateString('en-IN', { year: 'numeric', month: 'long', day: 'numeric' })}. Only 15 days left! Renew now to avoid service interruption.`;
         }
 
-        // Create expiry reminder notification and update student atomically
+        if (!shouldSend) continue;
+
         const notifRef = adminDb.collection('notifications').doc();
-        const validUntilDate = new Date(studentData.validUntil);
-        const now = new Date().toISOString();
+        const nowIso = new Date().toISOString();
 
         await adminDb.runTransaction(async (transaction) => {
           const studentSnap = await transaction.get(studentDoc.ref);
-          const currentData = studentSnap.data();
-          const currentCount = currentData?.expiryReminderCount || 0;
+          const freshData = studentSnap.data();
+          const freshCount = freshData?.expiryReminderCount || 0;
 
           transaction.set(notifRef, {
             notifId: notifRef.id,
             toUid: studentUid,
             toRole: 'student',
             type: 'ExpiryReminder',
-            title: 'Bus Service Renewal Reminder',
-            body: `Your bus service (session ${studentData.sessionStartYear}-${studentData.sessionEndYear}) will expire on ${validUntilDate.toLocaleDateString('en-IN', { year: 'numeric', month: 'long', day: 'numeric' })}. Please renew by visiting the Bus Office or apply online to continue your service.`,
+            title,
+            body,
             links: {
               profile: '/student/profile',
               renewPage: '/apply'
             },
             read: false,
-            createdAt: now,
+            createdAt: nowIso,
             expiryDetails: {
               sessionStartYear: studentData.sessionStartYear,
               sessionEndYear: studentData.sessionEndYear,
@@ -113,17 +112,15 @@ export async function checkAndNotifyExpiringStudents(force: boolean = false): Pr
           });
 
           transaction.update(studentDoc.ref, {
-            lastExpiryReminderSentAt: now,
-            expiryReminderCount: currentCount + 1
+            lastExpiryReminderSentAt: nowIso,
+            expiryReminderCount: freshCount + 1
           });
         });
 
         result.remindersSent++;
-        console.log(`✅ Sent reminder to ${studentDoc.id}`);
+        console.log(`✅ Sent reminder to ${studentDoc.id} (count: ${currentCount + 1})`);
       } catch (error: any) {
-        const errorMsg = `Failed to process student ${studentDoc.id}: ${error.message}`;
-        result.errors.push(errorMsg);
-        console.error(`❌ ${errorMsg}`);
+        result.errors.push(`Failed to process student ${studentDoc.id}: ${error.message}`);
       }
     }
 
@@ -143,100 +140,8 @@ export async function checkAndNotifyExpiringStudents(force: boolean = false): Pr
  * Send a second reminder mid-month (e.g., 15th)
  */
 export async function sendMidJuneReminder(force: boolean = false): Promise<ExpiryCheckResult> {
-  const result: ExpiryCheckResult = {
-    totalChecked: 0,
-    remindersSent: 0,
-    errors: []
-  };
-
-  try {
-    const deadlineConfig = await getDeadlineConfig();
-    const now = new Date();
-    const currentYear = now.getFullYear();
-    const currentDay = now.getDate();
-    const currentMonth = now.getMonth();
-
-    const notifMonth = deadlineConfig.renewalNotification.month;
-    const midMonthDay = 15; // Standard mid-month logic
-
-    // Check Schedule: Only run on 15th of the configured notification month
-    if (!force && (currentMonth !== notifMonth || currentDay !== midMonthDay)) {
-      console.log(`⏭️ Mid-month reminder skipped. Configured for: ${deadlineConfig.renewalNotification.monthName} ${midMonthDay}, Today: ${now.toDateString()}`);
-      result.skipped = true;
-      return result;
-    }
-
-    const deadlineMonth = deadlineConfig.renewalDeadline.month;
-    const deadlineDay = deadlineConfig.renewalDeadline.day;
-    const deadlineFirst = new Date(currentYear, deadlineMonth, deadlineDay);
-    const deadlineNext = new Date(currentYear, deadlineMonth, deadlineDay + 1);
-
-    // Get students still expiring (haven't renewed)
-    const studentsQuery = await adminDb.collection('students')
-      .where('status', '==', 'active')
-      .where('validUntil', '>=', deadlineFirst.toISOString())
-      .where('validUntil', '<', deadlineNext.toISOString())
-      .get();
-
-    result.totalChecked = studentsQuery.size;
-
-    for (const studentDoc of studentsQuery.docs) {
-      try {
-        const studentData = studentDoc.data();
-        const studentUid = studentDoc.id;
-
-        // Check reminder count - only send if count is 1 (first reminder sent)
-        if ((studentData.expiryReminderCount || 0) !== 1) {
-          continue;
-        }
-
-        const notifRef = adminDb.collection('notifications').doc();
-        const validUntilDate = new Date(studentData.validUntil);
-        const now = new Date().toISOString();
-
-        await adminDb.runTransaction(async (transaction) => {
-          const studentSnap = await transaction.get(studentDoc.ref);
-          const currentData = studentSnap.data();
-          const currentCount = currentData?.expiryReminderCount || 0;
-
-          transaction.set(notifRef, {
-            notifId: notifRef.id,
-            toUid: studentUid,
-            toRole: 'student',
-            type: 'ExpiryReminder',
-            title: 'Final Reminder: Bus Service Expiring Soon',
-            body: `This is a final reminder that your bus service expires on ${validUntilDate.toLocaleDateString('en-IN', { year: 'numeric', month: 'long', day: 'numeric' })}. Only 2 weeks left! Renew now to avoid service interruption.`,
-            links: {
-              profile: '/student/profile',
-              renewPage: '/apply'
-            },
-            read: false,
-            createdAt: now,
-            isSecondReminder: true
-          });
-
-          transaction.update(studentDoc.ref, {
-            lastExpiryReminderSentAt: now,
-            expiryReminderCount: currentCount + 1
-          });
-        });
-
-        result.remindersSent++;
-      } catch (error: any) {
-        result.errors.push(`Failed to send mid-month reminder to ${studentDoc.id}: ${error.message}`);
-      }
-    }
-
-    if (result.remindersSent > 0) {
-      console.log(`📈 Mid-Month Reminder Summary: ${result.remindersSent} reminders sent`);
-    }
-
-    return result;
-  } catch (error: any) {
-    console.error('❌ Error in mid-month reminder:', error);
-    result.errors.push(`Fatal error: ${error.message}`);
-    return result;
-  }
+  // Delegate to main check, which now dynamically checks April 1st, May 1st, and June 15th
+  return checkAndNotifyExpiringStudents(force);
 }
 
 async function sendAdminSummary(result: ExpiryCheckResult, title: string, expiryDate: Date) {

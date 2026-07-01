@@ -3,20 +3,19 @@ import { adminAuth, adminDb } from '@/lib/firebase-admin';
 import { v2 as cloudinary } from 'cloudinary';
 import { writeAuditInTransaction, type AuditActorRole } from '@/lib/audit/audit-service';
 import { calculateRenewalDate } from '@/lib/utils/renewal-utils';
+import { calculateValidUntilDate } from '@/lib/utils/date-utils';
 import { buildCapacityDelta, sendBusFullAlert, validateAndSuggestBus } from '@/lib/busCapacityService';
 import { computeBlockDatesFromValidUntil } from '@/lib/utils/deadline-computation';
 import { sendApplicationApprovedNotification } from '@/lib/services/admin-email.service';
 import { getDeadlineConfig } from '@/lib/deadline-config-service';
 import { requireModeratorPermission } from '@/lib/security/moderator-permissions';
-import { PaymentTransactionService } from '@/lib/payment/payment-transaction.service';
-import { isApprovalEligible } from '@/lib/utils/application-eligibility';
+import { createOfflinePaymentAtApproval } from '@/lib/payment/payment.service';
+import { isApprovalEligible, isUpcomingApplication } from '@/lib/utils/application-eligibility';
+import type { Application } from '@/lib/types/application';
+import { CapacityFullError, ApprovalConflictError } from '@/lib/errors/sentinel-errors';
+import { safeErrorMessage } from '@/lib/security/safe-error';
 
 type JsonRecord = Record<string, unknown>;
-
-/** Thrown inside the approval transaction when the application was already consumed (duplicate / retry). */
-class ApprovalConflictError extends Error {}
-/** Thrown inside the approval transaction when the target bus has no free seat (lost the last-seat race). */
-class CapacityFullError extends Error {}
 
 if (process.env.CLOUDINARY_API_KEY && process.env.CLOUDINARY_API_SECRET && process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME) {
   cloudinary.config({
@@ -98,16 +97,73 @@ export async function POST(request: NextRequest) {
 
     const appData = applicationDoc.data() as JsonRecord;
 
-    // Phase 2 eligibility gate (server-enforced, parity with /approve).
-    // A future-session application may not be approved before its frozen
-    // eligibleApproval date. Legacy/absent eligibleApproval ⇒ immediately eligible.
-    if (!isApprovalEligible(appData as { eligibleApproval?: string })) {
-      const eligibleIso = asString(appData.eligibleApproval);
+    // Future-session approval (parity with /approve): a future-session
+    // application verified by admin/moderator always transitions to
+    // `verified_upcoming`. No student doc / seat / capacity decrement —
+    // activation is deferred exclusively to the Session Activation Service.
+    if (isUpcomingApplication(appData as Partial<Application>)) {
+      const nowIsoVU = new Date().toISOString();
+      const formDataVU = asRecord(appData.formData);
+      const approverNameVU = moderatorData?.name || moderatorData?.fullName || 'Approver';
+      const approverEmpIdVU = moderatorData?.employeeId || moderatorData?.staffId || moderatorUid;
+      try {
+        await adminDb.runTransaction(async (transaction) => {
+          const freshSnap = await transaction.get(applicationDoc.ref);
+          if (!freshSnap.exists) {
+            throw new ApprovalConflictError('Application already processed');
+          }
+          if (freshSnap.data()?.state !== 'submitted') {
+            throw new ApprovalConflictError(`Application state is '${freshSnap.data()?.state}', expected 'submitted'`);
+          }
+          transaction.update(freshSnap.ref, {
+            state: 'verified_upcoming',
+            verifiedUpcomingAt: nowIsoVU,
+            verifiedUpcomingBy: adminDoc.exists ? `${approverNameVU} (Admin)` : `${approverNameVU} (${approverEmpIdVU})`,
+            verifiedUpcomingById: moderatorUid,
+            updatedAt: nowIsoVU,
+          });
+          writeAuditInTransaction(transaction, {
+            action: 'application_verified_upcoming',
+            actor: { id: moderatorUid, role: approverRole as AuditActorRole, name: approverNameVU },
+            targetId: asString(appData.applicantUid) || studentUid,
+            targetType: 'application',
+            targetName: asString(formDataVU.fullName),
+            reason: 'future_session_verified_pre_activation',
+            before: { applicationId: studentUid, state: 'submitted', channel: 'unauthenticated' },
+            after: { applicationId: studentUid, state: 'verified_upcoming', eligibleApproval: appData.eligibleApproval, targetSession: appData.targetSession },
+            details: { applicationId: studentUid, channel: 'unauthenticated' },
+            correlationId: studentUid,
+          });
+        });
+      } catch (vuErr: any) {
+        if (vuErr instanceof ApprovalConflictError) {
+          return NextResponse.json({ error: vuErr.message }, { status: 409 });
+        }
+        throw vuErr;
+      }
+      // Notify the applicant.
+      try {
+        const notifRef = adminDb.collection('notifications').doc();
+        await notifRef.set({
+          notifId: notifRef.id,
+          toUid: asString(appData.applicantUid) || studentUid,
+          toRole: 'student',
+          type: 'VerifiedUpcoming',
+          title: 'Application verified — awaiting new session',
+          body: 'Your application has been verified and will become active when the new academic session begins.',
+          links: { applicationId: studentUid, statusPage: `/apply/status/${studentUid}` },
+          read: false,
+          createdAt: nowIsoVU,
+        });
+      } catch (notifErr) {
+        console.warn('verified_upcoming notify failed:', notifErr);
+      }
       return NextResponse.json({
-        error: 'Application is not yet eligible for approval',
-        message: `This future-session application becomes eligible on ${new Date(eligibleIso).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}.`,
-        eligibleApproval: eligibleIso,
-      }, { status: 409 });
+        success: true,
+        message: 'Application verified for the upcoming academic session. It will activate when the session begins.',
+        state: 'verified_upcoming',
+        eligibleApproval: appData.eligibleApproval,
+      });
     }
 
     const formData = asRecord(appData.formData);
@@ -128,13 +184,11 @@ export async function POST(request: NextRequest) {
     const deadlineConfig = await getDeadlineConfig();
     
     // Compute final start year, duration, and end year based on overrides
-    const finalStartYear = overrideStartYear !== null ? overrideStartYear : Number(sessionInfo.sessionStartYear || new Date().getFullYear());
+    const finalStartYear = overrideStartYear !== null ? overrideStartYear : Number(sessionInfo.sessionStartYear || new Date().getUTCFullYear());
     const finalEndYear = overrideEndYear !== null ? overrideEndYear : (Number(sessionInfo.sessionEndYear) || (finalStartYear + 1));
     const finalDurationYears = overrideStartYear !== null && overrideEndYear !== null ? (overrideEndYear - overrideStartYear) : Number(sessionInfo.durationYears || 1);
 
-    const anchorMonth = deadlineConfig.academicYear.anchorMonth;
-    const anchorDay = deadlineConfig.academicYear.anchorDay;
-    const validUntilDate = new Date(finalEndYear, anchorMonth, anchorDay, 23, 59, 59, 999);
+    const validUntilDate = calculateValidUntilDate(finalEndYear - finalDurationYears, finalDurationYears, deadlineConfig);
     const validUntil = validUntilDate.toISOString();
     const sessionEndYear = finalEndYear;
     
@@ -386,37 +440,31 @@ export async function POST(request: NextRequest) {
           }
         }
       } else {
-        // Deterministic offline payment id keyed by applicant — stable across
-        // retries so re-running the approval never creates a duplicate ledger entry.
-        const paymentId =
-          asString(appData.paymentId) ||
-          asString(formData.paymentId) ||
-          asString(paymentInfo.paymentReference) ||
-          `OADF_APP_${applicantUid}`;
+        // OFFLINE PAYMENT: Create completed payment record AT APPROVAL TIME.
+        // Financial ledger contains ONLY verified financial events.
+        const transactionId = asString(paymentInfo.paymentReference);
+        const paidAtFromStudent = paymentInfo.paidAt
+          ? new Date(asString(paymentInfo.paidAt))
+          : new Date(nowIso);
+        const receipt = asString(paymentInfo.paymentEvidenceUrl);
 
-        await PaymentTransactionService.saveTransaction({
-          paymentId,
+        await createOfflinePaymentAtApproval({
           studentId: asString(formData.enrollmentId),
+          studentUid: applicantUid,
           studentName: asString(formData.fullName),
-          userId: applicantUid,
           amount: paymentAmount,
-          paymentMethod: 'offline',
-          status: 'completed',
+          durationYears: finalDurationYears,
           sessionStartYear: finalStartYear,
           sessionEndYear,
-          durationYears: finalDurationYears,
           validUntil,
-          timestamp: nowIso,
-          offlineTransactionId: asString(paymentInfo.paymentReference) || `unauth_app_fee_${applicantUid}`,
-          approvedBy: {
-            userId: moderatorUid,
-            empId: asString(moderatorData?.employeeId) || moderatorUid,
-            name: asString(moderatorData?.name) || moderatorEmail || 'Approver',
-            role: approverRole,
-            email: moderatorEmail,
-          },
-          approvedByDisplay,
-          approvedAtISO: nowIso,
+          transactionId,
+          paidAt: paidAtFromStudent,
+          receipt,
+          approverUserId: moderatorUid,
+          approverName: asString(moderatorData?.name) || moderatorEmail || 'Approver',
+          approverEmpId: asString(moderatorData?.employeeId) || moderatorUid,
+          approverRole,
+          purpose: 'new_registration',
         });
       }
     }
@@ -465,7 +513,7 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     console.error('Error approving application:', error);
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : 'Failed to approve application' },
+      { error: safeErrorMessage(error, 'Failed to approve application') },
       { status: 500 }
     );
   }

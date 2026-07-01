@@ -28,6 +28,7 @@ import Link from "next/link";
 import InlineQRDisplay from "@/components/bus-pass/InlineQRDisplay";
 import { getStudentByUid, getBusById, getRouteById } from "@/lib/dataService";
 import { hasTransportEntitlement } from "@/lib/entitlement/transport-entitlement";
+import { formatDateFlexible } from '@/lib/utils/date-utils';
 
 export default function StudentBusPassPage() {
   const { currentUser, userData } = useAuth();
@@ -93,16 +94,6 @@ export default function StudentBusPassPage() {
       router.push(`/${userData.role}`);
     }
   }, [userData, router]);
-
-  const formatDate = (date: any) => {
-    if (!date) return 'Not provided';
-    try {
-      const d = date.toDate ? date.toDate() : new Date(date);
-      return d.toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' });
-    } catch {
-      return 'Not provided';
-    }
-  };
 
   // Check if session is active
   const isSessionActive = () => {

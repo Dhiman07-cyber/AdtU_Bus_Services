@@ -62,6 +62,23 @@ export default function EditStudentPage({ params }: { params: Promise<{ id: stri
   const [loadingRoutes, setLoadingRoutes] = useState(true);
   const [loadingBuses, setLoadingBuses] = useState(true);
   const [facultySelected, setFacultySelected] = useState(false);
+  const [deadlineConfig, setDeadlineConfig] = useState<any>(null);
+
+  // Fetch deadline config
+  useEffect(() => {
+    const fetchDeadlineConfig = async () => {
+      try {
+        const response = await fetch('/api/settings/deadline-config');
+        if (response.ok) {
+          const data = await response.json();
+          setDeadlineConfig(data.config || data);
+        }
+      } catch (error) {
+        console.error("Error fetching deadline config:", error);
+      }
+    };
+    fetchDeadlineConfig();
+  }, []);
 
   const [loading, setLoading] = useState(true);
   const [isImageModalOpen, setIsImageModalOpen] = useState(false);
@@ -89,9 +106,9 @@ export default function EditStudentPage({ params }: { params: Promise<{ id: stri
     shift: '',
     approvedBy: '',
     sessionDuration: '1',
-    sessionStartYear: new Date().getFullYear(),
-    sessionEndYear: new Date().getFullYear() + 1,
-    validUntil: new Date(new Date().getFullYear() + 1, 6, 31, 0, 0, 0, 0).toISOString(),
+    sessionStartYear: new Date().getUTCFullYear(),
+    sessionEndYear: new Date().getUTCFullYear() + 1,
+    validUntil: new Date(Date.UTC(new Date().getUTCFullYear() + 1, 5, 30, 23, 59, 59, 999)).toISOString(),
     pickupPoint: '',
   });
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -176,9 +193,9 @@ export default function EditStudentPage({ params }: { params: Promise<{ id: stri
           shift: studentData.shift ? (studentData.shift.toLowerCase().includes('even') ? 'Evening' : 'Morning') : 'Morning',
           approvedBy: studentData.approvedBy || '',
           sessionDuration: studentData.sessionDuration?.toString() || '1',
-          sessionStartYear: studentData.sessionStartYear || new Date().getFullYear(),
-          sessionEndYear: studentData.sessionEndYear || (new Date().getFullYear() + 1),
-          validUntil: studentData.validUntil || new Date(new Date().getFullYear() + 1, 6, 31).toISOString(),
+          sessionStartYear: studentData.sessionStartYear || new Date().getUTCFullYear(),
+          sessionEndYear: studentData.sessionEndYear || (new Date().getUTCFullYear() + 1),
+          validUntil: studentData.validUntil || (deadlineConfig ? new Date(Date.UTC(studentData.sessionEndYear || (new Date().getUTCFullYear() + 1), deadlineConfig.academicYear?.anchorMonth ?? 5, deadlineConfig.academicYear?.anchorDay ?? 30, 23, 59, 59, 999)).toISOString() : new Date(Date.UTC(new Date().getUTCFullYear() + 1, 5, 30, 23, 59, 59, 999)).toISOString()),
           // PRIORITIZE stopName as requested by user since it's the valid field in Firestore
           pickupPoint: studentData.stopName || studentData.pickupPoint || studentData.stopId || '',
         };
@@ -763,7 +780,7 @@ export default function EditStudentPage({ params }: { params: Promise<{ id: stri
                   <Label className="block text-xs font-medium text-gray-400 mb-1">Session Duration</Label>
                   <div
                     onClick={() => addToast('To renew or change session duration, please visit the Student Renewal page.', 'info')}
-                    className="cursor-pointer group"
+                    className="cursor-default group"
                   >
                     <div className="h-9 px-3 flex items-center bg-white/5 border border-dashed border-white/20 rounded-md text-sm text-white/50 group-hover:bg-white/[0.08] transition-all duration-200 overflow-hidden">
                       <span className="truncate">
@@ -779,7 +796,7 @@ export default function EditStudentPage({ params }: { params: Promise<{ id: stri
                   <Label className="block text-xs font-medium text-gray-400 mb-1">Assigned Route</Label>
                   <div
                     onClick={() => addToast('To reassign students to a different route, please visit the Student Reassignment page.', 'info')}
-                    className="cursor-pointer group"
+                    className="cursor-default group"
                   >
                     <div className="h-9 px-3 flex items-center bg-white/5 border border-dashed border-white/20 rounded-md text-sm text-white/50 group-hover:bg-white/[0.08] transition-all duration-200 overflow-hidden">
                       <span className="truncate">
@@ -799,7 +816,7 @@ export default function EditStudentPage({ params }: { params: Promise<{ id: stri
                   <Label className="block text-xs font-medium text-gray-400 mb-1">Assigned Bus</Label>
                   <div
                     onClick={() => addToast('To reassign students to a different bus, please visit the Student Reassignment page.', 'info')}
-                    className="cursor-pointer group"
+                    className="cursor-default group"
                   >
                     <div className="h-9 px-3 flex items-center bg-white/5 border border-dashed border-white/20 rounded-md text-sm text-white/50 group-hover:bg-white/[0.08] transition-all duration-200 overflow-hidden">
                       <span className="truncate">{formData.busAssigned || 'No bus assigned'}</span>
@@ -861,7 +878,7 @@ export default function EditStudentPage({ params }: { params: Promise<{ id: stri
                   <Label className="block text-xs font-medium text-gray-400 mb-1">Session Start Year</Label>
                   <div
                     onClick={() => addToast('Session years can only be modified through the Student Renewal page.', 'info')}
-                    className="cursor-pointer group"
+                    className="cursor-default group"
                   >
                     <div className="h-9 px-3 flex items-center bg-white/5 border border-dashed border-white/20 rounded-md text-sm text-white/50 group-hover:bg-white/[0.08] transition-all duration-200 overflow-hidden">
                       <span className="truncate">{formData.sessionStartYear}</span>

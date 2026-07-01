@@ -164,11 +164,14 @@ export default function EnhancedAdminDashboard() {
       ]);
 
       const parseJsonSafely = async (res: Response) => {
-        if (!res.ok) return { success: false };
         try {
-          return await res.json();
+          const data = await res.json();
+          if (!res.ok) {
+            return { success: false, error: data?.error || `HTTP ${res.status}: ${res.statusText}` };
+          }
+          return data;
         } catch {
-          return { success: false };
+          return { success: false, error: res.ok ? 'Failed to parse response' : `HTTP ${res.status}: ${res.statusText}` };
         }
       };
 

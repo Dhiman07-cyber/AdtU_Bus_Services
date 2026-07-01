@@ -44,8 +44,10 @@ import {
     ScrollText
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
+import { DEFAULT_BUS_FEE } from '@/config/runtime';
 import { PremiumPageLoader } from '@/components/LoadingSpinner';
 import { DeadlineConfig } from '@/lib/types/deadline-config';
+import { deriveAcademicLifecycle } from '@/lib/utils/deadline-computation';
 
 // ============================================================================
 // TYPES
@@ -114,6 +116,7 @@ interface TermsConfig {
 }
 
 interface EditableDates {
+    academicSessionStart: MonthDayValue | null;
     academicYearEnd: MonthDayValue | null;
     renewalNotificationStart: MonthDayValue | null;
     renewalDeadline: MonthDayValue | null;
@@ -355,7 +358,7 @@ export default function SystemRenewalConfigPage() {
         mapProvider?: 'osm' | 'carto' | 'google' | 'guwahati';
     }>({
         appName: 'AdtU Bus Services',
-        busFee: 5000,
+        busFee: DEFAULT_BUS_FEE,
         paymentExport: { startYear: 2027, interval: 1 },
         version: 'v2.4.0',
         mapProvider: 'guwahati'
@@ -368,7 +371,7 @@ export default function SystemRenewalConfigPage() {
         mapProvider?: 'osm' | 'carto' | 'google' | 'guwahati';
     }>({
         appName: 'AdtU Bus Services',
-        busFee: 5000,
+        busFee: DEFAULT_BUS_FEE,
         paymentExport: { startYear: 2027, interval: 1 },
         version: 'v2.4.0',
         mapProvider: 'guwahati'
@@ -377,6 +380,7 @@ export default function SystemRenewalConfigPage() {
     // Deadline Config State
     const [originalDeadlineConfig, setOriginalDeadlineConfig] = useState<DeadlineConfig | null>(null);
     const [dates, setDates] = useState<EditableDates>({
+        academicSessionStart: null,
         academicYearEnd: null,
         renewalNotificationStart: null,
         renewalDeadline: null,
@@ -385,6 +389,7 @@ export default function SystemRenewalConfigPage() {
         urgentWarningDays: 15
     });
     const [originalDates, setOriginalDates] = useState<EditableDates>({
+        academicSessionStart: null,
         academicYearEnd: null,
         renewalNotificationStart: null,
         renewalDeadline: null,
@@ -392,6 +397,37 @@ export default function SystemRenewalConfigPage() {
         hardDeleteDate: null,
         urgentWarningDays: 15
     });
+    const [hasDependencies, setHasDependencies] = useState<boolean>(false);
+
+    const calculateDerivedMilestones = (sessionStart: MonthDayValue) => {
+        const startMonth = sessionStart.month;
+        const startDay = sessionStart.day;
+        const referenceYear = 2026;
+
+        const lifecycle = deriveAcademicLifecycle(startMonth, startDay, referenceYear);
+
+        return {
+            academicYearEnd: { month: lifecycle.expiry.getUTCMonth() + 1, day: lifecycle.expiry.getUTCDate() },
+            renewalNotificationStart: { month: lifecycle.reminder1.getUTCMonth() + 1, day: lifecycle.reminder1.getUTCDate() },
+            renewalDeadline: { month: lifecycle.deadline.getUTCMonth() + 1, day: lifecycle.deadline.getUTCDate() },
+            softBlockDate: { month: lifecycle.softBlock.getUTCMonth() + 1, day: lifecycle.softBlock.getUTCDate() },
+            hardDeleteDate: { month: lifecycle.hardDelete.getUTCMonth() + 1, day: lifecycle.hardDelete.getUTCDate() }
+        };
+    };
+
+    const handleSessionStartChange = (val: MonthDayValue) => {
+        if (hasDependencies) return; // Guard against editing when locked
+        const derived = calculateDerivedMilestones(val);
+        setDates(prev => ({
+            ...prev,
+            academicSessionStart: val,
+            academicYearEnd: derived.academicYearEnd,
+            renewalNotificationStart: derived.renewalNotificationStart,
+            renewalDeadline: derived.renewalDeadline,
+            softBlockDate: derived.softBlockDate,
+            hardDeleteDate: derived.hardDeleteDate
+        }));
+    };
     const [times, setTimes] = useState<EditableTimes>({
         renewalNotificationTime: null,
         renewalDeadlineTime: null,
@@ -487,9 +523,13 @@ export default function SystemRenewalConfigPage() {
                 const data = await deadlineResponse.json();
                 const config = data.config as DeadlineConfig;
                 setOriginalDeadlineConfig(config);
+                setHasDependencies(data.hasDependencies ?? false);
+
+                const startConfig = config.academicSessionStart || { month: 6, day: 1 };
 
                 // Set dates
                 const editableDates: EditableDates = {
+                    academicSessionStart: fromConfigFormat(startConfig),
                     academicYearEnd: fromConfigFormat({ month: config.academicYear.anchorMonth, day: config.academicYear.anchorDay }),
                     renewalNotificationStart: fromConfigFormat({ month: config.renewalNotification.month, day: config.renewalNotification.day }),
                     renewalDeadline: fromConfigFormat({ month: config.renewalDeadline.month, day: config.renewalDeadline.day }),
@@ -550,7 +590,7 @@ export default function SystemRenewalConfigPage() {
                 const config = data.config;
                 const newSystemConfig = {
                     appName: config.appName || 'AdtU Bus Services',
-                    busFee: config.busFee?.amount || 5000,
+                    busFee: config.busFee?.amount || DEFAULT_BUS_FEE,
                     paymentExport: {
                         startYear: config.paymentExport?.startYear || 2027,
                         interval: config.paymentExport?.interval || 1
@@ -600,11 +640,12 @@ export default function SystemRenewalConfigPage() {
     }, [systemConfig, originalSystemConfig]);
 
     const hasDeadlineChanges = useCallback(() => {
-        return JSON.stringify(dates) !== JSON.stringify(originalDates) ||
-            JSON.stringify(times) !== JSON.stringify(originalTimes) ||
+        return dates.academicSessionStart?.month !== originalDates.academicSessionStart?.month ||
+            dates.academicSessionStart?.day !== originalDates.academicSessionStart?.day ||
+            dates.urgentWarningDays !== originalDates.urgentWarningDays ||
             softBlockWarning !== originalSoftBlockWarning ||
             hardDeleteWarning !== originalHardDeleteWarning;
-    }, [dates, originalDates, times, originalTimes, softBlockWarning, originalSoftBlockWarning, hardDeleteWarning, originalHardDeleteWarning]);
+    }, [dates, originalDates, softBlockWarning, originalSoftBlockWarning, hardDeleteWarning, originalHardDeleteWarning]);
 
     const hasUIChanges = useCallback(() => {
         return JSON.stringify(contactInfo) !== JSON.stringify(originalContactInfo) ||
@@ -652,77 +693,24 @@ export default function SystemRenewalConfigPage() {
             }
 
             // Save deadline config if changed
-            if (hasDeadlineChanges() && originalDeadlineConfig && dates.academicYearEnd && dates.renewalNotificationStart &&
-                dates.renewalDeadline && dates.softBlockDate && dates.hardDeleteDate) {
+            if (hasDeadlineChanges() && originalDeadlineConfig && dates.academicSessionStart) {
 
-                const academicConfig = toConfigFormat(dates.academicYearEnd);
-                const notifConfig = toConfigFormat(dates.renewalNotificationStart);
-                const deadlineConfig = toConfigFormat(dates.renewalDeadline);
-                const softBlockConfig = toConfigFormat(dates.softBlockDate);
-                const hardDeleteConfig = toConfigFormat(dates.hardDeleteDate);
+                const startConfig = toConfigFormat(dates.academicSessionStart);
 
                 const updatedDeadlineConfig: DeadlineConfig = {
                     ...originalDeadlineConfig,
-                    lastUpdated: new Date().toISOString().split('T')[0],
-                    academicYear: {
-                        ...originalDeadlineConfig.academicYear,
-                        anchorMonth: academicConfig.month,
-                        anchorMonthName: MONTH_NAMES[academicConfig.month],
-                        anchorDay: academicConfig.day,
-                        anchorDayOrdinal: getOrdinal(academicConfig.day)
-                    },
-                    renewalNotification: {
-                        ...originalDeadlineConfig.renewalNotification,
-                        month: notifConfig.month,
-                        monthName: MONTH_NAMES[notifConfig.month],
-                        day: notifConfig.day,
-                        dayOrdinal: getOrdinal(notifConfig.day),
-                        hour: times.renewalNotificationTime?.hour ?? 0,
-                        minute: times.renewalNotificationTime?.minute ?? 5
-                    },
-                    renewalDeadline: {
-                        ...originalDeadlineConfig.renewalDeadline,
-                        month: deadlineConfig.month,
-                        monthName: MONTH_NAMES[deadlineConfig.month],
-                        day: deadlineConfig.day,
-                        dayOrdinal: getOrdinal(deadlineConfig.day),
-                        hour: times.renewalDeadlineTime?.hour ?? 23,
-                        minute: times.renewalDeadlineTime?.minute ?? 59
-                    },
+                    academicSessionStart: startConfig,
                     softBlock: {
                         ...originalDeadlineConfig.softBlock,
-                        month: softBlockConfig.month,
-                        monthName: MONTH_NAMES[softBlockConfig.month],
-                        day: softBlockConfig.day,
-                        dayOrdinal: getOrdinal(softBlockConfig.day),
-                        hour: times.softBlockTime?.hour ?? 0,
-                        minute: times.softBlockTime?.minute ?? 5,
                         warningText: softBlockWarning
                     },
                     hardDelete: {
                         ...originalDeadlineConfig.hardDelete,
-                        month: hardDeleteConfig.month,
-                        monthName: MONTH_NAMES[hardDeleteConfig.month],
-                        day: hardDeleteConfig.day,
-                        dayOrdinal: getOrdinal(hardDeleteConfig.day),
-                        hour: times.hardDeleteTime?.hour ?? 0,
-                        minute: times.hardDeleteTime?.minute ?? 5,
                         criticalWarningText: hardDeleteWarning
                     },
                     urgentWarningThreshold: {
                         ...originalDeadlineConfig.urgentWarningThreshold,
                         days: dates.urgentWarningDays
-                    },
-                    paymentExportStartYear: originalDeadlineConfig.paymentExportStartYear, // Legacy: keep existing val
-                    paymentExportInterval: originalDeadlineConfig.paymentExportInterval, // Legacy: keep existing val
-                    timeline: {
-                        ...originalDeadlineConfig.timeline,
-                        events: [
-                            { id: 'notification_start', date: { month: notifConfig.month, day: notifConfig.day }, time: { hour: times.renewalNotificationTime?.hour ?? 0, minute: times.renewalNotificationTime?.minute ?? 5 }, label: 'Renewal notification sent', color: 'green', icon: 'bell' },
-                            { id: 'renewal_deadline', date: { month: deadlineConfig.month, day: deadlineConfig.day }, time: { hour: times.renewalDeadlineTime?.hour ?? 23, minute: times.renewalDeadlineTime?.minute ?? 59 }, label: 'Renewal deadline', color: 'orange', icon: 'calendar' },
-                            { id: 'soft_block', date: { month: softBlockConfig.month, day: softBlockConfig.day }, time: { hour: times.softBlockTime?.hour ?? 0, minute: times.softBlockTime?.minute ?? 5 }, label: 'Account access blocked', color: 'red', icon: 'lock' },
-                            { id: 'hard_delete', date: { month: hardDeleteConfig.month, day: hardDeleteConfig.day }, time: { hour: times.hardDeleteTime?.hour ?? 0, minute: times.hardDeleteTime?.minute ?? 5 }, label: 'Account permanently deleted', color: 'darkred', icon: 'trash', critical: true }
-                        ]
                     }
                 };
 
@@ -1034,117 +1022,280 @@ export default function SystemRenewalConfigPage() {
                                     <Calendar className="h-4 w-4 text-emerald-400" />
                                     <h2 className="text-sm font-bold text-white uppercase tracking-wider">Deadline Config</h2>
                                 </div>
-                                <div className="bg-[#0E0F12] border border-white/10 rounded-2xl p-5 md:bg-transparent md:border-none md:p-0 md:rounded-none">
-                                    <div className="space-y-6 md:space-y-0 md:grid md:grid-cols-2 md:gap-6">
-                                        {/* Deadline Timeline */}
-                                        <section className="space-y-4 md:space-y-0 md:p-6 md:bg-[#0E0F12] md:rounded-2xl md:border md:border-white/10">
-                                            <SectionHeader icon={<Calendar className="h-5 w-5 text-emerald-400" />} title="Academic Year End" />
-                                            <div className="pt-4 md:pt-0">
-                                                <MonthDayPicker
-                                                    id="academicYearEnd"
-                                                    value={dates.academicYearEnd}
-                                                    onChange={(v) => setDates(prev => ({ ...prev, academicYearEnd: v }))}
-                                                    label="Service Expiry Date"
-                                                    showHelperText={true}
-                                                />
-                                            </div>
-                                        </section>
 
-                                        <section className="space-y-4 md:space-y-0 md:p-6 md:bg-[#0E0F12] md:rounded-2xl md:border md:border-white/10">
-                                            <SectionHeader icon={<Bell className="h-5 w-5 text-blue-400" />} title="Renewal Notification" />
-                                            <div className="pt-4 md:pt-0">
-                                                <DateTimeField
-                                                    id="renewalNotification"
-                                                    label="Notification Start"
-                                                    dateValue={dates.renewalNotificationStart}
-                                                    timeValue={times.renewalNotificationTime}
-                                                    originalDateValue={originalDates.renewalNotificationStart}
-                                                    originalTimeValue={originalTimes.renewalNotificationTime}
-                                                    onDateChange={(v) => setDates(prev => ({ ...prev, renewalNotificationStart: v }))}
-                                                    onTimeChange={(v) => setTimes(prev => ({ ...prev, renewalNotificationTime: v }))}
-                                                />
-                                            </div>
-                                        </section>
-
-                                        <section className="space-y-4 md:space-y-0 md:p-6 md:bg-[#0E0F12] md:rounded-2xl md:border md:border-white/10">
-                                            <SectionHeader icon={<Calendar className="h-5 w-5 text-amber-400" />} title="Renewal Deadline" />
-                                            <div className="pt-4 md:pt-0">
-                                                <DateTimeField
-                                                    id="renewalDeadline"
-                                                    label="Deadline"
-                                                    dateValue={dates.renewalDeadline}
-                                                    timeValue={times.renewalDeadlineTime}
-                                                    originalDateValue={originalDates.renewalDeadline}
-                                                    originalTimeValue={originalTimes.renewalDeadlineTime}
-                                                    onDateChange={(v) => setDates(prev => ({ ...prev, renewalDeadline: v }))}
-                                                    onTimeChange={(v) => setTimes(prev => ({ ...prev, renewalDeadlineTime: v }))}
-                                                />
-                                            </div>
-                                        </section>
-
-                                        <section className="space-y-4 md:space-y-0 md:p-6 md:bg-[#0E0F12] md:rounded-2xl md:border md:border-white/10">
-                                            <SectionHeader icon={<AlertTriangle className="h-5 w-5 text-red-400" />} title="Urgent Warning" />
-                                            <div className="pt-4 md:pt-0">
-                                                <TextField
-                                                    id="urgentWarningDays"
-                                                    label="Days Before Hard Delete"
-                                                    type="number"
-                                                    value={dates.urgentWarningDays}
-                                                    originalValue={originalDates.urgentWarningDays}
-                                                    onChange={(v) => setDates(prev => ({ ...prev, urgentWarningDays: Number(v) }))}
-                                                />
-                                            </div>
-                                        </section>
-
-                                        <section className="space-y-4 md:space-y-0 md:p-6 md:bg-[#0E0F12] md:rounded-2xl md:border md:border-white/10">
-                                            <SectionHeader icon={<Lock className="h-5 w-5 text-orange-400" />} title="Soft Block" />
-                                            <div className="space-y-4 pt-4 md:pt-0">
-                                                <DateTimeField
-                                                    id="softBlock"
-                                                    label="Block Date & Time"
-                                                    dateValue={dates.softBlockDate}
-                                                    timeValue={times.softBlockTime}
-                                                    originalDateValue={originalDates.softBlockDate}
-                                                    originalTimeValue={originalTimes.softBlockTime}
-                                                    onDateChange={(v) => setDates(prev => ({ ...prev, softBlockDate: v }))}
-                                                    onTimeChange={(v) => setTimes(prev => ({ ...prev, softBlockTime: v }))}
-                                                />
-                                                <TextField
-                                                    id="softBlockWarning"
-                                                    label="Warning Message"
-                                                    value={softBlockWarning}
-                                                    originalValue={originalSoftBlockWarning}
-                                                    onChange={(v) => setSoftBlockWarning(String(v))}
-                                                    multiline
-                                                />
-                                            </div>
-                                        </section>
-
-                                        <section className="space-y-4 md:space-y-0 md:p-6 md:bg-[#0E0F12] md:rounded-2xl md:border md:border-white/10">
-                                            <SectionHeader icon={<Trash2 className="h-5 w-5 text-red-400" />} title="Hard Delete" badge="CRITICAL" />
-                                            <div className="space-y-4 pt-4 md:pt-0">
-                                                <DateTimeField
-                                                    id="hardDelete"
-                                                    label="Delete Date & Time"
-                                                    dateValue={dates.hardDeleteDate}
-                                                    timeValue={times.hardDeleteTime}
-                                                    originalDateValue={originalDates.hardDeleteDate}
-                                                    originalTimeValue={originalTimes.hardDeleteTime}
-                                                    onDateChange={(v) => setDates(prev => ({ ...prev, hardDeleteDate: v }))}
-                                                    onTimeChange={(v) => setTimes(prev => ({ ...prev, hardDeleteTime: v }))}
-                                                />
-                                                <TextField
-                                                    id="hardDeleteWarning"
-                                                    label="Critical Warning"
-                                                    value={hardDeleteWarning}
-                                                    originalValue={originalHardDeleteWarning}
-                                                    onChange={(v) => setHardDeleteWarning(String(v))}
-                                                    multiline
-                                                />
-                                            </div>
-                                        </section>
+                                {hasDependencies && (
+                                    <div className="mb-6 p-4 bg-amber-500/10 border border-amber-500/20 rounded-2xl flex items-start gap-3 animate-in fade-in duration-300">
+                                        <AlertTriangle className="h-5 w-5 text-amber-500 flex-shrink-0 mt-0.5" />
+                                        <div>
+                                            <h4 className="text-sm font-semibold text-white">Academic Calendar Locked</h4>
+                                            <p className="text-xs text-gray-400 mt-1">
+                                                Active students, soft-blocked students, or verified upcoming applications exist in the system. 
+                                                The Academic Session Start date cannot be modified to prevent data corruption.
+                                            </p>
+                                        </div>
                                     </div>
-                                </div>
+                                )}
+
+                                {(() => {
+                                    const startVal = dates.academicSessionStart;
+                                    
+                                    const displaySessionStart = startVal ? `${MONTH_NAMES[startVal.month - 1]} ${startVal.day}` : 'July 1st';
+                                    const displaySessionInterval = startVal 
+                                        ? `${startVal.day} ${MONTH_NAMES[startVal.month - 1].slice(0, 3)} → ${dates.academicYearEnd ? `${dates.academicYearEnd.day} ${MONTH_NAMES[dates.academicYearEnd.month - 1].slice(0, 3)}` : '30 Jun'}`
+                                        : '1 Jul → 30 Jun';
+
+                                    const displayReminder1 = dates.renewalNotificationStart
+                                        ? `${MONTH_NAMES[dates.renewalNotificationStart.month - 1]} ${dates.renewalNotificationStart.day}`
+                                        : 'April 1st';
+
+                                    const r2Month = dates.academicYearEnd ? (dates.academicYearEnd.month - 2 + 12) % 12 : 4; // May (4)
+                                    const displayReminder2 = dates.academicYearEnd ? `${MONTH_NAMES[r2Month]} 1st` : 'May 1st';
+
+                                    const finalRemDate = dates.academicYearEnd ? new Date(2026, dates.academicYearEnd.month - 1, dates.academicYearEnd.day - 15) : new Date(2026, 5, 15);
+                                    const displayFinalReminder = `${finalRemDate.getDate()} ${MONTH_NAMES[finalRemDate.getMonth()]}`;
+
+                                    const displayDeadline = dates.renewalDeadline
+                                        ? `${dates.renewalDeadline.day} ${MONTH_NAMES[dates.renewalDeadline.month - 1]}`
+                                        : 'June 30th';
+
+                                    const displaySoftBlock = dates.softBlockDate
+                                        ? `${dates.softBlockDate.day} ${MONTH_NAMES[dates.softBlockDate.month - 1]}`
+                                        : 'July 1st';
+
+                                    const displayActivation = dates.softBlockDate
+                                        ? `${dates.softBlockDate.day} ${MONTH_NAMES[dates.softBlockDate.month - 1]}`
+                                        : 'July 1st';
+
+                                    const displayHardDelete = "+2 Academic Sessions";
+
+                                    return (
+                                        <div className="bg-[#0E0F12] border border-white/10 rounded-2xl p-5 md:bg-transparent md:border-none md:p-0 md:rounded-none">
+                                            <div className="space-y-6 md:space-y-0 md:grid md:grid-cols-2 md:gap-6">
+                                                
+                                                {/* Card 1: Academic Session */}
+                                                <section className="space-y-4 md:space-y-0 md:p-6 md:bg-[#0E0F12] md:rounded-2xl md:border md:border-white/10 flex flex-col justify-between">
+                                                    <div>
+                                                        <SectionHeader icon={<Calendar className="h-5 w-5 text-emerald-400" />} title="Academic Session" />
+                                                        <div className="pt-4 md:pt-0">
+                                                            <MonthDayPicker
+                                                                id="academicSessionStart"
+                                                                value={dates.academicSessionStart}
+                                                                onChange={(v) => handleSessionStartChange(v)}
+                                                                label="Academic Session Start"
+                                                                showHelperText={true}
+                                                            />
+                                                            {hasDependencies && (
+                                                                <p className="text-[10px] text-amber-500 mt-1 flex items-center gap-1">
+                                                                    <Lock className="h-3 w-3" /> Locked: Dependent records exist.
+                                                                </p>
+                                                            )}
+                                                        </div>
+                                                    </div>
+                                                    <div className="mt-4 pt-4 border-t border-white/5">
+                                                        <span className="text-xs text-gray-400">Current Academic Session Interval</span>
+                                                        <p className="text-lg font-bold text-white mt-1 bg-white/5 px-3 py-2 rounded-xl border border-white/5 w-fit">
+                                                            {displaySessionInterval}
+                                                        </p>
+                                                    </div>
+                                                </section>
+
+                                                {/* Card 2: Renewal Timeline */}
+                                                <section className="space-y-4 md:space-y-0 md:p-6 md:bg-[#0E0F12] md:rounded-2xl md:border md:border-white/10 flex flex-col justify-between">
+                                                    <div>
+                                                        <SectionHeader icon={<Bell className="h-5 w-5 text-blue-400" />} title="Renewal Timeline" />
+                                                        <div className="pt-4 space-y-3">
+                                                            <div className="flex items-center justify-between p-2 bg-white/5 rounded-xl border border-white/5">
+                                                                <div>
+                                                                    <p className="text-xs font-semibold text-white">Renewal Reminder 1</p>
+                                                                    <p className="text-[10px] text-gray-500">Auto Calculated</p>
+                                                                </div>
+                                                                <span className="text-xs font-bold text-blue-400">{displayReminder1}</span>
+                                                            </div>
+                                                            <div className="flex items-center justify-between p-2 bg-white/5 rounded-xl border border-white/5">
+                                                                <div>
+                                                                    <p className="text-xs font-semibold text-white">Renewal Reminder 2</p>
+                                                                    <p className="text-[10px] text-gray-500">Auto Calculated</p>
+                                                                </div>
+                                                                <span className="text-xs font-bold text-blue-400">{displayReminder2}</span>
+                                                            </div>
+                                                            <div className="flex items-center justify-between p-2 bg-white/5 rounded-xl border border-white/5">
+                                                                <div>
+                                                                    <p className="text-xs font-semibold text-white">Final Reminder</p>
+                                                                    <p className="text-[10px] text-gray-500">Auto Calculated</p>
+                                                                </div>
+                                                                <span className="text-xs font-bold text-blue-400">{displayFinalReminder}</span>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                </section>
+
+                                                {/* Card 3: Renewal Deadline */}
+                                                <section className="space-y-4 md:space-y-0 md:p-6 md:bg-[#0E0F12] md:rounded-2xl md:border md:border-white/10 flex flex-col justify-between">
+                                                    <div>
+                                                        <SectionHeader icon={<Calendar className="h-5 w-5 text-amber-400" />} title="Renewal Deadline" />
+                                                        <div className="pt-4 space-y-4">
+                                                            <div className="p-3 bg-amber-500/10 border border-amber-500/20 rounded-xl flex items-center justify-between">
+                                                                <div>
+                                                                    <p className="text-sm font-bold text-amber-400">{displayDeadline}</p>
+                                                                    <p className="text-xs text-amber-500/70 font-semibold">11:59 PM</p>
+                                                                </div>
+                                                                <span className="text-xs text-amber-400 flex items-center gap-1 font-medium bg-amber-500/10 px-2.5 py-1 rounded-full">
+                                                                    <Lock className="h-3 w-3" /> Auto Calculated
+                                                                </span>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                </section>
+
+                                                {/* Card 4: Soft Block */}
+                                                <section className="space-y-4 md:space-y-0 md:p-6 md:bg-[#0E0F12] md:rounded-2xl md:border md:border-white/10">
+                                                    <SectionHeader icon={<Lock className="h-5 w-5 text-orange-400" />} title="Soft Block" />
+                                                    <div className="space-y-4 pt-4">
+                                                        <div className="p-3 bg-orange-500/10 border border-orange-500/20 rounded-xl flex items-center justify-between">
+                                                            <div>
+                                                                    <p className="text-sm font-bold text-orange-400">{displaySoftBlock}</p>
+                                                                <p className="text-xs text-orange-500/70 font-semibold">12:00 AM</p>
+                                                            </div>
+                                                            <span className="text-xs text-orange-400 flex items-center gap-1 font-medium bg-orange-500/10 px-2.5 py-1 rounded-full">
+                                                                <Lock className="h-3 w-3" /> Auto Calculated
+                                                            </span>
+                                                        </div>
+                                                        <TextField
+                                                            id="softBlockWarning"
+                                                            label="Warning Message"
+                                                            value={softBlockWarning}
+                                                            originalValue={originalSoftBlockWarning}
+                                                            onChange={(v) => setSoftBlockWarning(String(v))}
+                                                            multiline
+                                                        />
+                                                        <div className="bg-white/5 p-3 rounded-xl border border-white/5 space-y-1">
+                                                            <p className="text-[10px] text-gray-400 font-semibold uppercase tracking-wider">At this point:</p>
+                                                            <ul className="text-xs text-gray-300 space-y-1 list-disc pl-4">
+                                                                <li>Student becomes Soft Blocked</li>
+                                                                <li>Seat is released & bus capacity updated</li>
+                                                                <li>Transport entitlement is removed</li>
+                                                            </ul>
+                                                        </div>
+                                                    </div>
+                                                </section>
+
+                                                {/* Card 5: Future Session Activation */}
+                                                <section className="space-y-4 md:space-y-0 md:p-6 md:bg-[#0E0F12] md:rounded-2xl md:border md:border-white/10 flex flex-col justify-between">
+                                                    <div>
+                                                        <SectionHeader icon={<Sparkles className="h-5 w-5 text-indigo-400" />} title="Future Session Activation" />
+                                                        <div className="space-y-4 pt-4">
+                                                            <div className="p-3 bg-indigo-500/10 border border-indigo-500/20 rounded-xl flex items-center justify-between">
+                                                                <div>
+                                                                    <p className="text-sm font-bold text-indigo-400">{displayActivation}</p>
+                                                                    <p className="text-xs text-indigo-500/70 font-semibold">Only after successful Soft Block</p>
+                                                                </div>
+                                                                <span className="text-xs text-indigo-400 flex items-center gap-1 font-medium bg-indigo-500/10 px-2.5 py-1 rounded-full">
+                                                                    <Lock className="h-3 w-3" /> Auto Calculated
+                                                                </span>
+                                                            </div>
+                                                            <div className="bg-white/5 p-3 rounded-xl border border-white/5 space-y-1">
+                                                                <p className="text-[10px] text-indigo-400 font-semibold uppercase tracking-wider">Activation Process Flow:</p>
+                                                                <div className="text-xs text-gray-300 space-y-2 mt-1">
+                                                                    <div className="flex items-center gap-2">
+                                                                        <span className="h-4 w-4 rounded-full bg-indigo-500/20 text-indigo-400 text-[10px] flex items-center justify-center font-bold">1</span>
+                                                                        <span>Verified upcoming students processed</span>
+                                                                    </div>
+                                                                    <div className="flex items-center gap-2">
+                                                                        <span className="h-4 w-4 rounded-full bg-indigo-500/20 text-indigo-400 text-[10px] flex items-center justify-center font-bold">2</span>
+                                                                        <span>Automatic seat allocation runs</span>
+                                                                    </div>
+                                                                    <div className="flex items-center gap-2">
+                                                                        <span className="h-4 w-4 rounded-full bg-indigo-500/20 text-indigo-400 text-[10px] flex items-center justify-center font-bold">3</span>
+                                                                        <span>Alternative bus search if full</span>
+                                                                    </div>
+                                                                    <div className="flex items-center gap-2">
+                                                                        <span className="h-4 w-4 rounded-full bg-indigo-500/20 text-indigo-400 text-[10px] flex items-center justify-center font-bold">4</span>
+                                                                        <span>Push to pending_seat_allocation if no space</span>
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                </section>
+
+                                                {/* Card 6: Hard Delete */}
+                                                <section className="space-y-4 md:space-y-0 md:p-6 md:bg-[#0E0F12] md:rounded-2xl md:border md:border-white/10">
+                                                    <SectionHeader icon={<Trash2 className="h-5 w-5 text-red-400" />} title="Hard Delete" badge="CRITICAL" />
+                                                    <div className="space-y-4 pt-4">
+                                                        <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-xl flex items-center justify-between">
+                                                            <div>
+                                                                <p className="text-sm font-bold text-red-400">{displayHardDelete}</p>
+                                                                <p className="text-[10px] text-red-500/70 font-semibold">Permanently deletes inactive records</p>
+                                                            </div>
+                                                            <span className="text-xs text-red-400 flex items-center gap-1 font-medium bg-red-500/10 px-2.5 py-1 rounded-full">
+                                                                <Lock className="h-3 w-3" /> Auto Calculated
+                                                            </span>
+                                                        </div>
+                                                        <div className="grid grid-cols-1 gap-4">
+                                                            <TextField
+                                                                id="urgentWarningDays"
+                                                                label="Critical Warning Days (Before Delete)"
+                                                                type="number"
+                                                                value={dates.urgentWarningDays}
+                                                                originalValue={originalDates.urgentWarningDays}
+                                                                onChange={(v) => setDates(prev => ({ ...prev, urgentWarningDays: Number(v) }))}
+                                                            />
+                                                            <TextField
+                                                                id="hardDeleteWarning"
+                                                                label="Critical Warning"
+                                                                value={hardDeleteWarning}
+                                                                originalValue={originalHardDeleteWarning}
+                                                                onChange={(v) => setHardDeleteWarning(String(v))}
+                                                                multiline
+                                                            />
+                                                        </div>
+                                                        <div className="bg-white/5 p-3 rounded-xl border border-white/5">
+                                                            <p className="text-xs text-gray-300">
+                                                                Students still inactive after two complete academic sessions are permanently removed. This process is automatic.
+                                                            </p>
+                                                        </div>
+                                                    </div>
+                                                </section>
+
+                                            </div>
+
+                                            {/* Visual System Lifecycle Timeline at bottom */}
+                                            <div className="mt-8 p-6 bg-[#0E0F12] rounded-2xl border border-white/10 space-y-6">
+                                                <h3 className="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2">
+                                                    <Layers className="h-4 w-4 text-indigo-400" /> Complete System Lifecycle Timeline
+                                                </h3>
+                                                <div className="relative pl-6 sm:pl-0 sm:flex sm:items-center sm:justify-between sm:space-x-4 space-y-6 sm:space-y-0 sm:overflow-x-auto pb-4 scrollbar-thin">
+                                                    {/* Line for desktop */}
+                                                    <div className="hidden sm:block absolute top-6 left-4 right-4 h-0.5 bg-white/10 -z-10" />
+                                                    {/* Line for mobile */}
+                                                    <div className="sm:hidden absolute top-0 bottom-0 left-[29px] w-0.5 bg-white/10 -z-10" />
+
+                                                    {[
+                                                        { label: 'Session Starts', date: displaySessionStart, color: 'text-indigo-400', bg: 'bg-indigo-500/20 border-indigo-500' },
+                                                        { label: 'Reminder 1', date: displayReminder1, color: 'text-blue-400', bg: 'bg-blue-500/20 border-blue-500' },
+                                                        { label: 'Reminder 2', date: displayReminder2, color: 'text-blue-400', bg: 'bg-blue-500/20 border-blue-500' },
+                                                        { label: 'Final Reminder', date: displayFinalReminder, color: 'text-blue-400', bg: 'bg-blue-500/20 border-blue-500' },
+                                                        { label: 'Renewal Deadline', date: displayDeadline, color: 'text-amber-400', bg: 'bg-amber-500/20 border-amber-500' },
+                                                        { label: 'Soft Block', date: displaySoftBlock, color: 'text-orange-400', bg: 'bg-orange-500/20 border-orange-500' },
+                                                        { label: 'Activation', date: displayActivation, color: 'text-purple-400', bg: 'bg-purple-500/20 border-purple-500' },
+                                                        { label: 'Hard Delete', date: '+2 Sessions', color: 'text-red-400', bg: 'bg-red-500/20 border-red-500' }
+                                                    ].map((item, idx) => (
+                                                        <div key={idx} className="flex sm:flex-col items-center gap-4 sm:gap-2 sm:text-center sm:flex-1 min-w-[100px]">
+                                                            <div className={`h-8 w-8 rounded-full border-2 ${item.bg} flex items-center justify-center text-xs font-bold text-white z-10 bg-black`}>
+                                                                {idx + 1}
+                                                            </div>
+                                                            <div>
+                                                                <p className="text-xs font-semibold text-white">{item.label}</p>
+                                                                <p className={`text-[10px] ${item.color} font-medium mt-0.5`}>{item.date}</p>
+                                                            </div>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            </div>
+
+                                        </div>
+                                    );
+                                })()}
                             </div>
 
                             {/* ONBOARDING SECTION */}

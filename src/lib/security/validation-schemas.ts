@@ -393,6 +393,7 @@ export const RenewServiceV2Schema = z.object({
     paymentMode: z.enum(['online', 'offline']),
     transactionId: z.string().max(200).optional(),
     receiptImageUrl: z.string().url().optional().or(z.literal('')),
+    paidAt: z.string().optional(), // ISO timestamp of when student claims payment was made (offline only)
 });
 
 export const NotifyDriverSchema = z.object({

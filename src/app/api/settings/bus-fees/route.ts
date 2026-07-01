@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { adminAuth, adminDb } from '@/lib/firebase-admin';
 import { getSystemConfig, updateSystemConfig } from '@/lib/system-config-service';
+import { DEFAULT_BUS_FEE } from '@/config/runtime';
 // NotificationService import might need adjustment if not handling notifications in this route anymore, 
 // but seemingly it sends notifications.
 import { NotificationService } from '@/lib/notifications/NotificationService';
@@ -11,7 +12,7 @@ export async function GET(req: NextRequest) {
   try {
     const systemConfig = await getSystemConfig();
     // Access busFee from system config
-    const busFeeData = systemConfig?.busFee || { amount: 5000 }; // Default fallback
+    const busFeeData = systemConfig?.busFee || { amount: DEFAULT_BUS_FEE };
 
     return NextResponse.json({
       amount: busFeeData.amount,
@@ -52,7 +53,7 @@ export async function POST(req: NextRequest) {
 
     // Get current config
     const systemConfig = await getSystemConfig();
-    const oldAmount = systemConfig?.busFee?.amount || 1200;
+    const oldAmount = systemConfig?.busFee?.amount || DEFAULT_BUS_FEE;
 
     // Prepare updated bus fee data
     // Note: The service will handle truncation of history

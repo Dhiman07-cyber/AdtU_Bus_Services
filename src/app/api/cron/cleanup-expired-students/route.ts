@@ -10,6 +10,7 @@ import { getDeadlineConfig } from '@/lib/deadline-config-service';
 import { isSeatReleaseAtSoftBlockEnabled, wasSeatReleased } from '@/lib/config/capacity-flags';
 import { adminReconcileBusLoads } from '@/lib/services/admin-reconcile-bus-loads';
 import { writeAuditInTransaction, recordOperationalEvent, SYSTEM_ACTOR } from '@/lib/audit/audit-service';
+import { getCurrentSessionStartYear } from '@/lib/services/session-activation.service';
 
 // Configure Cloudinary
 if (process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME) {
@@ -255,43 +256,51 @@ export async function GET(request: NextRequest) {
                     //    can never be hard-deleted without a reconstructible record of
                     //    what was destroyed. DEDUP GUARD: skip the decrement if the seat
                     //    was already released at soft block (seatReleasedAt marker).
-                    const busId = studentData.busId || studentData.currentBusId || studentData.assignedBusId;
-                    const shouldDecrement = !!busId && !wasSeatReleased(studentData);
+                    //    FRESH READ: busId and shift are re-read inside the transaction
+                    //    so capacity always decrements on the correct bus.
                     const studentRef = adminDb.collection('students').doc(uid);
                     const userRef = adminDb.collection('users').doc(uid);
-                    const busRef = shouldDecrement ? adminDb.collection('buses').doc(busId) : null;
+                    let seatDecremented = false;
 
                     await adminDb.runTransaction(async (transaction) => {
+                        const freshSnap = await transaction.get(studentRef);
+                        if (!freshSnap.exists) return;
+                        const freshData = freshSnap.data()!;
+                        const freshBusId = freshData.busId || freshData.currentBusId || freshData.assignedBusId;
+                        const freshShift = freshData.shift;
+                        const freshShouldDecrement = !!freshBusId && !wasSeatReleased(freshData);
+                        const busRef = freshShouldDecrement ? adminDb.collection('buses').doc(freshBusId) : null;
                         const busSnap = busRef ? await transaction.get(busRef) : null;
                         transaction.delete(studentRef);
                         transaction.delete(userRef);
                         if (busRef && busSnap?.exists) {
-                            const delta = buildCapacityDelta(busSnap.data(), studentData.shift, -1);
+                            const delta = buildCapacityDelta(busSnap.data(), freshShift, -1);
                             transaction.update(busRef, delta.updates);
+                            seatDecremented = true;
                         }
                         writeAuditInTransaction(transaction, {
                             action: 'student_hard_deleted',
                             actor: SYSTEM_ACTOR,
                             targetId: uid,
                             targetType: 'student',
-                            targetName: studentData.fullName || '',
+                            targetName: freshData.fullName || '',
                             reason: 'lifecycle_hard_delete_expired',
                             before: {
-                                enrollmentId: studentData.enrollmentId || null,
-                                busId: busId || null,
-                                shift: studentData.shift || null,
-                                status: studentData.status || null,
+                                enrollmentId: freshData.enrollmentId || null,
+                                busId: freshBusId || null,
+                                shift: freshShift || null,
+                                status: freshData.status || null,
                                 validUntil: validUntilStr,
-                                sessionEndYear: studentData.sessionEndYear || null,
+                                sessionEndYear: freshData.sessionEndYear || null,
                                 hardBlock: hardBlockStr || null,
-                                seatReleasedAt: studentData.seatReleasedAt || null,
+                                seatReleasedAt: freshData.seatReleasedAt || null,
                             },
                             after: { deleted: true },
-                            details: { seatDecremented: shouldDecrement, busId: busId || null },
+                            details: { seatDecremented: freshShouldDecrement, busId: freshBusId || null },
                             correlationId: uid,
                         });
                     });
-                    console.log(`   ✅ Hard-deleted student ${uid} (seatDecremented=${shouldDecrement})`);
+                    console.log(`   ✅ Hard-deleted student ${uid} (seatDecremented=${seatDecremented})`);
 
                     results.hardDeleted++;
                     continue; // Skip soft block check since user is gone
@@ -307,9 +316,7 @@ export async function GET(request: NextRequest) {
 
                     const releaseSeat = isSeatReleaseAtSoftBlockEnabled();
                     const nowIso = new Date().toISOString();
-                    const sbBusId = studentData.busId || studentData.currentBusId || studentData.assignedBusId || null;
                     const sbStudentRef = adminDb.collection('students').doc(uid);
-                    const sbBusRef = (releaseSeat && sbBusId) ? adminDb.collection('buses').doc(sbBusId) : null;
 
                     // Tier A — ATOMIC soft block: the status transition, the seatReleasedAt
                     //   marker, the bus seat decrement, AND the audit row commit together
@@ -317,7 +324,7 @@ export async function GET(request: NextRequest) {
                     //   be blocked while the seat decrement failed (relying on the tail
                     //   reconciliation to heal). If the bus read fails, the whole soft
                     //   block is retried on the next run — no half-state. Re-reads status
-                    //   inside the transaction for idempotency.
+                    //   AND current busId/shift inside the transaction for idempotency.
                     let didBlock = false;
                     try {
                         await adminDb.runTransaction(async (transaction) => {
@@ -326,6 +333,10 @@ export async function GET(request: NextRequest) {
                                 didBlock = false;
                                 return; // already processed → idempotent no-op
                             }
+                            const freshData = freshStudent.data()!;
+                            const sbBusId = (releaseSeat ? (freshData.busId || freshData.currentBusId || freshData.assignedBusId || null) : null);
+                            const sbShift = freshData.shift;
+                            const sbBusRef = sbBusId ? adminDb.collection('buses').doc(sbBusId) : null;
                             const sbBusSnap = sbBusRef ? await transaction.get(sbBusRef) : null;
 
                             transaction.update(sbStudentRef, {
@@ -336,7 +347,7 @@ export async function GET(request: NextRequest) {
 
                             let decremented = false;
                             if (sbBusRef && sbBusSnap?.exists) {
-                                const delta = buildCapacityDelta(sbBusSnap.data(), studentData.shift, -1);
+                                const delta = buildCapacityDelta(sbBusSnap.data(), sbShift, -1);
                                 transaction.update(sbBusRef, delta.updates);
                                 decremented = true;
                             }
@@ -346,9 +357,9 @@ export async function GET(request: NextRequest) {
                                 actor: SYSTEM_ACTOR,
                                 targetId: uid,
                                 targetType: 'student',
-                                targetName: studentData.fullName || '',
+                                targetName: freshData.fullName || '',
                                 reason: 'soft_block',
-                                before: { status: 'active', busId: sbBusId, shift: studentData.shift || null },
+                                before: { status: 'active', busId: sbBusId, shift: sbShift || null },
                                 after: { status: 'soft_blocked', seatReleased: releaseSeat, seatDecremented: decremented },
                                 details: { busId: sbBusId, at: nowIso },
                                 correlationId: uid,
@@ -491,6 +502,22 @@ export async function GET(request: NextRequest) {
             reason: 'scheduled_run',
             details: { results, upcomingApplications: upcomingResults, reconciliation },
         });
+
+        // Write the Soft Block Completion Marker to allow session activation to proceed
+        try {
+            const config = await getDeadlineConfig();
+            const currentSessionStartYear = getCurrentSessionStartYear(config);
+            const markerRef = adminDb.collection('settings').doc(`soft_block_completed_${currentSessionStartYear}`);
+            await markerRef.set({
+                completedAt: new Date().toISOString(),
+                softBlockedCount: results.softBlocked,
+                hardDeletedCount: results.hardDeleted,
+                reconciliationRun: true
+            });
+            console.log(`✅ Written Soft Block completion marker 'soft_block_completed_${currentSessionStartYear}'`);
+        } catch (markerErr) {
+            console.error('⚠️ Failed to write soft block completion marker:', markerErr);
+        }
 
         console.log(`✅ Cron Job Completed:`, results);
         return NextResponse.json({ success: true, results, upcomingApplications: upcomingResults, reconciliation });

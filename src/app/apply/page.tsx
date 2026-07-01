@@ -82,13 +82,12 @@ export default function ApplyLandingPage() {
       if (scrollable > 0 && relativeScrollTop >= 0) {
         const pct = Math.max(0, Math.min(1, relativeScrollTop / scrollable));
 
-        // Only trigger continuous float state updates on desktop to avoid layout lag
+        // Only trigger continuous float state updates and step changes on desktop to avoid layout lag and mobile scroll glitches
         if (window.innerWidth >= 768) {
           setJourneyProgress(pct * 4);
+          const stepIndex = Math.max(0, Math.min(4, Math.round(pct * 4)));
+          setActiveStep((prev) => (prev !== stepIndex ? stepIndex : prev));
         }
-
-        const stepIndex = Math.max(0, Math.min(4, Math.round(pct * 4)));
-        setActiveStep((prev) => (prev !== stepIndex ? stepIndex : prev));
       }
     }
 
@@ -134,19 +133,7 @@ export default function ApplyLandingPage() {
     }
   };
 
-  useEffect(() => {
-    const container = mobileScrollRef.current;
-    if (container && window.innerWidth < 768) {
-      const children = container.children;
-      if (children && children[activeStep]) {
-        children[activeStep].scrollIntoView({
-          behavior: 'smooth',
-          block: 'nearest',
-          inline: 'center'
-        });
-      }
-    }
-  }, [activeStep]);
+
 
   if (loading) {
     return <PremiumPageLoader fullScreen message="Loading your dashboard..." subMessage="Fetching your application status and account details..." />;
@@ -412,9 +399,9 @@ export default function ApplyLandingPage() {
       {/* 3. SIGNATURE PROCESS JOURNEY SECTION */}
       <section
         ref={journeySectionRef}
-        className="relative h-[500vh] bg-[#0F1117]"
+        className="relative h-screen md:h-[500vh] bg-[#0F1117] snap-start snap-always"
       >
-        <div className="sticky top-0 h-screen w-full flex items-center overflow-hidden z-10">
+        <div className="relative md:sticky md:top-0 h-full md:h-screen w-full flex items-center overflow-visible md:overflow-hidden z-10">
           {/* Background image that stays intact and moves slightly on scroll */}
           <div
             className="absolute inset-0 z-0 bg-[#0F1117] transition-transform duration-500 ease-out"
@@ -427,7 +414,7 @@ export default function ApplyLandingPage() {
             }}
           />
 
-          <div className="max-w-7xl mx-auto px-6 lg:px-8 w-full z-10 transform translate-y-8">
+          <div className="max-w-7xl mx-auto px-6 lg:px-8 w-full z-10 transform md:translate-y-8 translate-y-0">
             {/* Desktop Two-Column Layout */}
             <div className="hidden md:grid grid-cols-12 gap-12 items-center relative">
               {/* Left Column (Details of active step) */}
@@ -565,8 +552,8 @@ export default function ApplyLandingPage() {
             </div>
 
             {/* Dedicated Mobile Stepper Carousel */}
-            <div className="block md:hidden space-y-6">
-              <div className="max-w-xl space-y-4 text-center px-4 mb-6">
+            <div className="block md:hidden space-y-4">
+              <div className="max-w-xl space-y-2 text-center px-4 mb-4">
                 <span className="text-[10px] font-bold text-[#3B82F6] uppercase tracking-widest block font-mono">Operational Workflow</span>
                 <h2 className="text-2xl font-extrabold text-white tracking-tight">The Application Journey</h2>
                 <p className="text-slate-350 text-xs leading-relaxed">
@@ -601,7 +588,7 @@ export default function ApplyLandingPage() {
                   const Icon = step.icon;
                   return (
                     <div key={idx} className="w-full flex-shrink-0 snap-center px-4">
-                      <div className="bg-[#171C2B] border border-white/[0.08] p-6 rounded-2xl shadow-[inset_0_2px_4px_rgba(255,255,255,0.06),_inset_0_-2px_4px_rgba(0,0,0,0.4),_0_10px_20px_rgba(0,0,0,0.3)] space-y-6">
+                      <div className="bg-[#171C2B] border border-white/[0.08] p-5 rounded-2xl shadow-[inset_0_2px_4px_rgba(255,255,255,0.06),_inset_0_-2px_4px_rgba(0,0,0,0.4),_0_10px_20px_rgba(0,0,0,0.3)] space-y-4">
                         <div className="flex justify-between items-center">
                           <div className="w-10 h-10 rounded-xl bg-[#1B2132] border border-white/6 flex items-center justify-center text-[#3B82F6]">
                             <Icon className="h-5 w-5" />
@@ -614,7 +601,7 @@ export default function ApplyLandingPage() {
                           <p className="text-xs text-slate-400 leading-relaxed">{step.desc}</p>
                         </div>
 
-                        <div className="pt-4 border-t border-white/6 space-y-3">
+                        <div className="pt-3 border-t border-white/6 space-y-2">
                           <span className="text-[9px] font-bold text-[#3B82F6] font-mono tracking-widest uppercase block">Verification Checkpoints</span>
                           <div className="space-y-1.5">
                             {step.actions.map((act, i) => (
@@ -639,7 +626,7 @@ export default function ApplyLandingPage() {
         </div>
 
         {/* Snap Targets for Section Scroll Snapping */}
-        <div className="absolute inset-0 pointer-events-none z-0">
+        <div className="absolute inset-0 pointer-events-none z-0 hidden md:block">
           <div className="h-screen snap-start snap-always" />
           <div className="h-screen snap-start snap-always" />
           <div className="h-screen snap-start snap-always" />

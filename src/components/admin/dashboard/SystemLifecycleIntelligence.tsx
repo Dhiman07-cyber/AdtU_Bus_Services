@@ -8,32 +8,125 @@ import {
    ExternalLink,
    ShieldAlert,
    UserPlus,
-   Hourglass,
-   Users
+   Hourglass
 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { DashboardStats } from './types';
 import { useRouter } from 'next/navigation';
-import { useSystemConfig } from '@/contexts/SystemConfigContext';
-import { useMemo } from 'react';
+import { useMemo, useState, useEffect } from 'react';
+import { deriveAcademicLifecycle } from '@/lib/utils/deadline-computation';
+import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from '@/components/ui/tooltip';
 
 interface SystemLifecycleIntelligenceProps {
    stats: DashboardStats;
 }
 
+function formatUTCDate(date: Date): string {
+    const monthNames = [
+        'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+        'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
+    ];
+    const day = date.getUTCDate();
+    const month = monthNames[date.getUTCMonth()];
+    
+    let suffix = 'th';
+    if (day > 3 && day < 21) {
+        suffix = 'th';
+    } else {
+        switch (day % 10) {
+            case 1: suffix = 'st'; break;
+            case 2: suffix = 'nd'; break;
+            case 3: suffix = 'rd'; break;
+            default: suffix = 'th';
+        }
+    }
+    
+    return `${month} ${day}${suffix}`;
+}
+
 export default function SystemLifecycleIntelligence({ stats }: SystemLifecycleIntelligenceProps) {
    const router = useRouter();
-   const { config } = useSystemConfig();
+   const [deadlineConfig, setDeadlineConfig] = useState<any>(null);
 
-   // Lifecycle Dates from Config or Fallbacks (matching user image)
-   const lifecycleDates = useMemo(() => [
-      { label: 'Notification', date: config?.renewalReminder || 'June 1st', icon: Mail, color: 'text-blue-400', bg: 'bg-blue-400/10' },
-      { label: 'Year End', date: config?.academicYearEnd || 'June 30th', icon: Calendar, color: 'text-indigo-400', bg: 'bg-indigo-400/10' },
-      { label: 'Deadline', date: config?.renewalDeadline || 'July 1st', icon: Clock, color: 'text-amber-400', bg: 'bg-amber-400/10' },
-      { label: 'Soft Block', date: config?.softBlock || 'July 31st', icon: ShieldAlert, color: 'text-orange-400', bg: 'bg-orange-400/10' },
-      { label: 'Hard Delete', date: config?.hardBlock || 'August 31st', icon: ShieldAlert, color: 'text-red-400', bg: 'bg-red-400/10', critical: true },
-   ], [config]);
+   useEffect(() => {
+      let isMounted = true;
+      fetch('/api/settings/deadline-config')
+         .then(res => res.json())
+         .then(data => {
+            if (isMounted && data.config) {
+               setDeadlineConfig(data.config);
+            }
+         })
+         .catch(err => console.error('Error fetching deadline config:', err));
+      return () => { isMounted = false; };
+   }, []);
+
+   const lifecycleDates = useMemo(() => {
+      const startMonth = deadlineConfig?.academicSessionStart?.month ?? 6; // default July (0-indexed 6)
+      const startDay = deadlineConfig?.academicSessionStart?.day ?? 1;
+      const currentYear = new Date().getFullYear();
+      const lifecycle = deriveAcademicLifecycle(startMonth, startDay, currentYear);
+
+      return [
+         {
+            label: 'Reminder 1',
+            date: formatUTCDate(lifecycle.reminder1),
+            icon: Mail,
+            color: 'text-blue-400',
+            bg: 'bg-blue-400/10',
+            description: 'We begin reminding students to renew their transport service before it expires.'
+         },
+         {
+            label: 'Reminder 2',
+            date: formatUTCDate(lifecycle.reminder2),
+            icon: Mail,
+            color: 'text-sky-400',
+            bg: 'bg-sky-400/10',
+            description: 'A second reminder is sent to students who have not renewed yet.'
+         },
+         {
+            label: 'Final Reminder',
+            date: formatUTCDate(lifecycle.finalReminder),
+            icon: Mail,
+            color: 'text-cyan-400',
+            bg: 'bg-cyan-400/10',
+            description: 'This is the final reminder before transport service expires.'
+         },
+         {
+            label: 'Academic Year End',
+            date: formatUTCDate(lifecycle.expiry),
+            icon: Calendar,
+            color: 'text-indigo-400',
+            bg: 'bg-indigo-400/10',
+            description: 'The current transport service officially ends on this day.'
+         },
+         {
+            label: 'Renewal Deadline',
+            date: formatUTCDate(lifecycle.deadline),
+            icon: Clock,
+            color: 'text-amber-400',
+            bg: 'bg-amber-400/10',
+            description: 'This is the last day students can renew before the new academic session begins.'
+         },
+         {
+            label: 'Soft Block',
+            date: formatUTCDate(lifecycle.softBlock),
+            icon: ShieldAlert,
+            color: 'text-orange-400',
+            bg: 'bg-orange-400/10',
+            description: 'Students who have not renewed lose access to transport services. Their reserved bus seat becomes available for new students.'
+         },
+         {
+            label: 'Future Session Activation',
+            date: formatUTCDate(lifecycle.activation),
+            icon: UserPlus,
+            color: 'text-emerald-400',
+            bg: 'bg-emerald-400/10',
+            description: 'Verified students for the upcoming academic session are automatically assigned seats if available. If no suitable seat is available, their application is moved for manual review.'
+         }
+      ];
+   }, [deadlineConfig]);
 
    // Derived Analytics
    const reservedCount = stats.activeStudents;
@@ -71,24 +164,59 @@ export default function SystemLifecycleIntelligence({ stats }: SystemLifecycleIn
                      <span className="text-[11px] font-black text-slate-500 uppercase tracking-widest">Active Cycle Milestones</span>
                   </div>
 
-                  <div className="relative flex justify-between items-start pt-2">
+                  {/* Desktop Horizontal Timeline */}
+                  <TooltipProvider>
+                     <div className="relative hidden md:flex justify-between items-start pt-2">
+                        {/* Connecting Line */}
+                        <div className="absolute top-4 left-5 right-5 h-[2px] bg-slate-800/50 z-0" />
+
+                        {lifecycleDates.map((milestone, idx) => (
+                           <Tooltip key={milestone.label}>
+                              <TooltipTrigger asChild>
+                                 <motion.div
+                                    initial={{ opacity: 0, y: 10 }}
+                                    animate={{ opacity: 1, y: 0 }}
+                                    transition={{ delay: idx * 0.05 }}
+                                    className="relative z-10 flex flex-col items-center gap-2 group hover:cursor-pointer"
+                                 >
+                                    <div className={`w-8 h-8 rounded-full ${milestone.bg} border-2 border-slate-900 group-hover:border-indigo-500/40 flex items-center justify-center transition-all`}>
+                                       <milestone.icon className={`w-3.5 h-3.5 ${milestone.color}`} />
+                                    </div>
+                                    <div className="flex flex-col items-center text-center">
+                                       <span className="text-[8px] font-black text-slate-500 uppercase tracking-tighter mb-0.5">{milestone.label}</span>
+                                       <span className="text-[10px] font-bold text-white whitespace-nowrap">{milestone.date}</span>
+                                    </div>
+                                 </motion.div>
+                              </TooltipTrigger>
+                              <TooltipContent className="bg-slate-950 border border-white/10 text-white max-w-[240px] p-2.5 rounded-lg shadow-xl text-[11px] leading-relaxed">
+                                 <p>{milestone.description}</p>
+                              </TooltipContent>
+                           </Tooltip>
+                        ))}
+                     </div>
+                  </TooltipProvider>
+
+                  {/* Mobile Vertical Timeline */}
+                  <div className="relative flex md:hidden flex-col gap-6 pl-8 pt-2">
                      {/* Connecting Line */}
-                     <div className="absolute top-6 left-5 right-5 h-[2px] bg-slate-800/50 z-0" />
+                     <div className="absolute left-4 top-2 bottom-6 w-[2px] bg-slate-800/50 z-0" />
 
                      {lifecycleDates.map((milestone, idx) => (
                         <motion.div
                            key={milestone.label}
-                           initial={{ opacity: 0, y: 10 }}
-                           animate={{ opacity: 1, y: 0 }}
-                           transition={{ delay: idx * 0.1 }}
-                           className="relative z-10 flex flex-col items-center gap-2 group hover:cursor-pointer"
+                           initial={{ opacity: 0, x: -10 }}
+                           animate={{ opacity: 1, x: 0 }}
+                           transition={{ delay: idx * 0.05 }}
+                           className="relative flex flex-col gap-0.5"
                         >
-                           <div className={`w-8 h-8 rounded-full ${milestone.bg} border-2 ${milestone.critical ? 'border-red-500/30' : 'border-slate-800 group-hover:border-indigo-500/40'} flex items-center justify-center transition-all`}>
+                           {/* Icon Node positioned absolutely on the left vertical line */}
+                           <div className={`absolute -left-8 top-0.5 w-8 h-8 rounded-full ${milestone.bg} border-2 border-slate-950 flex items-center justify-center z-10`}>
                               <milestone.icon className={`w-3.5 h-3.5 ${milestone.color}`} />
                            </div>
-                           <div className="flex flex-col items-center text-center">
-                              <span className="text-[8px] font-black text-slate-500 uppercase tracking-tighter mb-0.5">{milestone.label}</span>
-                              <span className="text-[10px] font-bold text-white whitespace-nowrap">{milestone.date}</span>
+                           <div className="flex flex-col">
+                              <span className="text-[9px] font-black text-slate-500 uppercase tracking-wider">{milestone.label}</span>
+                              <span className="text-xs font-bold text-white mt-0.5">{milestone.date}</span>
+                              <p className="text-[10px] text-slate-400 mt-1 leading-normal max-w-sm">{milestone.description}</p>
                            </div>
                         </motion.div>
                      ))}
@@ -128,5 +256,3 @@ export default function SystemLifecycleIntelligence({ stats }: SystemLifecycleIn
       </Card>
    );
 }
-
-

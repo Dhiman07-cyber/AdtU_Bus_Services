@@ -6,7 +6,7 @@ import {
 } from '@/lib/payment/razorpay.service';
 import { adminDb, FieldValue } from '@/lib/firebase-admin';
 import { PaymentTransactionService } from '@/lib/payment/payment-transaction.service';
-import { calculateValidUntilDate } from '@/lib/utils/date-utils';
+import { calculateValidUntilDate, parseFirestoreDate } from '@/lib/utils/date-utils';
 import { createOnlinePayment } from '@/lib/payment/payment.service';
 import { paymentsSupabaseService } from '@/lib/services/payments-supabase';
 import { getDeadlineConfig } from '@/lib/deadline-config-service';
@@ -61,22 +61,6 @@ function normalizePurpose(value: string): 'new_registration' | 'renewal' {
     return normalized.includes('registration') || normalized === 'new_registration'
         ? 'new_registration'
         : 'renewal';
-}
-
-function toDate(value: unknown): Date | null {
-    if (!value) return null;
-    if (
-        typeof value === 'object' &&
-        value !== null &&
-        'toDate' in value &&
-        typeof value.toDate === 'function'
-    ) {
-        const date = value.toDate();
-        return date instanceof Date && !Number.isNaN(date.getTime()) ? date : null;
-    }
-
-    const date = new Date(value as string | number | Date);
-    return Number.isNaN(date.getTime()) ? null : date;
 }
 
 export const POST = withSecurity<VerifyPaymentBody>(
@@ -203,11 +187,12 @@ export const POST = withSecurity<VerifyPaymentBody>(
             const studentData = studentDoc.data();
             const actualStudentName = studentData?.fullName || trustedStudentName;
             const actualEnrollmentId = studentData?.enrollmentId || trustedEnrollmentId;
-            const existingValidUntil = toDate(studentData?.validUntil);
+            const existingValidUntil = parseFirestoreDate(studentData?.validUntil);
 
-            let baseYear = new Date().getFullYear();
-            if (existingValidUntil && existingValidUntil > new Date()) {
-                baseYear = existingValidUntil.getFullYear();
+            let baseYear = new Date().getUTCFullYear();
+            const now = new Date();
+            if (existingValidUntil && existingValidUntil > now) {
+                baseYear = existingValidUntil.getUTCFullYear();
             }
 
             const targetValidUntil = existingPayment?.valid_until

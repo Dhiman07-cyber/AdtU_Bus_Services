@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { adminDb, FieldValue, verifyToken } from '@/lib/firebase-admin';
-import { PaymentTransactionService } from '@/lib/payment/payment-transaction.service';
-import { calculateValidUntilDate } from '@/lib/utils/date-utils';
-import { generateOfflinePaymentId } from '@/lib/types/payment';
+import { createOfflinePaymentAtApproval } from '@/lib/payment/payment.service';
+import { calculateValidUntilDate, parseFirestoreDate } from '@/lib/utils/date-utils';
 import { computeBlockDatesFromValidUntil } from '@/lib/utils/deadline-computation';
 import { deleteAsset, extractPublicId } from '@/lib/cloudinary-server';
 import { getDeadlineConfig } from '@/lib/deadline-config-service';
@@ -10,25 +9,8 @@ import { requireModeratorPermission } from '@/lib/security/moderator-permissions
 import { buildCapacityDelta } from '@/lib/busCapacityService';
 import { wasSeatReleased } from '@/lib/config/capacity-flags';
 import { writeAuditInTransaction, type AuditActorRole } from '@/lib/audit/audit-service';
-
-/** Thrown inside the renewal transaction when the target bus has no free seat. */
-class CapacityFullError extends Error {}
-
-function toDate(value: unknown): Date | null {
-  if (!value) return null;
-  if (
-    typeof value === 'object' &&
-    value !== null &&
-    'toDate' in value &&
-    typeof value.toDate === 'function'
-  ) {
-    const date = value.toDate();
-    return date instanceof Date && !Number.isNaN(date.getTime()) ? date : null;
-  }
-
-  const date = new Date(value as string | number | Date);
-  return Number.isNaN(date.getTime()) ? null : date;
-}
+import { CapacityFullError } from '@/lib/errors/sentinel-errors';
+import { safeErrorMessage } from '@/lib/security/safe-error';
 
 /**
  * POST /api/renewal-requests/approve-v2
@@ -81,7 +63,7 @@ export async function POST(request: NextRequest) {
 
     const {
       studentId, enrollmentId, studentName, durationYears, totalFee,
-      transactionId, receiptImageUrl, studentEmail, studentPhone
+      transactionId, receiptImageUrl, studentEmail, studentPhone, paidAt
     } = requestData;
 
     // Phase 3 — renewals converge here from BOTH channels. Online requests
@@ -90,20 +72,7 @@ export async function POST(request: NextRequest) {
     // requests are pending until this approval. Capacity/seat/activation logic is
     // identical for both — only the payment-method metadata differs.
     const isOnlineRenewal = requestData.paymentMode === 'online';
-
-    // 2. Identify/Generate Payment ID (Supabase Lookup)
-    let paymentId = requestData.paymentId;
-    if (!paymentId) {
-      try {
-        const { paymentsSupabaseService } = await import('@/lib/services/payments-supabase');
-        const pendingPayments = await paymentsSupabaseService.getPendingPayments();
-        const matching = pendingPayments.find(p => p.student_id === enrollmentId && p.amount === totalFee);
-        paymentId = matching ? matching.payment_id : generateOfflinePaymentId('renewal');
-      } catch (err) {
-        console.warn('Supabase lookup failed:', err);
-        paymentId = generateOfflinePaymentId('renewal');
-      }
-    }
+    const paymentId = requestData.paymentId || '';
 
     // 3. Persist payment first, then update entitlement state.
     const studentRef = adminDb.collection('students').doc(studentId) as FirebaseFirestore.DocumentReference<FirebaseFirestore.DocumentData>;
@@ -112,12 +81,12 @@ export async function POST(request: NextRequest) {
     if (!studentSnap.exists) throw new Error('Student document not found');
 
     const savedStudentData = studentSnap.data() || {};
-    const existingValidUntil = toDate(savedStudentData.validUntil);
+    const existingValidUntil = parseFirestoreDate(savedStudentData.validUntil);
     const now = new Date();
-    let baseYear = now.getFullYear();
+    let baseYear = now.getUTCFullYear();
 
     if (existingValidUntil && existingValidUntil > now) {
-      baseYear = savedStudentData.sessionEndYear || existingValidUntil.getFullYear();
+      baseYear = savedStudentData.sessionEndYear || existingValidUntil.getUTCFullYear();
     }
 
     const newValidUntil = calculateValidUntilDate(baseYear, durationYears, deadlineConfig);
@@ -182,10 +151,10 @@ export async function POST(request: NextRequest) {
         }
 
         const freshStudentData = freshStudentDoc.data() || {};
-        const freshValidUntil = toDate(freshStudentData.validUntil);
-        let freshBaseYear = now.getFullYear();
+        const freshValidUntil = parseFirestoreDate(freshStudentData.validUntil);
+        let freshBaseYear = now.getUTCFullYear();
         if (freshValidUntil && freshValidUntil > now) {
-          freshBaseYear = freshStudentData.sessionEndYear || freshValidUntil.getFullYear();
+          freshBaseYear = freshStudentData.sessionEndYear || freshValidUntil.getUTCFullYear();
         }
         const txValidUntil = calculateValidUntilDate(freshBaseYear, durationYears, deadlineConfig);
         const finalTxValidUntil = (freshValidUntil && freshValidUntil > txValidUntil) ? freshValidUntil : txValidUntil;
@@ -264,39 +233,34 @@ export async function POST(request: NextRequest) {
     // Payment is saved AFTER the Firestore transaction succeeds — prevents
     // partial-commit where payment is Completed but the student was never
     // reactivated (e.g. bus full race or duplicate approval conflict).
-    const transactionRecord = {
-      studentId: enrollmentId,
-      studentName,
-      studentEmail: studentEmail || savedStudentData?.email || 'N/A',
-      studentPhone: studentPhone || savedStudentData?.phone || 'N/A',
-      amount: totalFee,
-      paymentMethod: (isOnlineRenewal ? 'online' : 'offline') as 'online' | 'offline',
-      paymentId,
-      offlineTransactionId: isOnlineRenewal ? '' : (transactionId || ''),
-      durationYears,
-      validUntil: newValidUntil.toISOString(),
-      newValidUntil: newValidUntil.toISOString(),
-      sessionStartYear: savedStudentData?.sessionStartYear,
-      sessionEndYear: newSessionEndYear,
-      userId: studentId,
-      status: 'completed' as const,
-      approvedBy: {
-        type: 'Manual',
-        userId: approverUserId,
-        empId: approverData.empId || approverData.employeeId || 'N/A',
-        name: approverData.fullName || 'Admin',
-        role: approverData.role as 'admin' | 'moderator',
-        email: approverData.email || 'N/A'
-      },
-      approvedByDisplay: `${approverData.fullName} (${approverData.role})`,
-      renewalRequestId: requestId,
-      timestamp: new Date().toISOString(),
-      timestampMs: approvalTimestamp,
-      approvedAtISO: new Date(approvalTimestamp).toISOString(),
-      metadata: { source: 'admin_approval', processedAt: new Date().toISOString() }
-    };
+    if (isOnlineRenewal) {
+      // ONLINE RENEWAL: Payment was already recorded as Completed by
+      // verify-payment / the Razorpay webhook. No additional payment
+      // record is needed — the financial ledger is already complete.
+    } else {
+      // OFFLINE RENEWAL: Create completed payment record AT APPROVAL TIME.
+      // Financial ledger contains ONLY verified financial events.
+      const paidAtFromStudent = paidAt ? new Date(paidAt) : new Date(approvalTimestamp);
 
-    await PaymentTransactionService.saveTransaction(transactionRecord);
+      await createOfflinePaymentAtApproval({
+        studentId: enrollmentId || '',
+        studentUid: studentId,
+        studentName: studentName || 'Student',
+        amount: totalFee,
+        durationYears,
+        sessionStartYear: savedStudentData?.sessionStartYear || new Date().getFullYear(),
+        sessionEndYear: newSessionEndYear,
+        validUntil: newValidUntil.toISOString(),
+        transactionId: transactionId || '',
+        paidAt: paidAtFromStudent,
+        receipt: receiptImageUrl || '',
+        approverUserId,
+        approverName: approverData.fullName || 'Admin',
+        approverEmpId: approverData.empId || approverData.employeeId || 'N/A',
+        approverRole: approverData.role,
+        purpose: 'renewal',
+      });
+    }
 
     // 4. Parallel Post-Approval Tasks (Audit & Notifications)
     // Parallelize non-critical secondary ops
@@ -349,6 +313,6 @@ export async function POST(request: NextRequest) {
 
   } catch (error: any) {
     console.error('Renewal approval failed:', error);
-    return NextResponse.json({ error: error.message || 'Failed to process renewal approval' }, { status: 500 });
+    return NextResponse.json({ error: safeErrorMessage(error, 'Failed to process renewal approval') }, { status: 500 });
   }
 }

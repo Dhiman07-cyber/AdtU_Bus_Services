@@ -29,6 +29,8 @@ export function useDebouncedStorage<T extends Record<string, any>>(
   /**
    * Flush pending data to localStorage using requestIdleCallback
    */
+  const idleCallbackRef = useRef<ReturnType<typeof requestIdleCallback> | ReturnType<typeof setTimeout> | null>(null);
+
   const flush = useCallback(() => {
     if (!pendingData.current) return;
 
@@ -81,13 +83,14 @@ export function useDebouncedStorage<T extends Record<string, any>>(
         console.warn(`[useDebouncedStorage] Failed to write to localStorage:`, error);
       }
       isScheduled.current = false;
+      idleCallbackRef.current = null;
     };
 
     // Use requestIdleCallback if available, otherwise setTimeout
     if (typeof requestIdleCallback !== 'undefined') {
-      requestIdleCallback(writeToStorage, { timeout: 1000 });
+      idleCallbackRef.current = requestIdleCallback(writeToStorage, { timeout: 1000 });
     } else {
-      setTimeout(writeToStorage, 0);
+      idleCallbackRef.current = setTimeout(writeToStorage, 0);
     }
 
     pendingData.current = null;
@@ -156,12 +159,26 @@ export function useDebouncedStorage<T extends Record<string, any>>(
       if (debounceTimer.current) {
         clearTimeout(debounceTimer.current);
       }
-      // Flush any pending data before unmount
+      if (idleCallbackRef.current !== null) {
+        if (typeof requestIdleCallback !== 'undefined' && typeof window !== 'undefined' && 'cancelIdleCallback' in window) {
+          cancelIdleCallback(idleCallbackRef.current as number);
+        } else {
+          clearTimeout(idleCallbackRef.current as ReturnType<typeof setTimeout>);
+        }
+        idleCallbackRef.current = null;
+      }
+      // Flush any pending data synchronously before unmount
       if (pendingData.current) {
-        flush();
+        const dataToSave = { ...pendingData.current };
+        try {
+          localStorage.setItem(key, JSON.stringify(dataToSave));
+        } catch {
+          // Storage full or unavailable - non-fatal
+        }
+        pendingData.current = null;
       }
     };
-  }, [flush]);
+  }, [key]);
 
   // Return stable object reference using useMemo
   return useMemo(() => ({ save, load, clear }), [save, load, clear]);

@@ -19,6 +19,7 @@ import { RateLimits } from '@/lib/security/rate-limiter';
 import { z } from 'zod';
 import { getSupabaseServer } from '@/lib/supabase-server';
 import type { SupabaseClient } from '@supabase/supabase-js';
+import type { ReassignmentLogsDatabase } from '@/lib/types/reassignment-logs';
 export const dynamic = 'force-dynamic';
 
 // ============================================================================
@@ -36,53 +37,6 @@ const ReassignmentLogCreateSchema = z.object({
     meta: z.record(z.string(), z.unknown()).optional(),
     rollbackOf: z.string().max(200).optional(),
 });
-
-type ReassignmentLogRow = {
-    id: string;
-    operation_id: string;
-    type: string;
-    actor_id: string;
-    actor_label: string;
-    logged_at: string;
-    status: string;
-    summary: string | null;
-    changes: unknown[];
-    meta: Record<string, unknown> | null;
-    rollback_of: string | null;
-    created_at: string;
-    updated_at: string | null;
-};
-
-type ReassignmentLogInsert = {
-    operation_id: string;
-    type: string;
-    actor_id: string;
-    actor_label: string;
-    status: string;
-    summary?: string | null;
-    changes?: unknown[];
-    meta?: Record<string, unknown>;
-    rollback_of?: string | null;
-};
-
-type ReassignmentLogUpdate = Partial<ReassignmentLogInsert>;
-
-type ReassignmentLogsDatabase = {
-    public: {
-        Tables: {
-            reassignment_logs: {
-                Row: ReassignmentLogRow;
-                Insert: ReassignmentLogInsert;
-                Update: ReassignmentLogUpdate;
-                Relationships: [];
-            };
-        };
-        Views: Record<string, never>;
-        Functions: Record<string, never>;
-        Enums: Record<string, never>;
-        CompositeTypes: Record<string, never>;
-    };
-};
 
 // ============================================================================
 // SUPABASE CLIENT (via canonical singleton)

@@ -108,13 +108,28 @@ export default function EnhancedModeratorDashboard() {
         authApiFetch(currentUser, '/api/payment/analytics', { query: { mode: 'months' } }),
       ]);
 
+      const parseJsonSafely = async (res: Response) => {
+        try {
+          const data = await res.json();
+          if (!res.ok) {
+            return { success: false, error: data?.error || `HTTP ${res.status}: ${res.statusText}` };
+          }
+          return data;
+        } catch {
+          return { success: false, error: res.ok ? 'Failed to parse response' : `HTTP ${res.status}: ${res.statusText}` };
+        }
+      };
+
       const [countsData, dataDays, dataMonths] = await Promise.all([
-        countsRes.json(),
-        resDays.json(),
-        resMonths.json(),
+        parseJsonSafely(countsRes),
+        parseJsonSafely(resDays),
+        parseJsonSafely(resMonths),
       ]);
 
-      if (!countsData.success) return;
+      if (!countsData?.success || !countsData.data) {
+        console.error('Dashboard counts API error:', countsData?.error || 'Failed to load counts');
+        return;
+      }
 
       const d = countsData.data;
       let totalRevenue = 0;

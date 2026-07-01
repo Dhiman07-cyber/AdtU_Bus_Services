@@ -25,6 +25,7 @@ import { verifyApiAuth } from '@/lib/security/api-auth';
 import { adminDb, adminMessaging } from '@/lib/firebase-admin';
 import { FieldValue, Timestamp } from 'firebase-admin/firestore';
 import { UserRole, TargetType, NotificationType } from '@/lib/notifications/types';
+import { safeErrorMessage } from '@/lib/security/safe-error';
 
 // ─── Recipient Resolution ────────────────────────────────────────────────────
 
@@ -474,7 +475,7 @@ export async function POST(request: NextRequest) {
   } catch (error: any) {
     console.error('❌ Error creating notification:', error);
     return NextResponse.json(
-      { success: false, error: error.message || 'Failed to create notification' },
+      { success: false, error: safeErrorMessage(error, 'Failed to create notification') },
       { status: 500 }
     );
   }

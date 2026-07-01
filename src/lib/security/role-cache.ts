@@ -32,7 +32,8 @@ interface RoleCacheEntry {
 const _roleCache = new Map<string, RoleCacheEntry>();
 
 /** Periodic cleanup every 10 min */
-if (typeof setInterval !== 'undefined') {
+if (typeof setInterval !== 'undefined' && !(globalThis as any).__roleCacheCleanupStarted) {
+    (globalThis as any).__roleCacheCleanupStarted = true;
     setInterval(() => {
         const now = Date.now();
         for (const [key, entry] of _roleCache) {

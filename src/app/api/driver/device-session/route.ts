@@ -3,6 +3,7 @@ import { getSupabaseServer } from '@/lib/supabase-server';
 import { withSecurity } from '@/lib/security/api-security';
 import { DeviceSessionSchema } from '@/lib/security/validation-schemas';
 import { RateLimits } from '@/lib/security/rate-limiter';
+import { safeErrorMessage } from '@/lib/security/safe-error';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -78,7 +79,7 @@ export const POST = withSecurity(
 
                 if (error) {
                     console.error('Error registering device session:', error);
-                    return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+                    return NextResponse.json({ success: false, error: safeErrorMessage(error, 'Failed to register device session') }, { status: 500 });
                 }
 
                 return NextResponse.json({ success: true });
@@ -94,7 +95,7 @@ export const POST = withSecurity(
 
                 if (error) {
                     console.error('Error heartbeating session:', error);
-                    return NextResponse.json({ success: false }, { status: 500 });
+                    return NextResponse.json({ success: false, error: safeErrorMessage(error, 'Failed to update session') }, { status: 500 });
                 }
 
                 return NextResponse.json({ success: true });
@@ -110,7 +111,7 @@ export const POST = withSecurity(
 
                 if (error) {
                     console.error('Error releasing session:', error);
-                    return NextResponse.json({ success: false }, { status: 500 });
+                    return NextResponse.json({ success: false, error: safeErrorMessage(error, 'Failed to release session') }, { status: 500 });
                 }
 
                 return NextResponse.json({ success: true });

@@ -370,18 +370,11 @@ export function clearLoggedErrors() {
 }
 
 /**
- * Check if app is running on mobile device
+ * Check if app is running on mobile device.
+ * Canonical implementation is in @/lib/mobile-utils — imported here for reuse.
  */
-export function isMobileDevice(): boolean {
-  if (typeof window === 'undefined') return false;
-
-  const userAgent = navigator.userAgent || navigator.vendor || (window as any).opera;
-
-  // Mobile detection
-  return /android|webos|iphone|ipad|ipod|blackberry|iemobile|opera mini/i.test(
-    userAgent.toLowerCase()
-  );
-}
+import { isMobileDevice } from '@/lib/mobile-utils';
+export { isMobileDevice };
 
 /**
  * Get device info for debugging

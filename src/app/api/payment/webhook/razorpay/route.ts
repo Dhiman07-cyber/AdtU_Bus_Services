@@ -101,14 +101,48 @@ export async function POST(request: NextRequest) {
         });
 
         if (alreadyMarked) {
+          // Verify the Supabase ledger entry actually exists — the marker could be
+          // stale from a previous attempt where saveTransaction failed after the
+          // Firestore transaction committed.
+          const supabaseExists = await PaymentTransactionService.isPaymentProcessed(paymentId);
+          if (!supabaseExists) {
+            await adminDb.collection('processed_payments').doc(paymentId).delete();
+            return NextResponse.json({ error: 'Retry: stale marker cleaned' }, { status: 500 });
+          }
           return NextResponse.json({ status: 'already_processed' }, { status: 200 });
         }
 
-        const targetValidUntil = calculateValidUntilDate(
-          new Date().getFullYear(),
-          durationYears,
-          deadlineConfig
-        );
+        // Session metadata: for a CURRENT-session new-registration payment the
+        // student joins the current academic session; for a FUTURE-session
+        // application the payment belongs to the chosen targetSession. We read
+        // the application doc (id == userId) to recover the chosen session
+        // exactly as it was frozen at submit time. Falls back gracefully when
+        // the application doc is absent (legacy / pre-Phase-2).
+        let sessionStartYear: number | undefined;
+        let sessionEndYear: number | undefined;
+        let targetValidUntil: Date;
+        if (userId) {
+          const appSnap = await adminDb.collection('applications').doc(userId).get();
+          if (appSnap.exists) {
+            const appDoc: any = appSnap.data() || {};
+            const ts = appDoc.targetSession;
+            if (ts && Number(ts.startYear) > 0 && Number(ts.endYear) > 0) {
+              sessionStartYear = Number(ts.startYear);
+              sessionEndYear = Number(ts.endYear);
+            }
+          }
+        }
+        if (sessionStartYear && sessionEndYear) {
+          // Validity anchored to the chosen session's end year.
+          const anchorMonth = deadlineConfig.academicYear.anchorMonth;
+          const anchorDay = deadlineConfig.academicYear.anchorDay;
+          targetValidUntil = new Date(Date.UTC(sessionEndYear, anchorMonth, anchorDay, 23, 59, 59, 999));
+        } else {
+          // Legacy fallback: current-year + duration.
+          sessionStartYear = new Date().getFullYear();
+          sessionEndYear = sessionStartYear + durationYears;
+          targetValidUntil = calculateValidUntilDate(sessionStartYear, durationYears, deadlineConfig);
+        }
 
         await PaymentTransactionService.saveTransaction({
           studentId: enrollmentId || '',
@@ -119,6 +153,8 @@ export async function POST(request: NextRequest) {
           timestamp: new Date().toISOString(),
           durationYears,
           validUntil: targetValidUntil.toISOString(),
+          sessionStartYear,
+          sessionEndYear,
           userId: userId || '',
           status: 'completed',
           purpose: 'new_registration'
@@ -208,7 +244,7 @@ export async function POST(request: NextRequest) {
 
 
           // Calculate base year for new validity
-          let baseYear = new Date().getFullYear();
+          let baseYear = new Date().getUTCFullYear();
           const now = new Date();
 
           if (existingValidUntil) {
@@ -335,8 +371,16 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ status: 'success' }, { status: 200 });
 
       } catch (error: any) {
-        // Handle already processed as success (not an error)
+        // Handle already processed as success (not an error),
+        // BUT verify the Supabase ledger entry actually exists — the marker could be
+        // stale from a previous attempt where saveTransaction failed after the
+        // Firestore transaction committed.
         if (error.message === 'ALREADY_PROCESSED') {
+          const supabaseExists = await PaymentTransactionService.isPaymentProcessed(paymentId);
+          if (!supabaseExists) {
+            await adminDb.collection('processed_payments').doc(paymentId).delete();
+            return NextResponse.json({ error: 'Retry: stale marker cleaned' }, { status: 500 });
+          }
           return NextResponse.json({ status: 'already_processed' }, { status: 200 });
         }
 
